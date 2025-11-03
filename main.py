@@ -152,11 +152,16 @@ def _detect_silence_points(input_file: Path, noise_threshold: float, min_duratio
         for line in result.splitlines():
             if "silence_" in line:
                 print(f"[debug] {line}")
-    silence_starts = [float(x) for x in re.findall(r"silence_start: (\d+\.?\d*)", result)]
+    silence_starts = [float(x) for x in re.findall(r"silence_start: (-?\d+\.?\d*)", result)]
     silence_ends = [float(x) for x in re.findall(r"silence_end: (\d+\.?\d*)", result)]
     if DEBUG:
-        print(f"[debug] Parsed silence_starts={silence_starts}")
-        print(f"[debug] Parsed silence_ends  ={silence_ends}")
+        print(f"[debug] Parsed counts: starts={len(silence_starts)} ends={len(silence_ends)}")
+        if silence_starts:
+            print(f"[debug] First start={silence_starts[0]} last start={silence_starts[-1]}")
+        if silence_ends:
+            print(f"[debug] First end  ={silence_ends[0]} last end  ={silence_ends[-1]}")
+        print(f"[debug] Parsed silence_starts={silence_starts[:10]}{'...' if len(silence_starts)>10 else ''}")
+        print(f"[debug] Parsed silence_ends  ={silence_ends[:10]}{'...' if len(silence_ends)>10 else ''}")
     return silence_starts, silence_ends
 
 
@@ -211,12 +216,25 @@ def trim_single_video(input_file: Path, output_dir: Path, noise_threshold: float
     prev_end = 0.0
     for silence_start, silence_end in zip(silence_starts, silence_ends):
         if silence_end - silence_start <= pad_sec * 2:
+            if DEBUG:
+                print(f"[debug] skip silence ({silence_start:.3f}-{silence_end:.3f}) duration {silence_end - silence_start:.3f} <= {pad_sec*2:.3f}")
             continue
         if silence_start > prev_end:
-            segments_to_keep.append((round(prev_end, 3), round(silence_start + pad_sec, 3)))
+            seg = (round(prev_end, 3), round(silence_start + pad_sec, 3))
+            segments_to_keep.append(seg)
+            if DEBUG:
+                print(f"[debug] add segment keep={seg} from prev_end={prev_end:.3f} and silence_start={silence_start:.3f} pad={pad_sec:.3f}")
+        else:
+            if DEBUG:
+                print(f"[debug] no gap before silence_start={silence_start:.3f} (prev_end={prev_end:.3f}), merging")
         prev_end = max(0.0, silence_end - pad_sec)
+        if DEBUG:
+            print(f"[debug] set prev_end -> {prev_end:.3f} (silence_end={silence_end:.3f} pad={pad_sec:.3f})")
     if prev_end < duration_sec:
         segments_to_keep.append((round(prev_end, 3), round(duration_sec, 3)))
+    if DEBUG:
+        print(f"[debug] final segment from prev_end to end: {(round(prev_end, 3), round(duration_sec, 3))}")
+        print(f"[debug] total segments_to_keep={len(segments_to_keep)} sample={segments_to_keep[:5]}")
 
     filter_chains = ''.join(
         (
