@@ -46,7 +46,6 @@ def find_video_files(directory: Path) -> list[Path]:
 
 def process_directory(
     input_dir: Path,
-    output_dir: Path,
     script_path: Path,
     target_length: float | None,
 ):
@@ -57,6 +56,8 @@ def process_directory(
         print(f"No video files found in '{input_dir}'")
         return
     
+    # Resolve sibling folders next to input
+    output_dir = input_dir.parent / "trimmed"
     # Load configuration from .env file with defaults
     noise_threshold = float(os.getenv('NOISE_THRESHOLD', '-30.0'))
     min_duration = float(os.getenv('MIN_DURATION', '0.5'))
@@ -109,8 +110,7 @@ Examples:
     )
     parser.add_argument('input_dir', type=Path,
                         help='Input directory containing video files')
-    parser.add_argument('-o', '--output-dir', type=Path, required=True,
-                        help='Output directory for processed videos')
+    # No explicit output flag; write to sibling 'trimmed'
     parser.add_argument('--target-length', type=float, default=None,
                         help='Target output duration (seconds) for each video. Passed to remove_silence.py')
     parser.add_argument('--script', type=Path, default=None,
@@ -143,7 +143,6 @@ Configuration is loaded from .env file:
     
     process_directory(
         args.input_dir,
-        args.output_dir,
         script_path,
         args.target_length,
     )

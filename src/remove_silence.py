@@ -149,7 +149,7 @@ output_file = os.path.join(output_dir, f"{basename}{extension}")
 # --- detect silence ---
 silence_filter = f"silencedetect=n={noise_threshold}dB:d={min_duration}"
 result = subprocess.run(
-    ["ffmpeg", "-i", input_file, "-af", silence_filter, "-f", "null", "-"],
+    ["ffmpeg", "-y", "-i", input_file, "-af", silence_filter, "-f", "null", "-"],
     stderr=subprocess.PIPE, text=True
 ).stderr
 
@@ -234,7 +234,7 @@ video_codec = next((c for c in preferred_codecs if c in available_encoders), "li
 
 # --- run FFmpeg ---
 cmd = [
-    "ffmpeg", "-i", input_file,
+    "ffmpeg", "-y", "-i", input_file,
     "-filter_complex", filter_complex,
     "-map", "[outv]", "-map", "[outa]",
     "-c:v", video_codec, "-b:v", str(bitrate_bps),
