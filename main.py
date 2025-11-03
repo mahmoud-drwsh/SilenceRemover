@@ -6,10 +6,13 @@ import subprocess
 import time
 import sys
 import shutil
+import random
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
+from google import genai
+from google.genai import types
 
 
 # --- Inline helpers from src/common.py ---
@@ -352,7 +355,16 @@ def _parse_retry_seconds_from_error(err: Exception) -> float:
     return 6.0
 
 
-def _generate_with_retry(client, model: str, contents, max_attempts: int = 5):
+def _generate_with_retry(
+    client,
+    model: str,
+    contents,
+    max_attempts: int = 5,
+    initial_backoff_sec: float = 1.0,
+    max_backoff_sec: float = 30.0,
+    multiplier: float = 2.0,
+    jitter_ratio: float = 0.2,
+):
     attempt = 0
     last_err: Exception | None = None
     while attempt < max_attempts:
@@ -362,20 +374,25 @@ def _generate_with_retry(client, model: str, contents, max_attempts: int = 5):
                 contents=contents,
                 config={"thinking_config": {"thinking_budget": -1}},
             )
+        except KeyboardInterrupt:
+            raise
         except Exception as e:
             last_err = e
-            msg = str(e)
-            if "RESOURCE_EXHAUSTED" in msg or "429" in msg:
-                time.sleep(_parse_retry_seconds_from_error(e))
-                attempt += 1
-                continue
-            raise
+            # Base delay may be suggested by server error text
+            suggested_delay = _parse_retry_seconds_from_error(e)
+            # Exponential backoff with jitter
+            exp_delay = initial_backoff_sec * (multiplier ** attempt)
+            base_delay = max(suggested_delay, exp_delay)
+            delay = min(max_backoff_sec, base_delay)
+            if jitter_ratio > 0:
+                delay *= random.uniform(max(0.0, 1 - jitter_ratio), 1 + jitter_ratio)
+            time.sleep(delay)
+            attempt += 1
+            continue
     raise last_err  # type: ignore[misc]
 
 
 def transcribe_with_gemini(client, audio_path: Path) -> str:
-    from google.genai import types  # imported here to avoid hard dependency when unused
-
     mime_type = "audio/mp4"
     uploaded = None
     try:
@@ -414,8 +431,6 @@ def transcribe_with_gemini(client, audio_path: Path) -> str:
 
 
 def generate_title_with_gemini(client, transcript: str) -> str:
-    from google.genai import types  # imported here to avoid hard dependency when unused
-
     prompt = TITLE_PROMPT_TEMPLATE.format(transcript=transcript)
     # Proactive cooldown to keep under free-tier rate limits
     time.sleep(COOLDOWN_BETWEEN_GEMINI_CALLS_SEC)
@@ -431,8 +446,6 @@ def generate_title_with_gemini(client, transcript: str) -> str:
 
 
 def run_transcribe_directory(input_dir: Path, force: bool = False) -> None:
-    from google import genai  # imported here to avoid hard dependency when unused
-
     load_dotenv()
     out_dir = sibling_dir(input_dir, "temp")
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -520,7 +533,6 @@ def run_rename_directory(input_dir: Path) -> None:
         seen.add(candidate.lower())
         dest = renamed_dir / f"{candidate}{video.suffix}"
         print(f"[{i}/{len(videos)}] {video.name} -> {dest.name}")
-        import shutil
         shutil.copy2(video, dest)
 
     print("Done.")
