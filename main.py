@@ -145,13 +145,37 @@ def find_optimal_padding(silence_starts: list[float], silence_ends: list[float],
 
 def _detect_silence_points(input_file: Path, noise_threshold: float, min_duration: float) -> tuple[list[float], list[float]]:
     silence_filter = f"silencedetect=n={noise_threshold}dB:d={min_duration}"
+
+    # Prefer hardware acceleration if available; otherwise rely on CPU.
+    def _choose_hwaccel() -> str | None:
+        try:
+            out = subprocess.run(["ffmpeg", "-hide_banner", "-hwaccels"], capture_output=True, text=True).stdout
+        except Exception:
+            return None
+        preferred = ["videotoolbox", "cuda", "qsv", "d3d11va", "dxva2", "vaapi"]
+        available = {line.strip() for line in out.splitlines() if line.strip() and not line.startswith("Hardware acceleration methods")}
+        for hw in preferred:
+            if hw in available:
+                return hw
+        return None
+
+    hwaccel = _choose_hwaccel()
+    cmd = ["ffmpeg", "-hide_banner", "-y"]
+    if hwaccel:
+        cmd += ["-hwaccel", hwaccel]
+    # Audio-only analysis: skip video/subtitle/data decoding for speed
+    cmd += ["-vn", "-sn", "-dn", "-i", str(input_file), "-map", "0:a:0", "-af", silence_filter, "-f", "null", "-"]
+
     result = subprocess.run(
-        ["ffmpeg", "-y", "-i", str(input_file), "-af", silence_filter, "-f", "null", "-"],
+        cmd,
         stderr=subprocess.PIPE,
         text=True,
     ).stderr
     if DEBUG:
         print(f"[debug] silencedetect filter: {silence_filter}")
+        if hwaccel:
+            print(f"[debug] using hwaccel: {hwaccel}")
+        print(f"[debug] ffmpeg cmd: {' '.join(cmd)}")
         print(f"[debug] Raw FFmpeg silencedetect output (showing lines with 'silence_'):")
         for line in result.splitlines():
             if "silence_" in line:
