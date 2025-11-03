@@ -1,0 +1,9 @@
+[project]
+name = "hucck"
+version = "0.1.0"
+description = "Video silence detection tool using FFMPEG"
+requires-python = ">=3.11"
+dependencies = [
+    "python-dotenv",
+    "google-genai",
+]
