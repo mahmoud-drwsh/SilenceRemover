@@ -7,6 +7,7 @@ import time
 import sys
 import shutil
 import random
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -277,13 +278,32 @@ def trim_single_video(input_file: Path, output_dir: Path, noise_threshold: float
     video_codec = _choose_video_encoder()
     bitrate_bps = _probe_bitrate_bps(input_file)
 
-    cmd = [
-        "ffmpeg", "-y", "-i", str(input_file),
-        "-filter_complex", filter_complex,
-        "-map", "[outv]", "-map", "[outa]",
-        "-c:v", video_codec, "-b:v", str(bitrate_bps),
-        "-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file),
-    ]
+    # On Windows the command-line length can be exceeded with very large filter graphs.
+    # Use a temporary filter script to avoid hitting CreateProcess limits.
+    filter_script_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".ffscript", delete=False, encoding="utf-8") as tf:
+            tf.write(filter_complex)
+            filter_script_path = tf.name
+
+        # Use filter script to avoid long command lines (Windows) and keep compatibility.
+        # Some FFmpeg builds may warn it's deprecated but still support it.
+        cmd = [
+            "ffmpeg", "-y", "-i", str(input_file),
+            "-filter_complex_script", filter_script_path,
+            "-map", "[outv]", "-map", "[outa]",
+            "-c:v", video_codec, "-b:v", str(bitrate_bps),
+            "-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file),
+        ]
+    except Exception:
+        # Fallback to inline filter if script creation fails
+        cmd = [
+            "ffmpeg", "-y", "-i", str(input_file),
+            "-filter_complex", filter_complex,
+            "-map", "[outv]", "-map", "[outa]",
+            "-c:v", video_codec, "-b:v", str(bitrate_bps),
+            "-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file),
+        ]
 
     print(f"Input: {input_file}")
     print(f"Output: {output_file}")
@@ -305,6 +325,12 @@ def trim_single_video(input_file: Path, output_dir: Path, noise_threshold: float
             subprocess.run(cmd_fallback, check=True)
         else:
             raise
+    finally:
+        if filter_script_path:
+            try:
+                Path(filter_script_path).unlink(missing_ok=True)
+            except Exception:
+                pass
     print(f"Done! Output saved to: {output_file}")
 
 
