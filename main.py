@@ -14,6 +14,9 @@ from dotenv import load_dotenv
 
 # --- Inline helpers from src/common.py ---
 
+# Debug flag (set from CLI)
+DEBUG = False
+
 # Configurables
 MAX_PAD_SEC = 10.0
 PAD_INCREMENT_SEC = 0.01
@@ -143,8 +146,17 @@ def _detect_silence_points(input_file: Path, noise_threshold: float, min_duratio
         stderr=subprocess.PIPE,
         text=True,
     ).stderr
+    if DEBUG:
+        print(f"[debug] silencedetect filter: {silence_filter}")
+        print(f"[debug] Raw FFmpeg silencedetect output (showing lines with 'silence_'):")
+        for line in result.splitlines():
+            if "silence_" in line:
+                print(f"[debug] {line}")
     silence_starts = [float(x) for x in re.findall(r"silence_start: (\d+\.?\d*)", result)]
     silence_ends = [float(x) for x in re.findall(r"silence_end: (\d+\.?\d*)", result)]
+    if DEBUG:
+        print(f"[debug] Parsed silence_starts={silence_starts}")
+        print(f"[debug] Parsed silence_ends  ={silence_ends}")
     return silence_starts, silence_ends
 
 
@@ -530,6 +542,7 @@ def cmd_all(ns: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="SilenceRemover CLI")
+    p.add_argument("--debug", action="store_true", help="Print detailed debug logs (FFmpeg silencedetect, parsed values)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("trim", help="Trim videos in a folder")
@@ -559,6 +572,8 @@ def main() -> None:
     parser = build_parser()
     ns = parser.parse_args()
     load_dotenv()
+    global DEBUG
+    DEBUG = bool(getattr(ns, "debug", False))
     ns.func(ns)
 
 
