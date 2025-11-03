@@ -27,6 +27,7 @@ PREFERRED_VIDEO_ENCODERS = [
     "h264_videotoolbox",
     "h264_amf",
 ]
+COOLDOWN_BETWEEN_GEMINI_CALLS_SEC = 2.0
 
 TRANSCRIBE_PROMPT = """Transcribe the audio as clean verbatim text.
 - No timestamps
@@ -396,9 +397,11 @@ def transcribe_with_gemini(client, audio_path: Path) -> str:
         data = audio_path.read_bytes()
         parts.append(types.Part.from_bytes(data=data, mime_type=mime_type))
 
+    # Proactive cooldown to keep under free-tier rate limits
+    time.sleep(COOLDOWN_BETWEEN_GEMINI_CALLS_SEC)
     resp = _generate_with_retry(
         client=client,
-        model="gemini-2.5-pro",
+        model="gemini-flash-latest",
         contents=[types.Content(role="user", parts=parts)],
     )
     text = getattr(resp, "text", None)
@@ -414,9 +417,11 @@ def generate_title_with_gemini(client, transcript: str) -> str:
     from google.genai import types  # imported here to avoid hard dependency when unused
 
     prompt = TITLE_PROMPT_TEMPLATE.format(transcript=transcript)
+    # Proactive cooldown to keep under free-tier rate limits
+    time.sleep(COOLDOWN_BETWEEN_GEMINI_CALLS_SEC)
     resp = _generate_with_retry(
         client=client,
-        model="gemini-2.5-pro",
+        model="gemini-flash-latest",
         contents=[
             types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
         ],
@@ -462,6 +467,8 @@ def run_transcribe_directory(input_dir: Path, force: bool = False) -> None:
         else:
             print("Transcript already exists (skipping). Use --force to recreate.")
 
+        # Ensure spacing between transcript and title calls
+        time.sleep(COOLDOWN_BETWEEN_GEMINI_CALLS_SEC)
         if not title_path.exists() or force:
             print("Generating YouTube title...")
             title = generate_title_with_gemini(client, transcript_path.read_text(encoding="utf-8"))
