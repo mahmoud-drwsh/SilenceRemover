@@ -33,18 +33,22 @@ PREFERRED_VIDEO_ENCODERS = [
 ]
 COOLDOWN_BETWEEN_GEMINI_CALLS_SEC = 2.0
 
-TRANSCRIBE_PROMPT = """Transcribe the audio as clean verbatim text.
+TRANSCRIBE_PROMPT = """Transcribe the audio as clean verbatim text in Arabic.
 - No timestamps
 - No speaker labels
 - Keep punctuation and natural phrasing."""
 
 TITLE_PROMPT_TEMPLATE = (
-    "You are generating a YouTube video title.\n"
+    "You are generating a YouTube video title in Arabic.\n"
     "Constraints:\n"
-    "- Propose exactly one concise title (<= 70 characters).\n"
+    "- Propose exactly one concise title (<= 100 characters).\n"
     "- Prefer using words verbatim from the transcript wherever possible.\n"
-    "- No quotes, no extra commentary. Title only.\n\n"
-    "Transcript:\n{transcript}"
+    "- No quotes, no extra commentary. Title only.\n"
+    "- When a certain book is mentioned in the transcript as the book being taught, use the book name in the title using the following format: (book name) (title)."
+    "- When a lesson number is mentioned in the transcript as the lesson being taught, use the lesson number in the title using the following format: (lesson number) (book name) (title).\n"
+    "- When no book or lesson number is mentioned, use the title as is.\n"
+    "\n\n"
+    "Transcript:\n{transcript}\n"
 )
 
 VIDEO_EXTENSIONS = {
