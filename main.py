@@ -588,6 +588,41 @@ def run_rename_directory(input_dir: Path) -> None:
     print("Done.")
 
 
+def run_rename_originals(input_dir: Path) -> None:
+    temp_dir = sibling_dir(input_dir, "temp")
+    renamed_dir = sibling_dir(input_dir, "renamed")
+
+    videos = sorted(p for p in input_dir.iterdir() if is_video_file(p))
+    if not videos:
+        print(f"No video files found in '{input_dir}'")
+        return
+
+    print(f"Found {len(videos)} file(s). Writing to: {renamed_dir}")
+    seen: set[str] = set()
+    for i, video in enumerate(videos, 1):
+        basename = video.stem
+        title_file = temp_dir / f"{basename}.title.txt"
+        new_base: Optional[str] = None
+        if title_file.exists():
+            raw = title_file.read_text(encoding="utf-8").strip()
+            if raw:
+                new_base = _sanitize_filename(raw)
+        if not new_base:
+            new_base = _sanitize_filename(basename)
+
+        candidate = new_base
+        k = 1
+        while (candidate.lower() in seen) or (renamed_dir / f"{candidate}{video.suffix}").exists():
+            candidate = f"{new_base}-{k}"
+            k += 1
+        seen.add(candidate.lower())
+        dest = renamed_dir / f"{candidate}{video.suffix}"
+        print(f"[{i}/{len(videos)}] {video.name} -> {dest.name}")
+        shutil.copy2(video, dest)
+
+    print("Done.")
+
+
 # --- CLI ---
 
 def cmd_trim(ns: argparse.Namespace) -> None:
@@ -613,6 +648,16 @@ def cmd_rename(ns: argparse.Namespace) -> None:
     _require_input_dir(trimmed_dir)
     _require_videos_in(trimmed_dir)
     run_rename_directory(input_dir)
+
+
+def cmd_transcribe_rename(ns: argparse.Namespace) -> None:
+    input_dir = Path(ns.input_dir)
+    _require_tools("ffmpeg", "ffprobe")
+    _require_input_dir(input_dir)
+    _require_videos_in(input_dir)
+    _require_gemini()
+    run_transcribe_directory(input_dir, ns.force)
+    run_rename_originals(input_dir)
 
 
 def cmd_all(ns: argparse.Namespace) -> None:
@@ -645,6 +690,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("rename", help="Copy originals to renamed using titles")
     sp.add_argument("--input-dir", required=True)
     sp.set_defaults(func=cmd_rename)
+
+    sp = sub.add_parser("transcribe-rename", help="Transcribe then rename originals (no trimming)")
+    sp.add_argument("--input-dir", required=True)
+    sp.add_argument("--force", action="store_true")
+    sp.set_defaults(func=cmd_transcribe_rename)
 
     sp = sub.add_parser("all", help="Trim -> Transcribe -> Rename")
     sp.add_argument("--input-dir", required=True)
