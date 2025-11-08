@@ -27,6 +27,7 @@ PAD_INCREMENT_SEC = 0.01
 BITRATE_FALLBACK_BPS = 3_000_000
 AUDIO_BITRATE = "192k"
 PREFERRED_VIDEO_ENCODERS = [
+    "hevc_qsv",
     "h264_qsv",
     "h264_videotoolbox",
     "h264_amf",
@@ -46,6 +47,19 @@ TITLE_PROMPT_TEMPLATE = (
     "- No quotes, no extra commentary. Title only.\n"
     "- When a certain book is mentioned in the transcript as the book being taught, use the book name in the title using the following format: (book name) (title)."
     "- When a lesson number is mentioned in the transcript as the lesson being taught, use the lesson number in the title using the following format: (lesson number) (book name) (title).\n"
+    """ِAVOID REPEATING THE NUMBER IN TEXT FORM in the title after the book name. the number can only be in the beginning as shown below.
+
+EXAMPLES:
+41 - ألفية ابن مالك - النحو الفاعل واحكامه
+42 - الكوكب الساطع - الكناية والتعريض واحكامهما ولمحة عن الحروف
+73 - كنز الدقائق - التولية والمرابحة والتصرف في المبيع قبل قبضه
+43 - الكوكب الساطع - معاني اذا وان واو واي
+9 - العقيدة الطحاوية - القران قديم ام مخلوق ومذاهب الناس في ذلك
+9 - أحكام القرآن - احكام الدم و دم سيدنا رسول الله صلى الله عليه وسلم
+9 - الموطأ - فضل الجهاد واحكام الجنائز
+10 - العقيدة الطحاوية - كيف تسربت الوثنية الى الاديان اليهودية والمسيحية والاسلام ورؤية الله تعالى يوم القيامة
+10 - احكام القران - تفسير اية الحيض واختلاف الفقهاء فيها
+10 - موطأ الإمام مالك - أحكام الزكاة.\n"""
     "- When no book or lesson number is mentioned, use the title as is.\n"
     "\n\n"
     "Transcript:\n{transcript}\n"
@@ -355,8 +369,25 @@ def run_trim_directory(input_dir: Path, target_length: Optional[float]) -> None:
     print(f"Output directory: {output_dir}")
     print("-" * 60)
 
-    for i, video_file in enumerate(videos, 1):
-        print(f"\n[{i}/{len(videos)}] Processing: {video_file.name}")
+    # Filter out videos that have already been trimmed
+    # Check if the specific output file exists (preserving extension) rather than just checking stems
+    def get_output_path(input_video: Path) -> Path:
+        basename = input_video.stem
+        extension = input_video.suffix or ".mp4"
+        return output_dir / f"{basename}{extension}"
+    
+    videos_to_process = [v for v in videos if not get_output_path(v).exists()]
+
+    if not videos_to_process:
+        print("All videos appear to be trimmed already. Nothing to do.")
+        return
+
+    num_skipped = len(videos) - len(videos_to_process)
+    if num_skipped > 0:
+        print(f"Skipping {num_skipped} video(s) that already exist in the output directory.")
+
+    for i, video_file in enumerate(videos_to_process, 1):
+        print(f"\n[{i}/{len(videos_to_process)}] Processing: {video_file.name}")
         trim_single_video(
             input_file=video_file,
             output_dir=output_dir,

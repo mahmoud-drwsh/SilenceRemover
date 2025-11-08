@@ -93,3 +93,4 @@ python main.py all --input-dir /path/to/videos
 - Supported video extensions include `.mp4`, `.mkv`, `.mov`, `.webm`, and others defined in `main.py`.
 - Hardware-accelerated encoders (e.g., `h264_videotoolbox`, `h264_qsv`) are used when available; otherwise falls back to `libx264`.
 
+
