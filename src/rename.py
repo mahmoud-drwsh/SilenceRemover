@@ -1,8 +1,13 @@
 """Video renaming functionality."""
 
+import os
+import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Optional
+
+_IS_WINDOWS = os.name == "nt"
 
 
 def _sanitize_filename(name: str) -> str:
@@ -10,6 +15,30 @@ def _sanitize_filename(name: str) -> str:
     for ch in ["/", "\\", ":", "*", "?", "\"", "<", ">", "|"]:
         cleaned = cleaned.replace(ch, " ")
     return (" ".join(cleaned.split()) or "untitled")[:200]
+
+
+def _rename_via_batch(src: Path, dest: Path) -> None:
+    """Create a temporary .bat that keeps moving the file until it works."""
+    script = (
+        "@echo off\n"
+        "setlocal enableextensions\n"
+        f'set "SRC={src}"\n'
+        f'set "DEST={dest}"\n'
+        ":retry\n"
+        'move /Y "%SRC%" "%DEST%"\n'
+        'if %errorlevel%==0 goto done\n'
+        "timeout /t 1 >nul\n"
+        "goto retry\n"
+        ":done\n"
+        "exit /b 0\n"
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".bat", delete=False, encoding="utf-8", newline="\r\n") as bat:
+        bat.write(script)
+        bat_path = bat.name
+    try:
+        subprocess.run([bat_path], check=True)
+    finally:
+        Path(bat_path).unlink(missing_ok=True)
 
 
 def _rename_until_success(src: Path, dest: Path) -> None:
@@ -61,5 +90,8 @@ def rename_single_video_in_place(video_path: Path, temp_dir: Path, output_dir: P
         return
     
     print(f"Renaming: {video_path.name} -> {dest.name}")
-    _rename_until_success(video_path, dest)
+    if _IS_WINDOWS:
+        _rename_via_batch(video_path, dest)
+    else:
+        _rename_until_success(video_path, dest)
 
