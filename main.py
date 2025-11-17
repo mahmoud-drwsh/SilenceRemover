@@ -81,7 +81,7 @@ def get_processed_vids_file(temp_dir: Path) -> Path:
 
 
 def load_processed_videos(temp_dir: Path) -> dict[str, dict]:
-    """Load the processed videos database. Returns dict mapping video_name -> metadata."""
+    """Load the processed videos database. Returns dict mapping video_name -> info."""
     processed_file = get_processed_vids_file(temp_dir)
     if not processed_file.exists():
         return {}
@@ -117,20 +117,8 @@ def mark_video_as_processed(video_path: Path, temp_dir: Path) -> None:
     processed_videos = load_processed_videos(temp_dir)
     video_name = video_path.name
     
-    # Get file metadata
-    try:
-        stat = video_path.stat()
-        file_size = stat.st_size
-        mtime = stat.st_mtime
-    except Exception:
-        file_size = None
-        mtime = None
-    
-    # Store metadata
     processed_videos[video_name] = {
         "processed_at": datetime.now().isoformat(),
-        "file_size": file_size,
-        "modified_time": mtime,
     }
     
     save_processed_videos(temp_dir, processed_videos)

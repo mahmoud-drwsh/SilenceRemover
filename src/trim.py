@@ -1,12 +1,12 @@
 """Video trimming functionality."""
 
-import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Optional
 
+from src.fs_utils import wait_for_file_release
 from src.main_utils import (
     AUDIO_BITRATE,
     BITRATE_FALLBACK_BPS,
@@ -47,7 +47,7 @@ def _choose_video_encoder() -> str:
 
 
 def trim_single_video(input_file: Path, output_dir: Path, noise_threshold: float, min_duration: float, pad_sec: float, target_length: Optional[float], debug: bool = False) -> Path:
-    """Trim a single video and return the output file path. Preserves metadata from original."""
+    """Trim a single video and return the output file path."""
     global DEBUG
     DEBUG = debug
     
@@ -69,7 +69,8 @@ def trim_single_video(input_file: Path, output_dir: Path, noise_threshold: float
             print(f"Target length ({target_length}s) >= original duration ({duration_sec:.3f}s), copying original file")
             try:
                 import shutil
-                shutil.copy2(input_file, output_file)
+                shutil.copyfile(input_file, output_file)
+                wait_for_file_release(output_file)
                 print(f"Done! Output saved to: {output_file}")
                 return output_file.resolve()
             except Exception as e:
@@ -124,6 +125,7 @@ def trim_single_video(input_file: Path, output_dir: Path, noise_threshold: float
             str(output_file),
         ])
         subprocess.run(cmd, check=True)
+        wait_for_file_release(output_file)
         print(f"Done! Output saved to: {output_file}")
         return output_file.resolve()
 
@@ -196,15 +198,7 @@ def trim_single_video(input_file: Path, output_dir: Path, noise_threshold: float
             except Exception:
                 pass
     
-    # Preserve metadata from original file
-    try:
-        import shutil
-        original_stat = os.stat(input_file)
-        os.utime(output_file, (original_stat.st_atime, original_stat.st_mtime))
-        # Also copy other stat info if possible
-        shutil.copystat(input_file, output_file)
-    except Exception as e:
-        print(f"Warning: Could not preserve all metadata: {e}")
+    wait_for_file_release(output_file)
     
     print(f"Done! Output saved to: {output_file}")
     # Return absolute path to ensure it can be found later

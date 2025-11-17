@@ -93,7 +93,6 @@ The tool processes videos sequentially through four main stages:
 - Identifies silence segments based on configured threshold and duration
 - Removes silence while preserving padding around segments
 - Outputs trimmed video to `output/` directory (sibling to input directory)
-- Preserves original file metadata (timestamps, etc.)
 
 **Target Length Mode**: When `--target-length` is specified, the tool automatically calculates optimal padding to get as close as possible to the target duration.
 
