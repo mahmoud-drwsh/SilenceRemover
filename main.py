@@ -151,7 +151,7 @@ def process_single_video(
         print(f"\n[1/3] Trimming: {video_path.name}")
         trimmed_video = trim_single_video(
             input_file=video_path,
-            output_dir=output_dir,
+            output_dir=temp_dir,
             noise_threshold=noise_threshold,
             min_duration=min_duration,
             pad_sec=pad_sec,
