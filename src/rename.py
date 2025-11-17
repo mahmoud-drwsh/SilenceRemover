@@ -1,5 +1,6 @@
 """Video renaming functionality."""
 
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -46,5 +47,5 @@ def rename_single_video_in_place(video_path: Path, temp_dir: Path, output_dir: P
         return
     
     print(f"Renaming: {video_path.name} -> {dest.name}")
-    video_path.rename(dest)
+    shutil.move(str(video_path), str(dest))
 
