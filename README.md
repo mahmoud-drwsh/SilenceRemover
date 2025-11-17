@@ -204,6 +204,12 @@ The tool automatically falls back to software encoding (`libx264`) if hardware e
 python main.py /path/to/videos --debug
 ```
 
+### Output Rename Fails on Windows
+
+- Windows can temporarily lock freshly exported videos (e.g., antivirus scan or preview in Explorer), which results in `PermissionError` during renaming.
+- The tool now retries the rename several times and, if the lock persists, performs a copy-then-delete fallback to ensure the new title is applied.
+- To manually verify, open a processed video in a player to keep it locked, rerun the script, and observe the retry log messages. Once the lock is released, the rename should complete without crashing.
+
 ## License
 
 [Add your license information here]

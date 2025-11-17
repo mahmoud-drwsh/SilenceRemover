@@ -11,6 +11,11 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
+# Ensure project root (where this file lives) is on sys.path so `src` package is importable
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 try:
     from google import genai
 except ImportError:
