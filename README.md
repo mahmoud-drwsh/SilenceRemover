@@ -92,7 +92,7 @@ The tool processes videos sequentially through four main stages:
 - Analyzes audio track using FFmpeg's `silencedetect` filter
 - Identifies silence segments based on configured threshold and duration
 - Removes silence while preserving padding around segments
-- Outputs trimmed video to `output/` directory (sibling to input directory)
+- Outputs trimmed video to `temp/` directory (sibling to input directory)
 
 **Target Length Mode**: When `--target-length` is specified, the tool automatically calculates optimal padding to get as close as possible to the target duration.
 
@@ -115,7 +115,7 @@ The tool processes videos sequentially through four main stages:
 - Reads generated title from `temp/` directory
 - Sanitizes filename (removes invalid characters)
 - Handles duplicate names by appending `_N` suffix
-- Renames trimmed video in place within `output/` directory
+- Copies trimmed video from `temp/` to `output/` directory with the new title-based filename
 
 ## Directory Structure
 
@@ -146,7 +146,7 @@ temp/                      # Sibling to input-directory
 The tool maintains a tracking database (`temp/_processed_vids.json`) to avoid reprocessing videos:
 
 - **Automatic Skip**: Videos already in the database are skipped
-- **Metadata Tracking**: Stores file size and modification time for change detection
+- **Metadata Tracking**: Stores processing timestamp for each video
 - **Manual Reset**: Delete `_processed_vids.json` to reprocess all videos
 
 ## Supported Formats
@@ -203,11 +203,11 @@ The tool automatically falls back to software encoding (`libx264`) if hardware e
 python main.py /path/to/videos --debug
 ```
 
-### Output Rename Fails on Windows
+### Output Copy Fails on Windows
 
-- Windows can temporarily lock freshly exported videos (e.g., antivirus scan or preview in Explorer), which results in `PermissionError` during renaming.
-- The tool now retries the rename several times and, if the lock persists, performs a copy-then-delete fallback to ensure the new title is applied.
-- To manually verify, open a processed video in a player to keep it locked, rerun the script, and observe the retry log messages. Once the lock is released, the rename should complete without crashing.
+- Windows can temporarily lock freshly exported videos (e.g., antivirus scan or preview in Explorer), which results in `PermissionError` during copying.
+- The tool now retries the copy operation with automatic backoff until the file is released.
+- To manually verify, open a processed video in a player to keep it locked, rerun the script, and observe the retry log messages. Once the lock is released, the copy should complete successfully.
 
 ## License
 
