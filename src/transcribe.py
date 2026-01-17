@@ -228,46 +228,6 @@ def transcribe_with_openrouter(api_key: str, audio_path: Path, model: str = OPEN
     return _openrouter_request_with_retry(api_key, model, messages)
 
 
-def _ensure_honorific_in_title(title: str) -> str:
-    """Ensure honorific ﷺ is added after mentions of Prophet Muhammad.
-    
-    Args:
-        title: Generated title text
-        
-    Returns:
-        Title with honorific added if Prophet is mentioned
-    """
-    # Patterns that indicate mention of Prophet Muhammad (longer patterns first to avoid double matching)
-    # Order matters: longer/more specific patterns first
-    prophet_patterns = [
-        r"سيدنا رسول الله(?!\s*[ﷺ])",  # سيدنا رسول الله without ﷺ
-        r"سيدنا محمد(?!\s*[ﷺ])",  # سيدنا محمد without ﷺ
-        r"النبي محمد(?!\s*[ﷺ])",  # النبي محمد without ﷺ
-        r"رسول الله(?!\s*[ﷺ])",  # رسول الله without ﷺ
-        r"المصطفى(?!\s*[ﷺ])",  # المصطفى without ﷺ
-        r"النبي(?!\s*[ﷺ])",  # النبي without ﷺ (but not if followed by محمد)
-        r"محمد(?!\s*[ﷺ])",  # محمد without ﷺ (standalone or after other words)
-    ]
-    
-    result = title
-    # Track positions where we've added honorifics to avoid double-adding
-    added_positions = set()
-    
-    for pattern in prophet_patterns:
-        def replace_func(match):
-            start_pos = match.start()
-            # Skip if we've already added an honorific near this position
-            for pos in added_positions:
-                if abs(start_pos - pos) < 10:  # Within 10 chars, likely same mention
-                    return match.group(0)
-            added_positions.add(start_pos)
-            return match.group(0) + " ﷺ"
-        
-        result = re.sub(pattern, replace_func, result)
-    
-    return result
-
-
 def generate_title_with_openrouter(api_key: str, transcript: str) -> str:
     """Generate title from transcript using OpenRouter API with Gemini 2.5 Flash Lite.
     
@@ -299,8 +259,6 @@ def generate_title_with_openrouter(api_key: str, transcript: str) -> str:
     if not title_text:
         raise RuntimeError("Title generation returned empty response")
     
-    # Ensure honorific is added if Prophet is mentioned
-    title_text = _ensure_honorific_in_title(title_text)
     return title_text
 
 
