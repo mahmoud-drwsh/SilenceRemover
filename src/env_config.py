@@ -30,7 +30,7 @@ ENV_VARS = {
     "OPENROUTER_TITLE_MODEL": {
         "required": False,
         "type": str,
-        "default": "google/gemini-2.5-flash-lite",
+        "default": "google/gemini-3-flash-preview",
         "description": "Model for title generation (text-only)",
     },
     "NOISE_THRESHOLD": {
