@@ -6,7 +6,7 @@ An automated video processing tool that removes silence segments, transcribes au
 
 - **Silence Detection & Removal**: Automatically detects and trims silence segments using FFmpeg's `silencedetect` filter
 - **Smart Trimming**: Optional target length optimization that adjusts padding to achieve desired video duration
-- **AI Transcription**: Extracts and transcribes the first 5 minutes of audio using Google Gemini Flash
+- **AI Transcription**: Extracts and transcribes the first 5 minutes of audio using OpenRouter (Gemini 2.0 Flash Lite)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
 - **Hardware Acceleration**: Automatically uses available hardware encoders (QSV, VideoToolbox, AMF) with fallback to software encoding
@@ -15,7 +15,7 @@ An automated video processing tool that removes silence segments, transcribes au
 
 - **Python**: 3.11 or higher
 - **FFmpeg & FFprobe**: Must be available on your system PATH
-- **Google Gemini API Key**: Required for transcription and title generation
+- **OpenRouter API Key**: Required for transcription and title generation (get one at [openrouter.ai](https://openrouter.ai))
 - **Dependencies**: Managed via `pyproject.toml` (installed automatically)
 
 ## Installation
@@ -44,8 +44,8 @@ NOISE_THRESHOLD=-30.0  # dB threshold for silence detection
 MIN_DURATION=0.5       # Minimum silence duration (seconds)
 PAD=0.5                # Padding retained around silences (seconds)
 
-# Google Gemini API
-GEMINI_API_KEY=your_api_key_here
+# OpenRouter API
+OPENROUTER_API_KEY=your_api_key_here
 ```
 
 ### Parameter Tuning
@@ -104,11 +104,12 @@ The tool processes videos sequentially through four main stages:
 
 ### 3. Transcription & Title Generation
 
-- Transcribes extracted audio using Google Gemini Flash model
+- Transcribes extracted audio using OpenRouter API (Gemini 2.0 Flash Lite model)
 - Optimized for Arabic verbatim transcription
 - Generates YouTube-style title from transcript
 - Handles educational content formats (book names, lesson numbers)
-- Stores transcript (`.txt`) and title (`.title.txt`) in `temp/` directory
+- Uses single API call for both transcription and title generation (cost-efficient)
+- Stores transcript (`.txt`), title (`.title.txt`), and raw API response (`.raw_response.json`) in `temp/` directory
 
 ### 4. File Renaming
 
@@ -161,7 +162,7 @@ The tool maintains a tracking database (`temp/_processed_vids.json`) to avoid re
 
 ## API Rate Limiting
 
-The tool includes built-in rate limiting for Gemini API calls:
+The tool includes built-in rate limiting for OpenRouter API calls:
 
 - Automatic cooldown between API requests (2 seconds default)
 - Exponential backoff retry logic for rate limit errors
@@ -187,13 +188,15 @@ ffprobe -version
 
 ### API Key Issues
 
-Verify your Gemini API key is set correctly:
+Verify your OpenRouter API key is set correctly:
 
 ```bash
-echo $GEMINI_API_KEY
+echo $OPENROUTER_API_KEY
 ```
 
 Or check your `.env` file is loaded properly.
+
+**Note**: OpenRouter requires a minimum balance of $0.50 to process audio files. Make sure your account has sufficient funds.
 
 ### Hardware Encoding Fails
 

@@ -16,11 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-try:
-    from google import genai
-except ImportError:
-    print("Error: Google GenAI SDK not installed. Install 'google-genai' to use transcribe/title.", file=sys.stderr)
-    sys.exit(1)
+# No external SDK needed - using requests for OpenRouter API
 
 from src.main_utils import VIDEO_EXTENSIONS
 from src.trim import trim_single_video
@@ -68,9 +64,9 @@ def _require_videos_in(input_dir: Path) -> None:
         _fail(f"No video files found in '{input_dir}'")
 
 
-def _require_gemini() -> None:
-    if not os.environ.get("GEMINI_API_KEY"):
-        _fail("GEMINI_API_KEY not set (load via .env or environment).")
+def _require_openrouter() -> None:
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        _fail("OPENROUTER_API_KEY not set (load via .env or environment).")
 
 
 # --- Processed videos tracking ---
@@ -135,7 +131,7 @@ def process_single_video(
     min_duration: float,
     pad_sec: float,
     target_length: Optional[float],
-    client,
+    api_key: str,
     debug: bool = False,
 ) -> bool:
     """Process a single video: trim, transcribe, rename. Returns True on success, False on error."""
@@ -161,7 +157,7 @@ def process_single_video(
         
         # Step 2: Transcribe from trimmed video
         print(f"\n[2/3] Transcribing: {trimmed_video.name}")
-        transcript_path, title_path = transcribe_single_video(trimmed_video, temp_dir, client, basename)
+        transcript_path, title_path = transcribe_single_video(trimmed_video, temp_dir, api_key, basename)
         
         # Step 3: Rename trimmed video in place
         print(f"\n[3/3] Renaming: {trimmed_video.name}")
@@ -197,7 +193,7 @@ def main() -> None:
     _require_tools("ffmpeg", "ffprobe")
     _require_input_dir(input_dir)
     _require_videos_in(input_dir)
-    _require_gemini()
+    _require_openrouter()
     
     # Setup directories
     output_dir = sibling_dir(input_dir, "output")
@@ -208,11 +204,10 @@ def main() -> None:
     min_duration = float(os.getenv("MIN_DURATION", "0.5"))
     pad_sec = float(os.getenv("PAD", "0.5"))
     
-    # Initialize Gemini client
-    api_key = os.environ.get("GEMINI_API_KEY")
+    # Get OpenRouter API key
+    api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        _fail("GEMINI_API_KEY not set")
-    client = genai.Client(api_key=api_key)
+        _fail("OPENROUTER_API_KEY not set")
     
     # Get videos to process
     videos = sorted(p for p in input_dir.iterdir() if is_video_file(p))
@@ -244,7 +239,7 @@ def main() -> None:
             min_duration=min_duration,
             pad_sec=pad_sec,
             target_length=args.target_length,
-            client=client,
+            api_key=api_key,
             debug=DEBUG,
         )
         

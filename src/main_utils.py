@@ -74,7 +74,9 @@ PREFERRED_VIDEO_ENCODERS = [
     "h264_videotoolbox",
     "h264_amf",
 ]
-COOLDOWN_BETWEEN_GEMINI_CALLS_SEC = 2.0
+COOLDOWN_BETWEEN_API_CALLS_SEC = 2.0
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_DEFAULT_MODEL = "google/gemini-2.0-flash-lite-001"
 
 TRANSCRIBE_PROMPT = """Transcribe the audio as clean verbatim text in Arabic.
 - No timestamps
