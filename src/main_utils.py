@@ -78,7 +78,6 @@ PREFERRED_VIDEO_ENCODERS = [
 # OpenRouter API Configuration (configurable via environment variables)
 OPENROUTER_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 OPENROUTER_DEFAULT_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "google/gemini-2.0-flash-lite-001")
-COOLDOWN_BETWEEN_API_CALLS_SEC = float(os.getenv("COOLDOWN_BETWEEN_API_CALLS_SEC", "2.0"))
 
 # Title generation models (try free first, fallback to paid)
 OPENROUTER_TITLE_MODEL_FREE = os.getenv("OPENROUTER_TITLE_MODEL_FREE", "meta-llama/llama-3.3-70b-instruct:free")
@@ -90,31 +89,31 @@ TRANSCRIBE_PROMPT = """Transcribe the audio as clean verbatim text in Arabic.
 - No speaker labels
 - Keep punctuation and natural phrasing."""
 
-TITLE_PROMPT_TEMPLATE = (
-    "You are generating a YouTube video title in Arabic.\n"
-    "Constraints:\n"
-    "- Propose exactly one concise title (<= 100 characters).\n"
-    "- Prefer using words verbatim from the transcript wherever possible.\n"
-    "- No quotes, no extra commentary. Title only.\n"
-    "- When a certain book is mentioned in the transcript as the book being taught, use the book name in the title using the following format: (book name) (title)."
-    "- When a lesson number is mentioned in the transcript as the lesson being taught, use the lesson number in the title using the following format: (lesson number) (book name) (title).\n"
-    """ِAVOID REPEATING THE NUMBER IN TEXT FORM in the title after the book name. the number can only be in the beginning as shown below.
+TITLE_PROMPT_TEMPLATE = """\
+Generate a YouTube video title in Arabic based on the transcript below.
+
+REQUIREMENTS:
+1. Maximum 100 characters (strict limit) - but aim for 60-90 characters for better descriptiveness
+2. Accurately reflect the main topic/content discussed in the transcript
+3. Be descriptive and informative - include key details from the transcript
+4. Use words from the transcript verbatim when possible
+5. Title only - no quotes, no extra commentary, no explanations
+
+FORMATTING RULES:
+- If a lesson number is mentioned: (number) - (book name) - (descriptive topic)
+- If only a book name is mentioned: (book name) - (descriptive topic)
+- If no book/lesson mentioned: (descriptive topic that captures the main content)
+- Do NOT repeat numbers in text form after the book name
+- Make the topic part descriptive enough to understand what is discussed
 
 EXAMPLES:
-41 - ألفية ابن مالك - النحو الفاعل واحكامه
-42 - الكوكب الساطع - الكناية والتعريض واحكامهما ولمحة عن الحروف
-73 - كنز الدقائق - التولية والمرابحة والتصرف في المبيع قبل قبضه
-43 - الكوكب الساطع - معاني اذا وان واو واي
-9 - العقيدة الطحاوية - القران قديم ام مخلوق ومذاهب الناس في ذلك
-9 - أحكام القرآن - احكام الدم و دم سيدنا رسول الله صلى الله عليه وسلم
-9 - الموطأ - فضل الجهاد واحكام الجنائز
-10 - العقيدة الطحاوية - كيف تسربت الوثنية الى الاديان اليهودية والمسيحية والاسلام ورؤية الله تعالى يوم القيامة
-10 - احكام القران - تفسير اية الحيض واختلاف الفقهاء فيها
-10 - موطأ الإمام مالك - أحكام الزكاة.\n"""
-    "- When no book or lesson number is mentioned, use the title as is.\n"
-    "\n\n"
-    "Transcript:\n{transcript}\n"
-)
+تعظيم الإمام مالك لسيدنا رسول الله صلى الله عليه وسلم
+
+Transcript:
+{transcript}
+
+Generate ONE title only (60-90 characters recommended, max 100, accurately reflecting the transcript content):
+"""
 
 COMBINED_TRANSCRIBE_AND_TITLE_PROMPT = """Please perform two tasks:
 

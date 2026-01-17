@@ -17,7 +17,6 @@ except ImportError:
 
 from src.main_utils import (
     AUDIO_BITRATE,
-    COOLDOWN_BETWEEN_API_CALLS_SEC,
     OPENROUTER_API_URL,
     OPENROUTER_DEFAULT_MODEL,
     OPENROUTER_TITLE_MODEL_FREE,
@@ -142,9 +141,6 @@ def _openrouter_request_with_retry(
     
     while attempt < max_attempts:
         try:
-            # Proactive cooldown to keep under rate limits
-            time.sleep(COOLDOWN_BETWEEN_API_CALLS_SEC)
-            
             response = requests.post(
                 OPENROUTER_API_URL,
                 headers=headers,

@@ -170,8 +170,7 @@ The tool includes built-in rate limiting and smart model selection:
   - Tries free OpenAI models first (`openai/gpt-oss-20b:free`, then `openai/gpt-oss-120b:free`)
   - Automatically falls back to paid model (`openai/gpt-oss-20b`) if free models hit rate limits
   - Cost: FREE in most cases, or ~$0.00000012 per title if fallback is needed
-- Automatic cooldown between API requests (2 seconds default)
-- Exponential backoff retry logic for rate limit errors
+- Exponential backoff retry logic for rate limit errors (automatic retry with increasing delays)
 - Sequential processing to respect API quotas
 
 ## Error Handling
