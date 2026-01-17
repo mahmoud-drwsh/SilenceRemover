@@ -22,7 +22,7 @@ OPENROUTER_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/
 OPENROUTER_DEFAULT_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "google/gemini-2.0-flash-lite-001")
 
 # Title generation model
-OPENROUTER_TITLE_MODEL = os.getenv("OPENROUTER_TITLE_MODEL", "openai/gpt-oss-120b")
+OPENROUTER_TITLE_MODEL = os.getenv("OPENROUTER_TITLE_MODEL", "google/gemini-2.5-flash-lite")
 
 # --- AI Prompts ---
 

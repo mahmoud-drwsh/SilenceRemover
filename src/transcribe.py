@@ -269,7 +269,7 @@ def _ensure_honorific_in_title(title: str) -> str:
 
 
 def generate_title_with_openrouter(api_key: str, transcript: str) -> str:
-    """Generate title from transcript using OpenRouter API with GPT-OSS 120B.
+    """Generate title from transcript using OpenRouter API with Gemini 2.5 Flash Lite.
     
     Args:
         api_key: OpenRouter API key
