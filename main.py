@@ -9,7 +9,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Load .env file BEFORE any imports that might use config
 from dotenv import load_dotenv
+load_dotenv()
 
 # Ensure project root (where this file lives) is on sys.path so `src` package is importable
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -181,7 +183,6 @@ def main() -> None:
     
     args = parser.parse_args()
     
-    load_dotenv()
     global DEBUG
     DEBUG = args.debug
     
