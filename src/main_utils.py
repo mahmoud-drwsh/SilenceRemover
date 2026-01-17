@@ -107,6 +107,36 @@ EXAMPLES:
     "Transcript:\n{transcript}\n"
 )
 
+COMBINED_TRANSCRIBE_AND_TITLE_PROMPT = """Please perform two tasks:
+
+1. TRANSCRIBE: Transcribe the audio as clean verbatim text in Arabic.
+   - No timestamps
+   - No speaker labels
+   - Keep punctuation and natural phrasing
+
+2. TITLE: Generate a YouTube video title in Arabic based on the transcript.
+   - Exactly one concise title (<= 100 characters)
+   - Prefer using words verbatim from the transcript wherever possible
+   - No quotes, no extra commentary. Title only.
+   - When a book is mentioned, use format: (book name) (title)
+   - When a lesson number is mentioned, use format: (lesson number) (book name) (title)
+   - Avoid repeating numbers in text form after the book name
+
+EXAMPLES:
+41 - ألفية ابن مالك - النحو الفاعل واحكامه
+42 - الكوكب الساطع - الكناية والتعريض واحكامهما ولمحة عن الحروف
+73 - كنز الدقائق - التولية والمرابحة والتصرف في المبيع قبل قبضه
+9 - العقيدة الطحاوية - القران قديم ام مخلوق ومذاهب الناس في ذلك
+10 - احكام القران - تفسير اية الحيض واختلاف الفقهاء فيها
+
+Please format your response EXACTLY as follows:
+
+TRANSCRIPT:
+[your transcription here]
+
+TITLE:
+[your title here]"""
+
 VIDEO_EXTENSIONS = {
     ".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm",
     ".m4v", ".mpg", ".mpeg", ".3gp", ".ogv", ".ts", ".m2ts",

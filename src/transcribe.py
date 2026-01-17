@@ -16,6 +16,7 @@ except ImportError:
 
 from src.main_utils import (
     AUDIO_BITRATE,
+    COMBINED_TRANSCRIBE_AND_TITLE_PROMPT,
     COOLDOWN_BETWEEN_GEMINI_CALLS_SEC,
     TRANSCRIBE_PROMPT,
     TITLE_PROMPT_TEMPLATE,
@@ -155,11 +156,88 @@ def generate_title_with_gemini(client, transcript: str) -> str:
     return (title.strip().splitlines() or [""])[0]
 
 
+def transcribe_and_title_with_gemini(client, audio_path: Path, raw_response_path: Path | None = None) -> tuple[str, str]:
+    """Transcribe audio and generate title in a single API call.
+    
+    Args:
+        client: Gemini API client
+        audio_path: Path to audio file to transcribe
+        raw_response_path: Optional path to save raw API response for debugging
+        
+    Returns:
+        Tuple of (transcript, title) strings
+    """
+    mime_type = "audio/mp4"
+    uploaded = None
+    try:
+        uploaded = client.files.upload(file=str(audio_path), mime_type=mime_type)
+    except Exception:
+        try:
+            uploaded = client.files.upload(path=str(audio_path), mime_type=mime_type)
+        except Exception:
+            uploaded = None
+
+    parts = [types.Part.from_text(text=COMBINED_TRANSCRIBE_AND_TITLE_PROMPT)]
+    if uploaded is not None:
+        try:
+            parts.append(types.Part.from_uri(mime_type=mime_type, file_uri=uploaded.uri))
+        except Exception:
+            data = audio_path.read_bytes()
+            parts.append(types.Part.from_bytes(data=data, mime_type=mime_type))
+    else:
+        data = audio_path.read_bytes()
+        parts.append(types.Part.from_bytes(data=data, mime_type=mime_type))
+
+    # Proactive cooldown to keep under free-tier rate limits
+    time.sleep(COOLDOWN_BETWEEN_GEMINI_CALLS_SEC)
+    resp = _generate_with_retry(
+        client=client,
+        model="gemini-flash-latest",
+        contents=[types.Content(role="user", parts=parts)],
+    )
+    text = getattr(resp, "text", None)
+    if text is None:
+        try:
+            text = "".join([c.output_text for c in resp.candidates if getattr(c, "output_text", None)])
+        except Exception:
+            text = ""
+    text = text or ""
+    
+    # Save raw response for debugging if path provided
+    if raw_response_path is not None:
+        try:
+            raw_response_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_response_path.write_text(text, encoding="utf-8")
+        except Exception as e:
+            print(f"Warning: Could not save raw response to {raw_response_path}: {e}", file=sys.stderr)
+    
+    # Parse the response to extract transcript and title
+    transcript_match = re.search(r"TRANSCRIPT:\s*(.*?)(?=TITLE:|$)", text, re.DOTALL)
+    title_match = re.search(r"TITLE:\s*(.*?)$", text, re.DOTALL)
+    
+    transcript = transcript_match.group(1).strip() if transcript_match else ""
+    title = title_match.group(1).strip() if title_match else ""
+    
+    # Fallback: if parsing fails, try to extract title from the end
+    if not title and transcript:
+        # Try to find title in the last line or last few lines
+        lines = text.strip().splitlines()
+        if lines:
+            title = lines[-1].strip()
+    
+    # Warn if parsing failed
+    if not transcript or not title:
+        print(f"Warning: Failed to parse transcript or title from API response. Transcript length: {len(transcript)}, Title length: {len(title)}", file=sys.stderr)
+    
+    return transcript, title
+
+
 def transcribe_single_video(trimmed_video: Path, temp_dir: Path, client, basename: str) -> tuple[Path, Path]:
     """Transcribe a single trimmed video. Returns (transcript_path, title_path). Skips if files exist."""
     audio_path = temp_dir / f"{basename}.m4a"
     transcript_path = temp_dir / f"{basename}.txt"
     title_path = temp_dir / f"{basename}.title.txt"
+    raw_response_path = temp_dir / f"{basename}.raw_response.txt"
 
     if not audio_path.exists():
         print(f"Extracting audio (5 min) -> {audio_path}")
@@ -167,24 +245,41 @@ def transcribe_single_video(trimmed_video: Path, temp_dir: Path, client, basenam
     else:
         print("Audio already exists (skipping extraction).")
 
-    if not transcript_path.exists():
-        print("Transcribing with Gemini...")
-        transcript = transcribe_with_gemini(client, audio_path)
+    # Check if both transcript and title already exist
+    if transcript_path.exists() and title_path.exists():
+        print("Transcript and title already exist (skipping).")
+        return transcript_path, title_path
+
+    # If both are missing, use combined function (single API call)
+    if not transcript_path.exists() and not title_path.exists():
+        print("Transcribing and generating title with Gemini (single call)...")
+        transcript, title = transcribe_and_title_with_gemini(client, audio_path, raw_response_path)
         transcript_path.write_text(transcript, encoding="utf-8")
         print(f"Transcript -> {transcript_path}")
-    else:
-        print("Transcript already exists (skipping).")
-
-    # Ensure spacing between transcript and title calls
-    time.sleep(COOLDOWN_BETWEEN_GEMINI_CALLS_SEC)
-    if not title_path.exists():
-        print("Generating YouTube title...")
-        transcript_text = transcript_path.read_text(encoding="utf-8")
-        title = generate_title_with_gemini(client, transcript_text)
         title_path.write_text(title, encoding="utf-8")
         print(f"Title -> {title_path}")
+        if raw_response_path.exists():
+            print(f"Raw API response saved -> {raw_response_path}")
     else:
-        print("Title already exists (skipping).")
+        # Fall back to separate functions if only one file exists (backward compatibility)
+        if not transcript_path.exists():
+            print("Transcribing with Gemini...")
+            transcript = transcribe_with_gemini(client, audio_path)
+            transcript_path.write_text(transcript, encoding="utf-8")
+            print(f"Transcript -> {transcript_path}")
+        else:
+            print("Transcript already exists (skipping).")
+
+        # Ensure spacing between transcript and title calls
+        time.sleep(COOLDOWN_BETWEEN_GEMINI_CALLS_SEC)
+        if not title_path.exists():
+            print("Generating YouTube title...")
+            transcript_text = transcript_path.read_text(encoding="utf-8")
+            title = generate_title_with_gemini(client, transcript_text)
+            title_path.write_text(title, encoding="utf-8")
+            print(f"Title -> {title_path}")
+        else:
+            print("Title already exists (skipping).")
 
     return transcript_path, title_path
 
