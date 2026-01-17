@@ -99,51 +99,20 @@ REQUIREMENTS:
 4. Use words from the transcript verbatim when possible
 5. Title only - no quotes, no extra commentary, no explanations
 
+HONORIFICS:
+- Always include ﷺ after every mention of Prophet Muhammad (محمد, رسول الله, المصطفى, النبي, سيدنا رسول الله, etc.)
+
 FORMATTING RULES:
-- If a lesson number is mentioned: (number) - (book name) - (descriptive topic)
-- If only a book name is mentioned: (book name) - (descriptive topic)
-- If no book/lesson mentioned: (descriptive topic that captures the main content)
-- Do NOT repeat numbers in text form after the book name
 - Make the topic part descriptive enough to understand what is discussed
 
 EXAMPLES:
-تعظيم الإمام مالك لسيدنا رسول الله صلى الله عليه وسلم
+تعظيم الإمام مالك لسيدنا رسول الله ﷺ
 
 Transcript:
 {transcript}
 
 Generate ONE title only (60-90 characters recommended, max 100, accurately reflecting the transcript content):
 """
-
-COMBINED_TRANSCRIBE_AND_TITLE_PROMPT = """Please perform two tasks:
-
-1. TRANSCRIBE: Transcribe the audio as clean verbatim text in Arabic.
-   - No timestamps
-   - No speaker labels
-   - Keep punctuation and natural phrasing
-
-2. TITLE: Generate a YouTube video title in Arabic based on the transcript.
-   - Exactly one concise title (<= 100 characters)
-   - Prefer using words verbatim from the transcript wherever possible
-   - No quotes, no extra commentary. Title only.
-   - When a book is mentioned, use format: (book name) (title)
-   - When a lesson number is mentioned, use format: (lesson number) (book name) (title)
-   - Avoid repeating numbers in text form after the book name
-
-EXAMPLES:
-41 - ألفية ابن مالك - النحو الفاعل واحكامه
-42 - الكوكب الساطع - الكناية والتعريض واحكامهما ولمحة عن الحروف
-73 - كنز الدقائق - التولية والمرابحة والتصرف في المبيع قبل قبضه
-9 - العقيدة الطحاوية - القران قديم ام مخلوق ومذاهب الناس في ذلك
-10 - احكام القران - تفسير اية الحيض واختلاف الفقهاء فيها
-
-Please format your response EXACTLY as follows:
-
-TRANSCRIPT:
-[your transcription here]
-
-TITLE:
-[your title here]"""
 
 VIDEO_EXTENSIONS = {
     ".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm",
