@@ -58,6 +58,7 @@ This module follows the project's coding standards:
    - Test edge cases and error conditions
 """
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -74,14 +75,15 @@ PREFERRED_VIDEO_ENCODERS = [
     "h264_videotoolbox",
     "h264_amf",
 ]
-COOLDOWN_BETWEEN_API_CALLS_SEC = 2.0
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_DEFAULT_MODEL = "google/gemini-2.0-flash-lite-001"
+# OpenRouter API Configuration (configurable via environment variables)
+OPENROUTER_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
+OPENROUTER_DEFAULT_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "google/gemini-2.0-flash-lite-001")
+COOLDOWN_BETWEEN_API_CALLS_SEC = float(os.getenv("COOLDOWN_BETWEEN_API_CALLS_SEC", "2.0"))
 
 # Title generation models (try free first, fallback to paid)
-OPENROUTER_TITLE_MODEL_FREE = "openai/gpt-oss-20b:free"  # Primary free option
-OPENROUTER_TITLE_MODEL_FREE_FALLBACK = "openai/gpt-oss-120b:free"  # Secondary free option
-OPENROUTER_TITLE_MODEL_PAID = "openai/gpt-oss-20b"  # Paid fallback ($0.00000012/1K tokens)
+OPENROUTER_TITLE_MODEL_FREE = os.getenv("OPENROUTER_TITLE_MODEL_FREE", "meta-llama/llama-3.3-70b-instruct:free")
+OPENROUTER_TITLE_MODEL_FREE_FALLBACK = os.getenv("OPENROUTER_TITLE_MODEL_FREE_FALLBACK", "meta-llama/llama-3.3-70b-instruct:free")
+OPENROUTER_TITLE_MODEL_PAID = os.getenv("OPENROUTER_TITLE_MODEL_PAID", "openai/gpt-4.1-nano")
 
 TRANSCRIBE_PROMPT = """Transcribe the audio as clean verbatim text in Arabic.
 - No timestamps
