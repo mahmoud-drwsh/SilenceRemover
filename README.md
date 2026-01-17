@@ -36,23 +36,24 @@ uv sync
 
 ## Configuration
 
-Create a `.env` file in the project root (or export environment variables) to configure the tool:
+All environment variables are centrally defined in `src/env_config.py` (the single source of truth). Configuration is validated at startup with clear error messages.
 
+Create a `.env` file in the project root (or export environment variables) to configure the tool. See `.env.example` for all available variables.
+
+**Minimum required configuration:**
 ```env
-# Silence detection parameters
-NOISE_THRESHOLD=-30.0  # dB threshold for silence detection
-MIN_DURATION=0.5       # Minimum silence duration (seconds)
-PAD=0.5                # Padding retained around silences (seconds)
-
-# OpenRouter API
 OPENROUTER_API_KEY=your_api_key_here
 ```
 
+All other variables are optional and have sensible defaults. See `.env.example` for the complete list with descriptions.
+
 ### Parameter Tuning
 
-- **NOISE_THRESHOLD**: Lower values (e.g., -40dB) detect quieter silences; higher values (e.g., -20dB) are more strict
-- **MIN_DURATION**: Minimum length of silence to be detected (prevents removing brief pauses)
-- **PAD**: Amount of audio/video retained around detected silences (helps preserve natural transitions)
+- **NOISE_THRESHOLD**: Lower values (e.g., -40dB) detect quieter silences; higher values (e.g., -20dB) are more strict. Must be negative.
+- **MIN_DURATION**: Minimum length of silence to be detected (prevents removing brief pauses). Must be positive.
+- **PAD**: Amount of audio/video retained around detected silences (helps preserve natural transitions). Must be non-negative.
+
+**Note:** Invalid configuration values will cause the tool to fail at startup with clear error messages indicating what needs to be fixed.
 
 ## Usage
 

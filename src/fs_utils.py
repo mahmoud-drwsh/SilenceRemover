@@ -16,8 +16,6 @@ except ImportError:  # pragma: no cover - non-Windows environments
 __all__ = ["wait_for_file_release"]
 
 _IS_WINDOWS = os.name == "nt"
-_WAIT_TIMEOUT_SEC = float(os.environ.get("SILENCE_REMOVER_WAIT_TIMEOUT_SEC", "30"))
-_WAIT_SLEEP_SEC = float(os.environ.get("SILENCE_REMOVER_WAIT_SLEEP_SEC", "0.25"))
 
 if _IS_WINDOWS and ctypes:
     _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -59,10 +57,18 @@ else:  # pragma: no cover - non-Windows environments
     _ERROR_PATH_NOT_FOUND = None
 
 
-def wait_for_file_release(path: Path, timeout: float = _WAIT_TIMEOUT_SEC) -> bool:
+def wait_for_file_release(path: Path, timeout: float | None = None) -> bool:
     """On Windows wait until path can be opened for delete access."""
     if not (_IS_WINDOWS and _CreateFileW):
         return True
+    
+    # Get timeout and sleep interval from centralized config
+    from src.env_config import get_config
+    config = get_config()
+    if timeout is None:
+        timeout = config["SILENCE_REMOVER_WAIT_TIMEOUT_SEC"]
+    sleep_interval = config["SILENCE_REMOVER_WAIT_SLEEP_SEC"]
+    
     deadline = time.monotonic() + timeout
     waited = False
     while True:
@@ -92,5 +98,5 @@ def wait_for_file_release(path: Path, timeout: float = _WAIT_TIMEOUT_SEC) -> boo
                 f"({timeout:.1f}s). Another process may still hold it."
             )
             return False
-        time.sleep(_WAIT_SLEEP_SEC)
+        time.sleep(sleep_interval)
 

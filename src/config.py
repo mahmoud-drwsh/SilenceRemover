@@ -1,6 +1,6 @@
 """Configuration constants and environment variables for video processing."""
 
-import os
+from src.env_config import get_config
 
 # --- Trimming Constants ---
 
@@ -16,13 +16,46 @@ PREFERRED_VIDEO_ENCODERS = [
 ]
 
 # --- OpenRouter API Configuration ---
-# (configurable via environment variables)
+# (configurable via environment variables - see src/env_config.py for definitions)
 
-OPENROUTER_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
-OPENROUTER_DEFAULT_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "google/gemini-2.0-flash-lite-001")
+# Lazy-load config on first access to ensure .env is loaded
+_config_cache = None
 
-# Title generation model
-OPENROUTER_TITLE_MODEL = os.getenv("OPENROUTER_TITLE_MODEL", "google/gemini-2.5-flash-lite")
+def _get_env_config() -> dict:
+    """Get environment configuration, loading it if necessary."""
+    global _config_cache
+    if _config_cache is None:
+        _config_cache = get_config()
+    return _config_cache
+
+# Map of environment variable names to their config keys
+_ENV_VAR_MAP = {
+    "OPENROUTER_API_URL": "OPENROUTER_API_URL",
+    "OPENROUTER_DEFAULT_MODEL": "OPENROUTER_DEFAULT_MODEL",
+    "OPENROUTER_TITLE_MODEL": "OPENROUTER_TITLE_MODEL",
+}
+
+def __getattr__(name: str):
+    """Module-level __getattr__ for lazy loading of environment variables."""
+    if name in _ENV_VAR_MAP:
+        return _get_env_config()[_ENV_VAR_MAP[name]]
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+# These will be accessed via __getattr__ when imported
+# They are not defined here to allow __getattr__ to handle them
+__all__ = [
+    "MAX_PAD_SEC",
+    "PAD_INCREMENT_SEC",
+    "BITRATE_FALLBACK_BPS",
+    "AUDIO_BITRATE",
+    "PREFERRED_VIDEO_ENCODERS",
+    "OPENROUTER_API_URL",
+    "OPENROUTER_DEFAULT_MODEL",
+    "OPENROUTER_TITLE_MODEL",
+    "TRANSCRIBE_PROMPT",
+    "TITLE_PROMPT_TEMPLATE",
+    "VIDEO_EXTENSIONS",
+]
 
 # --- AI Prompts ---
 

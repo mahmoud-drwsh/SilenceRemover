@@ -64,9 +64,7 @@ def _require_videos_in(input_dir: Path) -> None:
         _fail(f"No video files found in '{input_dir}'")
 
 
-def _require_openrouter() -> None:
-    if not os.environ.get("OPENROUTER_API_KEY"):
-        _fail("OPENROUTER_API_KEY not set (load via .env or environment).")
+# _require_openrouter() removed - validation now handled in src/env_config
 
 
 # --- Processed videos tracking ---
@@ -193,21 +191,23 @@ def main() -> None:
     _require_tools("ffmpeg", "ffprobe")
     _require_input_dir(input_dir)
     _require_videos_in(input_dir)
-    _require_openrouter()
+    
+    # Load and validate configuration (this will fail if OPENROUTER_API_KEY is missing)
+    from src.env_config import load_config
+    try:
+        config = load_config()
+    except ValueError as e:
+        _fail(str(e))
     
     # Setup directories
     output_dir = sibling_dir(input_dir, "output")
     temp_dir = sibling_dir(input_dir, "temp")
     
-    # Load configuration
-    noise_threshold = float(os.getenv("NOISE_THRESHOLD", "-30.0"))
-    min_duration = float(os.getenv("MIN_DURATION", "0.5"))
-    pad_sec = float(os.getenv("PAD", "0.5"))
-    
-    # Get OpenRouter API key
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        _fail("OPENROUTER_API_KEY not set")
+    # Extract configuration values
+    noise_threshold = config["NOISE_THRESHOLD"]
+    min_duration = config["MIN_DURATION"]
+    pad_sec = config["PAD"]
+    api_key = config["OPENROUTER_API_KEY"]
     
     # Get videos to process
     videos = sorted(p for p in input_dir.iterdir() if is_video_file(p))
