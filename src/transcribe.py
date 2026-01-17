@@ -1,7 +1,6 @@
 """Video transcription and title generation functionality."""
 
 import base64
-import json
 import random
 import re
 import subprocess
@@ -100,7 +99,6 @@ def _openrouter_request_with_retry(
     api_key: str,
     model: str,
     messages: list[dict],
-    raw_response_path: Path | None = None,
     max_attempts: int = 5,
     initial_backoff_sec: float = 1.0,
     max_backoff_sec: float = 30.0,
@@ -113,7 +111,6 @@ def _openrouter_request_with_retry(
         api_key: OpenRouter API key
         model: Model name to use
         messages: List of message dictionaries for the API
-        raw_response_path: Optional path to save raw JSON response
         max_attempts: Maximum number of retry attempts
         initial_backoff_sec: Initial backoff delay in seconds
         max_backoff_sec: Maximum backoff delay in seconds
@@ -150,14 +147,6 @@ def _openrouter_request_with_retry(
             response.raise_for_status()
             
             result = response.json()
-            
-            # Save raw response if path provided
-            if raw_response_path is not None:
-                try:
-                    raw_response_path.parent.mkdir(parents=True, exist_ok=True)
-                    raw_response_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
-                except Exception as e:
-                    print(f"Warning: Could not save raw response to {raw_response_path}: {e}", file=sys.stderr)
             
             # Extract text from response
             if "choices" in result and len(result["choices"]) > 0:
@@ -241,6 +230,46 @@ def transcribe_with_openrouter(api_key: str, audio_path: Path, model: str = OPEN
     return _openrouter_request_with_retry(api_key, model, messages)
 
 
+def _ensure_honorific_in_title(title: str) -> str:
+    """Ensure honorific ﷺ is added after mentions of Prophet Muhammad.
+    
+    Args:
+        title: Generated title text
+        
+    Returns:
+        Title with honorific added if Prophet is mentioned
+    """
+    # Patterns that indicate mention of Prophet Muhammad (longer patterns first to avoid double matching)
+    # Order matters: longer/more specific patterns first
+    prophet_patterns = [
+        r"سيدنا رسول الله(?!\s*[ﷺ])",  # سيدنا رسول الله without ﷺ
+        r"سيدنا محمد(?!\s*[ﷺ])",  # سيدنا محمد without ﷺ
+        r"النبي محمد(?!\s*[ﷺ])",  # النبي محمد without ﷺ
+        r"رسول الله(?!\s*[ﷺ])",  # رسول الله without ﷺ
+        r"المصطفى(?!\s*[ﷺ])",  # المصطفى without ﷺ
+        r"النبي(?!\s*[ﷺ])",  # النبي without ﷺ (but not if followed by محمد)
+        r"محمد(?!\s*[ﷺ])",  # محمد without ﷺ (standalone or after other words)
+    ]
+    
+    result = title
+    # Track positions where we've added honorifics to avoid double-adding
+    added_positions = set()
+    
+    for pattern in prophet_patterns:
+        def replace_func(match):
+            start_pos = match.start()
+            # Skip if we've already added an honorific near this position
+            for pos in added_positions:
+                if abs(start_pos - pos) < 10:  # Within 10 chars, likely same mention
+                    return match.group(0)
+            added_positions.add(start_pos)
+            return match.group(0) + " ﷺ"
+        
+        result = re.sub(pattern, replace_func, result)
+    
+    return result
+
+
 def generate_title_with_openrouter(api_key: str, transcript: str) -> str:
     """Generate title from transcript using OpenRouter API with fallback logic.
     
@@ -282,6 +311,8 @@ def generate_title_with_openrouter(api_key: str, transcript: str) -> str:
             title = _openrouter_request_with_retry(api_key, model, messages)
             title_text = (title.strip().splitlines() or [""])[0]
             if title_text:
+                # Ensure honorific is added if Prophet is mentioned
+                title_text = _ensure_honorific_in_title(title_text)
                 if model_type != "free":
                     print(f"Note: Used {model_type} model due to free model unavailability")
                 return title_text
