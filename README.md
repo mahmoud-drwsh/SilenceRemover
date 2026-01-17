@@ -104,12 +104,13 @@ The tool processes videos sequentially through four main stages:
 
 ### 3. Transcription & Title Generation
 
-- Transcribes extracted audio using OpenRouter API (Gemini 2.0 Flash Lite model)
+- **Transcription**: Extracts and transcribes audio using OpenRouter API (Gemini 2.0 Flash Lite model - cheapest audio-capable)
 - Optimized for Arabic verbatim transcription
-- Generates YouTube-style title from transcript
+- **Title Generation**: Generates YouTube-style title from transcript using dedicated text-only models
 - Handles educational content formats (book names, lesson numbers)
-- Uses single API call for both transcription and title generation (cost-efficient)
-- Stores transcript (`.txt`), title (`.title.txt`), and raw API response (`.raw_response.json`) in `temp/` directory
+- **Two-step process**: Separate API calls for transcription and title generation (better quality and control)
+- **Smart fallback**: Title generation tries free OpenAI models first, automatically falls back to paid model if free models hit rate limits
+- Stores transcript (`.txt`) and title (`.title.txt`) in `temp/` directory
 
 ### 4. File Renaming
 
@@ -160,10 +161,15 @@ The tool maintains a tracking database (`temp/_processed_vids.json`) to avoid re
 - AMD AMF: `h264_amf`
 - Fallback: `libx264` (software)
 
-## API Rate Limiting
+## API Rate Limiting & Model Selection
 
-The tool includes built-in rate limiting for OpenRouter API calls:
+The tool includes built-in rate limiting and smart model selection:
 
+- **Transcription**: Uses cheapest audio-capable model (`google/gemini-2.0-flash-lite-001`)
+- **Title Generation**: 
+  - Tries free OpenAI models first (`openai/gpt-oss-20b:free`, then `openai/gpt-oss-120b:free`)
+  - Automatically falls back to paid model (`openai/gpt-oss-20b`) if free models hit rate limits
+  - Cost: FREE in most cases, or ~$0.00000012 per title if fallback is needed
 - Automatic cooldown between API requests (2 seconds default)
 - Exponential backoff retry logic for rate limit errors
 - Sequential processing to respect API quotas

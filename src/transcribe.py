@@ -17,10 +17,12 @@ except ImportError:
 
 from src.main_utils import (
     AUDIO_BITRATE,
-    COMBINED_TRANSCRIBE_AND_TITLE_PROMPT,
     COOLDOWN_BETWEEN_API_CALLS_SEC,
     OPENROUTER_API_URL,
     OPENROUTER_DEFAULT_MODEL,
+    OPENROUTER_TITLE_MODEL_FREE,
+    OPENROUTER_TITLE_MODEL_FREE_FALLBACK,
+    OPENROUTER_TITLE_MODEL_PAID,
     TRANSCRIBE_PROMPT,
     TITLE_PROMPT_TEMPLATE,
     build_ffmpeg_cmd,
@@ -243,13 +245,14 @@ def transcribe_with_openrouter(api_key: str, audio_path: Path, model: str = OPEN
     return _openrouter_request_with_retry(api_key, model, messages)
 
 
-def generate_title_with_openrouter(api_key: str, transcript: str, model: str = OPENROUTER_DEFAULT_MODEL) -> str:
-    """Generate title from transcript using OpenRouter API.
+def generate_title_with_openrouter(api_key: str, transcript: str) -> str:
+    """Generate title from transcript using OpenRouter API with fallback logic.
+    
+    Tries free models first, falls back to paid model if free models fail.
     
     Args:
         api_key: OpenRouter API key
         transcript: Transcript text
-        model: OpenRouter model name
         
     Returns:
         Generated title
@@ -268,81 +271,55 @@ def generate_title_with_openrouter(api_key: str, transcript: str, model: str = O
         }
     ]
     
-    title = _openrouter_request_with_retry(api_key, model, messages)
-    return (title.strip().splitlines() or [""])[0]
-
-
-def transcribe_and_title_with_openrouter(
-    api_key: str,
-    audio_path: Path,
-    model: str = OPENROUTER_DEFAULT_MODEL,
-    raw_response_path: Path | None = None
-) -> tuple[str, str]:
-    """Transcribe audio and generate title in a single API call.
-    
-    Args:
-        api_key: OpenRouter API key
-        audio_path: Path to audio file to transcribe
-        model: OpenRouter model name that supports audio input
-        raw_response_path: Optional path to save raw API response JSON for debugging
-        
-    Returns:
-        Tuple of (transcript, title) strings
-    """
-    # Read and base64 encode audio
-    audio_bytes = audio_path.read_bytes()
-    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-    
-    # Determine audio format from file extension
-    audio_format = audio_path.suffix.lstrip(".").lower()
-    if audio_format not in ["wav", "mp3", "aiff", "aac", "ogg", "flac", "m4a"]:
-        audio_format = "wav"  # Default to wav
-    
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": COMBINED_TRANSCRIBE_AND_TITLE_PROMPT
-                },
-                {
-                    "type": "input_audio",
-                    "input_audio": {
-                        "data": audio_b64,
-                        "format": audio_format
-                    }
-                }
-            ]
-        }
+    # Try free models first, then fallback to paid
+    models_to_try = [
+        (OPENROUTER_TITLE_MODEL_FREE, "free"),
+        (OPENROUTER_TITLE_MODEL_FREE_FALLBACK, "free fallback"),
+        (OPENROUTER_TITLE_MODEL_PAID, "paid fallback"),
     ]
     
-    text = _openrouter_request_with_retry(
-        api_key,
-        model,
-        messages,
-        raw_response_path=raw_response_path
-    )
+    last_error = None
     
-    # Parse the response to extract transcript and title
-    transcript_match = re.search(r"TRANSCRIPT:\s*(.*?)(?=TITLE:|$)", text, re.DOTALL)
-    title_match = re.search(r"TITLE:\s*(.*?)$", text, re.DOTALL)
+    for model, model_type in models_to_try:
+        try:
+            print(f"Generating title with {model_type} model: {model}")
+            title = _openrouter_request_with_retry(api_key, model, messages)
+            title_text = (title.strip().splitlines() or [""])[0]
+            if title_text:
+                if model_type != "free":
+                    print(f"Note: Used {model_type} model due to free model unavailability")
+                return title_text
+            else:
+                # Empty response - try next model
+                print(f"Warning: Empty response from {model}, trying next model...")
+                continue
+        except requests.exceptions.HTTPError as e:
+            last_error = e
+            # Check if it's a retryable error
+            if e.response is not None:
+                status_code = e.response.status_code
+                # Rate limit, quota, or server errors - try next model
+                if status_code in (429, 402, 503) or status_code >= 500:
+                    print(f"Model {model} failed with status {status_code}, trying next model...")
+                    continue
+                else:
+                    # Client error (4xx) that's not retryable - try next model anyway
+                    print(f"Model {model} failed with status {status_code}, trying next model...")
+                    continue
+            else:
+                # No response object - try next model
+                print(f"Model {model} failed: {e}, trying next model...")
+                continue
+        except Exception as e:
+            last_error = e
+            print(f"Model {model} failed with error: {e}, trying next model...")
+            continue
     
-    transcript = transcript_match.group(1).strip() if transcript_match else ""
-    title = title_match.group(1).strip() if title_match else ""
-    
-    # Fallback: if parsing fails, try to extract title from the end
-    if not title and transcript:
-        # Try to find title in the last line or last few lines
-        lines = text.strip().splitlines()
-        if lines:
-            title = lines[-1].strip()
-    
-    # Warn if parsing failed
-    if not transcript or not title:
-        print(f"Warning: Failed to parse transcript or title from API response. Transcript length: {len(transcript)}, Title length: {len(title)}", file=sys.stderr)
-    
-    return transcript, title
+    # If all models failed, raise the last error
+    if last_error:
+        raise RuntimeError(f"All title generation models failed. Last error: {last_error}") from last_error
+    else:
+        raise RuntimeError("All title generation models returned empty responses")
 
 
 def transcribe_single_video(trimmed_video: Path, temp_dir: Path, api_key: str, basename: str) -> tuple[Path, Path]:
@@ -360,7 +337,6 @@ def transcribe_single_video(trimmed_video: Path, temp_dir: Path, api_key: str, b
     audio_path = temp_dir / f"{basename}.wav"  # Use WAV format
     transcript_path = temp_dir / f"{basename}.txt"
     title_path = temp_dir / f"{basename}.title.txt"
-    raw_response_path = temp_dir / f"{basename}.raw_response.json"
 
     if not audio_path.exists():
         print(f"Extracting audio (5 min) -> {audio_path}")
@@ -373,35 +349,24 @@ def transcribe_single_video(trimmed_video: Path, temp_dir: Path, api_key: str, b
         print("Transcript and title already exist (skipping).")
         return transcript_path, title_path
 
-    # If both are missing, use combined function (single API call)
-    if not transcript_path.exists() and not title_path.exists():
-        print("Transcribing and generating title with OpenRouter (single call)...")
-        transcript, title = transcribe_and_title_with_openrouter(api_key, audio_path, raw_response_path=raw_response_path)
+    # Always use two separate API calls (transcription first, then title generation)
+    # Step 1: Transcription
+    if not transcript_path.exists():
+        print("Transcribing with OpenRouter...")
+        transcript = transcribe_with_openrouter(api_key, audio_path)
         transcript_path.write_text(transcript, encoding="utf-8")
         print(f"Transcript -> {transcript_path}")
+    else:
+        print("Transcript already exists (skipping).")
+
+    # Step 2: Title generation (with fallback logic)
+    if not title_path.exists():
+        print("Generating YouTube title...")
+        transcript_text = transcript_path.read_text(encoding="utf-8")
+        title = generate_title_with_openrouter(api_key, transcript_text)
         title_path.write_text(title, encoding="utf-8")
         print(f"Title -> {title_path}")
-        if raw_response_path.exists():
-            print(f"Raw API response saved -> {raw_response_path}")
     else:
-        # Fall back to separate functions if only one file exists (backward compatibility)
-        if not transcript_path.exists():
-            print("Transcribing with OpenRouter...")
-            transcript = transcribe_with_openrouter(api_key, audio_path)
-            transcript_path.write_text(transcript, encoding="utf-8")
-            print(f"Transcript -> {transcript_path}")
-        else:
-            print("Transcript already exists (skipping).")
-
-        # Ensure spacing between transcript and title calls
-        time.sleep(COOLDOWN_BETWEEN_API_CALLS_SEC)
-        if not title_path.exists():
-            print("Generating YouTube title...")
-            transcript_text = transcript_path.read_text(encoding="utf-8")
-            title = generate_title_with_openrouter(api_key, transcript_text)
-            title_path.write_text(title, encoding="utf-8")
-            print(f"Title -> {title_path}")
-        else:
-            print("Title already exists (skipping).")
+        print("Title already exists (skipping).")
 
     return transcript_path, title_path

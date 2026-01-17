@@ -78,6 +78,11 @@ COOLDOWN_BETWEEN_API_CALLS_SEC = 2.0
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_DEFAULT_MODEL = "google/gemini-2.0-flash-lite-001"
 
+# Title generation models (try free first, fallback to paid)
+OPENROUTER_TITLE_MODEL_FREE = "openai/gpt-oss-20b:free"  # Primary free option
+OPENROUTER_TITLE_MODEL_FREE_FALLBACK = "openai/gpt-oss-120b:free"  # Secondary free option
+OPENROUTER_TITLE_MODEL_PAID = "openai/gpt-oss-20b"  # Paid fallback ($0.00000012/1K tokens)
+
 TRANSCRIBE_PROMPT = """Transcribe the audio as clean verbatim text in Arabic.
 - No timestamps
 - No speaker labels
