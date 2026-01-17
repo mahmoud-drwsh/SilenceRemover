@@ -21,10 +21,8 @@ PREFERRED_VIDEO_ENCODERS = [
 OPENROUTER_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 OPENROUTER_DEFAULT_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "google/gemini-2.0-flash-lite-001")
 
-# Title generation models (try free first, fallback to paid)
-OPENROUTER_TITLE_MODEL_FREE = os.getenv("OPENROUTER_TITLE_MODEL_FREE", "meta-llama/llama-3.3-70b-instruct:free")
-OPENROUTER_TITLE_MODEL_FREE_FALLBACK = os.getenv("OPENROUTER_TITLE_MODEL_FREE_FALLBACK", "meta-llama/llama-3.3-70b-instruct:free")
-OPENROUTER_TITLE_MODEL_PAID = os.getenv("OPENROUTER_TITLE_MODEL_PAID", "openai/gpt-4.1-nano")
+# Title generation model
+OPENROUTER_TITLE_MODEL = os.getenv("OPENROUTER_TITLE_MODEL", "openai/gpt-oss-120b")
 
 # --- AI Prompts ---
 

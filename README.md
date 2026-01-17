@@ -106,10 +106,9 @@ The tool processes videos sequentially through four main stages:
 
 - **Transcription**: Extracts and transcribes audio using OpenRouter API (Gemini 2.0 Flash Lite model - cheapest audio-capable)
 - Optimized for Arabic verbatim transcription
-- **Title Generation**: Generates YouTube-style title from transcript using dedicated text-only models
+- **Title Generation**: Generates YouTube-style title from transcript using GPT-OSS 120B model
 - Handles educational content formats (book names, lesson numbers)
 - **Two-step process**: Separate API calls for transcription and title generation (better quality and control)
-- **Smart fallback**: Title generation tries free OpenAI models first, automatically falls back to paid model if free models hit rate limits
 - Stores transcript (`.txt`) and title (`.title.txt`) in `temp/` directory
 
 ### 4. File Renaming

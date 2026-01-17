@@ -18,9 +18,7 @@ from src.main_utils import (
     AUDIO_BITRATE,
     OPENROUTER_API_URL,
     OPENROUTER_DEFAULT_MODEL,
-    OPENROUTER_TITLE_MODEL_FREE,
-    OPENROUTER_TITLE_MODEL_FREE_FALLBACK,
-    OPENROUTER_TITLE_MODEL_PAID,
+    OPENROUTER_TITLE_MODEL,
     TRANSCRIBE_PROMPT,
     TITLE_PROMPT_TEMPLATE,
     build_ffmpeg_cmd,
@@ -271,9 +269,7 @@ def _ensure_honorific_in_title(title: str) -> str:
 
 
 def generate_title_with_openrouter(api_key: str, transcript: str) -> str:
-    """Generate title from transcript using OpenRouter API with fallback logic.
-    
-    Tries free models first, falls back to paid model if free models fail.
+    """Generate title from transcript using OpenRouter API with GPT-OSS 120B.
     
     Args:
         api_key: OpenRouter API key
@@ -296,57 +292,16 @@ def generate_title_with_openrouter(api_key: str, transcript: str) -> str:
         }
     ]
     
-    # Try free models first, then fallback to paid
-    models_to_try = [
-        (OPENROUTER_TITLE_MODEL_FREE, "free"),
-        (OPENROUTER_TITLE_MODEL_FREE_FALLBACK, "free fallback"),
-        (OPENROUTER_TITLE_MODEL_PAID, "paid fallback"),
-    ]
+    print(f"Generating title with model: {OPENROUTER_TITLE_MODEL}")
+    title = _openrouter_request_with_retry(api_key, OPENROUTER_TITLE_MODEL, messages)
+    title_text = (title.strip().splitlines() or [""])[0]
     
-    last_error = None
+    if not title_text:
+        raise RuntimeError("Title generation returned empty response")
     
-    for model, model_type in models_to_try:
-        try:
-            print(f"Generating title with {model_type} model: {model}")
-            title = _openrouter_request_with_retry(api_key, model, messages)
-            title_text = (title.strip().splitlines() or [""])[0]
-            if title_text:
-                # Ensure honorific is added if Prophet is mentioned
-                title_text = _ensure_honorific_in_title(title_text)
-                if model_type != "free":
-                    print(f"Note: Used {model_type} model due to free model unavailability")
-                return title_text
-            else:
-                # Empty response - try next model
-                print(f"Warning: Empty response from {model}, trying next model...")
-                continue
-        except requests.exceptions.HTTPError as e:
-            last_error = e
-            # Check if it's a retryable error
-            if e.response is not None:
-                status_code = e.response.status_code
-                # Rate limit, quota, or server errors - try next model
-                if status_code in (429, 402, 503) or status_code >= 500:
-                    print(f"Model {model} failed with status {status_code}, trying next model...")
-                    continue
-                else:
-                    # Client error (4xx) that's not retryable - try next model anyway
-                    print(f"Model {model} failed with status {status_code}, trying next model...")
-                    continue
-            else:
-                # No response object - try next model
-                print(f"Model {model} failed: {e}, trying next model...")
-                continue
-        except Exception as e:
-            last_error = e
-            print(f"Model {model} failed with error: {e}, trying next model...")
-            continue
-    
-    # If all models failed, raise the last error
-    if last_error:
-        raise RuntimeError(f"All title generation models failed. Last error: {last_error}") from last_error
-    else:
-        raise RuntimeError("All title generation models returned empty responses")
+    # Ensure honorific is added if Prophet is mentioned
+    title_text = _ensure_honorific_in_title(title_text)
+    return title_text
 
 
 def transcribe_single_video(trimmed_video: Path, temp_dir: Path, api_key: str, basename: str) -> tuple[Path, Path]:
