@@ -26,13 +26,13 @@ OPENROUTER_TITLE_MODEL = os.getenv("OPENROUTER_TITLE_MODEL", "openai/gpt-oss-120
 
 # --- AI Prompts ---
 
-TRANSCRIBE_PROMPT = """Transcribe the audio as clean verbatim text in Arabic.
+TRANSCRIBE_PROMPT = """Transcribe the Arabic audio as clean verbatim text in Arabic.
 - No timestamps
 - No speaker labels
 - Keep punctuation and natural phrasing."""
 
 TITLE_PROMPT_TEMPLATE = """\
-Generate a YouTube video title in Arabic based on the transcript below.
+Generate a YouTube video title in Arabic based on the Arabic transcript below.
 
 ⚠️ CRITICAL REQUIREMENT - HONORIFICS (MUST FOLLOW):
 You MUST include ﷺ immediately after EVERY mention of Prophet Muhammad in the title.
@@ -53,14 +53,12 @@ FORMATTING RULES:
 
 EXAMPLES (Note: ALL examples with Prophet mentions include ﷺ):
 - تعظيم الإمام مالك لسيدنا رسول الله ﷺ
-- كتاب الشفاء - سيدنا المصطفى ﷺ
-- فضائل سيدنا محمد ﷺ في السنة النبوية
-- حديث عن النبي ﷺ في الصبر
+- كتاب الشفاء بتعريف حقوق المصطفى ﷺ
 
-Transcript:
+Arabic transcript:
 {transcript}
 
-Generate ONE title only (60-90 characters recommended, max 100, accurately reflecting the transcript content):
+Generate ONE title only (60-90 characters recommended, max 100, accurately reflecting the Arabic transcript content):
 Remember: If the transcript mentions Prophet Muhammad in any way, you MUST include ﷺ after that mention.
 """
 
