@@ -73,6 +73,14 @@ ENV_VARS = {
         "validator": lambda x: x > 0,
         "error_msg": "SILENCE_REMOVER_WAIT_SLEEP_SEC must be positive",
     },
+    "VIDEO_CRF": {
+        "required": False,
+        "type": int,
+        "default": 23,
+        "description": "Video encoding quality (CRF: 0=lossless, 18=near-lossless, 23=default, 28=smaller files)",
+        "validator": lambda x: 0 <= x <= 51,
+        "error_msg": "VIDEO_CRF must be between 0 and 51",
+    },
 }
 
 # Cached config (loaded once)

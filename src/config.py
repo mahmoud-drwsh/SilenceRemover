@@ -13,7 +13,6 @@ PREFERRED_VIDEO_ENCODERS = [
     "h264_videotoolbox",
     "h264_amf",
 ]
-VIDEO_CRF = 18
 
 # --- OpenRouter API Configuration ---
 # (configurable via environment variables - see src/env_config.py for definitions)
@@ -33,6 +32,7 @@ _ENV_VAR_MAP = {
     "OPENROUTER_API_URL": "OPENROUTER_API_URL",
     "OPENROUTER_DEFAULT_MODEL": "OPENROUTER_DEFAULT_MODEL",
     "OPENROUTER_TITLE_MODEL": "OPENROUTER_TITLE_MODEL",
+    "VIDEO_CRF": "VIDEO_CRF",
 }
 
 def __getattr__(name: str):
