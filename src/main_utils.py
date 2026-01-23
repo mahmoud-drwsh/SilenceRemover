@@ -24,6 +24,7 @@ from src.config import (
     PREFERRED_VIDEO_ENCODERS,
     TITLE_PROMPT_TEMPLATE,
     TRANSCRIBE_PROMPT,
+    VIDEO_CRF,
     VIDEO_EXTENSIONS,
 )
 
@@ -49,6 +50,7 @@ __all__ = [
     "PREFERRED_VIDEO_ENCODERS",
     "TITLE_PROMPT_TEMPLATE",
     "TRANSCRIBE_PROMPT",
+    "VIDEO_CRF",
     "VIDEO_EXTENSIONS",
     # FFmpeg utilities
     "build_ffmpeg_cmd",
