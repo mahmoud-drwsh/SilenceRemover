@@ -22,6 +22,7 @@ from src.main_utils import (
     TRANSCRIBE_PROMPT,
     TITLE_PROMPT_TEMPLATE,
     build_ffmpeg_cmd,
+    print_ffmpeg_cmd,
 )
 
 
@@ -35,6 +36,7 @@ def extract_first_5min_from_audio(input_audio: Path, output_audio: Path) -> None
         "-vn", "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
         str(output_audio),
     ])
+    print_ffmpeg_cmd(cmd)
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"Failed to extract first 5 min from {input_audio}\nstderr={r.stderr}")
@@ -59,6 +61,7 @@ def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str 
             "-map", "0:a:0", "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1", "-vn",
             str(output_audio),
         ])
+        print_ffmpeg_cmd(enc_cmd)
         r = subprocess.run(enc_cmd, capture_output=True, text=True)
         if r.returncode != 0:
             raise RuntimeError(
@@ -73,6 +76,7 @@ def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str 
             "-map", "0:a:0", "-c:a", "copy", "-vn",
             str(output_audio),
         ])
+        print_ffmpeg_cmd(copy_cmd)
         r = subprocess.run(copy_cmd, capture_output=True, text=True)
         if r.returncode == 0:
             return
@@ -84,6 +88,7 @@ def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str 
             "-map", "0:a:0", "-c:a", "aac", "-b:a", AUDIO_BITRATE, "-vn",
             str(output_audio),
         ])
+        print_ffmpeg_cmd(enc_cmd)
         r2 = subprocess.run(enc_cmd, capture_output=True, text=True)
         if r2.returncode != 0:
             raise RuntimeError(

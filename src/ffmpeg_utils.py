@@ -1,7 +1,17 @@
 """FFmpeg command building and hardware acceleration utilities."""
 
+import shlex
 import subprocess
 from pathlib import Path
+
+
+def print_ffmpeg_cmd(cmd: list[str]) -> None:
+    """Print the ffmpeg command before execution so users can see what is being run."""
+    if not cmd or cmd[0] != "ffmpeg":
+        return
+    # Print as a copy-pastable shell command (quote args with spaces)
+    quoted = [shlex.quote(str(a)) for a in cmd]
+    print("FFmpeg:", " ".join(quoted))
 
 
 def build_ffmpeg_cmd(overwrite: bool = True, hwaccel: str | None = None, *additional_flags: str) -> list[str]:

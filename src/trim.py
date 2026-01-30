@@ -16,6 +16,7 @@ from src.main_utils import (
     calculate_resulting_length,
     detect_silence_points,
     find_optimal_padding,
+    print_ffmpeg_cmd,
 )
 
 # Debug flag (set from CLI)
@@ -146,6 +147,7 @@ def create_silence_removed_audio(
             "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
             str(output_audio_path),
         ])
+        print_ffmpeg_cmd(cmd)
         subprocess.run(cmd, check=True)
         wait_for_file_release(output_audio_path)
         return output_audio_path.resolve()
@@ -171,6 +173,7 @@ def create_silence_removed_audio(
             "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
             str(output_audio_path),
         ])
+        print_ffmpeg_cmd(cmd)
         subprocess.run(cmd, check=True)
     except Exception:
         cmd = build_ffmpeg_cmd(overwrite=True)
@@ -181,6 +184,7 @@ def create_silence_removed_audio(
             "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
             str(output_audio_path),
         ])
+        print_ffmpeg_cmd(cmd)
         subprocess.run(cmd, check=True)
     finally:
         if filter_script_path:
@@ -247,6 +251,7 @@ def trim_single_video(
             "-c:a", "aac", "-b:a", AUDIO_BITRATE,
             str(output_file),
         ])
+        print_ffmpeg_cmd(cmd)
         subprocess.run(cmd, check=True)
         wait_for_file_release(output_file)
         print(f"Done! Output saved to: {output_file}")
@@ -305,7 +310,7 @@ def trim_single_video(
     print(f"Settings: noise={noise_threshold}dB, min_duration={min_duration}s, pad={pad_sec}s")
     print(f"Filter complex length: {len(filter_complex)} characters")
     print(f"Number of segments: {len(segments_to_keep)}")
-    print("Running FFmpeg command...")
+    print_ffmpeg_cmd(cmd)
     try:
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError:
@@ -346,6 +351,7 @@ def trim_single_video(
                 cmd_fallback.extend([
                     "-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file),
                 ])
+            print_ffmpeg_cmd(cmd_fallback)
             subprocess.run(cmd_fallback, check=True)
         else:
             raise

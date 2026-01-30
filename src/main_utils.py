@@ -29,7 +29,7 @@ from src.config import (
 )
 
 # Re-export FFmpeg utilities
-from src.ffmpeg_utils import build_ffmpeg_cmd, choose_hwaccel
+from src.ffmpeg_utils import build_ffmpeg_cmd, choose_hwaccel, print_ffmpeg_cmd
 
 # Re-export silence detection utilities
 from src.silence_utils import (
@@ -55,6 +55,7 @@ __all__ = [
     # FFmpeg utilities
     "build_ffmpeg_cmd",
     "choose_hwaccel",
+    "print_ffmpeg_cmd",
     # Silence detection utilities
     "calculate_resulting_length",
     "detect_silence_points",
