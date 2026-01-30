@@ -25,6 +25,21 @@ from src.main_utils import (
 )
 
 
+def extract_first_5min_from_audio(input_audio: Path, output_audio: Path) -> None:
+    """Extract first 5 minutes (300s) from an audio file. Used for snippet from silence-removed audio."""
+    output_audio.parent.mkdir(parents=True, exist_ok=True)
+    cmd = build_ffmpeg_cmd(overwrite=True)
+    cmd.extend([
+        "-i", str(input_audio),
+        "-t", "300",
+        "-vn", "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
+        str(output_audio),
+    ])
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"Failed to extract first 5 min from {input_audio}\nstderr={r.stderr}")
+
+
 def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str = "wav") -> None:
     """Extract first 5 minutes of audio from video.
     
@@ -262,27 +277,37 @@ def generate_title_with_openrouter(api_key: str, transcript: str) -> str:
     return title_text
 
 
-def transcribe_single_video(trimmed_video: Path, temp_dir: Path, api_key: str, basename: str) -> tuple[Path, Path]:
-    """Transcribe a single trimmed video. Returns (transcript_path, title_path). Skips if files exist.
+_AUDIO_EXTENSIONS = {".wav", ".m4a", ".mp3", ".aac", ".ogg", ".flac", ".aiff"}
+
+
+def transcribe_single_video(media_path: Path, temp_dir: Path, api_key: str, basename: str) -> tuple[Path, Path]:
+    """Transcribe from a video or audio file. Returns (transcript_path, title_path). Skips if files exist.
+    
+    If media_path is an audio file (e.g. .wav, .m4a), uses it directly without extraction.
+    Otherwise extracts first 5 min of audio from the video.
     
     Args:
-        trimmed_video: Path to trimmed video file
+        media_path: Path to video file or pre-extracted audio (e.g. snippet.wav)
         temp_dir: Temporary directory for intermediate files
         api_key: OpenRouter API key
-        basename: Base name for output files
+        basename: Base name for output files (transcript.txt, title.title.txt)
         
     Returns:
         Tuple of (transcript_path, title_path)
     """
-    audio_path = temp_dir / f"{basename}.wav"  # Use WAV format
     transcript_path = temp_dir / f"{basename}.txt"
     title_path = temp_dir / f"{basename}.title.txt"
 
-    if not audio_path.exists():
-        print(f"Extracting audio (5 min) -> {audio_path}")
-        extract_first_5min_audio(trimmed_video, audio_path, format="wav")
+    if media_path.suffix.lower() in _AUDIO_EXTENSIONS:
+        audio_path = media_path.resolve()
+        print(f"Using audio directly (no extraction): {audio_path.name}")
     else:
-        print("Audio already exists (skipping extraction).")
+        audio_path = temp_dir / f"{basename}.wav"
+        if not audio_path.exists():
+            print(f"Extracting audio (5 min) -> {audio_path}")
+            extract_first_5min_audio(media_path, audio_path, format="wav")
+        else:
+            print("Audio already exists (skipping extraction).")
 
     # Check if both transcript and title already exist
     if transcript_path.exists() and title_path.exists():

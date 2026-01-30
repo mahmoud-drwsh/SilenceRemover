@@ -15,6 +15,11 @@ def _sanitize_filename(name: str) -> str:
     return (" ".join(cleaned.split()) or "untitled")[:200]
 
 
+def sanitize_filename(name: str) -> str:
+    """Public alias for _sanitize_filename. Use when resolving output basename from title."""
+    return _sanitize_filename(name)
+
+
 def _copy_until_success(src: Path, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     while True:

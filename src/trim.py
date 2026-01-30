@@ -73,15 +73,14 @@ def _get_encoder_quality_params(encoder: str) -> list[str]:
         return ["-crf", str(VIDEO_CRF)]
 
 
-def trim_single_video(input_file: Path, output_dir: Path, noise_threshold: float, min_duration: float, pad_sec: float, target_length: Optional[float], debug: bool = False) -> Path:
-    """Trim a single video and return the output file path."""
-    global DEBUG
-    DEBUG = debug
-    
-    output_dir.mkdir(parents=True, exist_ok=True)
-    basename = input_file.stem
-    output_file = (output_dir / f"{basename}.mp4").resolve()
-
+def _build_segments_to_keep(
+    input_file: Path,
+    noise_threshold: float,
+    min_duration: float,
+    pad_sec: float,
+    target_length: Optional[float],
+) -> tuple[list[tuple[float, float]], float]:
+    """Build segments_to_keep list using same algorithm as full trim. Returns (segments_to_keep, duration_sec)."""
     silence_starts, silence_ends = detect_silence_points(input_file, noise_threshold, min_duration, debug=DEBUG)
     duration_sec = _probe_duration(input_file)
     if duration_sec <= 0:
@@ -91,28 +90,9 @@ def trim_single_video(input_file: Path, output_dir: Path, noise_threshold: float
 
     if target_length is not None:
         if target_length >= duration_sec:
-            # Target length is greater than or equal to original, skip trimming
-            print(f"Target length ({target_length}s) >= original duration ({duration_sec:.3f}s), copying original file")
-            try:
-                import shutil
-                shutil.copyfile(input_file, output_file)
-                wait_for_file_release(output_file)
-                print(f"Done! Output saved to: {output_file}")
-                return output_file.resolve()
-            except Exception as e:
-                print(f"Error copying file: {e}", file=sys.stderr)
-                raise
+            return ([(0.0, round(duration_sec, 3))], duration_sec)
         optimal_pad = find_optimal_padding(silence_starts, silence_ends, duration_sec, target_length)
         pad_sec = optimal_pad
-        resulting_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, pad_sec)
-        print(f"Target length: {target_length}s")
-        print(f"Calculated optimal padding: {pad_sec}s")
-        print(f"Expected resulting length: {resulting_length:.3f}s")
-        if resulting_length > target_length:
-            print(f"Warning: Resulting length ({resulting_length:.3f}s) exceeds target ({target_length}s)")
-        elif resulting_length < target_length:
-            diff = target_length - resulting_length
-            print(f"Note: Resulting length ({resulting_length:.3f}s) is {diff:.3f}s below target ({target_length}s)")
 
     segments_to_keep: list[tuple[float, float]] = []
     prev_end = 0.0
@@ -135,8 +115,122 @@ def trim_single_video(input_file: Path, output_dir: Path, noise_threshold: float
     if prev_end < duration_sec:
         segments_to_keep.append((round(prev_end, 3), round(duration_sec, 3)))
     if DEBUG:
-        print(f"[debug] final segment from prev_end to end: {(round(prev_end, 3), round(duration_sec, 3))}")
         print(f"[debug] total segments_to_keep={len(segments_to_keep)} sample={segments_to_keep[:5]}")
+    return (segments_to_keep, duration_sec)
+
+
+def create_silence_removed_audio(
+    input_file: Path,
+    output_audio_path: Path,
+    noise_threshold: float,
+    min_duration: float,
+    pad_sec: float,
+    target_length: Optional[float] = None,
+    debug: bool = False,
+) -> Path:
+    """Create full silence-removed audio (same algorithm as video trim), audio only (-vn)."""
+    global DEBUG
+    DEBUG = debug
+    output_audio_path.parent.mkdir(parents=True, exist_ok=True)
+
+    segments_to_keep, duration_sec = _build_segments_to_keep(
+        input_file, noise_threshold, min_duration, pad_sec, target_length
+    )
+
+    if len(segments_to_keep) == 0:
+        print("Warning: All audio detected as silence. Creating minimal audio.")
+        cmd = build_ffmpeg_cmd(overwrite=True)
+        cmd.extend([
+            "-i", str(input_file),
+            "-t", "0.1", "-vn",
+            "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
+            str(output_audio_path),
+        ])
+        subprocess.run(cmd, check=True)
+        wait_for_file_release(output_audio_path)
+        return output_audio_path.resolve()
+
+    # Audio-only filter: atrim each segment, then concat
+    filter_chains = "".join(
+        f"[0:a]atrim=start={seg_start}:end={seg_end},asetpts=PTS-STARTPTS[a{i}];"
+        for i, (seg_start, seg_end) in enumerate(segments_to_keep)
+    )
+    concat_inputs = "".join(f"[a{i}]" for i in range(len(segments_to_keep)))
+    filter_complex = f"{filter_chains}{concat_inputs}concat=n={len(segments_to_keep)}:v=0:a=1[outa]"
+
+    filter_script_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".ffscript", delete=False, encoding="utf-8") as tf:
+            tf.write(filter_complex)
+            filter_script_path = tf.name
+        cmd = build_ffmpeg_cmd(overwrite=True)
+        cmd.extend([
+            "-i", str(input_file),
+            "-filter_complex_script", filter_script_path,
+            "-map", "[outa]", "-vn",
+            "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
+            str(output_audio_path),
+        ])
+        subprocess.run(cmd, check=True)
+    except Exception:
+        cmd = build_ffmpeg_cmd(overwrite=True)
+        cmd.extend([
+            "-i", str(input_file),
+            "-filter_complex", filter_complex,
+            "-map", "[outa]", "-vn",
+            "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
+            str(output_audio_path),
+        ])
+        subprocess.run(cmd, check=True)
+    finally:
+        if filter_script_path:
+            try:
+                Path(filter_script_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    wait_for_file_release(output_audio_path)
+    print(f"Silence-removed audio -> {output_audio_path}")
+    return output_audio_path.resolve()
+
+
+def trim_single_video(
+    input_file: Path,
+    output_dir: Path,
+    noise_threshold: float,
+    min_duration: float,
+    pad_sec: float,
+    target_length: Optional[float],
+    debug: bool = False,
+    output_basename: Optional[str] = None,
+) -> Path:
+    """Trim a single video and return the output file path."""
+    global DEBUG
+    DEBUG = debug
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    basename = output_basename if output_basename is not None else input_file.stem
+    output_file = (output_dir / f"{basename}.mp4").resolve()
+
+    segments_to_keep, duration_sec = _build_segments_to_keep(
+        input_file, noise_threshold, min_duration, pad_sec, target_length
+    )
+
+    if target_length is not None and target_length >= duration_sec:
+        print(f"Target length ({target_length}s) >= original duration ({duration_sec:.3f}s), copying original file")
+        try:
+            import shutil
+            shutil.copyfile(input_file, output_file)
+            wait_for_file_release(output_file)
+            print(f"Done! Output saved to: {output_file}")
+            return output_file.resolve()
+        except Exception as e:
+            print(f"Error copying file: {e}", file=sys.stderr)
+            raise
+    if target_length is not None:
+        resulting_length = sum(end - start for start, end in segments_to_keep)
+        print(f"Target length: {target_length}s")
+        print(f"Expected resulting length: {resulting_length:.3f}s")
 
     # Handle case where all audio is silence (no segments to keep)
     if len(segments_to_keep) == 0:
