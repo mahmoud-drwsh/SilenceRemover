@@ -9,7 +9,7 @@ An automated video processing tool that removes silence segments, transcribes au
 - **AI Transcription**: Extracts and transcribes the first 5 minutes of audio using OpenRouter (Gemini 2.0 Flash Lite)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
-- **Hardware Acceleration**: Automatically uses available hardware encoders (QSV, VideoToolbox, AMF) with fallback to software encoding
+- **Hardware encoding**: Uses available hardware encoders (QSV, VideoToolbox, AMF) with fallback to software encoding. Input decoding is software-only.
 
 ## Requirements
 

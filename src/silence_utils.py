@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 from src.config import MAX_PAD_SEC, PAD_INCREMENT_SEC
-from src.ffmpeg_utils import build_ffmpeg_cmd, choose_hwaccel, print_ffmpeg_cmd
+from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 
 
 def calculate_resulting_length(silence_starts: list[float], silence_ends: list[float], duration_sec: float, pad_sec: float) -> float:
@@ -87,8 +87,7 @@ def detect_silence_points(input_file: Path, noise_threshold: float, min_duration
     """
     silence_filter = f"silencedetect=n={noise_threshold}dB:d={min_duration}"
 
-    hwaccel = choose_hwaccel()
-    cmd = build_ffmpeg_cmd(overwrite=True, hwaccel=hwaccel)
+    cmd = build_ffmpeg_cmd(overwrite=True)
     # Audio-only analysis: skip video/subtitle/data decoding for speed
     cmd.extend(["-vn", "-sn", "-dn", "-i", str(input_file), "-map", "0:a:0", "-af", silence_filter, "-f", "null", "-"])
 
@@ -100,8 +99,6 @@ def detect_silence_points(input_file: Path, noise_threshold: float, min_duration
     ).stderr
     if debug:
         print(f"[debug] silencedetect filter: {silence_filter}")
-        if hwaccel:
-            print(f"[debug] using hwaccel: {hwaccel}")
         print(f"[debug] ffmpeg cmd: {' '.join(cmd)}")
         print(f"[debug] Raw FFmpeg silencedetect output (showing lines with 'silence_'):")
         for line in result.splitlines():
