@@ -10,8 +10,6 @@ from src.fs_utils import wait_for_file_release
 from src.main_utils import (
     AUDIO_BITRATE,
     BITRATE_FALLBACK_BPS,
-    PREFERRED_VIDEO_ENCODERS,
-    VIDEO_CRF,
     build_ffmpeg_cmd,
     calculate_resulting_length,
     detect_silence_points,
@@ -41,37 +39,13 @@ def _probe_bitrate_bps(input_file: Path) -> int:
     return int(format_probe) if format_probe else BITRATE_FALLBACK_BPS
 
 
-def _choose_video_encoder() -> str:
-    cmd = build_ffmpeg_cmd(overwrite=False)
-    cmd.append("-encoders")
-    available_encoders = subprocess.run(cmd, capture_output=True, text=True).stdout
-    return next((c for c in PREFERRED_VIDEO_ENCODERS if c in available_encoders), "libx264")
-
-
-def _get_encoder_quality_params(encoder: str) -> list[str]:
-    """Get quality parameters for the given encoder.
+def _get_encoder_quality_params() -> list[str]:
+    """Get quality parameters for libx265 HEVC encoder.
     
-    Args:
-        encoder: The encoder name (e.g., 'libx264', 'h264_qsv', etc.)
-        
     Returns:
-        List of FFmpeg arguments for quality settings
+        List of FFmpeg arguments for CRF quality setting
     """
-    if encoder == "libx264":
-        return ["-crf", str(VIDEO_CRF)]
-    elif encoder == "h264_qsv":
-        # QSV uses quality scale 1-51, where lower is better (similar to CRF)
-        return ["-global_quality", str(VIDEO_CRF)]
-    elif encoder == "h264_videotoolbox":
-        # VideoToolbox: 0=best, 1=high, 2=medium
-        # Use 1 for high quality (0 may be slower)
-        return ["-quality", "1"]
-    elif encoder == "h264_amf":
-        # AMF constant quality mode
-        return ["-quality_rc", "cqp", "-qmin", str(VIDEO_CRF), "-qmax", str(VIDEO_CRF)]
-    else:
-        # Fallback to libx264 CRF for unknown encoders
-        return ["-crf", str(VIDEO_CRF)]
+    return ["-crf", "23"]
 
 
 def _build_segments_to_keep(
@@ -244,9 +218,9 @@ def trim_single_video(
         cmd.extend([
             "-i", str(input_file),
             "-t", "0.1",  # Very short duration
-            "-c:v", "libx264",
+            "-c:v", "libx265",
         ])
-        cmd.extend(_get_encoder_quality_params("libx264"))
+        cmd.extend(_get_encoder_quality_params())
         cmd.extend([
             "-c:a", "aac", "-b:a", AUDIO_BITRATE,
             str(output_file),
@@ -267,8 +241,8 @@ def trim_single_video(
     concat_inputs = ''.join(f"[v{i}][a{i}]" for i in range(len(segments_to_keep)))
     filter_complex = f"{filter_chains}{concat_inputs}concat=n={len(segments_to_keep)}:v=1:a=1[outv][outa]"
 
-    video_codec = _choose_video_encoder()
-    quality_params = _get_encoder_quality_params(video_codec)
+    video_codec = "libx265"
+    quality_params = _get_encoder_quality_params()
 
     # On Windows the command-line length can be exceeded with very large filter graphs.
     # Use a temporary filter script to avoid hitting CreateProcess limits.
@@ -311,50 +285,7 @@ def trim_single_video(
     print(f"Filter complex length: {len(filter_complex)} characters")
     print(f"Number of segments: {len(segments_to_keep)}")
     print_ffmpeg_cmd(cmd)
-    try:
-        subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError:
-        if video_codec != "libx264":
-            print(f"Hardware encoder '{video_codec}' failed, retrying with software encoder 'libx264'...")
-            cmd_fallback = cmd[:]
-            try:
-                # Replace encoder and quality params
-                idx = cmd_fallback.index("-c:v")
-                cmd_fallback[idx + 1] = "libx264"
-                # Remove old quality params and add libx264 CRF params
-                # Find where quality params start (after -c:v encoder name)
-                quality_start = idx + 2
-                # Find where quality params end (before -c:a)
-                quality_end = cmd_fallback.index("-c:a")
-                # Remove old quality params
-                del cmd_fallback[quality_start:quality_end]
-                # Insert libx264 CRF params
-                cmd_fallback[quality_start:quality_start] = _get_encoder_quality_params("libx264")
-            except (ValueError, IndexError):
-                # Fallback: rebuild command with libx264
-                cmd_fallback = build_ffmpeg_cmd(overwrite=True)
-                if filter_script_path:
-                    cmd_fallback.extend([
-                        "-i", str(input_file),
-                        "-filter_complex_script", filter_script_path,
-                        "-map", "[outv]", "-map", "[outa]",
-                        "-c:v", "libx264",
-                    ])
-                else:
-                    cmd_fallback.extend([
-                        "-i", str(input_file),
-                        "-filter_complex", filter_complex,
-                        "-map", "[outv]", "-map", "[outa]",
-                        "-c:v", "libx264",
-                    ])
-                cmd_fallback.extend(_get_encoder_quality_params("libx264"))
-                cmd_fallback.extend([
-                    "-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file),
-                ])
-            print_ffmpeg_cmd(cmd_fallback)
-            subprocess.run(cmd_fallback, check=True)
-        else:
-            raise
+    subprocess.run(cmd, check=True)
     finally:
         if filter_script_path:
             try:

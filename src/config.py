@@ -8,11 +8,6 @@ MAX_PAD_SEC = 10.0
 PAD_INCREMENT_SEC = 0.01
 BITRATE_FALLBACK_BPS = 3_000_000
 AUDIO_BITRATE = "192k"
-PREFERRED_VIDEO_ENCODERS = [
-    "h264_qsv",
-    "h264_videotoolbox",
-    "h264_amf",
-]
 
 # --- OpenRouter API Configuration ---
 # (configurable via environment variables - see src/env_config.py for definitions)
@@ -48,7 +43,6 @@ __all__ = [
     "PAD_INCREMENT_SEC",
     "BITRATE_FALLBACK_BPS",
     "AUDIO_BITRATE",
-    "PREFERRED_VIDEO_ENCODERS",
     "VIDEO_CRF",
     "OPENROUTER_API_URL",
     "OPENROUTER_DEFAULT_MODEL",

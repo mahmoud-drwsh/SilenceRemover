@@ -9,7 +9,7 @@ An automated video processing tool that removes silence segments, transcribes au
 - **AI Transcription**: Extracts and transcribes the first 5 minutes of audio using OpenRouter (Gemini 2.0 Flash Lite)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
-- **Hardware encoding**: Uses available hardware encoders (QSV, VideoToolbox, AMF) with fallback to software encoding. Input decoding is software-only.
+- **HEVC Encoding**: Uses libx265 HEVC encoder with CRF 23 for consistent quality. All encoding and decoding is software-based.
 
 ## Requirements
 
@@ -155,12 +155,6 @@ The tool maintains a tracking database (`temp/_processed_vids.json`) to avoid re
 
 **Video Extensions**: `.mp4`, `.mkv`, `.avi`, `.mov`, `.flv`, `.wmv`, `.webm`, `.m4v`, `.mpg`, `.mpeg`, `.3gp`, `.ogv`, `.ts`, `.m2ts`
 
-**Hardware Encoders** (auto-detected):
-- Intel Quick Sync: `hevc_qsv`, `h264_qsv`
-- Apple VideoToolbox: `h264_videotoolbox`
-- AMD AMF: `h264_amf`
-- Fallback: `libx264` (software)
-
 ## API Rate Limiting & Model Selection
 
 The tool includes built-in rate limiting and smart model selection:
@@ -177,7 +171,7 @@ The tool includes built-in rate limiting and smart model selection:
 
 - **Missing Tools**: Validates FFmpeg/FFprobe availability before processing
 - **API Errors**: Automatic retry with exponential backoff
-- **Encoding Failures**: Falls back to software encoder if hardware encoder fails
+- **Encoding Failures**: FFmpeg encoding errors are reported directly (no fallback)
 - **Invalid Videos**: Skips corrupted or unreadable files with error messages
 
 ## Troubleshooting
@@ -202,14 +196,6 @@ echo $OPENROUTER_API_KEY
 Or check your `.env` file is loaded properly.
 
 **Note**: OpenRouter requires a minimum balance of $0.50 to process audio files. Make sure your account has sufficient funds.
-
-### Hardware Encoding Fails
-
-The tool automatically falls back to software encoding (`libx264`) if hardware encoding fails. Check debug output for encoder selection:
-
-```bash
-python main.py /path/to/videos --debug
-```
 
 ### Output Copy Fails on Windows
 
