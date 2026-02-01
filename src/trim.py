@@ -41,18 +41,19 @@ def _probe_bitrate_bps(input_file: Path) -> int:
 
 
 def _get_h264_qsv_quality_params() -> list[str]:
-    """Quality params for h264_qsv: preset slower (2), ICQ via global_quality, and quality options.
-    - preset 2 = slower (user cap: no faster than slower)
-    - global_quality: same scale as CRF (VIDEO_CRF)
-    - rdo, look_ahead, extbrc, adaptive_i/b, profile high, scenario archive, mbbrc for best quality.
+    """Quality params for h264_qsv: high quality with smaller file size.
+    - preset 2 = slower; global_quality slightly relaxed (CRF+2, cap 28) for smaller size.
+    - look_ahead_depth 25 (was 40) to reduce bitrate while keeping look-ahead benefit.
     """
+    # Slightly higher quality number = smaller file, still high quality (23 -> 25)
+    qsv_quality = min(VIDEO_CRF + 2, 28)
     return [
         "-preset", "2",  # 2 = slower (0=veryslow .. 7=veryfast)
-        "-global_quality", str(VIDEO_CRF),
+        "-global_quality", str(qsv_quality),
         "-pix_fmt", "nv12",
         "-rdo", "1",
         "-look_ahead", "1",
-        "-look_ahead_depth", "40",
+        "-look_ahead_depth", "25",
         "-extbrc", "1",
         "-adaptive_i", "1",
         "-adaptive_b", "1",
@@ -224,6 +225,7 @@ def trim_single_video(
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal video (first frame only).")
         # Create minimal video with first frame and silence; try h264_qsv then libx264
+        last_exc = None
         for codec, quality_params in [
             ("h264_qsv", _get_h264_qsv_quality_params()),
             ("libx264", _get_libx264_quality_params()),
@@ -233,14 +235,16 @@ def trim_single_video(
             cmd.extend(quality_params)
             cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file)])
             print_ffmpeg_cmd(cmd)
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0:
+            try:
+                subprocess.run(cmd, check=True)
                 wait_for_file_release(output_file)
                 print(f"Done! Output saved to: {output_file}")
                 return output_file.resolve()
-            if codec == "h264_qsv":
-                print("h264_qsv failed, falling back to libx264", file=sys.stderr)
-        raise RuntimeError("Both h264_qsv and libx264 failed for minimal video")
+            except subprocess.CalledProcessError as e:
+                last_exc = e
+                if codec == "h264_qsv":
+                    print("h264_qsv failed, falling back to libx264", file=sys.stderr)
+        raise RuntimeError("Both h264_qsv and libx264 failed for minimal video") from last_exc
 
     filter_chains = ''.join(
         (
@@ -280,21 +284,24 @@ def trim_single_video(
         print(f"Settings: noise={noise_threshold}dB, min_duration={min_duration}s, pad={pad_sec}s")
         print(f"Filter complex length: {len(filter_complex)} characters")
         print(f"Number of segments: {len(segments_to_keep)}")
-        last_result = None
+        last_exc = None
         last_cmd = None
         for codec, quality_params in ENCODERS_TO_TRY:
             cmd = build_encode_cmd(codec, quality_params)
             print_ffmpeg_cmd(cmd)
             last_cmd = cmd
-            last_result = subprocess.run(cmd, capture_output=True, text=True)
-            if last_result.returncode == 0:
+            try:
+                subprocess.run(cmd, check=True)
                 break
-            if codec == "h264_qsv":
-                print("h264_qsv failed, falling back to libx264", file=sys.stderr)
-        if last_result is not None and last_result.returncode != 0:
-            raise subprocess.CalledProcessError(
-                last_result.returncode, last_cmd or [], last_result.stdout, last_result.stderr
-            )
+            except subprocess.CalledProcessError as e:
+                last_exc = e
+                if codec == "h264_qsv":
+                    print("h264_qsv failed, falling back to libx264", file=sys.stderr)
+        else:
+            if last_exc is not None:
+                raise subprocess.CalledProcessError(
+                    last_exc.returncode, last_cmd or [], last_exc.stdout, last_exc.stderr
+                ) from last_exc
     finally:
         try:
             Path(filter_script_path).unlink(missing_ok=True)

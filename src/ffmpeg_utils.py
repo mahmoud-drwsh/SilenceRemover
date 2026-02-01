@@ -22,7 +22,7 @@ def build_ffmpeg_cmd(overwrite: bool = True, *additional_flags: str) -> list[str
     Returns:
         List of command arguments starting with 'ffmpeg'
     """
-    cmd = ["ffmpeg", "-hide_banner"]
+    cmd = ["ffmpeg", "-hide_banner", " -stats"]
     if overwrite:
         cmd.append("-y")
     cmd.extend(additional_flags)

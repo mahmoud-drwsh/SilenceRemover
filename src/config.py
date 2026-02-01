@@ -64,9 +64,11 @@ Generate one YouTube video title in Arabic from the transcript below. The title 
 
 Rules: 60–90 characters (max 100). One title only. Be accurate and descriptive; prefer wording from the transcript.
 
+When your title includes the name محمد, always write سيدنا immediately before محمد. Add سيدنا only before محمد—not before other references (e.g. رسول الله، المصطفى، النبي).
+
 Add the honorific ﷺ only when your generated title itself includes a mention of the Prophet (e.g. محمد، رسول الله، المصطفى، النبي). If the transcript mentions the Prophet but your title does not, do not add the honorific. Only add ﷺ immediately after each such mention that appears in the title you output.
 
-Example: تعظيم الإمام مالك لسيدنا رسول الله ﷺ
+Example: تعظيم الإمام مالك لسيدنا محمد ﷺ
 
 Transcript:
 {transcript}
