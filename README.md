@@ -9,7 +9,7 @@ An automated video processing tool that removes silence segments, transcribes au
 - **AI Transcription**: Extracts and transcribes the first 5 minutes of audio using OpenRouter (Gemini 2.0 Flash Lite)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
-- **HEVC Encoding**: Uses libx265 HEVC encoder with CRF 23 for consistent quality. All encoding and decoding is software-based.
+- **H.264 Encoding**: Uses Intel Quick Sync (h264_qsv) with high-quality options (preset slower, look-ahead, RDO, etc.); falls back to libx264 if QSV is unavailable. Quality controlled by `VIDEO_CRF` (default 23).
 
 ## Requirements
 

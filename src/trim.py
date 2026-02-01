@@ -15,6 +15,7 @@ from src.main_utils import (
     detect_silence_points,
     find_optimal_padding,
     print_ffmpeg_cmd,
+    VIDEO_CRF,
 )
 
 # Debug flag (set from CLI)
@@ -39,13 +40,31 @@ def _probe_bitrate_bps(input_file: Path) -> int:
     return int(format_probe) if format_probe else BITRATE_FALLBACK_BPS
 
 
-def _get_encoder_quality_params() -> list[str]:
-    """Get quality parameters for libx265 HEVC encoder.
-    
-    Returns:
-        List of FFmpeg arguments for CRF quality setting
+def _get_h264_qsv_quality_params() -> list[str]:
+    """Quality params for h264_qsv: preset slower (2), ICQ via global_quality, and quality options.
+    - preset 2 = slower (user cap: no faster than slower)
+    - global_quality: same scale as CRF (VIDEO_CRF)
+    - rdo, look_ahead, extbrc, adaptive_i/b, profile high, scenario archive, mbbrc for best quality.
     """
-    return ["-crf", "23"]
+    return [
+        "-preset", "2",  # 2 = slower (0=veryslow .. 7=veryfast)
+        "-global_quality", str(VIDEO_CRF),
+        "-pix_fmt", "nv12",
+        "-rdo", "1",
+        "-look_ahead", "1",
+        "-look_ahead_depth", "40",
+        "-extbrc", "1",
+        "-adaptive_i", "1",
+        "-adaptive_b", "1",
+        "-profile", "high",
+        "-scenario", "archive",
+        "-mbbrc", "1",
+    ]
+
+
+def _get_libx264_quality_params() -> list[str]:
+    """Quality params for libx264 fallback (H.264, CRF + slow preset)."""
+    return ["-crf", str(VIDEO_CRF), "-preset", "slow"]
 
 
 def _build_segments_to_keep(
@@ -204,23 +223,24 @@ def trim_single_video(
     # Handle case where all audio is silence (no segments to keep)
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal video (first frame only).")
-        # Create minimal video with first frame and silence
-        cmd = build_ffmpeg_cmd(overwrite=True)
-        cmd.extend([
-            "-i", str(input_file),
-            "-t", "0.1",  # Very short duration
-            "-c:v", "libx265",
-        ])
-        cmd.extend(_get_encoder_quality_params())
-        cmd.extend([
-            "-c:a", "aac", "-b:a", AUDIO_BITRATE,
-            str(output_file),
-        ])
-        print_ffmpeg_cmd(cmd)
-        subprocess.run(cmd, check=True)
-        wait_for_file_release(output_file)
-        print(f"Done! Output saved to: {output_file}")
-        return output_file.resolve()
+        # Create minimal video with first frame and silence; try h264_qsv then libx264
+        for codec, quality_params in [
+            ("h264_qsv", _get_h264_qsv_quality_params()),
+            ("libx264", _get_libx264_quality_params()),
+        ]:
+            cmd = build_ffmpeg_cmd(overwrite=True)
+            cmd.extend(["-i", str(input_file), "-t", "0.1", "-c:v", codec])
+            cmd.extend(quality_params)
+            cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file)])
+            print_ffmpeg_cmd(cmd)
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                wait_for_file_release(output_file)
+                print(f"Done! Output saved to: {output_file}")
+                return output_file.resolve()
+            if codec == "h264_qsv":
+                print("h264_qsv failed, falling back to libx264", file=sys.stderr)
+        raise RuntimeError("Both h264_qsv and libx264 failed for minimal video")
 
     filter_chains = ''.join(
         (
@@ -232,12 +252,10 @@ def trim_single_video(
     concat_inputs = ''.join(f"[v{i}][a{i}]" for i in range(len(segments_to_keep)))
     filter_complex = f"{filter_chains}{concat_inputs}concat=n={len(segments_to_keep)}:v=1:a=1[outv][outa]"
 
-    # Try hevc_qsv first, fallback to libx265 on failure. No quality params: let encoder
-    # use defaults so output size is not inflated when source is lower quality.
-    # Preset/tune: hevc_qsv preset 3=slow, extbrc+look_ahead_depth for quality; libx265 slow+ssim.
+    # Try h264_qsv first (preset slower, quality options for best quality), fallback to libx264.
     ENCODERS_TO_TRY = [
-        ("hevc_qsv", ["-preset", "3", "-extbrc", "1", "-look_ahead_depth", "40"]),
-        ("libx265", ["-preset", "fast"]),
+        ("h264_qsv", _get_h264_qsv_quality_params()),
+        ("libx264", _get_libx264_quality_params()),
     ]
 
     with tempfile.NamedTemporaryFile("w", suffix=".ffscript", delete=False, encoding="utf-8") as tf:
@@ -271,8 +289,8 @@ def trim_single_video(
             last_result = subprocess.run(cmd, capture_output=True, text=True)
             if last_result.returncode == 0:
                 break
-            if codec == "hevc_qsv":
-                print("hevc_qsv failed, falling back to libx265", file=sys.stderr)
+            if codec == "h264_qsv":
+                print("h264_qsv failed, falling back to libx264", file=sys.stderr)
         if last_result is not None and last_result.returncode != 0:
             raise subprocess.CalledProcessError(
                 last_result.returncode, last_cmd or [], last_result.stdout, last_result.stderr
