@@ -39,9 +39,9 @@ def _probe_bitrate_bps(input_file: Path) -> int:
     return int(format_probe) if format_probe else BITRATE_FALLBACK_BPS
 
 
-def _get_h264_qsv_quality_params() -> list[str]:
-    """Only the slower preset for h264_qsv; everything else uses encoder defaults."""
-    return ["-preset", "medium", "-profile:v", "high", "-look_ahead", "1"]  # 2 = slower (0=veryslow .. 7=veryfast)
+def _get_hevc_qsv_quality_params() -> list[str]:
+    """hevc_qsv with ICQ (Intelligent Constant Quality). -global_quality selects ICQ mode (1=best .. 51=worst); ~25 ≈ crf 23."""
+    return ["-preset", "slow", "-global_quality", "25", "-profile:v", "high"]
 
 
 def _get_libx264_quality_params() -> list[str]:
@@ -205,10 +205,10 @@ def trim_single_video(
     # Handle case where all audio is silence (no segments to keep)
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal video (first frame only).")
-        # Create minimal video with first frame and silence; try h264_qsv then libx264
+        # Create minimal video with first frame and silence; try hevc_qsv then libx264
         last_exc = None
         for codec, quality_params in [
-            ("h264_qsv", _get_h264_qsv_quality_params()),
+            ("hevc_qsv", _get_hevc_qsv_quality_params()),
             ("libx264", _get_libx264_quality_params()),
         ]:
             cmd = build_ffmpeg_cmd(overwrite=True)
@@ -223,9 +223,9 @@ def trim_single_video(
                 return output_file.resolve()
             except subprocess.CalledProcessError as e:
                 last_exc = e
-                if codec == "h264_qsv":
-                    print("h264_qsv failed, falling back to libx264", file=sys.stderr)
-        raise RuntimeError("Both h264_qsv and libx264 failed for minimal video") from last_exc
+                if codec == "hevc_qsv":
+                    print("hevc_qsv failed, falling back to libx264", file=sys.stderr)
+        raise RuntimeError("Both hevc_qsv and libx264 failed for minimal video") from last_exc
 
     filter_chains = ''.join(
         (
@@ -237,9 +237,9 @@ def trim_single_video(
     concat_inputs = ''.join(f"[v{i}][a{i}]" for i in range(len(segments_to_keep)))
     filter_complex = f"{filter_chains}{concat_inputs}concat=n={len(segments_to_keep)}:v=1:a=1[outv][outa]"
 
-    # Try h264_qsv first (preset slower, quality options for best quality), fallback to libx264.
+    # Try hevc_qsv first (ICQ quality), fallback to libx264.
     ENCODERS_TO_TRY = [
-        ("h264_qsv", _get_h264_qsv_quality_params()),
+        ("hevc_qsv", _get_hevc_qsv_quality_params()),
         ("libx264", _get_libx264_quality_params()),
     ]
 
@@ -276,8 +276,8 @@ def trim_single_video(
                 break
             except subprocess.CalledProcessError as e:
                 last_exc = e
-                if codec == "h264_qsv":
-                    print("h264_qsv failed, falling back to libx264", file=sys.stderr)
+                if codec == "hevc_qsv":
+                    print("hevc_qsv failed, falling back to libx264", file=sys.stderr)
         else:
             if last_exc is not None:
                 raise subprocess.CalledProcessError(
