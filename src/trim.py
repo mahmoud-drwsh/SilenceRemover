@@ -41,7 +41,7 @@ def _probe_bitrate_bps(input_file: Path) -> int:
 
 def _get_hevc_qsv_quality_params() -> list[str]:
     """hevc_qsv with ICQ (Intelligent Constant Quality). -global_quality selects ICQ mode (1=best .. 51=worst); ~25 ≈ crf 23."""
-    return ["-preset", "slow", "-global_quality", "25", "-profile:v", "high"]
+    return ["-preset", "slow", "-global_quality", "25"]
 
 
 def _get_libx264_quality_params() -> list[str]:
