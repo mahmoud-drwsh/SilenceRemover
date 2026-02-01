@@ -15,7 +15,6 @@ from src.main_utils import (
     detect_silence_points,
     find_optimal_padding,
     print_ffmpeg_cmd,
-    VIDEO_CRF,
 )
 
 # Debug flag (set from CLI)
@@ -41,31 +40,13 @@ def _probe_bitrate_bps(input_file: Path) -> int:
 
 
 def _get_h264_qsv_quality_params() -> list[str]:
-    """Quality params for h264_qsv: high quality with smaller file size.
-    - preset 2 = slower; global_quality slightly relaxed (CRF+2, cap 28) for smaller size.
-    - look_ahead_depth 25 (was 40) to reduce bitrate while keeping look-ahead benefit.
-    """
-    # Slightly higher quality number = smaller file, still high quality (23 -> 25)
-    qsv_quality = min(VIDEO_CRF + 2, 28)
-    return [
-        "-preset", "2",  # 2 = slower (0=veryslow .. 7=veryfast)
-        "-global_quality", str(qsv_quality),
-        "-pix_fmt", "nv12",
-        "-rdo", "1",
-        "-look_ahead", "1",
-        "-look_ahead_depth", "25",
-        "-extbrc", "1",
-        "-adaptive_i", "1",
-        "-adaptive_b", "1",
-        "-profile", "high",
-        "-scenario", "archive",
-        "-mbbrc", "1",
-    ]
+    """Only the slower preset for h264_qsv; everything else uses encoder defaults."""
+    return ["-preset", "2"]  # 2 = slower (0=veryslow .. 7=veryfast)
 
 
 def _get_libx264_quality_params() -> list[str]:
-    """Quality params for libx264 fallback (H.264, CRF + slow preset)."""
-    return ["-crf", str(VIDEO_CRF), "-preset", "slow"]
+    """Only the slower preset for libx264; everything else uses encoder defaults."""
+    return ["-preset", "slower"]
 
 
 def _build_segments_to_keep(
