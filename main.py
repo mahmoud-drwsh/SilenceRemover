@@ -141,17 +141,14 @@ def run_phase1_for_video(
             debug=debug,
         )
 
-        # (2) Transcribe snippet and generate title (writes to temp .txt and .title.txt)
+        # (2) Transcribe snippet and generate title (persisted in data.json only)
         print(f"\n[Phase 1] Transcribing and generating title: {snippet_path.name}")
-        transcript_path, title_path = transcribe_single_video(
+        transcript_text, title_text = transcribe_single_video(
             media_path=snippet_path,
             temp_dir=temp_dir,
             api_key=api_key,
             basename=basename,
         )
-
-        transcript_text = transcript_path.read_text(encoding="utf-8").strip()
-        title_text = title_path.read_text(encoding="utf-8").strip() if title_path.exists() else ""
 
         if video_name not in data:
             data[video_name] = {}

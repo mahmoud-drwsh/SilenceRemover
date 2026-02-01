@@ -110,11 +110,11 @@ The tool processes videos sequentially through four main stages:
 - **Title Generation**: Generates YouTube-style title from transcript using GPT-OSS 120B model
 - Handles educational content formats (book names, lesson numbers)
 - **Two-step process**: Separate API calls for transcription and title generation (better quality and control)
-- Stores transcript (`.txt`) and title (`.title.txt`) in `temp/` directory
+- Transcript and title are stored in `output/data.json` (single source of truth; no separate .txt files)
 
 ### 4. File Renaming
 
-- Reads generated title from `temp/` directory
+- Reads generated title from `output/data.json`
 - Sanitizes filename (removes invalid characters)
 - Handles duplicate names by appending `_N` suffix
 - Copies trimmed video from `temp/` to `output/` directory with the new title-based filename
@@ -130,26 +130,22 @@ input-directory/
   └── ...
 
 output/                    # Sibling to input-directory
+  ├── data.json           # Transcript, title, and completion state per video
   ├── generated-title-1.mp4
   └── generated-title-2.mkv
 
-temp/                      # Sibling to input-directory
-  ├── video1.m4a          # Extracted audio
-  ├── video1.txt          # Transcript
-  ├── video1.title.txt    # Generated title
-  ├── video2.m4a
-  ├── video2.txt
-  ├── video2.title.txt
-  └── _processed_vids.json # Processing tracking database
+temp/                      # Sibling to input-directory (intermediate audio/snippets only)
+  ├── video1_snippet.wav   # Silence-removed snippet for transcription
+  └── ...
 ```
 
 ## Process Tracking
 
-The tool maintains a tracking database (`temp/_processed_vids.json`) to avoid reprocessing videos:
+The tool maintains state in `output/data.json` to avoid reprocessing videos:
 
-- **Automatic Skip**: Videos already in the database are skipped
-- **Metadata Tracking**: Stores processing timestamp for each video
-- **Manual Reset**: Delete `_processed_vids.json` to reprocess all videos
+- **Per-video keys**: `transcript`, `title`, and `completed` (Phase 1 vs Phase 2 done)
+- **Automatic Skip**: Phase 1 is skipped if transcript and title already exist for that video; Phase 2 is skipped if `completed` is true
+- **Manual Reset**: Edit or delete entries in `data.json` to reprocess specific videos (or delete the file to reprocess all)
 
 ## Supported Formats
 

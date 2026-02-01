@@ -269,24 +269,22 @@ def generate_title_with_openrouter(api_key: str, transcript: str) -> str:
 _AUDIO_EXTENSIONS = {".wav", ".m4a", ".mp3", ".aac", ".ogg", ".flac", ".aiff"}
 
 
-def transcribe_single_video(media_path: Path, temp_dir: Path, api_key: str, basename: str) -> tuple[Path, Path]:
-    """Transcribe from a video or audio file. Returns (transcript_path, title_path). Skips if files exist.
+def transcribe_single_video(media_path: Path, temp_dir: Path, api_key: str, basename: str) -> tuple[str, str]:
+    """Transcribe from a video or audio file. Returns (transcript_text, title_text).
     
     If media_path is an audio file (e.g. .wav, .m4a), uses it directly without extraction.
     Otherwise extracts first 5 min of audio from the video.
+    Caller is responsible for persisting transcript/title (e.g. in data.json).
     
     Args:
         media_path: Path to video file or pre-extracted audio (e.g. snippet.wav)
-        temp_dir: Temporary directory for intermediate files
+        temp_dir: Temporary directory for intermediate files (e.g. extracted audio)
         api_key: OpenRouter API key
-        basename: Base name for output files (transcript.txt, title.title.txt)
+        basename: Base name for temp audio file if extraction is needed
         
     Returns:
-        Tuple of (transcript_path, title_path)
+        Tuple of (transcript_text, title_text)
     """
-    transcript_path = temp_dir / f"{basename}.txt"
-    title_path = temp_dir / f"{basename}.title.txt"
-
     if media_path.suffix.lower() in _AUDIO_EXTENSIONS:
         audio_path = media_path.resolve()
         print(f"Using audio directly (no extraction): {audio_path.name}")
@@ -298,29 +296,10 @@ def transcribe_single_video(media_path: Path, temp_dir: Path, api_key: str, base
         else:
             print("Audio already exists (skipping extraction).")
 
-    # Check if both transcript and title already exist
-    if transcript_path.exists() and title_path.exists():
-        print("Transcript and title already exist (skipping).")
-        return transcript_path, title_path
+    print("Transcribing with OpenRouter...")
+    transcript_text = transcribe_with_openrouter(api_key, audio_path)
 
-    # Always use two separate API calls (transcription first, then title generation)
-    # Step 1: Transcription
-    if not transcript_path.exists():
-        print("Transcribing with OpenRouter...")
-        transcript = transcribe_with_openrouter(api_key, audio_path)
-        transcript_path.write_text(transcript, encoding="utf-8")
-        print(f"Transcript -> {transcript_path}")
-    else:
-        print("Transcript already exists (skipping).")
+    print("Generating YouTube title...")
+    title_text = generate_title_with_openrouter(api_key, transcript_text)
 
-    # Step 2: Title generation (with fallback logic)
-    if not title_path.exists():
-        print("Generating YouTube title...")
-        transcript_text = transcript_path.read_text(encoding="utf-8")
-        title = generate_title_with_openrouter(api_key, transcript_text)
-        title_path.write_text(title, encoding="utf-8")
-        print(f"Title -> {title_path}")
-    else:
-        print("Title already exists (skipping).")
-
-    return transcript_path, title_path
+    return transcript_text.strip(), title_text.strip()
