@@ -26,22 +26,6 @@ from src.main_utils import (
 )
 
 
-def extract_first_5min_from_audio(input_audio: Path, output_audio: Path) -> None:
-    """Extract first 5 minutes (300s) from an audio file. Used for snippet from silence-removed audio."""
-    output_audio.parent.mkdir(parents=True, exist_ok=True)
-    cmd = build_ffmpeg_cmd(overwrite=True)
-    cmd.extend([
-        "-i", str(input_audio),
-        "-t", "300",
-        "-vn", "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
-        str(output_audio),
-    ])
-    print_ffmpeg_cmd(cmd)
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"Failed to extract first 5 min from {input_audio}\nstderr={r.stderr}")
-
-
 def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str = "wav") -> None:
     """Extract first 5 minutes of audio from video.
     

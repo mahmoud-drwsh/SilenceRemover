@@ -18,7 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.main_utils import VIDEO_EXTENSIONS
 from src.trim import trim_single_video, create_silence_removed_audio
-from src.transcribe import transcribe_single_video, extract_first_5min_from_audio
+from src.transcribe import transcribe_single_video
 from src.rename import sanitize_filename
 
 # Debug flag (set from CLI)
@@ -117,7 +117,7 @@ def run_phase1_for_video(
     api_key: str,
     debug: bool,
 ) -> bool:
-    """Phase 1: full silence-removed audio -> first 5 min -> transcribe -> title. Updates data.json. Returns True on success."""
+    """Phase 1: silence-removed first 5 min audio -> transcribe -> title. Updates data.json. Returns True on success."""
     data = load_data(output_dir)
     video_name = video_path.name
     basename = video_path.stem
@@ -127,25 +127,21 @@ def run_phase1_for_video(
         return True
 
     try:
-        # (1) Full silence-removed audio (same algorithm as video trim, audio only)
-        no_silence_path = temp_dir / f"{basename}_no_silence.wav"
-        print(f"\n[Phase 1] Creating silence-removed audio: {video_name}")
+        # (1) Silence-removed audio, first 5 min only (one pass)
+        snippet_path = temp_dir / f"{basename}_snippet.wav"
+        print(f"\n[Phase 1] Creating snippet (first 5 min, silence-removed): {video_name}")
         create_silence_removed_audio(
             input_file=video_path,
-            output_audio_path=no_silence_path,
+            output_audio_path=snippet_path,
             noise_threshold=noise_threshold,
             min_duration=min_duration,
             pad_sec=pad_sec,
             target_length=None,
+            max_duration=300,
             debug=debug,
         )
 
-        # (2) First 5 min of that audio
-        snippet_path = temp_dir / f"{basename}_snippet.wav"
-        print(f"\n[Phase 1] Extracting first 5 min -> {snippet_path.name}")
-        extract_first_5min_from_audio(no_silence_path, snippet_path)
-
-        # (3) Transcribe snippet and generate title (writes to temp .txt and .title.txt)
+        # (2) Transcribe snippet and generate title (writes to temp .txt and .title.txt)
         print(f"\n[Phase 1] Transcribing and generating title: {snippet_path.name}")
         transcript_path, title_path = transcribe_single_video(
             media_path=snippet_path,
@@ -262,7 +258,7 @@ def main() -> None:
     print(f"Temp: {temp_dir}")
     print("-" * 60)
 
-    # Phase 1: full silence-removed audio -> first 5 min -> transcribe -> title (per video in order)
+    # Phase 1: silence-removed first 5 min audio -> transcribe -> title (per video in order)
     for i, video_file in enumerate(videos, 1):
         print(f"\n{'='*60}")
         print(f"[{i}/{len(videos)}] Phase 1: {video_file.name}")

@@ -101,9 +101,11 @@ def create_silence_removed_audio(
     min_duration: float,
     pad_sec: float,
     target_length: Optional[float] = None,
+    max_duration: Optional[float] = None,
     debug: bool = False,
 ) -> Path:
-    """Create full silence-removed audio (same algorithm as video trim), audio only (-vn)."""
+    """Create silence-removed audio (same algorithm as video trim), audio only (-vn).
+    If max_duration is set (e.g. 300), limit output to that many seconds (e.g. first 5 min)."""
     global DEBUG
     DEBUG = debug
     output_audio_path.parent.mkdir(parents=True, exist_ok=True)
@@ -134,38 +136,27 @@ def create_silence_removed_audio(
     concat_inputs = "".join(f"[a{i}]" for i in range(len(segments_to_keep)))
     filter_complex = f"{filter_chains}{concat_inputs}concat=n={len(segments_to_keep)}:v=0:a=1[outa]"
 
-    filter_script_path: str | None = None
+    with tempfile.NamedTemporaryFile("w", suffix=".ffscript", delete=False, encoding="utf-8") as tf:
+        tf.write(filter_complex)
+        filter_script_path: str = tf.name
+    cmd = build_ffmpeg_cmd(overwrite=True)
+    cmd.extend([
+        "-i", str(input_file),
+        "-filter_complex_script", filter_script_path,
+        "-map", "[outa]", "-vn",
+        "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
+    ])
+    if max_duration is not None:
+        cmd.extend(["-t", str(int(max_duration))])
+    cmd.append(str(output_audio_path))
     try:
-        with tempfile.NamedTemporaryFile("w", suffix=".ffscript", delete=False, encoding="utf-8") as tf:
-            tf.write(filter_complex)
-            filter_script_path = tf.name
-        cmd = build_ffmpeg_cmd(overwrite=True)
-        cmd.extend([
-            "-i", str(input_file),
-            "-filter_complex_script", filter_script_path,
-            "-map", "[outa]", "-vn",
-            "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
-            str(output_audio_path),
-        ])
-        print_ffmpeg_cmd(cmd)
-        subprocess.run(cmd, check=True)
-    except Exception:
-        cmd = build_ffmpeg_cmd(overwrite=True)
-        cmd.extend([
-            "-i", str(input_file),
-            "-filter_complex", filter_complex,
-            "-map", "[outa]", "-vn",
-            "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
-            str(output_audio_path),
-        ])
         print_ffmpeg_cmd(cmd)
         subprocess.run(cmd, check=True)
     finally:
-        if filter_script_path:
-            try:
-                Path(filter_script_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+        try:
+            Path(filter_script_path).unlink(missing_ok=True)
+        except Exception:
+            pass
 
     wait_for_file_release(output_audio_path)
     print(f"Silence-removed audio -> {output_audio_path}")
@@ -241,61 +232,58 @@ def trim_single_video(
     concat_inputs = ''.join(f"[v{i}][a{i}]" for i in range(len(segments_to_keep)))
     filter_complex = f"{filter_chains}{concat_inputs}concat=n={len(segments_to_keep)}:v=1:a=1[outv][outa]"
 
-    video_codec = "libx265"
-    quality_params = _get_encoder_quality_params()
+    # Try hevc_qsv first, fallback to libx265 on failure. No quality params: let encoder
+    # use defaults so output size is not inflated when source is lower quality.
+    # Preset/tune: hevc_qsv preset 3=slow, extbrc+look_ahead_depth for quality; libx265 slow+ssim.
+    ENCODERS_TO_TRY = [
+        ("hevc_qsv", ["-preset", "3", "-extbrc", "1", "-look_ahead_depth", "40"]),
+        ("libx265", ["-preset", "fast"]),
+    ]
 
-    # On Windows the command-line length can be exceeded with very large filter graphs.
-    # Use a temporary filter script to avoid hitting CreateProcess limits.
-    filter_script_path: str | None = None
+    with tempfile.NamedTemporaryFile("w", suffix=".ffscript", delete=False, encoding="utf-8") as tf:
+        tf.write(filter_complex)
+        filter_script_path: str = tf.name
+
+    def build_encode_cmd(codec: str, quality_params: list[str]) -> list[str]:
+        cmd = build_ffmpeg_cmd(overwrite=True)
+        cmd.extend(["-i", str(input_file)])
+        cmd.extend(["-filter_complex_script", filter_script_path])
+        cmd.extend([
+            "-map", "[outv]", "-map", "[outa]",
+            "-c:v", codec,
+        ])
+        cmd.extend(quality_params)
+        cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file)])
+        return cmd
+
     try:
-        with tempfile.NamedTemporaryFile("w", suffix=".ffscript", delete=False, encoding="utf-8") as tf:
-            tf.write(filter_complex)
-            filter_script_path = tf.name
-
-        # Use filter script to avoid long command lines (Windows) and keep compatibility.
-        # Some FFmpeg builds may warn it's deprecated but still support it.
-        cmd = build_ffmpeg_cmd(overwrite=True)
-        cmd.extend([
-            "-i", str(input_file),
-            "-filter_complex_script", filter_script_path,
-            "-map", "[outv]", "-map", "[outa]",
-            "-c:v", video_codec,
-        ])
-        cmd.extend(quality_params)
-        cmd.extend([
-            "-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file),
-        ])
-    except Exception:
-        # Fallback to inline filter if script creation fails
-        cmd = build_ffmpeg_cmd(overwrite=True)
-        cmd.extend([
-            "-i", str(input_file),
-            "-filter_complex", filter_complex,
-            "-map", "[outv]", "-map", "[outa]",
-            "-c:v", video_codec,
-        ])
-        cmd.extend(quality_params)
-        cmd.extend([
-            "-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file),
-        ])
-
-    print(f"Input: {input_file}")
-    print(f"Output: {output_file}")
-    print(f"Settings: noise={noise_threshold}dB, min_duration={min_duration}s, pad={pad_sec}s")
-    print(f"Filter complex length: {len(filter_complex)} characters")
-    print(f"Number of segments: {len(segments_to_keep)}")
-    print_ffmpeg_cmd(cmd)
-    subprocess.run(cmd, check=True)
+        print(f"Input: {input_file}")
+        print(f"Output: {output_file}")
+        print(f"Settings: noise={noise_threshold}dB, min_duration={min_duration}s, pad={pad_sec}s")
+        print(f"Filter complex length: {len(filter_complex)} characters")
+        print(f"Number of segments: {len(segments_to_keep)}")
+        last_result = None
+        last_cmd = None
+        for codec, quality_params in ENCODERS_TO_TRY:
+            cmd = build_encode_cmd(codec, quality_params)
+            print_ffmpeg_cmd(cmd)
+            last_cmd = cmd
+            last_result = subprocess.run(cmd, capture_output=True, text=True)
+            if last_result.returncode == 0:
+                break
+            if codec == "hevc_qsv":
+                print("hevc_qsv failed, falling back to libx265", file=sys.stderr)
+        if last_result is not None and last_result.returncode != 0:
+            raise subprocess.CalledProcessError(
+                last_result.returncode, last_cmd or [], last_result.stdout, last_result.stderr
+            )
     finally:
-        if filter_script_path:
-            try:
-                Path(filter_script_path).unlink(missing_ok=True)
-            except Exception:
-                pass
-    
+        try:
+            Path(filter_script_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
     wait_for_file_release(output_file)
-    
     print(f"Done! Output saved to: {output_file}")
-    # Return absolute path to ensure it can be found later
     return output_file.resolve()
 

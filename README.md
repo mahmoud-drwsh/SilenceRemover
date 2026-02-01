@@ -197,12 +197,6 @@ Or check your `.env` file is loaded properly.
 
 **Note**: OpenRouter requires a minimum balance of $0.50 to process audio files. Make sure your account has sufficient funds.
 
-### Output Copy Fails on Windows
-
-- Windows can temporarily lock freshly exported videos (e.g., antivirus scan or preview in Explorer), which results in `PermissionError` during copying.
-- The tool now retries the copy operation with automatic backoff until the file is released.
-- To manually verify, open a processed video in a player to keep it locked, rerun the script, and observe the retry log messages. Once the lock is released, the copy should complete successfully.
-
 ## License
 
 [Add your license information here]

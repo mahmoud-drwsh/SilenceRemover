@@ -60,53 +60,16 @@ TRANSCRIBE_PROMPT = """Transcribe the Arabic audio as clean verbatim text in Ara
 - Keep punctuation and natural phrasing."""
 
 TITLE_PROMPT_TEMPLATE = """\
-Generate a YouTube video title in Arabic based on the Arabic transcript below.
+Generate one YouTube video title in Arabic from the transcript below. The title must be in Arabic. Output only the title—no commentary, no explanation, no quotes around it, and nothing else.
 
-═══════════════════════════════════════════════════════════════
-HONORIFICS REQUIREMENT (CRITICAL - MUST FOLLOW):
-═══════════════════════════════════════════════════════════════
-If the transcript mentions Prophet Muhammad in ANY way, you MUST include 
-the honorific ﷺ immediately after EVERY mention in the title.
+Rules: 60–90 characters (max 100). One title only. Be accurate and descriptive; prefer wording from the transcript.
 
-This applies to ALL references including:
-- محمد
-- رسول الله
-- المصطفى
-- النبي
-- سيدنا رسول الله
-- سيدنا محمد
-- النبي محمد
-- رسول الله صلى الله عليه وسلم
-- Any other reference to the Prophet
+Add the honorific ﷺ only when your generated title itself includes a mention of the Prophet (e.g. محمد، رسول الله، المصطفى، النبي). If the transcript mentions the Prophet but your title does not, do not add the honorific. Only add ﷺ immediately after each such mention that appears in the title you output.
 
-This is non-negotiable and must be followed in every single title.
+Example: تعظيم الإمام مالك لسيدنا رسول الله ﷺ
 
-═══════════════════════════════════════════════════════════════
-REQUIREMENTS:
-═══════════════════════════════════════════════════════════════
-1. Maximum 100 characters (strict limit) - aim for 60-90 characters for better descriptiveness
-2. Accurately reflect the main topic/content discussed in the transcript
-3. Be descriptive and informative - include key details from the transcript
-4. Use words from the transcript verbatim when possible
-5. Title only - no quotes, no extra commentary, no explanations
-
-═══════════════════════════════════════════════════════════════
-FORMATTING RULES:
-═══════════════════════════════════════════════════════════════
-- Make the topic part descriptive enough to understand what is discussed
-- Follow the honorific requirement above if Prophet Muhammad is mentioned
-
-═══════════════════════════════════════════════════════════════
-EXAMPLES:
-═══════════════════════════════════════════════════════════════
-- تعظيم الإمام مالك لسيدنا رسول الله ﷺ
-- كتاب الشفاء بتعريف حقوق المصطفى ﷺ
-
-═══════════════════════════════════════════════════════════════
-Arabic transcript:
+Transcript:
 {transcript}
-
-Generate ONE title only (60-90 characters recommended, max 100, accurately reflecting the Arabic transcript content):
 """
 
 # --- File Type Constants ---
