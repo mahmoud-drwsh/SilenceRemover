@@ -41,12 +41,12 @@ def _probe_bitrate_bps(input_file: Path) -> int:
 
 def _get_h264_qsv_quality_params() -> list[str]:
     """Only the slower preset for h264_qsv; everything else uses encoder defaults."""
-    return ["-preset", "slow", "-profile:v", "high", "-look_ahead", "1", "-global_quality", "23"]  # 2 = slower (0=veryslow .. 7=veryfast)
+    return ["-preset", "slow", "-profile:v", "high", "-look_ahead", "1", "-global_quality", "27"]  # 2 = slower (0=veryslow .. 7=veryfast)
 
 
 def _get_libx264_quality_params() -> list[str]:
     """Only the slower preset for libx264; everything else uses encoder defaults."""
-    return ["-preset", "slower", "-profile:v", "high"]
+    return ["-preset", "slow", "-profile:v", "high"]
 
 
 def _build_segments_to_keep(
