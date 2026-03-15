@@ -1,0 +1,34 @@
+---
+description: Summarize changes and append to AGENTS.md
+alwaysApply: true
+---
+
+# Summarize Changes to AGENTS.md
+
+After making code or config changes in this session (edits, new files, refactors, fixes), summarize what changed and **append** the summary to `./AGENTS.md`. Do not do this for purely read-only work (e.g. answering questions, explaining code) or when no files were modified.
+
+## What to do
+
+1. For each file you changed, append one sentence describing what changed.
+2. Append to `./AGENTS.md` (one line per file).
+3. If `./AGENTS.md` does not exist, create it with a brief intro (e.g. "Session change summaries for AI agents.") then add the new lines.
+
+## Entry format
+
+One sentence per file, e.g.:
+
+```markdown
+- `src/transcribe.py`: Refactored error handling and added retries for API timeouts.
+- `src/config.py`: Added retry count and timeout options.
+```
+
+## Example
+
+**BAD**: Finishing a refactor and closing without updating AGENTS.md.
+
+**GOOD**: After editing two files, appending to AGENTS.md:
+
+```markdown
+- `src/transcribe.py`: Refactored transcription error handling and added retries.
+- `src/config.py`: Added retry and timeout settings.
+```
