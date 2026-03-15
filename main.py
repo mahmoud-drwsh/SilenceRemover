@@ -230,7 +230,7 @@ def main() -> None:
     _require_input_dir(input_dir)
     _require_videos_in(input_dir)
 
-    from src.env_config import load_config
+    from src.config import load_config
     try:
         config = load_config()
     except ValueError as e:

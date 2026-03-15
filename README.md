@@ -36,7 +36,7 @@ uv sync
 
 ## Configuration
 
-All environment variables are centrally defined in `src/env_config.py` (the single source of truth). Configuration is validated at startup with clear error messages.
+All configuration (environment variables and static constants) is defined in `src/config.py` (the single source of truth). Configuration is validated at startup with clear error messages.
 
 Create a `.env` file in the project root (or export environment variables) to configure the tool. See `.env.example` for all available variables.
 

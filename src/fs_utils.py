@@ -63,7 +63,7 @@ def wait_for_file_release(path: Path, timeout: float | None = None) -> bool:
         return True
     
     # Get timeout and sleep interval from centralized config
-    from src.env_config import get_config
+    from src.config import get_config
     config = get_config()
     if timeout is None:
         timeout = config["SILENCE_REMOVER_WAIT_TIMEOUT_SEC"]
