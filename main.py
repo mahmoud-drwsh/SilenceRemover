@@ -210,6 +210,8 @@ def main() -> None:
     )
     parser.add_argument("input_dir", type=str, help="Input directory (raw videos)")
     parser.add_argument("--target-length", type=float, help="Target length in seconds for final trim (Phase 2)")
+    parser.add_argument("--noise-threshold", type=float, default=None, help="Silence detection threshold in dB (e.g. -55). Overrides config; with --target-length uses SIMPLE_DB if not set.")
+    parser.add_argument("--min-duration", type=float, default=None, help="Minimum silence duration in seconds (e.g. 0.5). Overrides config; with --target-length uses SIMPLE_MIN_DURATION if not set.")
 
     args = parser.parse_args()
 
@@ -219,7 +221,7 @@ def main() -> None:
     _require_input_dir(input_dir)
     _require_videos_in(input_dir)
 
-    from src.config import load_config
+    from src.config import load_config, SIMPLE_DB, SIMPLE_MIN_DURATION
     try:
         config = load_config()
     except ValueError as e:
@@ -228,8 +230,18 @@ def main() -> None:
     output_dir = sibling_dir(input_dir, "output")
     temp_dir = sibling_dir(input_dir, "temp")
 
-    noise_threshold = config["NOISE_THRESHOLD"]
-    min_duration = config["MIN_DURATION"]
+    if args.noise_threshold is not None:
+        noise_threshold = args.noise_threshold
+    elif args.target_length is not None:
+        noise_threshold = SIMPLE_DB
+    else:
+        noise_threshold = config["NOISE_THRESHOLD"]
+    if args.min_duration is not None:
+        min_duration = args.min_duration
+    elif args.target_length is not None:
+        min_duration = SIMPLE_MIN_DURATION
+    else:
+        min_duration = config["MIN_DURATION"]
     pad_sec = config["PAD"]
     api_key = config["OPENROUTER_API_KEY"]
 

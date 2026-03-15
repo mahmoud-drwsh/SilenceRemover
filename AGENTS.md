@@ -21,3 +21,6 @@ Entries below are appended by the agent after making code or config changes.
 - `.env.example`: Reduced to only OPENROUTER_API_KEY (secrets); note that other settings use defaults in config.py.
 - `src/config.py`: Docstring updated to state only secrets need to be in .env.
 - `README.md`: Config section updated to say .env is for secrets only; other options and defaults are in config.py.
+- `main.py`: Added optional CLI flags --noise-threshold and --min-duration; resolve from CLI, else SIMPLE_* when --target-length set, else config.
+- `src/trim.py`: Target-length path uses detect_silence_points(noise_threshold, min_duration) instead of detect_silences_simple; removed SIMPLE_* overwrite and unused imports.
+- `README.md`: Documented --noise-threshold and --min-duration in Options.

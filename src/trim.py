@@ -9,15 +9,12 @@ from typing import Optional
 from src.config import (
     AUDIO_BITRATE,
     BITRATE_FALLBACK_BPS,
-    SIMPLE_DB,
-    SIMPLE_MIN_DURATION,
 )
 from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 from src.fs_utils import wait_for_file_release
 from src.silence_utils import (
     calculate_resulting_length,
     detect_silence_points,
-    detect_silences_simple,
     find_optimal_padding,
 )
 
@@ -191,8 +188,8 @@ def trim_single_video(
             except Exception as e:
                 print(f"Error copying file: {e}", file=sys.stderr)
                 raise
-        # Target length: detect once at fixed threshold, then padding-only tuning
-        silence_starts, silence_ends = detect_silences_simple(input_file)
+        # Target length: detect once with caller's threshold/min_duration, then padding-only tuning
+        silence_starts, silence_ends = detect_silence_points(input_file, noise_threshold, min_duration)
         if len(silence_starts) > len(silence_ends):
             silence_ends = list(silence_ends) + [duration_sec]
         base_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)
@@ -202,7 +199,6 @@ def trim_single_video(
         else:
             pad_sec = find_optimal_padding(silence_starts, silence_ends, duration_sec, target_length)
         segments_to_keep = _build_segments_from_silences(silence_starts, silence_ends, duration_sec, pad_sec)
-        noise_threshold, min_duration = SIMPLE_DB, SIMPLE_MIN_DURATION
     else:
         segments_to_keep, duration_sec = _build_segments_to_keep(
             input_file, noise_threshold, min_duration, pad_sec, target_length

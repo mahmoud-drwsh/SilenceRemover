@@ -67,6 +67,8 @@ python main.py /path/to/video/directory
 ### Options
 
 - `--target-length FLOAT`: Optimize padding to achieve a target video length (in seconds)
+- `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). With `--target-length`, defaults to SIMPLE_DB if not set.
+- `--min-duration FLOAT`: Override minimum silence duration in seconds (e.g. `0.5`). With `--target-length`, defaults to SIMPLE_MIN_DURATION if not set.
 
 ### Examples
 
