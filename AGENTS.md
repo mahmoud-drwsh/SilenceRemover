@@ -7,3 +7,17 @@ Entries below are appended by the agent after making code or config changes.
 - `src/silence_utils.py`: Removed debug parameter and all debug print blocks from detect_silence_points.
 - `src/config.py`: Set OPENROUTER_DEFAULT_MODEL and OPENROUTER_TITLE_MODEL defaults to google/gemini-2.5-flash-lite.
 - `src/config.py`: Set OPENROUTER_TITLE_MODEL default to google/gemini-3.1-flash-lite-preview for title generation.
+- `src/config.py`: Added AUTO_* constants for adaptive silence sweep (AUTO_DB_START, AUTO_DB_MAX, AUTO_DB_STEP_PHASE3, AUTO_MIN_DURATION_*), updated comments to reflect min-duration-first then dB sweep.
+- `src/silence_utils.py`: Updated find_threshold_and_min_duration to sweep min_duration first at AUTO_DB_START, then dB from AUTO_DB_START up to AUTO_DB_MAX at AUTO_MIN_DURATION_MIN.
+- `src/trim.py`: When target_length is set, probe duration first, copy if target >= duration, else call find_threshold_and_min_duration and use result for trim; removed duplicate copy block.
+- `ALGO.md`: Documented silence-detection algorithm, dB/min_duration effects, and adaptive sweep (min-duration-first, then dB) for target length.
+- `src/config.py`: Added SIMPLE_DB and SIMPLE_MIN_DURATION for simple fixed-threshold mode when --target-length is set.
+- `src/silence_utils.py`: Added detect_silences_simple() using SIMPLE_DB and SIMPLE_MIN_DURATION.
+- `src/trim.py`: Added _build_segments_from_silences(); refactored _build_segments_to_keep to use it; when target_length is set use simple mode (detect_silences_simple, base length, find_optimal_padding or pad=0, _build_segments_from_silences) and removed find_threshold_and_min_duration; import detect_silences_simple and config SIMPLE_*.
+- `ALGO.md`: Replaced target-length section with "Simple mode": single detection at -55 dB and 0.01 s, padding-only tuning; adaptive sweep removed when target is set.
+- `src/silence_utils.py`: Removed find_threshold_and_min_duration and AUTO_* imports; only detect_silences_simple + find_optimal_padding used when target is set.
+- `src/config.py`: Removed AUTO_* constants (adaptive sweep); kept SIMPLE_DB and SIMPLE_MIN_DURATION for target-length algorithm.
+- `src/trim.py`, `ALGO.md`: Dropped "simple mode" wording; single algorithm when target is set.
+- `.env.example`: Reduced to only OPENROUTER_API_KEY (secrets); note that other settings use defaults in config.py.
+- `src/config.py`: Docstring updated to state only secrets need to be in .env.
+- `README.md`: Config section updated to say .env is for secrets only; other options and defaults are in config.py.

@@ -6,12 +6,18 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from src.config import AUDIO_BITRATE, BITRATE_FALLBACK_BPS
+from src.config import (
+    AUDIO_BITRATE,
+    BITRATE_FALLBACK_BPS,
+    SIMPLE_DB,
+    SIMPLE_MIN_DURATION,
+)
 from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 from src.fs_utils import wait_for_file_release
 from src.silence_utils import (
     calculate_resulting_length,
     detect_silence_points,
+    detect_silences_simple,
     find_optimal_padding,
 )
 
@@ -44,6 +50,28 @@ def _get_libx264_quality_params() -> list[str]:
     return ["-preset", "medium", "-profile:v", "high"]
 
 
+def _build_segments_from_silences(
+    silence_starts: list[float],
+    silence_ends: list[float],
+    duration_sec: float,
+    pad_sec: float,
+) -> list[tuple[float, float]]:
+    """Build segments to keep from precomputed silence lists. Silences with duration <= 2*pad_sec are skipped."""
+    if len(silence_starts) > len(silence_ends):
+        silence_ends = list(silence_ends) + [duration_sec]
+    segments_to_keep: list[tuple[float, float]] = []
+    prev_end = 0.0
+    for silence_start, silence_end in zip(silence_starts, silence_ends):
+        if silence_end - silence_start <= pad_sec * 2:
+            continue
+        if silence_start > prev_end:
+            segments_to_keep.append((round(prev_end, 3), round(silence_start, 3)))
+        prev_end = max(0.0, silence_end - pad_sec)
+    if prev_end < duration_sec:
+        segments_to_keep.append((round(prev_end, 3), round(duration_sec, 3)))
+    return segments_to_keep
+
+
 def _build_segments_to_keep(
     input_file: Path,
     noise_threshold: float,
@@ -57,25 +85,14 @@ def _build_segments_to_keep(
     if duration_sec <= 0:
         raise ValueError(f"Invalid video duration: {duration_sec}s. Video file may be corrupted or empty.")
     if len(silence_starts) > len(silence_ends):
-        silence_ends.append(duration_sec)
+        silence_ends = list(silence_ends) + [duration_sec]
 
     if target_length is not None:
         if target_length >= duration_sec:
             return ([(0.0, round(duration_sec, 3))], duration_sec)
-        optimal_pad = find_optimal_padding(silence_starts, silence_ends, duration_sec, target_length)
-        pad_sec = optimal_pad
+        pad_sec = find_optimal_padding(silence_starts, silence_ends, duration_sec, target_length)
 
-    segments_to_keep: list[tuple[float, float]] = []
-    prev_end = 0.0
-    for silence_start, silence_end in zip(silence_starts, silence_ends):
-        if silence_end - silence_start <= pad_sec * 2:
-            continue
-        if silence_start > prev_end:
-            seg = (round(prev_end, 3), round(silence_start, 3))
-            segments_to_keep.append(seg)
-        prev_end = max(0.0, silence_end - pad_sec)
-    if prev_end < duration_sec:
-        segments_to_keep.append((round(prev_end, 3), round(duration_sec, 3)))
+    segments_to_keep = _build_segments_from_silences(silence_starts, silence_ends, duration_sec, pad_sec)
     return (segments_to_keep, duration_sec)
 
 
@@ -159,21 +176,38 @@ def trim_single_video(
     basename = output_basename if output_basename is not None else input_file.stem
     output_file = (output_dir / f"{basename}.mp4").resolve()
 
-    segments_to_keep, duration_sec = _build_segments_to_keep(
-        input_file, noise_threshold, min_duration, pad_sec, target_length
-    )
+    if target_length is not None:
+        duration_sec = _probe_duration(input_file)
+        if duration_sec <= 0:
+            raise ValueError(f"Invalid video duration: {duration_sec}s. Video file may be corrupted or empty.")
+        if target_length >= duration_sec:
+            print(f"Target length ({target_length}s) >= original duration ({duration_sec:.3f}s), copying original file")
+            try:
+                import shutil
+                shutil.copyfile(input_file, output_file)
+                wait_for_file_release(output_file)
+                print(f"Done! Output saved to: {output_file}")
+                return output_file.resolve()
+            except Exception as e:
+                print(f"Error copying file: {e}", file=sys.stderr)
+                raise
+        # Target length: detect once at fixed threshold, then padding-only tuning
+        silence_starts, silence_ends = detect_silences_simple(input_file)
+        if len(silence_starts) > len(silence_ends):
+            silence_ends = list(silence_ends) + [duration_sec]
+        base_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)
+        if base_length >= target_length:
+            pad_sec = 0.0
+            print("Base length already >= target, using pad=0")
+        else:
+            pad_sec = find_optimal_padding(silence_starts, silence_ends, duration_sec, target_length)
+        segments_to_keep = _build_segments_from_silences(silence_starts, silence_ends, duration_sec, pad_sec)
+        noise_threshold, min_duration = SIMPLE_DB, SIMPLE_MIN_DURATION
+    else:
+        segments_to_keep, duration_sec = _build_segments_to_keep(
+            input_file, noise_threshold, min_duration, pad_sec, target_length
+        )
 
-    if target_length is not None and target_length >= duration_sec:
-        print(f"Target length ({target_length}s) >= original duration ({duration_sec:.3f}s), copying original file")
-        try:
-            import shutil
-            shutil.copyfile(input_file, output_file)
-            wait_for_file_release(output_file)
-            print(f"Done! Output saved to: {output_file}")
-            return output_file.resolve()
-        except Exception as e:
-            print(f"Error copying file: {e}", file=sys.stderr)
-            raise
     if target_length is not None:
         resulting_length = sum(end - start for start, end in segments_to_keep)
         print(f"Target length: {target_length}s")

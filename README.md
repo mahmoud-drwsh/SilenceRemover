@@ -38,14 +38,13 @@ uv sync
 
 All configuration (environment variables and static constants) is defined in `src/config.py` (the single source of truth). Configuration is validated at startup with clear error messages.
 
-Create a `.env` file in the project root (or export environment variables) to configure the tool. See `.env.example` for all available variables.
+Keep only **secrets** in `.env` (e.g. your OpenRouter API key). Copy `.env.example` to `.env` and set:
 
-**Minimum required configuration:**
 ```env
 OPENROUTER_API_KEY=your_api_key_here
 ```
 
-All other variables are optional and have sensible defaults. See `.env.example` for the complete list with descriptions.
+All other options (models, silence params, timeouts, etc.) have defaults in `src/config.py` and can be overridden via environment variables if needed.
 
 ### Parameter Tuning
 

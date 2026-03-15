@@ -1,7 +1,9 @@
 """Central configuration: environment variables (with validation) and static constants.
 
-Single source of truth for all settings. Use load_config() / get_config() for env-backed
-values at runtime; static constants are available as module attributes.
+Only secrets (e.g. OPENROUTER_API_KEY) need to live in .env; all other options have
+defaults here and can be overridden via environment variables. Use load_config() /
+get_config() for env-backed values at runtime; static constants are available as
+module attributes.
 """
 
 import os
@@ -189,6 +191,10 @@ PAD_INCREMENT_SEC = 0.01
 BITRATE_FALLBACK_BPS = 3_000_000
 AUDIO_BITRATE = "192k"
 
+# When --target-length is set: single detection, padding-only tuning
+SIMPLE_DB = -55.0
+SIMPLE_MIN_DURATION = 0.01
+
 TRANSCRIBE_PROMPT = """Transcribe the Arabic audio as clean verbatim text in Arabic.
 - No timestamps
 - No speaker labels
@@ -239,6 +245,8 @@ __all__ = [
     "PAD_INCREMENT_SEC",
     "BITRATE_FALLBACK_BPS",
     "AUDIO_BITRATE",
+    "SIMPLE_DB",
+    "SIMPLE_MIN_DURATION",
     "VIDEO_CRF",
     "OPENROUTER_API_URL",
     "OPENROUTER_DEFAULT_MODEL",

@@ -4,7 +4,12 @@ import re
 import subprocess
 from pathlib import Path
 
-from src.config import MAX_PAD_SEC, PAD_INCREMENT_SEC
+from src.config import (
+    MAX_PAD_SEC,
+    PAD_INCREMENT_SEC,
+    SIMPLE_DB,
+    SIMPLE_MIN_DURATION,
+)
 from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 
 
@@ -99,3 +104,11 @@ def detect_silence_points(input_file: Path, noise_threshold: float, min_duration
     silence_starts = [float(x) for x in re.findall(r"silence_start: (-?\d+\.?\d*)", result)]
     silence_ends = [float(x) for x in re.findall(r"silence_end: (\d+\.?\d*)", result)]
     return silence_starts, silence_ends
+
+
+def detect_silences_simple(input_file: Path) -> tuple[list[float], list[float]]:
+    """Detect all silences with fixed settings when --target-length is set.
+
+    Uses SIMPLE_DB and SIMPLE_MIN_DURATION for a single detection pass.
+    """
+    return detect_silence_points(input_file, SIMPLE_DB, SIMPLE_MIN_DURATION)
