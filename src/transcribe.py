@@ -14,16 +14,15 @@ except ImportError:
     print("Error: requests library not installed. Install 'requests' to use transcribe/title.", file=sys.stderr)
     sys.exit(1)
 
-from src.main_utils import (
+from src.config import (
     AUDIO_BITRATE,
     OPENROUTER_API_URL,
     OPENROUTER_DEFAULT_MODEL,
     OPENROUTER_TITLE_MODEL,
     TRANSCRIBE_PROMPT,
     TITLE_PROMPT_TEMPLATE,
-    build_ffmpeg_cmd,
-    print_ffmpeg_cmd,
 )
+from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 
 
 def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str = "wav") -> None:

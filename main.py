@@ -16,13 +16,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.main_utils import VIDEO_EXTENSIONS
+from src.config import VIDEO_EXTENSIONS
 from src.trim import trim_single_video, create_silence_removed_audio
 from src.transcribe import transcribe_single_video
 from src.rename import sanitize_filename
-
-# Debug flag (set from CLI)
-DEBUG = False
 
 
 def is_video_file(path: Path) -> bool:
@@ -115,7 +112,6 @@ def run_phase1_for_video(
     min_duration: float,
     pad_sec: float,
     api_key: str,
-    debug: bool,
 ) -> bool:
     """Phase 1: silence-removed first 5 min audio -> transcribe -> title. Updates data.json. Returns True on success."""
     data = load_data(output_dir)
@@ -138,7 +134,6 @@ def run_phase1_for_video(
             pad_sec=pad_sec,
             target_length=None,
             max_duration=300,
-            debug=debug,
         )
 
         # (2) Transcribe snippet and generate title (persisted in data.json only)
@@ -171,7 +166,6 @@ def run_phase2_for_video(
     min_duration: float,
     pad_sec: float,
     target_length: Optional[float],
-    debug: bool,
 ) -> bool:
     """Phase 2: full video+audio trim with title as output basename. Sets completed=True. Returns True on success."""
     data = load_data(output_dir)
@@ -198,7 +192,6 @@ def run_phase2_for_video(
             min_duration=min_duration,
             pad_sec=pad_sec,
             target_length=target_length,
-            debug=debug,
             output_basename=chosen_basename,
         )
         data[video_name]["completed"] = True
@@ -217,12 +210,8 @@ def main() -> None:
     )
     parser.add_argument("input_dir", type=str, help="Input directory (raw videos)")
     parser.add_argument("--target-length", type=float, help="Target length in seconds for final trim (Phase 2)")
-    parser.add_argument("--debug", action="store_true", help="Print detailed debug logs")
 
     args = parser.parse_args()
-
-    global DEBUG
-    DEBUG = args.debug
 
     input_dir = Path(args.input_dir)
 
@@ -268,7 +257,6 @@ def main() -> None:
             min_duration=min_duration,
             pad_sec=pad_sec,
             api_key=api_key,
-            debug=DEBUG,
         )
 
     # Phase 2: full video+audio trim with title
@@ -283,7 +271,6 @@ def main() -> None:
             min_duration=min_duration,
             pad_sec=pad_sec,
             target_length=args.target_length,
-            debug=DEBUG,
         )
 
     data = load_data(output_dir)

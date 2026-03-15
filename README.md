@@ -68,7 +68,6 @@ python main.py /path/to/video/directory
 ### Options
 
 - `--target-length FLOAT`: Optimize padding to achieve a target video length (in seconds)
-- `--debug`: Enable detailed debug output for silence detection and trimming operations
 
 ### Examples
 
@@ -76,12 +75,6 @@ Process videos with target length optimization:
 
 ```bash
 python main.py ~/Videos/lectures --target-length 600
-```
-
-Process with debug output:
-
-```bash
-python main.py ~/Videos/lectures --debug
 ```
 
 ## How It Works

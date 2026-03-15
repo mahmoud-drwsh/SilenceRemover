@@ -73,15 +73,14 @@ def find_optimal_padding(silence_starts: list[float], silence_ends: list[float],
     return round(best_pad, 3)
 
 
-def detect_silence_points(input_file: Path, noise_threshold: float, min_duration: float, debug: bool = False) -> tuple[list[float], list[float]]:
+def detect_silence_points(input_file: Path, noise_threshold: float, min_duration: float) -> tuple[list[float], list[float]]:
     """Detect silence points in a video file using FFmpeg's silencedetect filter.
-    
+
     Args:
         input_file: Path to input video file
         noise_threshold: Noise threshold in dB for silence detection
         min_duration: Minimum duration in seconds for a silence to be detected
-        debug: If True, print debug information
-        
+
     Returns:
         Tuple of (silence_starts, silence_ends) lists in seconds
     """
@@ -97,21 +96,6 @@ def detect_silence_points(input_file: Path, noise_threshold: float, min_duration
         stderr=subprocess.PIPE,
         text=True,
     ).stderr
-    if debug:
-        print(f"[debug] silencedetect filter: {silence_filter}")
-        print(f"[debug] ffmpeg cmd: {' '.join(cmd)}")
-        print(f"[debug] Raw FFmpeg silencedetect output (showing lines with 'silence_'):")
-        for line in result.splitlines():
-            if "silence_" in line:
-                print(f"[debug] {line}")
     silence_starts = [float(x) for x in re.findall(r"silence_start: (-?\d+\.?\d*)", result)]
     silence_ends = [float(x) for x in re.findall(r"silence_end: (\d+\.?\d*)", result)]
-    if debug:
-        print(f"[debug] Parsed counts: starts={len(silence_starts)} ends={len(silence_ends)}")
-        if silence_starts:
-            print(f"[debug] First start={silence_starts[0]} last start={silence_starts[-1]}")
-        if silence_ends:
-            print(f"[debug] First end  ={silence_ends[0]} last end  ={silence_ends[-1]}")
-        print(f"[debug] Parsed silence_starts={silence_starts[:10]}{'...' if len(silence_starts)>10 else ''}")
-        print(f"[debug] Parsed silence_ends  ={silence_ends[:10]}{'...' if len(silence_ends)>10 else ''}")
     return silence_starts, silence_ends

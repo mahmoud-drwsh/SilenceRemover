@@ -6,19 +6,14 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+from src.config import AUDIO_BITRATE, BITRATE_FALLBACK_BPS
+from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 from src.fs_utils import wait_for_file_release
-from src.main_utils import (
-    AUDIO_BITRATE,
-    BITRATE_FALLBACK_BPS,
-    build_ffmpeg_cmd,
+from src.silence_utils import (
     calculate_resulting_length,
     detect_silence_points,
     find_optimal_padding,
-    print_ffmpeg_cmd,
 )
-
-# Debug flag (set from CLI)
-DEBUG = False
 
 
 def _probe_duration(input_file: Path) -> float:
@@ -57,7 +52,7 @@ def _build_segments_to_keep(
     target_length: Optional[float],
 ) -> tuple[list[tuple[float, float]], float]:
     """Build segments_to_keep list using same algorithm as full trim. Returns (segments_to_keep, duration_sec)."""
-    silence_starts, silence_ends = detect_silence_points(input_file, noise_threshold, min_duration, debug=DEBUG)
+    silence_starts, silence_ends = detect_silence_points(input_file, noise_threshold, min_duration)
     duration_sec = _probe_duration(input_file)
     if duration_sec <= 0:
         raise ValueError(f"Invalid video duration: {duration_sec}s. Video file may be corrupted or empty.")
@@ -74,24 +69,13 @@ def _build_segments_to_keep(
     prev_end = 0.0
     for silence_start, silence_end in zip(silence_starts, silence_ends):
         if silence_end - silence_start <= pad_sec * 2:
-            if DEBUG:
-                print(f"[debug] skip silence ({silence_start:.3f}-{silence_end:.3f}) duration {silence_end - silence_start:.3f} <= {pad_sec*2:.3f}")
             continue
         if silence_start > prev_end:
             seg = (round(prev_end, 3), round(silence_start, 3))
             segments_to_keep.append(seg)
-            if DEBUG:
-                print(f"[debug] add segment keep={seg} from prev_end={prev_end:.3f} to silence_start={silence_start:.3f}")
-        else:
-            if DEBUG:
-                print(f"[debug] no gap before silence_start={silence_start:.3f} (prev_end={prev_end:.3f}), merging")
         prev_end = max(0.0, silence_end - pad_sec)
-        if DEBUG:
-            print(f"[debug] set prev_end -> {prev_end:.3f} (silence_end={silence_end:.3f} pad={pad_sec:.3f})")
     if prev_end < duration_sec:
         segments_to_keep.append((round(prev_end, 3), round(duration_sec, 3)))
-    if DEBUG:
-        print(f"[debug] total segments_to_keep={len(segments_to_keep)} sample={segments_to_keep[:5]}")
     return (segments_to_keep, duration_sec)
 
 
@@ -103,12 +87,9 @@ def create_silence_removed_audio(
     pad_sec: float,
     target_length: Optional[float] = None,
     max_duration: Optional[float] = None,
-    debug: bool = False,
 ) -> Path:
     """Create silence-removed audio (same algorithm as video trim), audio only (-vn).
     If max_duration is set (e.g. 300), limit output to that many seconds (e.g. first 5 min)."""
-    global DEBUG
-    DEBUG = debug
     output_audio_path.parent.mkdir(parents=True, exist_ok=True)
 
     segments_to_keep, duration_sec = _build_segments_to_keep(
@@ -171,13 +152,9 @@ def trim_single_video(
     min_duration: float,
     pad_sec: float,
     target_length: Optional[float],
-    debug: bool = False,
     output_basename: Optional[str] = None,
 ) -> Path:
     """Trim a single video and return the output file path."""
-    global DEBUG
-    DEBUG = debug
-    
     output_dir.mkdir(parents=True, exist_ok=True)
     basename = output_basename if output_basename is not None else input_file.stem
     output_file = (output_dir / f"{basename}.mp4").resolve()
