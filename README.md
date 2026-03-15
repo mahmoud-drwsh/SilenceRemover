@@ -16,7 +16,7 @@ An automated video processing tool that removes silence segments, transcribes au
 - **Python**: 3.11 or higher
 - **FFmpeg & FFprobe**: Must be available on your system PATH
 - **OpenRouter API Key**: Required for transcription and title generation (get one at [openrouter.ai](https://openrouter.ai))
-- **Dependencies**: Managed via `pyproject.toml` (installed automatically)
+- **Dependencies**: Managed via `pyproject.toml` (installed automatically). Transcription and title generation use the official [OpenRouter Python SDK](https://openrouter.ai/docs/sdks/python).
 
 ## Installation
 

@@ -24,3 +24,8 @@ Entries below are appended by the agent after making code or config changes.
 - `main.py`: Added optional CLI flags --noise-threshold and --min-duration; resolve from CLI, else SIMPLE_* when --target-length set, else config.
 - `src/trim.py`: Target-length path uses detect_silence_points(noise_threshold, min_duration) instead of detect_silences_simple; removed SIMPLE_* overwrite and unused imports.
 - `README.md`: Documented --noise-threshold and --min-duration in Options.
+- `pyproject.toml`: Replaced requests with openrouter dependency.
+- `src/transcribe.py`: Switched to OpenRouter Python SDK (client.chat.send) with existing retry logic; removed requests and OPENROUTER_API_URL.
+- `src/config.py`: Removed OPENROUTER_API_URL from ENV_VARS, _ENV_ATTR_NAMES, and __all__.
+- `README.md`: Added one-liner that transcription/title use the official OpenRouter Python SDK.
+- `src/transcribe.py`: Set OpenRouter client app attribution via http_referer and x_title so usage shows as SilenceRemover in OpenRouter rankings/analytics.

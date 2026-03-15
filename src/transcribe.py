@@ -8,15 +8,10 @@ import sys
 import time
 from pathlib import Path
 
-try:
-    import requests
-except ImportError:
-    print("Error: requests library not installed. Install 'requests' to use transcribe/title.", file=sys.stderr)
-    sys.exit(1)
+from openrouter import OpenRouter
 
 from src.config import (
     AUDIO_BITRATE,
-    OPENROUTER_API_URL,
     OPENROUTER_DEFAULT_MODEL,
     OPENROUTER_TITLE_MODEL,
     TRANSCRIBE_PROMPT,
@@ -96,6 +91,14 @@ def _parse_retry_seconds_from_error(err: Exception) -> float:
     return 6.0
 
 
+def _status_code_from_error(err: Exception) -> int | None:
+    """Extract HTTP status code from SDK/httpx exception if present."""
+    response = getattr(err, "response", None)
+    if response is not None:
+        return getattr(response, "status_code", None)
+    return None
+
+
 def _openrouter_request_with_retry(
     api_key: str,
     model: str,
@@ -106,8 +109,8 @@ def _openrouter_request_with_retry(
     multiplier: float = 2.0,
     jitter_ratio: float = 0.2,
 ) -> str:
-    """Make OpenRouter API request with retry logic.
-    
+    """Make OpenRouter API request with retry logic using the official SDK.
+
     Args:
         api_key: OpenRouter API key
         model: Model name to use
@@ -117,66 +120,46 @@ def _openrouter_request_with_retry(
         max_backoff_sec: Maximum backoff delay in seconds
         multiplier: Exponential backoff multiplier
         jitter_ratio: Jitter ratio for backoff
-        
+
     Returns:
         Response text content
     """
     attempt = 0
     last_err: Exception | None = None
-    
-    payload = {
-        "model": model,
-        "messages": messages,
-        "stream": False
-    }
-    
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/SilenceRemover",
-        "X-Title": "SilenceRemover"
-    }
-    
+    suggested_delay = 6.0
+
     while attempt < max_attempts:
         try:
-            response = requests.post(
-                OPENROUTER_API_URL,
-                headers=headers,
-                json=payload,
-                timeout=120
-            )
-            response.raise_for_status()
-            
-            result = response.json()
-            
-            # Extract text from response
-            if "choices" in result and len(result["choices"]) > 0:
-                content = result["choices"][0]["message"]["content"]
+            with OpenRouter(
+                api_key=api_key,
+                http_referer="https://github.com/SilenceRemover",
+                x_title="SilenceRemover",
+            ) as client:
+                response = client.chat.send(
+                    model=model,
+                    messages=messages,
+                    stream=False,
+                )
+            if response.choices and len(response.choices) > 0:
+                content = response.choices[0].message.content
                 return content or ""
-            else:
-                raise ValueError(f"Unexpected response format: {result}")
-                
+            raise ValueError(f"Unexpected response format: {response}")
         except KeyboardInterrupt:
             raise
-        except requests.exceptions.HTTPError as e:
-            last_err = e
-            # Check if it's a rate limit error
-            if e.response is not None:
-                status_code = e.response.status_code
-                if status_code == 429:  # Rate limit
-                    suggested_delay = _parse_retry_seconds_from_error(e)
-                elif status_code >= 500:  # Server error
-                    suggested_delay = 5.0
-                else:
-                    # Client error (4xx) - don't retry
-                    raise
-            else:
-                suggested_delay = 6.0
         except Exception as e:
             last_err = e
-            suggested_delay = _parse_retry_seconds_from_error(e)
-        
-        # Exponential backoff with jitter
+            status = _status_code_from_error(e)
+            if status is not None:
+                if status == 429:
+                    suggested_delay = _parse_retry_seconds_from_error(e)
+                elif status >= 500:
+                    suggested_delay = 5.0
+                else:
+                    # Client error (4xx other than 429) - don't retry
+                    raise
+            else:
+                suggested_delay = _parse_retry_seconds_from_error(e)
+
         exp_delay = initial_backoff_sec * (multiplier ** attempt)
         base_delay = max(suggested_delay, exp_delay)
         delay = min(max_backoff_sec, base_delay)
@@ -184,8 +167,7 @@ def _openrouter_request_with_retry(
             delay *= random.uniform(max(0.0, 1 - jitter_ratio), 1 + jitter_ratio)
         time.sleep(delay)
         attempt += 1
-        continue
-    
+
     raise last_err  # type: ignore[misc]
 
 

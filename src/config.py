@@ -18,12 +18,6 @@ ENV_VARS = {
         "default": None,
         "description": "OpenRouter API key for transcription and title generation",
     },
-    "OPENROUTER_API_URL": {
-        "required": False,
-        "type": str,
-        "default": "https://openrouter.ai/api/v1/chat/completions",
-        "description": "OpenRouter API endpoint URL",
-    },
     "OPENROUTER_DEFAULT_MODEL": {
         "required": False,
         "type": str,
@@ -222,7 +216,6 @@ VIDEO_EXTENSIONS = {
 
 # Lazy env-backed attributes (used by __getattr__)
 _ENV_ATTR_NAMES = frozenset({
-    "OPENROUTER_API_URL",
     "OPENROUTER_DEFAULT_MODEL",
     "OPENROUTER_TITLE_MODEL",
     "VIDEO_CRF",
@@ -248,7 +241,6 @@ __all__ = [
     "SIMPLE_DB",
     "SIMPLE_MIN_DURATION",
     "VIDEO_CRF",
-    "OPENROUTER_API_URL",
     "OPENROUTER_DEFAULT_MODEL",
     "OPENROUTER_TITLE_MODEL",
     "TRANSCRIBE_PROMPT",
