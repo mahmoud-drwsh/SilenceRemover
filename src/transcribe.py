@@ -174,6 +174,6 @@ def transcribe_and_save(
 # Backward compatibility: re-export so "from src.transcribe import transcribe_single_video" still works
 def __getattr__(name: str):
     if name == "transcribe_single_video":
-        from src.phase1 import transcribe_single_video
+        from src.content import transcribe_single_video
         return transcribe_single_video
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

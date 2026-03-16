@@ -24,8 +24,8 @@ from src.config import (
     COMPLETED_DIR,
 )
 from src.trim import trim_single_video, create_silence_removed_audio
-from src.phase1 import transcribe_media, generate_title
-from src.rename import sanitize_filename
+from src.content import transcribe_media, generate_title
+from src.filename_sanitizer import sanitize_filename
 
 
 def is_video_file(path: Path) -> bool:
