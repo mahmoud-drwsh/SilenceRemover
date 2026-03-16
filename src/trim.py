@@ -206,8 +206,8 @@ def trim_single_video(
             input_file, noise_threshold, min_duration, pad_sec, target_length
         )
 
+    resulting_length = sum(end - start for start, end in segments_to_keep)
     if target_length is not None:
-        resulting_length = sum(end - start for start, end in segments_to_keep)
         print(f"Target length: {target_length}s")
         print(f"Expected resulting length: {resulting_length:.3f}s")
 
@@ -265,7 +265,13 @@ def trim_single_video(
             "-c:v", codec,
         ])
         cmd.extend(quality_params)
-        cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file)])
+        # Use ffmpeg's -progress output on stdout so we can show percentage
+        cmd.extend([
+            "-c:a", "aac", "-b:a", AUDIO_BITRATE,
+            "-progress", "pipe:1",
+            "-nostats", "-loglevel", "error",
+            str(output_file),
+        ])
         return cmd
 
     try:
@@ -281,7 +287,56 @@ def trim_single_video(
             print_ffmpeg_cmd(cmd)
             last_cmd = cmd
             try:
-                subprocess.run(cmd, check=True)
+                # Run ffmpeg and parse -progress output to display percentage
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                current_percent = -1
+                expected_total = resulting_length if resulting_length > 0 else duration_sec
+                try:
+                    assert proc.stdout is not None
+                    for line in proc.stdout:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        # out_time_ms is in microseconds; prefer it if present
+                        if line.startswith("out_time_ms="):
+                            try:
+                                micros = float(line.split("=", 1)[1])
+                                seconds = micros / 1_000_000.0
+                            except ValueError:
+                                continue
+                        elif line.startswith("out_time="):
+                            # Format HH:MM:SS.micro
+                            try:
+                                time_str = line.split("=", 1)[1]
+                                h, m, s = time_str.split(":")
+                                seconds = int(h) * 3600 + int(m) * 60 + float(s)
+                            except Exception:
+                                continue
+                        else:
+                            continue
+                        if expected_total > 0:
+                            pct = int(min(100.0, max(0.0, (seconds / expected_total) * 100.0)))
+                            if pct != current_percent:
+                                current_percent = pct
+                                print(f"Progress: {current_percent}%")
+                finally:
+                    retcode = proc.wait()
+                if retcode != 0:
+                    stdout_data = ""
+                    stderr_data = ""
+                    try:
+                        if proc.stdout:
+                            stdout_data = proc.stdout.read() or ""
+                        if proc.stderr:
+                            stderr_data = proc.stderr.read() or ""
+                    except Exception:
+                        pass
+                    raise subprocess.CalledProcessError(retcode, cmd, stdout_data, stderr_data)
                 break
             except subprocess.CalledProcessError as e:
                 last_exc = e
