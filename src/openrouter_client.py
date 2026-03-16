@@ -63,23 +63,33 @@ def _messages_to_log_text(messages: list[dict]) -> str:
 
 
 def _append_openrouter_log(log_dir: Path, model: str, input_text: str, output_text: str) -> None:
-    """Append one request/response pair to the OpenRouter log file under log_dir."""
-    log_file = log_dir / OPENROUTER_LOG_FILENAME
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    block = (
-        f"---\n"
-        f"[{ts}] REQUEST model={model}\n"
-        f"INPUT:\n{input_text}\n"
-        f"---\n"
-        f"[{ts}] RESPONSE\n"
-        f"OUTPUT:\n{output_text}\n"
-        f"==========\n"
-    )
+    """Write one request/response pair as separate timestamped files under log_dir/logs/.
+
+    Files are named using the Unix timestamp (seconds) of the request:
+    - <ts>_request.txt
+    - <ts>_response.txt
+    """
+    ts_unix = int(time.time())
+    logs_dir = log_dir / "logs"
     try:
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        log_file.open("a", encoding="utf-8").write(block)
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        request_path = logs_dir / f"{ts_unix}_request.txt"
+        response_path = logs_dir / f"{ts_unix}_response.txt"
+        request_body = (
+            f"MODEL: {model}\n"
+            f"TIMESTAMP_UNIX: {ts_unix}\n"
+            f"INPUT:\n{input_text}\n"
+        )
+        response_body = (
+            f"MODEL: {model}\n"
+            f"TIMESTAMP_UNIX: {ts_unix}\n"
+            f"OUTPUT:\n{output_text}\n"
+        )
+        request_path.write_text(request_body, encoding="utf-8")
+        response_path.write_text(response_body, encoding="utf-8")
     except OSError:
-        pass  # do not fail the request if logging fails
+        # Do not fail the request if logging fails
+        pass
 
 
 def request(
