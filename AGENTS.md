@@ -7,6 +7,7 @@ Entries below are appended by the agent after making code or config changes.
 - `src/silence_utils.py`: Removed debug parameter and all debug print blocks from detect_silence_points.
 - `src/config.py`: Set OPENROUTER_DEFAULT_MODEL and OPENROUTER_TITLE_MODEL defaults to google/gemini-2.5-flash-lite.
 - `src/config.py`: Set OPENROUTER_TITLE_MODEL default to google/gemini-3.1-flash-lite-preview for title generation.
+- `src/config.py`: Updated ADD_HONORIFIC_PROMPT_TEMPLATE to explicitly return the original title unchanged when no honorific edits are needed.
 - `src/config.py`: Added AUTO_* constants for adaptive silence sweep (AUTO_DB_START, AUTO_DB_MAX, AUTO_DB_STEP_PHASE3, AUTO_MIN_DURATION_*), updated comments to reflect min-duration-first then dB sweep.
 - `src/silence_utils.py`: Updated find_threshold_and_min_duration to sweep min_duration first at AUTO_DB_START, then dB from AUTO_DB_START up to AUTO_DB_MAX at AUTO_MIN_DURATION_MIN.
 - `src/trim.py`: When target_length is set, probe duration first, copy if target >= duration, else call find_threshold_and_min_duration and use result for trim; removed duplicate copy block.
