@@ -34,3 +34,5 @@ Entries below are appended by the agent after making code or config changes.
 - `src/title.py`: New module with generate_title_with_openrouter; uses openrouter_client.request.
 - `src/phase1.py`: New Phase 1 orchestration (transcribe_single_video) composing transcribe + title.
 - `main.py`: Import transcribe_single_video from src.phase1 instead of src.transcribe.
+- `src/config.py`: Removed honorific rules from TITLE_PROMPT_TEMPLATE; added ADD_HONORIFIC_PROMPT_TEMPLATE and exported in __all__.
+- `src/title.py`: Two-step title flow: (1) generate title from transcript, (2) add honorifics via ADD_HONORIFIC_PROMPT_TEMPLATE; same model; added _first_line helper and "Adding honorific to title..." print.

@@ -199,14 +199,20 @@ Generate one YouTube video title in Arabic from the transcript below. The title 
 
 Rules: 60–90 characters (max 100). One title only. Be accurate and descriptive; prefer wording from the transcript.
 
-When your title includes the name محمد, always write سيدنا immediately before محمد. Add سيدنا only before محمد—not before other references (e.g. رسول الله، المصطفى، النبي).
-
-Add the honorific ﷺ only when your generated title itself includes a mention of the Prophet (e.g. محمد، رسول الله، المصطفى، النبي). If the transcript mentions the Prophet but your title does not, do not add the honorific. Only add ﷺ immediately after each such mention that appears in the title you output.
-
-Example: تعظيم الإمام مالك لسيدنا محمد ﷺ
-
 Transcript:
 {transcript}
+"""
+
+ADD_HONORIFIC_PROMPT_TEMPLATE = """\
+You are given an Arabic video title. Your task is to add Islamic honorifics where they are missing—do not duplicate if already present.
+
+1. Before the name محمد only (not before رسول الله، المصطفى، النبي), add سيدنا immediately before محمد. If سيدنا is already there, leave it.
+2. Immediately after each mention of the Prophet in the title (e.g. محمد، رسول الله، المصطفى، النبي), add the honorific ﷺ. If ﷺ is already after that mention, do not add it again.
+
+Output only the final title, nothing else. No commentary.
+
+Title:
+{title}
 """
 
 VIDEO_EXTENSIONS = {
@@ -245,5 +251,6 @@ __all__ = [
     "OPENROUTER_TITLE_MODEL",
     "TRANSCRIBE_PROMPT",
     "TITLE_PROMPT_TEMPLATE",
+    "ADD_HONORIFIC_PROMPT_TEMPLATE",
     "VIDEO_EXTENSIONS",
 ]
