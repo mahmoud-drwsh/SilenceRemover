@@ -13,7 +13,7 @@ from src.config import (
 )
 from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 from src.fs_utils import wait_for_file_release
-from src.silence_utils import (
+from src.silence_detector import (
     calculate_resulting_length,
     detect_silence_points,
     find_optimal_padding,

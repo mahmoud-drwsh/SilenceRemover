@@ -7,8 +7,8 @@ from pathlib import Path
 from src.config import (
     AUDIO_BITRATE,
     OPENROUTER_DEFAULT_MODEL,
-    TRANSCRIBE_PROMPT,
 )
+from src.prompts import TRANSCRIBE_PROMPT
 from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 from src.openrouter_client import request as openrouter_request
 

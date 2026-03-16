@@ -3,9 +3,9 @@
 import sys
 from pathlib import Path
 
-from src.config import (
+from src.config import OPENROUTER_TITLE_MODEL
+from src.prompts import (
     ADD_HONORIFIC_PROMPT_TEMPLATE,
-    OPENROUTER_TITLE_MODEL,
     TITLE_PROMPT_TEMPLATE,
 )
 from src.openrouter_client import request as openrouter_request
