@@ -323,9 +323,13 @@ def trim_single_video(
                             pct = int(min(100.0, max(0.0, (seconds / expected_total) * 100.0)))
                             if pct != current_percent:
                                 current_percent = pct
-                                print(f"Progress: {current_percent}%")
+                                # Use carriage return so progress stays on one line
+                                print(f"\rProgress: {current_percent}%", end="", flush=True)
                 finally:
                     retcode = proc.wait()
+                # Ensure we end the progress line cleanly
+                if current_percent >= 0:
+                    print()
                 if retcode != 0:
                     stdout_data = ""
                     stderr_data = ""
