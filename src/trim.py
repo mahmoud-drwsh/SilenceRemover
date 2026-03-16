@@ -9,6 +9,7 @@ from typing import Optional
 from src.config import (
     AUDIO_BITRATE,
     BITRATE_FALLBACK_BPS,
+    SNIPPET_DIR,
 )
 from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 from src.fs_utils import wait_for_file_release

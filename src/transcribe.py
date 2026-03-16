@@ -147,6 +147,30 @@ def transcribe_with_openrouter(
     return openrouter_request(api_key, model, messages, log_dir=log_dir)
 
 
+def transcribe_and_save(
+    api_key: str,
+    audio_path: Path,
+    output_path: Path,
+    model: str = OPENROUTER_DEFAULT_MODEL,
+    log_dir: Path | None = None,
+) -> None:
+    """Transcribe audio and save transcript to file.
+
+    Args:
+        api_key: OpenRouter API key
+        audio_path: Path to audio file
+        output_path: Path to save transcript text file
+        model: OpenRouter model name that supports audio input
+        log_dir: If set, log request/response to log_dir/openrouter_requests.log
+    """
+    print(f"Transcribing audio: {audio_path.name}")
+    transcript_text = transcribe_with_openrouter(api_key, audio_path, model, log_dir)
+    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(transcript_text, encoding="utf-8")
+    print(f"Transcript saved to: {output_path}")
+
+
 # Backward compatibility: re-export so "from src.transcribe import transcribe_single_video" still works
 def __getattr__(name: str):
     if name == "transcribe_single_video":

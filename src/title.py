@@ -61,3 +61,26 @@ def generate_title_with_openrouter(
         print("Honorific step returned empty response, using original title.", file=sys.stderr)
         return raw_title
     return title_text
+
+
+def generate_title_from_transcript(
+    api_key: str,
+    transcript_path: Path,
+    output_path: Path,
+    log_dir: Path | None = None,
+) -> None:
+    """Generate title from transcript file and save to output file.
+
+    Args:
+        api_key: OpenRouter API key
+        transcript_path: Path to transcript text file
+        output_path: Path to save title text file
+        log_dir: If set, log request/response to log_dir/openrouter_requests.log
+    """
+    print(f"Reading transcript from: {transcript_path}")
+    transcript = transcript_path.read_text(encoding="utf-8")
+    title_text = generate_title_with_openrouter(api_key, transcript, log_dir)
+    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(title_text, encoding="utf-8")
+    print(f"Title saved to: {output_path}")

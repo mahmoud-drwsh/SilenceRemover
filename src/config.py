@@ -222,6 +222,12 @@ VIDEO_EXTENSIONS = {
     ".m4v", ".mpg", ".mpeg", ".3gp", ".ogv", ".ts", ".m2ts",
 }
 
+# Subdirectory names in temp/
+SNIPPET_DIR = "snippet"
+TRANSCRIPT_DIR = "transcript"
+TITLE_DIR = "title"
+COMPLETED_DIR = "completed"
+
 # Lazy env-backed attributes (used by __getattr__)
 _ENV_ATTR_NAMES = frozenset({
     "OPENROUTER_DEFAULT_MODEL",
@@ -255,4 +261,8 @@ __all__ = [
     "TITLE_PROMPT_TEMPLATE",
     "ADD_HONORIFIC_PROMPT_TEMPLATE",
     "VIDEO_EXTENSIONS",
+    "SNIPPET_DIR",
+    "TRANSCRIPT_DIR",
+    "TITLE_DIR",
+    "COMPLETED_DIR",
 ]
