@@ -18,7 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.config import VIDEO_EXTENSIONS
 from src.trim import trim_single_video, create_silence_removed_audio
-from src.transcribe import transcribe_single_video
+from src.phase1 import transcribe_single_video
 from src.rename import sanitize_filename
 
 

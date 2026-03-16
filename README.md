@@ -99,12 +99,10 @@ The tool processes videos sequentially through four main stages:
 
 ### 3. Transcription & Title Generation
 
-- **Transcription**: Extracts and transcribes audio using OpenRouter API (Gemini 2.0 Flash Lite model - cheapest audio-capable)
-- Optimized for Arabic verbatim transcription
-- **Title Generation**: Generates YouTube-style title from transcript using GPT-OSS 120B model
-- Handles educational content formats (book names, lesson numbers)
-- **Two-step process**: Separate API calls for transcription and title generation (better quality and control)
-- Transcript and title are stored in `output/data.json` (single source of truth; no separate .txt files)
+- **Transcription** (`src/transcribe.py`): Extracts and transcribes audio using OpenRouter API (Gemini 2.0 Flash Lite model - cheapest audio-capable). Optimized for Arabic verbatim transcription.
+- **Title** (`src/title.py`): Generates YouTube-style title from transcript. Handles educational content formats (book names, lesson numbers).
+- Both use a shared OpenRouter client (`src/openrouter_client.py`). Phase 1 orchestration is in `src/phase1.py`.
+- **Two-step process**: Separate API calls for transcription and title generation (better quality and control). Transcript and title are stored in `output/data.json` (single source of truth; no separate .txt files).
 
 ### 4. File Renaming
 

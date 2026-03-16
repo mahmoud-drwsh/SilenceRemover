@@ -1,35 +1,30 @@
-"""Video transcription and title generation functionality."""
+"""Video transcription: audio extraction and OpenRouter transcription."""
 
 import base64
-import random
-import re
 import subprocess
-import sys
-import time
 from pathlib import Path
-
-from openrouter import OpenRouter
 
 from src.config import (
     AUDIO_BITRATE,
     OPENROUTER_DEFAULT_MODEL,
-    OPENROUTER_TITLE_MODEL,
     TRANSCRIBE_PROMPT,
-    TITLE_PROMPT_TEMPLATE,
 )
 from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
+from src.openrouter_client import request as openrouter_request
+
+_AUDIO_EXTENSIONS = {".wav", ".m4a", ".mp3", ".aac", ".ogg", ".flac", ".aiff"}
 
 
 def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str = "wav") -> None:
     """Extract first 5 minutes of audio from video.
-    
+
     Args:
         input_video: Input video file
         output_audio: Output audio file path
         format: Audio format (wav, m4a, etc.). Defaults to wav for better compatibility.
     """
     output_audio.parent.mkdir(parents=True, exist_ok=True)
-    
+
     if format == "wav":
         # Extract as WAV format (16kHz mono for cost efficiency)
         enc_cmd = build_ffmpeg_cmd(overwrite=True)
@@ -74,213 +69,68 @@ def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str 
             )
 
 
-def _parse_retry_seconds_from_error(err: Exception) -> float:
-    """Parse retry delay from error message."""
-    m = re.search(r"retry in\s+([0-9.]+)s", str(err), re.IGNORECASE)
-    if m:
-        try:
-            return float(m.group(1))
-        except Exception:
-            pass
-    m2 = re.search(r"retryDelay'?\s*:\s*'?(\d+)(s)?'?", str(err), re.IGNORECASE)
-    if m2:
-        try:
-            return float(m2.group(1))
-        except Exception:
-            pass
-    return 6.0
-
-
-def _status_code_from_error(err: Exception) -> int | None:
-    """Extract HTTP status code from SDK/httpx exception if present."""
-    response = getattr(err, "response", None)
-    if response is not None:
-        return getattr(response, "status_code", None)
-    return None
-
-
-def _openrouter_request_with_retry(
-    api_key: str,
-    model: str,
-    messages: list[dict],
-    max_attempts: int = 5,
-    initial_backoff_sec: float = 1.0,
-    max_backoff_sec: float = 30.0,
-    multiplier: float = 2.0,
-    jitter_ratio: float = 0.2,
-) -> str:
-    """Make OpenRouter API request with retry logic using the official SDK.
+def get_audio_path_for_media(media_path: Path, temp_dir: Path, basename: str) -> Path:
+    """Resolve audio path for transcription: use media_path if audio, else extract first 5 min to temp_dir.
 
     Args:
-        api_key: OpenRouter API key
-        model: Model name to use
-        messages: List of message dictionaries for the API
-        max_attempts: Maximum number of retry attempts
-        initial_backoff_sec: Initial backoff delay in seconds
-        max_backoff_sec: Maximum backoff delay in seconds
-        multiplier: Exponential backoff multiplier
-        jitter_ratio: Jitter ratio for backoff
+        media_path: Video or audio file path
+        temp_dir: Directory for extracted audio when media_path is video
+        basename: Base name for extracted file (e.g. stem of video)
 
     Returns:
-        Response text content
+        Path to audio file to transcribe
     """
-    attempt = 0
-    last_err: Exception | None = None
-    suggested_delay = 6.0
-
-    while attempt < max_attempts:
-        try:
-            with OpenRouter(
-                api_key=api_key,
-                http_referer="https://github.com/SilenceRemover",
-                x_title="SilenceRemover",
-            ) as client:
-                response = client.chat.send(
-                    model=model,
-                    messages=messages,
-                    stream=False,
-                )
-            if response.choices and len(response.choices) > 0:
-                content = response.choices[0].message.content
-                return content or ""
-            raise ValueError(f"Unexpected response format: {response}")
-        except KeyboardInterrupt:
-            raise
-        except Exception as e:
-            last_err = e
-            status = _status_code_from_error(e)
-            if status is not None:
-                if status == 429:
-                    suggested_delay = _parse_retry_seconds_from_error(e)
-                elif status >= 500:
-                    suggested_delay = 5.0
-                else:
-                    # Client error (4xx other than 429) - don't retry
-                    raise
-            else:
-                suggested_delay = _parse_retry_seconds_from_error(e)
-
-        exp_delay = initial_backoff_sec * (multiplier ** attempt)
-        base_delay = max(suggested_delay, exp_delay)
-        delay = min(max_backoff_sec, base_delay)
-        if jitter_ratio > 0:
-            delay *= random.uniform(max(0.0, 1 - jitter_ratio), 1 + jitter_ratio)
-        time.sleep(delay)
-        attempt += 1
-
-    raise last_err  # type: ignore[misc]
+    if media_path.suffix.lower() in _AUDIO_EXTENSIONS:
+        print(f"Using audio directly (no extraction): {media_path.name}")
+        return media_path.resolve()
+    audio_path = temp_dir / f"{basename}.wav"
+    if not audio_path.exists():
+        print(f"Extracting audio (5 min) -> {audio_path}")
+        extract_first_5min_audio(media_path, audio_path, format="wav")
+    else:
+        print("Audio already exists (skipping extraction).")
+    return audio_path
 
 
-def transcribe_with_openrouter(api_key: str, audio_path: Path, model: str = OPENROUTER_DEFAULT_MODEL) -> str:
+def transcribe_with_openrouter(
+    api_key: str, audio_path: Path, model: str = OPENROUTER_DEFAULT_MODEL
+) -> str:
     """Transcribe audio using OpenRouter API.
-    
+
     Args:
         api_key: OpenRouter API key
         audio_path: Path to audio file
         model: OpenRouter model name that supports audio input
-        
+
     Returns:
         Transcript text
     """
-    # Read and base64 encode audio
     audio_bytes = audio_path.read_bytes()
     audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-    
-    # Determine audio format from file extension
+
     audio_format = audio_path.suffix.lstrip(".").lower()
     if audio_format not in ["wav", "mp3", "aiff", "aac", "ogg", "flac", "m4a"]:
-        audio_format = "wav"  # Default to wav
-    
+        audio_format = "wav"
+
     messages = [
         {
             "role": "user",
             "content": [
-                {
-                    "type": "text",
-                    "text": TRANSCRIBE_PROMPT
-                },
+                {"type": "text", "text": TRANSCRIBE_PROMPT},
                 {
                     "type": "input_audio",
-                    "input_audio": {
-                        "data": audio_b64,
-                        "format": audio_format
-                    }
-                }
-            ]
+                    "input_audio": {"data": audio_b64, "format": audio_format},
+                },
+            ],
         }
     ]
-    
-    return _openrouter_request_with_retry(api_key, model, messages)
+
+    return openrouter_request(api_key, model, messages)
 
 
-def generate_title_with_openrouter(api_key: str, transcript: str) -> str:
-    """Generate title from transcript using OpenRouter API with Gemini 2.5 Flash Lite.
-    
-    Args:
-        api_key: OpenRouter API key
-        transcript: Transcript text
-        
-    Returns:
-        Generated title
-    """
-    prompt = TITLE_PROMPT_TEMPLATE.format(transcript=transcript)
-    
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": prompt
-                }
-            ]
-        }
-    ]
-    
-    print(f"Generating title with model: {OPENROUTER_TITLE_MODEL}")
-    title = _openrouter_request_with_retry(api_key, OPENROUTER_TITLE_MODEL, messages)
-    title_text = (title.strip().splitlines() or [""])[0]
-    
-    if not title_text:
-        raise RuntimeError("Title generation returned empty response")
-    
-    return title_text
-
-
-_AUDIO_EXTENSIONS = {".wav", ".m4a", ".mp3", ".aac", ".ogg", ".flac", ".aiff"}
-
-
-def transcribe_single_video(media_path: Path, temp_dir: Path, api_key: str, basename: str) -> tuple[str, str]:
-    """Transcribe from a video or audio file. Returns (transcript_text, title_text).
-    
-    If media_path is an audio file (e.g. .wav, .m4a), uses it directly without extraction.
-    Otherwise extracts first 5 min of audio from the video.
-    Caller is responsible for persisting transcript/title (e.g. in data.json).
-    
-    Args:
-        media_path: Path to video file or pre-extracted audio (e.g. snippet.wav)
-        temp_dir: Temporary directory for intermediate files (e.g. extracted audio)
-        api_key: OpenRouter API key
-        basename: Base name for temp audio file if extraction is needed
-        
-    Returns:
-        Tuple of (transcript_text, title_text)
-    """
-    if media_path.suffix.lower() in _AUDIO_EXTENSIONS:
-        audio_path = media_path.resolve()
-        print(f"Using audio directly (no extraction): {audio_path.name}")
-    else:
-        audio_path = temp_dir / f"{basename}.wav"
-        if not audio_path.exists():
-            print(f"Extracting audio (5 min) -> {audio_path}")
-            extract_first_5min_audio(media_path, audio_path, format="wav")
-        else:
-            print("Audio already exists (skipping extraction).")
-
-    print("Transcribing with OpenRouter...")
-    transcript_text = transcribe_with_openrouter(api_key, audio_path)
-
-    print("Generating YouTube title...")
-    title_text = generate_title_with_openrouter(api_key, transcript_text)
-
-    return transcript_text.strip(), title_text.strip()
+# Backward compatibility: re-export so "from src.transcribe import transcribe_single_video" still works
+def __getattr__(name: str):
+    if name == "transcribe_single_video":
+        from src.phase1 import transcribe_single_video
+        return transcribe_single_video
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

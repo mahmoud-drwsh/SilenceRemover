@@ -29,3 +29,8 @@ Entries below are appended by the agent after making code or config changes.
 - `src/config.py`: Removed OPENROUTER_API_URL from ENV_VARS, _ENV_ATTR_NAMES, and __all__.
 - `README.md`: Added one-liner that transcription/title use the official OpenRouter Python SDK.
 - `src/transcribe.py`: Set OpenRouter client app attribution via http_referer and x_title so usage shows as SilenceRemover in OpenRouter rankings/analytics.
+- `src/openrouter_client.py`: New shared OpenRouter SDK request + retry for transcribe and title modules.
+- `src/transcribe.py`: Refactored to transcription only; added get_audio_path_for_media; uses openrouter_client.request.
+- `src/title.py`: New module with generate_title_with_openrouter; uses openrouter_client.request.
+- `src/phase1.py`: New Phase 1 orchestration (transcribe_single_video) composing transcribe + title.
+- `main.py`: Import transcribe_single_video from src.phase1 instead of src.transcribe.
