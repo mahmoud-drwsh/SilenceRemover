@@ -124,7 +124,7 @@ def run_phase1_for_video(
 
     try:
         # (1) Silence-removed audio, first 5 min only (one pass)
-        snippet_path = temp_dir / f"{basename}_snippet.wav"
+        snippet_path = temp_dir / f"{basename}_snippet.ogg"
         print(f"\n[Phase 1] Creating snippet (first 5 min, silence-removed): {video_name}")
         create_silence_removed_audio(
             input_file=video_path,

@@ -26,12 +26,27 @@ def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str 
     output_audio.parent.mkdir(parents=True, exist_ok=True)
 
     if format == "wav":
-        # Extract as WAV format (16kHz mono for cost efficiency)
+        # Extract as WAV format (16kHz mono)
         enc_cmd = build_ffmpeg_cmd(overwrite=True)
         enc_cmd.extend([
             "-ss", "0", "-t", "300",  # First 5 minutes
             "-i", str(input_video),
             "-map", "0:a:0", "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1", "-vn",
+            str(output_audio),
+        ])
+        print_ffmpeg_cmd(enc_cmd)
+        r = subprocess.run(enc_cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(
+                f"Audio extraction failed for {input_video}\nstderr={r.stderr}"
+            )
+    elif format == "ogg":
+        # OGG/Opus: smaller payload for transcription (same token cost, less bandwidth)
+        enc_cmd = build_ffmpeg_cmd(overwrite=True)
+        enc_cmd.extend([
+            "-ss", "0", "-t", "300",
+            "-i", str(input_video),
+            "-map", "0:a:0", "-c:a", "libopus", "-ar", "16000", "-ac", "1", "-b:a", "32k", "-vn",
             str(output_audio),
         ])
         print_ffmpeg_cmd(enc_cmd)
@@ -83,10 +98,10 @@ def get_audio_path_for_media(media_path: Path, temp_dir: Path, basename: str) ->
     if media_path.suffix.lower() in _AUDIO_EXTENSIONS:
         print(f"Using audio directly (no extraction): {media_path.name}")
         return media_path.resolve()
-    audio_path = temp_dir / f"{basename}.wav"
+    audio_path = temp_dir / f"{basename}.ogg"
     if not audio_path.exists():
         print(f"Extracting audio (5 min) -> {audio_path}")
-        extract_first_5min_audio(media_path, audio_path, format="wav")
+        extract_first_5min_audio(media_path, audio_path, format="ogg")
     else:
         print("Audio already exists (skipping extraction).")
     return audio_path

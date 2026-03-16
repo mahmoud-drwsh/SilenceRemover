@@ -41,3 +41,4 @@ Entries below are appended by the agent after making code or config changes.
 - `src/title.py`: generate_title_with_openrouter accepts log_dir, passes to both openrouter_request calls.
 - `src/phase1.py`: Pass temp_dir as log_dir to transcribe and title so all OpenRouter requests are logged under temp/.
 - `src/title.py`: On honorific step failure (exception or empty response), fall back to raw title and log to stderr.
+- Option B audio format: use OGG/Opus for transcription (smaller payloads). main.py snippet path -> .ogg; trim.py create_silence_removed_audio outputs libopus when path is .ogg; transcribe.py extract_first_5min_audio format=ogg and get_audio_path_for_media use .ogg.

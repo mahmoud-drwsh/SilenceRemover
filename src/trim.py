@@ -106,6 +106,13 @@ def create_silence_removed_audio(
     If max_duration is set (e.g. 300), limit output to that many seconds (e.g. first 5 min)."""
     output_audio_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # OGG/Opus for smaller payload when path is .ogg; else WAV
+    is_ogg = output_audio_path.suffix.lower() == ".ogg"
+    if is_ogg:
+        acodec = ["-c:a", "libopus", "-ar", "16000", "-ac", "1", "-b:a", "32k"]
+    else:
+        acodec = ["-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1"]
+
     segments_to_keep, duration_sec = _build_segments_to_keep(
         input_file, noise_threshold, min_duration, pad_sec, target_length
     )
@@ -113,12 +120,7 @@ def create_silence_removed_audio(
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal audio.")
         cmd = build_ffmpeg_cmd(overwrite=True)
-        cmd.extend([
-            "-i", str(input_file),
-            "-t", "0.1", "-vn",
-            "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
-            str(output_audio_path),
-        ])
+        cmd.extend(["-i", str(input_file), "-t", "0.1", "-vn"] + acodec + [str(output_audio_path)])
         print_ffmpeg_cmd(cmd)
         subprocess.run(cmd, check=True)
         wait_for_file_release(output_audio_path)
@@ -140,8 +142,7 @@ def create_silence_removed_audio(
         "-i", str(input_file),
         "-filter_complex_script", filter_script_path,
         "-map", "[outa]", "-vn",
-        "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1",
-    ])
+    ] + acodec)
     if max_duration is not None:
         cmd.extend(["-t", str(int(max_duration))])
     cmd.append(str(output_audio_path))
