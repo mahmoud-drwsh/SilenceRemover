@@ -93,7 +93,10 @@ def get_audio_path_for_media(media_path: Path, temp_dir: Path, basename: str) ->
 
 
 def transcribe_with_openrouter(
-    api_key: str, audio_path: Path, model: str = OPENROUTER_DEFAULT_MODEL
+    api_key: str,
+    audio_path: Path,
+    model: str = OPENROUTER_DEFAULT_MODEL,
+    log_dir: Path | None = None,
 ) -> str:
     """Transcribe audio using OpenRouter API.
 
@@ -101,6 +104,7 @@ def transcribe_with_openrouter(
         api_key: OpenRouter API key
         audio_path: Path to audio file
         model: OpenRouter model name that supports audio input
+        log_dir: If set, log request/response to log_dir/openrouter_requests.log
 
     Returns:
         Transcript text
@@ -125,7 +129,7 @@ def transcribe_with_openrouter(
         }
     ]
 
-    return openrouter_request(api_key, model, messages)
+    return openrouter_request(api_key, model, messages, log_dir=log_dir)
 
 
 # Backward compatibility: re-export so "from src.transcribe import transcribe_single_video" still works

@@ -27,9 +27,13 @@ def transcribe_single_video(
     audio_path = transcribe.get_audio_path_for_media(media_path, temp_dir, basename)
 
     print("Transcribing with OpenRouter...")
-    transcript_text = transcribe.transcribe_with_openrouter(api_key, audio_path)
+    transcript_text = transcribe.transcribe_with_openrouter(
+        api_key, audio_path, log_dir=temp_dir
+    )
 
     print("Generating YouTube title...")
-    title_text = title.generate_title_with_openrouter(api_key, transcript_text)
+    title_text = title.generate_title_with_openrouter(
+        api_key, transcript_text, log_dir=temp_dir
+    )
 
     return transcript_text.strip(), title_text.strip()

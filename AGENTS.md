@@ -36,3 +36,8 @@ Entries below are appended by the agent after making code or config changes.
 - `main.py`: Import transcribe_single_video from src.phase1 instead of src.transcribe.
 - `src/config.py`: Removed honorific rules from TITLE_PROMPT_TEMPLATE; added ADD_HONORIFIC_PROMPT_TEMPLATE and exported in __all__.
 - `src/title.py`: Two-step title flow: (1) generate title from transcript, (2) add honorifics via ADD_HONORIFIC_PROMPT_TEMPLATE; same model; added _first_line helper and "Adding honorific to title..." print.
+- `src/openrouter_client.py`: Added log_dir param to request(); when set, append input/output text to temp_dir/openrouter_requests.log; _messages_to_log_text (no raw base64), _append_openrouter_log.
+- `src/transcribe.py`: transcribe_with_openrouter accepts log_dir, passes to openrouter_request.
+- `src/title.py`: generate_title_with_openrouter accepts log_dir, passes to both openrouter_request calls.
+- `src/phase1.py`: Pass temp_dir as log_dir to transcribe and title so all OpenRouter requests are logged under temp/.
+- `src/title.py`: On honorific step failure (exception or empty response), fall back to raw title and log to stderr.
