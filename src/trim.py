@@ -3,14 +3,11 @@
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
-from src.config import (
-    AUDIO_BITRATE,
-    BITRATE_FALLBACK_BPS,
-    SNIPPET_DIR,
-)
+from src.config import AUDIO_BITRATE, BITRATE_FALLBACK_BPS, SCRIPTS_DIR, SNIPPET_DIR
 from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 from src.fs_utils import wait_for_file_release
 from src.silence_detector import (
@@ -135,13 +132,22 @@ def create_silence_removed_audio(
     concat_inputs = "".join(f"[a{i}]" for i in range(len(segments_to_keep)))
     filter_complex = f"{filter_chains}{concat_inputs}concat=n={len(segments_to_keep)}:v=0:a=1[outa]"
 
-    with tempfile.NamedTemporaryFile("w", suffix=".ffscript", delete=False, encoding="utf-8") as tf:
-        tf.write(filter_complex)
-        filter_script_path: str = tf.name
+    # Prefer writing ffmpeg filter scripts under temp/scripts/, falling back to a
+    # local scripts/ subdirectory when output_audio_path is not under temp/snippet.
+    parent_dir = output_audio_path.parent
+    if parent_dir.name == SNIPPET_DIR and parent_dir.parent is not None:
+        temp_dir = parent_dir.parent
+        scripts_dir = temp_dir / SCRIPTS_DIR
+    else:
+        scripts_dir = parent_dir / "scripts"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    script_name = f"{output_audio_path.stem}_{int(time.time())}.ffscript"
+    filter_script_path = scripts_dir / script_name
+    filter_script_path.write_text(filter_complex, encoding="utf-8")
     cmd = build_ffmpeg_cmd(overwrite=True)
     cmd.extend([
         "-i", str(input_file),
-        "-filter_complex_script", filter_script_path,
+        "-filter_complex_script", str(filter_script_path),
         "-map", "[outa]", "-vn",
     ] + acodec)
     if max_duration is not None:
@@ -152,7 +158,7 @@ def create_silence_removed_audio(
         subprocess.run(cmd, check=True)
     finally:
         try:
-            Path(filter_script_path).unlink(missing_ok=True)
+            filter_script_path.unlink(missing_ok=True)
         except Exception:
             pass
 

@@ -128,6 +128,7 @@ output/                    # Sibling to input-directory
 
 temp/                      # Sibling to input-directory (intermediate audio/snippets only)
   ├── video1_snippet.wav   # Silence-removed snippet for transcription
+  ├── scripts/             # Temporary ffmpeg filter_complex scripts (cleaned up automatically)
   └── ...
 ```
 
