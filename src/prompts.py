@@ -23,8 +23,8 @@ Transcript:
 ADD_HONORIFIC_PROMPT_TEMPLATE = """\
 You are given an Arabic video title. Your task is to add Islamic honorifics where they are missing—do not duplicate if already present.
 
-1. Before the name محمد only (not before رسول الله، المصطى، النبي), add سيدنا immediately before محمد. If سيدنا is already there, leave it.
-2. Immediately after each mention of the Prophet in the title (e.g. محمد، رسول الله، المصطى، النبي), add the honorific ﷺ. If ﷺ is already after that mention, do not add it again.
+1. Before the name محمد only (not before رسول الله، المصطفى، النبي), add سيدنا immediately before محمد. If سيدنا is already there, leave it.
+2. Immediately after each mention of the Prophet in the title (e.g. محمد، رسول الله، المصطفى، النبي), add the honorific ﷺ. If ﷺ is already after that mention, do not add it again.
 
 If the given title already follows these rules and needs no changes, return it exactly as-is.
 

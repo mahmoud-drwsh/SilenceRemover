@@ -1,5 +1,6 @@
 """Title generation from transcript using OpenRouter (title step then honorific step)."""
 
+import re
 import sys
 from pathlib import Path
 from src.prompts import (
@@ -12,6 +13,43 @@ from src.openrouter_client import request as openrouter_request
 def _first_line(text: str) -> str:
     """Extract first non-empty line from response text."""
     return (text.strip().splitlines() or [""])[0]
+
+
+_PROPHET_TERMS = [
+    "محمد",
+    "رسول الله",
+    "النبي",
+    "المصطفى",
+]
+
+
+def _normalize_honorifics(title: str) -> str:
+    """Best-effort normalization for common LLM honorific mistakes.
+
+    - Collapses repeated ﷺ tokens.
+    - Avoids patterns like: "النبي ﷺ المصطفى ﷺ" -> "النبي المصطفى ﷺ"
+      (single honorific at the end of consecutive Prophet epithets).
+    """
+    text = (title or "").strip()
+    if not text:
+        return text
+
+    # Collapse consecutive/repeated honorific tokens.
+    text = re.sub(r"(?:\s*ﷺ){2,}", " ﷺ", text)
+
+    # If two Prophet terms appear consecutively and both got ﷺ, keep only the last one.
+    # Example: "النبي ﷺ المصطفى ﷺ" -> "النبي المصطفى ﷺ"
+    terms_alt = "|".join(map(re.escape, _PROPHET_TERMS))
+    text = re.sub(
+        rf"(\b(?:{terms_alt})\b)\s*ﷺ(\s+)(?=(?:{terms_alt})\b)",
+        r"\1\2",
+        text,
+    )
+
+    # Tidy spaces around the honorific.
+    text = re.sub(r"\s+ﷺ", " ﷺ", text)
+    text = re.sub(r"ﷺ\s+", "ﷺ ", text)
+    return text.strip()
 
 
 def generate_title_with_openrouter(
@@ -53,7 +91,7 @@ def generate_title_with_openrouter(
         title_text = openrouter_request(
             api_key, "google/gemini-2.5-flash-lite:nitro", messages2, log_dir=log_dir
         )
-        title_text = _first_line(title_text)
+        title_text = _normalize_honorifics(_first_line(title_text))
     except Exception as e:
         print(f"Honorific step failed ({e}), using original title.", file=sys.stderr)
         return raw_title

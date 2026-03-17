@@ -40,3 +40,5 @@ Entries below are appended by the agent after making code or config changes.
 - `ALGO.md`: Updated documentation to match current target-mode (threshold sweep + padding tuning) and to describe padding/inputs the way segments are actually built in `src/trim.py` / `src/silence/detector.py`.
 - `ALGO.md`: Added concrete examples illustrating how threshold/min_duration/padding change results and a worked target-mode sweep + padding tuning walkthrough.
 - `ALGO.md`: Corrected examples to reflect the "skip silences ≤ 2×pad" rule, avoid threshold-equality ambiguity, and match `find_optimal_padding`'s strict "< target" behavior.
+- `src/titles/openrouter.py`: Added deterministic post-processing to normalize/dedupe repeated `ﷺ` when Prophet epithets appear consecutively.
+- `src/prompts.py`: Fixed the `المصطفى` spelling in the honorific-enrichment prompt examples.
