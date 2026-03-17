@@ -61,3 +61,4 @@ Entries below are appended by the agent after making code or config changes.
 - `src/trim.py`: create_silence_removed_audio now writes ffmpeg filter_complex scripts under temp/scripts/ (or a local scripts/ fallback) instead of OS temp, and removes them after use.
 - `README.md`: Documented temp/scripts/ in the example directory structure as the location for temporary ffmpeg filter scripts.
 - `src/trim.py`: Updated _get_hevc_qsv_quality_params to use high-quality ICQ settings (global_quality=18, lookahead, MB/ext BR control, archive scenario, adaptive dual-GPU) for faster HEVC QSV encoding without visible quality loss.
+- `src/trim.py`: Final video trim path now writes its filter_complex script under temp/scripts/ (derived from output_dir) instead of OS temp, then deletes it after encoding.

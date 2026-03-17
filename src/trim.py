@@ -281,14 +281,19 @@ def trim_single_video(
         ("libx264", _get_libx264_quality_params()),
     ]
 
-    with tempfile.NamedTemporaryFile("w", suffix=".ffscript", delete=False, encoding="utf-8") as tf:
-        tf.write(filter_complex)
-        filter_script_path: str = tf.name
+    # Write the filter_complex script under temp/scripts/ next to this run's
+    # temp/output folders (derived from output_dir), so paths are stable and
+    # debuggable rather than using OS-level temp.
+    temp_dir = output_dir.parent / "temp"
+    scripts_dir = temp_dir / SCRIPTS_DIR
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    filter_script_path = scripts_dir / f"{output_file.stem}_{int(time.time())}.ffscript"
+    filter_script_path.write_text(filter_complex, encoding="utf-8")
 
     def build_encode_cmd(codec: str, quality_params: list[str]) -> list[str]:
         cmd = build_ffmpeg_cmd(overwrite=True)
         cmd.extend(["-i", str(input_file)])
-        cmd.extend(["-filter_complex_script", filter_script_path])
+        cmd.extend(["-filter_complex_script", str(filter_script_path)])
         cmd.extend([
             "-map", "[outv]", "-map", "[outa]",
             "-c:v", codec,
