@@ -117,6 +117,7 @@ def _build_segments_to_keep(
 def create_silence_removed_audio(
     input_file: Path,
     output_audio_path: Path,
+    temp_dir: Path,
     noise_threshold: float,
     min_duration: float,
     pad_sec: float,
@@ -155,14 +156,7 @@ def create_silence_removed_audio(
     concat_inputs = "".join(f"[a{i}]" for i in range(len(segments_to_keep)))
     filter_complex = f"{filter_chains}{concat_inputs}concat=n={len(segments_to_keep)}:v=0:a=1[outa]"
 
-    # Prefer writing ffmpeg filter scripts under temp/scripts/, falling back to a
-    # local scripts/ subdirectory when output_audio_path is not under temp/snippet.
-    parent_dir = output_audio_path.parent
-    if parent_dir.name == SNIPPET_DIR and parent_dir.parent is not None:
-        temp_dir = parent_dir.parent
-        scripts_dir = temp_dir / SCRIPTS_DIR
-    else:
-        scripts_dir = parent_dir / "scripts"
+    scripts_dir = temp_dir / SCRIPTS_DIR
     scripts_dir.mkdir(parents=True, exist_ok=True)
     script_name = f"{output_audio_path.stem}_{int(time.time())}.ffscript"
     filter_script_path = scripts_dir / script_name
@@ -274,10 +268,9 @@ def trim_single_video(
         ("libx264", _get_libx264_quality_params()),
     ]
 
-    # Write the filter_complex script under temp/scripts/ next to this run's
-    # temp/output folders (derived from output_dir), so paths are stable and
-    # debuggable rather than using OS-level temp.
-    temp_dir = output_dir.parent / "temp"
+    # Write the filter_complex script under temp/scripts/ (inside output_dir),
+    # so paths are stable and debuggable rather than using OS-level temp.
+    temp_dir = output_dir / "temp"
     scripts_dir = temp_dir / SCRIPTS_DIR
     scripts_dir.mkdir(parents=True, exist_ok=True)
     filter_script_path = scripts_dir / f"{output_file.stem}_{int(time.time())}.ffscript"

@@ -63,6 +63,7 @@ def run_transcription_phase(
         create_silence_removed_audio(
             input_file=video_path,
             output_audio_path=snippet_path,
+            temp_dir=temp_dir,
             noise_threshold=noise_threshold,
             min_duration=min_duration,
             pad_sec=pad_sec,
