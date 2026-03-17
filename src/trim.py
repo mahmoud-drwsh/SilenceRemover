@@ -161,6 +161,8 @@ def create_silence_removed_audio(
     script_name = f"{output_audio_path.stem}_{int(time.time())}.ffscript"
     filter_script_path = scripts_dir / script_name
     filter_script_path.write_text(filter_complex, encoding="utf-8")
+    print(f"[DEBUG] filter_complex_script path: {filter_script_path}")
+    print(f"[DEBUG] filter_complex_script exists: {filter_script_path.exists()}")
     cmd = build_ffmpeg_cmd(overwrite=True)
     cmd.extend([
         "-i", str(input_file),
@@ -172,6 +174,7 @@ def create_silence_removed_audio(
     cmd.append(str(output_audio_path))
     print_ffmpeg_cmd(cmd)
     subprocess.run(cmd, check=True)
+    print(f"[DEBUG] ffmpeg completed, script still at: {filter_script_path}")
     wait_for_file_release(output_audio_path)
     print(f"Silence-removed audio -> {output_audio_path}")
     return output_audio_path.resolve()
@@ -275,6 +278,8 @@ def trim_single_video(
     scripts_dir.mkdir(parents=True, exist_ok=True)
     filter_script_path = scripts_dir / f"{output_file.stem}_{int(time.time())}.ffscript"
     filter_script_path.write_text(filter_complex, encoding="utf-8")
+    print(f"[DEBUG] filter_complex_script path: {filter_script_path}")
+    print(f"[DEBUG] filter_complex_script exists: {filter_script_path.exists()}")
 
     def build_encode_cmd(codec: str, quality_params: list[str]) -> list[str]:
         cmd = build_ffmpeg_cmd(overwrite=True)
@@ -373,5 +378,6 @@ def trim_single_video(
 
     wait_for_file_release(output_file)
     print(f"Done! Output saved to: {output_file}")
+    print(f"[DEBUG] ffmpeg completed, script still at: {filter_script_path}")
     return output_file.resolve()
 
