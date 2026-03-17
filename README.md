@@ -6,7 +6,7 @@ An automated video processing tool that removes silence segments, transcribes au
 
 - **Silence Detection & Removal**: Automatically detects and trims silence segments using FFmpeg's `silencedetect` filter
 - **Smart Trimming**: Optional target length optimization that adjusts padding to achieve desired video duration
-- **AI Transcription**: Extracts and transcribes the first 5 minutes of audio using OpenRouter (Gemini 2.0 Flash Lite)
+- **AI Transcription**: Extracts and transcribes the first 5 minutes of audio using OpenRouter (default model: `google/gemini-2.5-flash-lite:nitro`)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
 - **H.264 Encoding**: Uses Intel Quick Sync (h264_qsv) with high-quality options (preset slower, look-ahead, RDO, etc.); falls back to libx264 if QSV is unavailable. Quality controlled by `VIDEO_CRF` (default 23).
@@ -99,7 +99,7 @@ The tool processes videos sequentially through four main stages:
 
 ### 3. Transcription & Title Generation
 
-- **Transcription** (`src/transcribe.py`): Extracts and transcribes audio using OpenRouter API (Gemini 2.0 Flash Lite model - cheapest audio-capable). Optimized for Arabic verbatim transcription.
+- **Transcription** (`src/transcribe.py`): Extracts and transcribes audio using OpenRouter API (default model: `google/gemini-2.5-flash-lite:nitro`; override via `OPENROUTER_DEFAULT_MODEL`). Optimized for Arabic verbatim transcription.
 - **Title** (`src/title.py`): Generates YouTube-style title from transcript. Handles educational content formats (book names, lesson numbers).
 - Both use a shared OpenRouter client (`src/openrouter_client.py`). Phase 1 orchestration is in `src/phase1.py`.
 - **Two-step process**: Separate API calls for transcription and title generation (better quality and control). Transcript and title are stored in `output/data.json` (single source of truth; no separate .txt files).
@@ -145,15 +145,10 @@ The tool maintains state in `output/data.json` to avoid reprocessing videos:
 
 ## API Rate Limiting & Model Selection
 
-The tool includes built-in rate limiting and smart model selection:
+The tool includes built-in retry logic for rate limit errors (exponential backoff) and processes videos sequentially to respect API quotas.
 
-- **Transcription**: Uses cheapest audio-capable model (`google/gemini-2.0-flash-lite-001`)
-- **Title Generation**: 
-  - Tries free OpenAI models first (`openai/gpt-oss-20b:free`, then `openai/gpt-oss-120b:free`)
-  - Automatically falls back to paid model (`openai/gpt-oss-20b`) if free models hit rate limits
-  - Cost: FREE in most cases, or ~$0.00000012 per title if fallback is needed
-- Exponential backoff retry logic for rate limit errors (automatic retry with increasing delays)
-- Sequential processing to respect API quotas
+- **Defaults**: Both transcription and title generation default to `google/gemini-2.5-flash-lite:nitro` (see `src/config.py`).
+- **Overrides**: You can override models via `OPENROUTER_DEFAULT_MODEL` and `OPENROUTER_TITLE_MODEL` environment variables.
 
 ## Error Handling
 

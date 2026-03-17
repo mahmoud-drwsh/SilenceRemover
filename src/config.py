@@ -21,13 +21,13 @@ ENV_VARS = {
     "OPENROUTER_DEFAULT_MODEL": {
         "required": False,
         "type": str,
-        "default": "google/gemini-2.5-flash-lite",
+        "default": "google/gemini-2.5-flash-lite:nitro",
         "description": "Model for audio transcription (must support audio input)",
     },
     "OPENROUTER_TITLE_MODEL": {
         "required": False,
         "type": str,
-        "default": "google/gemini-3.1-flash-lite-preview",
+        "default": "google/gemini-2.5-flash-lite:nitro",
         "description": "Model for title generation (text-only)",
     },
     "NOISE_THRESHOLD": {

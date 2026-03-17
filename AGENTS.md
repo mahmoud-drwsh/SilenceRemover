@@ -54,3 +54,5 @@ Entries below are appended by the agent after making code or config changes.
 - `src/titles/openrouter.py`: On empty title responses, log to stderr and raise a RuntimeError so callers can skip the item without generating a fallback title.
 - `src/openrouter_client.py`: When the normalized model response is empty, log an input preview to stderr and record an [EMPTY RESPONSE] marker in logs before returning an empty string.
 - `src/openrouter_client.py`: Added best-effort error logging under `temp/logs/errors/` (full input + metadata) for every failed attempt and for empty normalized responses.
+- `src/config.py`: Updated OpenRouter transcription and title model defaults to `google/gemini-2.5-flash-lite:nitro` (env overrides still supported).
+- `README.md`: Updated documentation to reflect the new default OpenRouter model and that models are controlled via `OPENROUTER_DEFAULT_MODEL` / `OPENROUTER_TITLE_MODEL`.
