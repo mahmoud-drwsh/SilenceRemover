@@ -45,12 +45,15 @@ def can_run_encoder(codec: str, codec_args: Sequence[str] = ()) -> bool:
         "-f",
         "lavfi",
         "-i",
-        "color=black:s=16x16:d=0.1",
+        "color=black:s=64x64:d=0.4",
         "-frames:v",
-        "1",
+        "4",
         "-c:v",
         codec,
     ]
+    cmd.extend(["-pix_fmt", "nv12"])
+    if codec == "hevc_qsv":
+        cmd.extend(["-g", "1", "-bf", "0"])
     cmd.extend(codec_args)
     cmd.extend(["-f", "null", "-"])
     result = run(cmd, capture_output=True, check=False)
@@ -58,6 +61,7 @@ def can_run_encoder(codec: str, codec_args: Sequence[str] = ()) -> bool:
         quoted_cmd = " ".join(shlex.quote(arg) for arg in cmd)
         print(f"FFmpeg probe failed for codec={codec}:")
         print(f"  Command: {quoted_cmd}")
+        print(f"  Return code: {result.returncode}")
         if result.stderr:
             print(f"  Stderr: {result.stderr.strip()}")
         return False
