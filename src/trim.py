@@ -15,6 +15,7 @@ from src.constants import (
     TARGET_MIN_DURATION,
     TRIM_TIMESTAMP_EPSILON_SEC,
 )
+from src.encoding_resolver import resolve_video_encoder
 from src.ffmpeg_utils import add_filter_complex_script, build_ffmpeg_cmd, print_ffmpeg_cmd
 from src.fs_utils import wait_for_file_release
 from src.silence_detector import (
@@ -40,30 +41,6 @@ def _probe_bitrate_bps(input_file: Path) -> int:
         text=True,
     ).stdout.strip()
     return int(format_probe) if format_probe else BITRATE_FALLBACK_BPS
-
-
-def _get_hevc_qsv_quality_params() -> list[str]:
-    """hevc_qsv with high-quality ICQ settings.
-
-    -global_quality selects ICQ mode (1=best .. 51=worst). Values around 18–20
-    are visually transparent for most content. Additional options enable
-    lookahead and MB-level bitrate control for better allocation without
-    sacrificing quality.
-    """
-    return [
-        "-preset",
-        "slow",
-        "-global_quality",
-        "18",
-        "-look_ahead_depth",
-        "20",
-        "-mbbrc",
-        "1",
-        "-extbrc",
-        "1",
-        "-scenario",
-        "archive",
-    ]
 
 
 def _build_segments_from_silences(
@@ -256,6 +233,7 @@ def trim_single_video(
         pad_sec,
         target_length,
     )
+    encoder = resolve_video_encoder()
 
     resulting_length = sum(end - start for start, end in segments_to_keep)
     if target_length is not None:
@@ -265,10 +243,10 @@ def trim_single_video(
     # Handle case where all audio is silence (no segments to keep)
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal video (first frame only).")
-        # Create minimal video with first frame and silence using a single hevc_qsv path
+        # Create minimal video with first frame and silence using the resolved encoder profile.
         cmd = build_ffmpeg_cmd(overwrite=True)
-        cmd.extend(["-i", str(input_file), "-t", "0.1", "-c:v", "hevc_qsv"])
-        cmd.extend(_get_hevc_qsv_quality_params())
+        cmd.extend(["-i", str(input_file), "-t", "0.1"])
+        cmd.extend(encoder.video_args())
         cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file)])
         print_ffmpeg_cmd(cmd)
         try:
@@ -277,7 +255,7 @@ def trim_single_video(
             print(f"Done! Output saved to: {output_file}")
             return output_file.resolve()
         except subprocess.CalledProcessError as e:
-            raise RuntimeError("hevc_qsv failed while creating minimal fallback video") from e
+            raise RuntimeError(f"{encoder.codec} failed while creating minimal fallback video") from e
 
     filter_chains = ''.join(
         (
@@ -305,11 +283,8 @@ def trim_single_video(
         add_filter_complex_script(cmd, filter_script_path)
         cmd.extend([
             "-map", "[outv]", "-map", "[outa]",
-            "-c:v", "hevc_qsv",
         ])
-        cmd.extend(_get_hevc_qsv_quality_params())
-        # macOS compatibility: hvc1 tag for QuickTime, faststart for moov at start
-        cmd.extend(["-tag:v", "hvc1", "-movflags", "+faststart"])
+        cmd.extend(encoder.video_args(include_container_args=True))
         # Use ffmpeg's -progress output on stdout so we can show percentage
         cmd.extend([
             "-c:a", "aac", "-b:a", AUDIO_BITRATE,
@@ -382,7 +357,7 @@ def trim_single_video(
                 pass
             raise subprocess.CalledProcessError(retcode, cmd, stdout_data, stderr_data)
     except subprocess.CalledProcessError:
-        print("hevc_qsv encode failed while trimming video", file=sys.stderr)
+        print(f"{encoder.codec} encode failed while trimming video", file=sys.stderr)
         raise
 
     wait_for_file_release(output_file)

@@ -9,7 +9,7 @@ An automated video processing tool that removes silence segments, transcribes au
 - **AI Transcription**: Extracts and transcribes the first 5 minutes of audio using OpenRouter (default model: `google/gemini-2.5-flash-lite:nitro`)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
-- **H.264 Encoding**: Uses Intel Quick Sync (`hevc_qsv`) with high-quality options (slower preset, look-ahead, RDO-style bitrate controls, etc.). Encoding now uses a single `hevc_qsv` path; failures are reported directly without codec fallback.
+- **Video encoding**: Uses a centralized resolver that currently tries HEVC Intel Quick Sync (`hevc_qsv`) first, then Apple VideoToolbox (`hevc_videotoolbox`). The resolver design is intentionally extensible for future hardware encoders, and failures are reported directly without codec fallback.
 
 ## Requirements
 

@@ -15,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.cli import parse_args, fail, require_tools, require_input_dir, require_videos_in
 from src.constants import VIDEO_EXTENSIONS, COMPLETED_DIR
+from src.encoding_resolver import resolve_video_encoder
 from src.paths import (
     sibling_dir,
     create_temp_subdirs,
@@ -185,6 +186,12 @@ def main() -> None:
     try:
         load_config()
     except ValueError as e:
+        fail(str(e))
+
+    try:
+        selected_encoder = resolve_video_encoder()
+        print(f"Resolved encoder: {selected_encoder.name} ({selected_encoder.codec})")
+    except RuntimeError as e:
         fail(str(e))
 
     output_dir = sibling_dir(input_dir, "output")
