@@ -33,7 +33,6 @@ from src.paths import (
 )
 from src.trim import trim_single_video, create_silence_removed_audio
 from src.content import transcribe_media, generate_title
-from src.silence import detect_silence_points, calculate_resulting_length
 
 
 def is_video_file(path: Path) -> bool:
@@ -118,34 +117,6 @@ def run_title_phase(
         print(f"\n✗ Phase 2 error for {video_path.name}: {e}", file=sys.stderr)
         traceback.print_exc()
         return False
-
-
-def run_preview_phase(
-    video_path: Path,
-    temp_dir: Path,
-    noise_threshold: float,
-    min_duration: float,
-    pad_sec: float,
-    target_length: Optional[float] = None,
-) -> Optional[tuple[float, float, Path]]:
-    """Phase 2.5: Calculate and display target length preview (only when target_length is set)."""
-    if target_length is None:
-        return None
-
-    basename = video_path.stem
-    import subprocess
-
-    result = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(video_path)],
-        capture_output=True,
-        text=True,
-    )
-    original_duration = float(result.stdout.strip())
-
-    silence_starts, silence_ends = detect_silence_points(video_path, noise_threshold, min_duration)
-    resulting_length = calculate_resulting_length(silence_starts, silence_ends, original_duration, pad_sec)
-
-    return (original_duration, resulting_length, video_path)
 
 
 def run_output_phase(
@@ -266,35 +237,6 @@ def main() -> None:
             temp_dir=temp_dir,
             api_key=api_key,
         )
-
-    # Phase 2.5: Target length preview (only when --target-length is set)
-    preview_data = []
-    if args.target_length is not None:
-        print(f"\n{'='*60}")
-        print(f"[2.5/3] Target Length Preview")
-        print(f"{'='*60}")
-        for video_file in videos:
-            result = run_preview_phase(
-                video_path=video_file,
-                temp_dir=temp_dir,
-                noise_threshold=noise_threshold,
-                min_duration=min_duration,
-                pad_sec=pad_sec,
-                target_length=args.target_length,
-            )
-            if result:
-                preview_data.append(result)
-
-        if preview_data:
-            preview_data.sort(key=lambda x: x[1], reverse=True)
-            print(f"\n{'Target Length Preview':^30}")
-            print(f"{'Original':>12} → {'Target':>12}")
-            print("-" * 28)
-            for orig, target, _ in preview_data:
-                orig_m, orig_s = divmod(int(orig), 60)
-                target_m, target_s = divmod(int(target), 60)
-                print(f"{orig_m:02d}:{orig_s:02d} → {target_m:02d}:{target_s:02d}")
-            print("-" * 28)
 
     # Phase 3: Final output
     for i, video_file in enumerate(videos, 1):
