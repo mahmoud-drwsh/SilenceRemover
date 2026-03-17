@@ -4,12 +4,10 @@ import base64
 import subprocess
 from pathlib import Path
 
-from src.constants import AUDIO_BITRATE
+from src.constants import AUDIO_BITRATE, AUDIO_FORMATS, AUDIO_EXTENSIONS, AUDIO_FILE_EXT
 from src.prompts import TRANSCRIBE_PROMPT
 from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 from src.openrouter_client import request as openrouter_request
-
-_AUDIO_EXTENSIONS = {".wav", ".m4a", ".mp3", ".aac", ".ogg", ".flac", ".aiff"}
 
 
 def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str = "wav") -> None:
@@ -92,10 +90,10 @@ def get_audio_path_for_media(media_path: Path, temp_dir: Path, basename: str) ->
     Returns:
         Path to audio file to transcribe
     """
-    if media_path.suffix.lower() in _AUDIO_EXTENSIONS:
+    if media_path.suffix.lower() in AUDIO_EXTENSIONS:
         print(f"Using audio directly (no extraction): {media_path.name}")
         return media_path.resolve()
-    audio_path = temp_dir / f"{basename}.ogg"
+    audio_path = temp_dir / f"{basename}{AUDIO_FILE_EXT}"
     if not audio_path.exists():
         print(f"Extracting audio (5 min) -> {audio_path}")
         extract_first_5min_audio(media_path, audio_path, format="ogg")
@@ -125,8 +123,9 @@ def transcribe_with_openrouter(
     audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
     audio_format = audio_path.suffix.lstrip(".").lower()
-    if audio_format not in ["wav", "mp3", "aiff", "aac", "ogg", "flac", "m4a"]:
-        audio_format = "wav"
+    if audio_format not in AUDIO_FORMATS:
+        supported = ", ".join(sorted(AUDIO_FORMATS))
+        raise ValueError(f"Unsupported audio format: {audio_format}. Supported: {supported}")
 
     messages = [
         {

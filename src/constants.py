@@ -37,7 +37,7 @@ TARGET_NOISE_THRESHOLDS_DB: list[float] = [
 
 # --- Supported inputs ---
 
-VIDEO_EXTENSIONS = {
+VIDEO_EXTENSIONS: frozenset[str] = frozenset({
     ".mp4",
     ".mkv",
     ".avi",
@@ -52,7 +52,7 @@ VIDEO_EXTENSIONS = {
     ".ogv",
     ".ts",
     ".m2ts",
-}
+})
 
 # --- Temp subdirectory names ---
 
@@ -61,6 +61,13 @@ TRANSCRIPT_DIR = "transcript"
 TITLE_DIR = "title"
 COMPLETED_DIR = "completed"
 SCRIPTS_DIR = "scripts"
+
+# --- File extensions ---
+
+AUDIO_EXTENSIONS: frozenset[str] = frozenset({".wav", ".m4a", ".mp3", ".aac", ".ogg", ".flac", ".aiff"})
+AUDIO_FORMATS: frozenset[str] = frozenset(ext.lstrip(".") for ext in AUDIO_EXTENSIONS)
+AUDIO_FILE_EXT = ".ogg"
+TEXT_FILE_EXT = ".txt"
 
 __all__ = [
     "MAX_PAD_SEC",
@@ -80,5 +87,9 @@ __all__ = [
     "TITLE_DIR",
     "COMPLETED_DIR",
     "SCRIPTS_DIR",
+    "AUDIO_EXTENSIONS",
+    "AUDIO_FORMATS",
+    "AUDIO_FILE_EXT",
+    "TEXT_FILE_EXT",
 ]
 

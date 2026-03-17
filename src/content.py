@@ -4,6 +4,7 @@ from pathlib import Path
 
 from src import title
 from src import transcribe
+from src.paths import get_transcript_path, get_title_path
 
 
 def transcribe_media(
@@ -25,8 +26,7 @@ def transcribe_media(
     """
     audio_path = transcribe.get_audio_path_for_media(media_path, temp_dir, basename)
 
-    # Transcript output path
-    transcript_path = temp_dir / "transcript" / f"{basename}.txt"
+    transcript_path = get_transcript_path(temp_dir, basename)
 
     print("Transcribing with OpenRouter...")
     transcribe.transcribe_and_save(
@@ -49,8 +49,8 @@ def generate_title(
         api_key: OpenRouter API key
         basename: Base name for the video/audio file
     """
-    transcript_path = temp_dir / "transcript" / f"{basename}.txt"
-    title_path = temp_dir / "title" / f"{basename}.txt"
+    transcript_path = get_transcript_path(temp_dir, basename)
+    title_path = get_title_path(temp_dir, basename)
 
     print("Generating YouTube title...")
     title.generate_title_from_transcript(
@@ -80,8 +80,8 @@ def transcribe_single_video(
     transcribe_media(media_path, temp_dir, api_key, basename)
     generate_title(temp_dir, api_key, basename)
 
-    transcript_path = temp_dir / "transcript" / f"{basename}.txt"
-    title_path = temp_dir / "title" / f"{basename}.txt"
+    transcript_path = get_transcript_path(temp_dir, basename)
+    title_path = get_title_path(temp_dir, basename)
 
     transcript_text = transcript_path.read_text(encoding="utf-8").strip()
     title_text = title_path.read_text(encoding="utf-8").strip()

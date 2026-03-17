@@ -3,7 +3,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from src.constants import COMPLETED_DIR, SCRIPTS_DIR, SNIPPET_DIR, TITLE_DIR, TRANSCRIPT_DIR
+from src.constants import AUDIO_FILE_EXT, COMPLETED_DIR, SCRIPTS_DIR, SNIPPET_DIR, TEXT_FILE_EXT, TITLE_DIR, TRANSCRIPT_DIR
 from src.filename_sanitizer import sanitize_filename
 
 __all__ = [
@@ -36,22 +36,22 @@ def create_temp_subdirs(temp_dir: Path) -> None:
 
 def get_snippet_path(temp_dir: Path, basename: str) -> Path:
     """Path to snippet audio file (first 5 min, silence-removed)."""
-    return temp_dir / SNIPPET_DIR / f"{basename}.ogg"
+    return temp_dir / SNIPPET_DIR / f"{basename}{AUDIO_FILE_EXT}"
 
 
 def get_transcript_path(temp_dir: Path, basename: str) -> Path:
     """Path to transcript text file."""
-    return temp_dir / TRANSCRIPT_DIR / f"{basename}.txt"
+    return temp_dir / TRANSCRIPT_DIR / f"{basename}{TEXT_FILE_EXT}"
 
 
 def get_title_path(temp_dir: Path, basename: str) -> Path:
     """Path to title text file."""
-    return temp_dir / TITLE_DIR / f"{basename}.txt"
+    return temp_dir / TITLE_DIR / f"{basename}{TEXT_FILE_EXT}"
 
 
 def get_completed_path(temp_dir: Path, basename: str) -> Path:
     """Path to completed timestamp file."""
-    return temp_dir / COMPLETED_DIR / f"{basename}.txt"
+    return temp_dir / COMPLETED_DIR / f"{basename}{TEXT_FILE_EXT}"
 
 
 def is_transcript_done(temp_dir: Path, basename: str) -> bool:
