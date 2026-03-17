@@ -56,3 +56,7 @@ Entries below are appended by the agent after making code or config changes.
 - `src/openrouter_client.py`: Added best-effort error logging under `temp/logs/errors/` (full input + metadata) for every failed attempt and for empty normalized responses.
 - `src/config.py`: Updated OpenRouter transcription and title model defaults to `google/gemini-2.5-flash-lite:nitro` (env overrides still supported).
 - `README.md`: Updated documentation to reflect the new default OpenRouter model and that models are controlled via `OPENROUTER_DEFAULT_MODEL` / `OPENROUTER_TITLE_MODEL`.
+- `src/config.py`: Added SCRIPTS_DIR=\"scripts\" to track a dedicated temp/scripts/ folder.
+- `src/paths.py`: create_temp_subdirs now also creates temp/scripts/ using SCRIPTS_DIR.
+- `src/trim.py`: create_silence_removed_audio now writes ffmpeg filter_complex scripts under temp/scripts/ (or a local scripts/ fallback) instead of OS temp, and removes them after use.
+- `README.md`: Documented temp/scripts/ in the example directory structure as the location for temporary ffmpeg filter scripts.
