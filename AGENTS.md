@@ -59,3 +59,4 @@ Entries below are appended by the agent after making code or config changes.
 - `src/encoding_resolver.py`: switched `hevc_qsv` from `global_quality` (ICQ path) to explicit CQP-style `-q:v` quality control.
 - `src/encoding_resolver.py`: changed encoder resolution to fail when configured profile arguments are not runnable, removing implicit downgrade to empty codec args.
 - `src/encoding_resolver.py`: reintroduced `-preset "slow"` for `hevc_qsv` while keeping explicit quality control via `-global_quality`.
+- `src/ffmpeg/probing.py`: added probe-level logging to print exact FFmpeg commands and stderr when encoder-option checks fail.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 from typing import Sequence
 
@@ -52,7 +53,15 @@ def can_run_encoder(codec: str, codec_args: Sequence[str] = ()) -> bool:
     ]
     cmd.extend(codec_args)
     cmd.extend(["-f", "null", "-"])
-    return run(cmd, capture_output=True, check=False).returncode == 0
+    result = run(cmd, capture_output=True, check=False)
+    if result.returncode != 0:
+        quoted_cmd = " ".join(shlex.quote(arg) for arg in cmd)
+        print(f"FFmpeg probe failed for codec={codec}:")
+        print(f"  Command: {quoted_cmd}")
+        if result.stderr:
+            print(f"  Stderr: {result.stderr.strip()}")
+        return False
+    return True
 
 
 def probe_duration(input_file: Path) -> float:
