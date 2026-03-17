@@ -2,76 +2,34 @@
 
 Entries below are appended by the agent after making code or config changes.
 
-- `main.py`: Removed DEBUG global, --debug CLI flag, and debug parameters from run_phase1_for_video and run_phase2_for_video.
-- `src/trim.py`: Removed DEBUG global, debug parameter from create_silence_removed_audio and trim_single_video, and all debug print branches in _build_segments_to_keep.
-- `src/silence_utils.py`: Removed debug parameter and all debug print blocks from detect_silence_points.
-- `src/config.py`: Set OPENROUTER_DEFAULT_MODEL and OPENROUTER_TITLE_MODEL defaults to google/gemini-2.5-flash-lite.
-- `src/config.py`: Set OPENROUTER_TITLE_MODEL default to google/gemini-3.1-flash-lite-preview for title generation.
-- `src/config.py`: Updated ADD_HONORIFIC_PROMPT_TEMPLATE to explicitly return the original title unchanged when no honorific edits are needed.
-- `src/config.py`: Added AUTO_* constants for adaptive silence sweep (AUTO_DB_START, AUTO_DB_MAX, AUTO_DB_STEP_PHASE3, AUTO_MIN_DURATION_*), updated comments to reflect min-duration-first then dB sweep.
-- `src/silence_utils.py`: Updated find_threshold_and_min_duration to sweep min_duration first at AUTO_DB_START, then dB from AUTO_DB_START up to AUTO_DB_MAX at AUTO_MIN_DURATION_MIN.
-- `src/trim.py`: When target_length is set, probe duration first, copy if target >= duration, else call find_threshold_and_min_duration and use result for trim; removed duplicate copy block.
-- `ALGO.md`: Documented silence-detection algorithm, dB/min_duration effects, and adaptive sweep (min-duration-first, then dB) for target length.
-- `src/config.py`: Added SIMPLE_DB and SIMPLE_MIN_DURATION for simple fixed-threshold mode when --target-length is set.
-- `src/silence_utils.py`: Added detect_silences_simple() using SIMPLE_DB and SIMPLE_MIN_DURATION.
-- `src/trim.py`: Added _build_segments_from_silences(); refactored _build_segments_to_keep to use it; when target_length is set use simple mode (detect_silences_simple, base length, find_optimal_padding or pad=0, _build_segments_from_silences) and removed find_threshold_and_min_duration; import detect_silences_simple and config SIMPLE_*.
-- `ALGO.md`: Replaced target-length section with "Simple mode": single detection at -55 dB and 0.01 s, padding-only tuning; adaptive sweep removed when target is set.
-- `src/silence_utils.py`: Removed find_threshold_and_min_duration and AUTO_* imports; only detect_silences_simple + find_optimal_padding used when target is set.
-- `src/config.py`: Removed AUTO_* constants (adaptive sweep); kept SIMPLE_DB and SIMPLE_MIN_DURATION for target-length algorithm.
-- `src/trim.py`, `ALGO.md`: Dropped "simple mode" wording; single algorithm when target is set.
-- `.env.example`: Reduced to only OPENROUTER_API_KEY (secrets); note that other settings use defaults in config.py.
-- `src/config.py`: Docstring updated to state only secrets need to be in .env.
-- `README.md`: Config section updated to say .env is for secrets only; other options and defaults are in config.py.
-- `main.py`: Added optional CLI flags --noise-threshold and --min-duration; resolve from CLI, else SIMPLE_* when --target-length set, else config.
-- `src/trim.py`: Target-length path uses detect_silence_points(noise_threshold, min_duration) instead of detect_silences_simple; removed SIMPLE_* overwrite and unused imports.
-- `README.md`: Documented --noise-threshold and --min-duration in Options.
-- `pyproject.toml`: Replaced requests with openrouter dependency.
-- `src/transcribe.py`: Switched to OpenRouter Python SDK (client.chat.send) with existing retry logic; removed requests and OPENROUTER_API_URL.
-- `src/config.py`: Removed OPENROUTER_API_URL from ENV_VARS, _ENV_ATTR_NAMES, and __all__.
-- `README.md`: Added one-liner that transcription/title use the official OpenRouter Python SDK.
-- `src/transcribe.py`: Set OpenRouter client app attribution via http_referer and x_title so usage shows as SilenceRemover in OpenRouter rankings/analytics.
-- `src/openrouter_client.py`: New shared OpenRouter SDK request + retry for transcribe and title modules.
-- `src/transcribe.py`: Refactored to transcription only; added get_audio_path_for_media; uses openrouter_client.request.
-- `src/title.py`: New module with generate_title_with_openrouter; uses openrouter_client.request.
-- `src/phase1.py`: New Phase 1 orchestration (transcribe_single_video) composing transcribe + title.
-- `main.py`: Import transcribe_single_video from src.phase1 instead of src.transcribe.
-- `src/config.py`: Removed honorific rules from TITLE_PROMPT_TEMPLATE; added ADD_HONORIFIC_PROMPT_TEMPLATE and exported in __all__.
-- `src/title.py`: Two-step title flow: (1) generate title from transcript, (2) add honorifics via ADD_HONORIFIC_PROMPT_TEMPLATE; same model; added _first_line helper and "Adding honorific to title..." print.
-- `src/openrouter_client.py`: Added log_dir param to request(); when set, append input/output text to temp_dir/openrouter_requests.log; _messages_to_log_text (no raw base64), _append_openrouter_log.
-- `src/transcribe.py`: transcribe_with_openrouter accepts log_dir, passes to openrouter_request.
-- `src/title.py`: generate_title_with_openrouter accepts log_dir, passes to both openrouter_request calls.
-- `src/phase1.py`: Pass temp_dir as log_dir to transcribe and title so all OpenRouter requests are logged under temp/.
-- `src/title.py`: On honorific step failure (exception or empty response), fall back to raw title and log to stderr.
-- Option B audio format: use OGG/Opus for transcription (smaller payloads). main.py snippet path -> .ogg; trim.py create_silence_removed_audio outputs libopus when path is .ogg; transcribe.py extract_first_5min_audio format=ogg and get_audio_path_for_media use .ogg.
-- `src/transcription/openrouter.py`, `src/transcription/__init__.py`, `src/transcribe.py`: Introduced transcription package with implementations in src/transcription/openrouter and a shim in src/transcribe to preserve old import paths.
-- `src/titles/openrouter.py`, `src/titles/__init__.py`, `src/title.py`: Introduced titles package with implementations in src/titles/openrouter and a shim in src/title to preserve old import paths.
-- `src/silence/detector.py`, `src/silence/__init__.py`, `src/silence_detector.py`: Introduced silence package with implementations in src/silence/detector and a shim in src/silence_detector to preserve old import paths.
-- `src/openrouter_client.py`: Changed OpenRouter logging to write per-request files under log_dir/logs/<unix_ts>_request.txt and <unix_ts>_response.txt instead of appending to a single .log file.
-- `src/trim.py`: Updated main encoding path to run ffmpeg with -progress and parse out_time to print percentage progress on a single updating line (using carriage return) instead of raw ffmpeg stats.
-- `src/config.py`: Updated NOISE_THRESHOLD default from -30.0 to -50.0 to better match expander settings.
-- Code organization refactor: Extracted CLI parsing (argparse, validation) to `src/cli.py`; path utilities (sibling_dir, temp paths, markers) to `src/paths.py`; prompt templates to `src/prompts.py`. Renamed `src/silence_utils.py` -> `src/silence_detector.py`. Updated imports in main.py, title.py, transcribe.py, trim.py. Breaking: moved prompts from src.config to src.prompts; renamed silence_utils module.
-- `src/openrouter_client.py`: Normalized SDK response content to a plain string (joining text content blocks) before returning and logging.
-- `src/titles/openrouter.py`: On empty title responses, log to stderr and raise a RuntimeError so callers can skip the item without generating a fallback title.
-- `src/openrouter_client.py`: When the normalized model response is empty, log an input preview to stderr and record an [EMPTY RESPONSE] marker in logs before returning an empty string.
-- `src/openrouter_client.py`: Added best-effort error logging under `temp/logs/errors/` (full input + metadata) for every failed attempt and for empty normalized responses.
-- `src/config.py`: Updated OpenRouter transcription and title model defaults to `google/gemini-2.5-flash-lite:nitro` (env overrides still supported).
-- `README.md`: Updated documentation to reflect the new default OpenRouter model and that models are controlled via `OPENROUTER_DEFAULT_MODEL` / `OPENROUTER_TITLE_MODEL`.
-- `src/config.py`: Added SCRIPTS_DIR=\"scripts\" to track a dedicated temp/scripts/ folder.
-- `src/paths.py`: create_temp_subdirs now also creates temp/scripts/ using SCRIPTS_DIR.
-- `src/trim.py`: create_silence_removed_audio now writes ffmpeg filter_complex scripts under temp/scripts/ (or a local scripts/ fallback) instead of OS temp, and leaves them on disk for debugging.
-- `README.md`: Documented temp/scripts/ in the example directory structure as the location for temporary ffmpeg filter scripts.
-- `src/trim.py`: Updated _get_hevc_qsv_quality_params to use high-quality ICQ settings (global_quality=18, lookahead, MB/ext BR control, archive scenario, adaptive dual-GPU) for faster HEVC QSV encoding without visible quality loss.
-- `src/trim.py`: Final video trim path now writes its filter_complex script under temp/scripts/ (derived from output_dir) instead of OS temp, and leaves it on disk for debugging.
-- `src/config.py`: Added target-mode constants for a -60dB-up threshold sweep with fixed 0.01s min_duration.
-- `src/silence/detector.py`: Added a target-mode helper that sweeps thresholds and tunes padding, plus a segment truncation safeguard to never exceed target.
-- `src/silence_detector.py`: Re-exported new target-mode sweep and truncation helpers through the compatibility shim.
-- `src/trim.py`: Switched target-length trimming to threshold sweep + padding tuning and enforced a hard never-over-target guarantee via segment truncation.
-- `ALGO.md`: Updated target-length documentation to describe multi-pass threshold sweep + padding tuning and the never-exceed safeguard.
-- `src/trim.py`: Removed target-mode segment truncation; if trimming can’t get under target, output may exceed target rather than cutting content.
-- `ALGO.md`: Documented that target mode never truncates content; exceeding target is allowed when silence trimming can’t reduce enough.
-- `src/config.py`: Reduced ENV_VARS to only OPENROUTER_API_KEY, added DEFAULT_* silence constants, and removed env-backed model/CRF settings.
-- `main.py`: Now derives noise_threshold, min_duration, and pad_sec from CLI flags and config constants, using env only for OPENROUTER_API_KEY.
-- `src/fs_utils.py`: Uses fixed timeout and sleep constants for Windows file lock waiting instead of env-driven values.
+## Condensed older entries (1-74)
+
+**Debug cleanup & early config**: Removed DEBUG globals and CLI flags from main.py, trim.py, and silence_utils.py. Set default models to gemini-2.5-flash-lite, then gemini-3.1-flash-lite-preview for titles. Added honorific prompt template.
+
+**Target-length mode evolution**: Added AUTO_* constants for adaptive sweeps (min-duration-first, then dB), then replaced with SIMPLE_DB/SIMPLE_MIN_DURATION fixed-threshold mode. Introduced _build_segments_from_silences() helper, find_optimal_padding(), and detect_silences_simple(). Documented algorithm in ALGO.md.
+
+**Environment cleanup**: Reduced .env to only OPENROUTER_API_KEY. Updated config.py docstring and README.md to reflect secrets-only approach. Added CLI flags --noise-threshold and --min-duration.
+
+**OpenRouter SDK migration**: Replaced requests with official openrouter dependency. Created src/openrouter_client.py with shared request/retry logic and app attribution (http_referer, x_title). Added log_dir parameter for per-request logging. Switched transcribe.py and title.py to use SDK.
+
+**Title generation**: Extracted honorific rules to ADD_HONORIFIC_PROMPT_TEMPLATE. Implemented two-step title flow (generate title, then add honorifics). Added _first_line helper and fallback on honorific step failure.
+
+**Audio format**: Switched to OGG/Opus for smaller transcription payloads (libopus at 16kHz mono).
+
+**Package refactoring**: Created src/transcription/openrouter.py + shim, src/titles/openrouter.py + shim, src/silence/detector.py + shim to preserve backward-compatible import paths. Changed logging to per-request timestamped files under log_dir/logs/.
+
+**Encoding & progress**: Updated main encoding path to use -progress flag with parsed percentage output. Changed NOISE_THRESHOLD default to -50.0. Upgraded HEVC QSV to high-quality ICQ settings (global_quality=18, lookahead, etc.). Moved filter_complex scripts to temp/scripts/ for debugging.
+
+**Code organization**: Extracted CLI parsing to src/cli.py, path utilities to src/prompts.py, renamed silence_utils.py to silence_detector.py. Normalized SDK responses to plain strings. Added error logging under temp/logs/errors/. Updated default model to gemini-2.5-flash-lite:nitro.
+
+**Target-length refinements**: Added threshold sweep + padding tuning with segment truncation safeguard, then removed truncation (output may exceed target). Documented in ALGO.md with examples.
+
+**Constants extraction**: Added src/constants.py for all non-secret constants. Reduced src/config.py to env-backed secrets only. Updated imports across main.py, cli.py, paths.py, trim.py, detector.py, transcription/openrouter.py. Updated cleanup script for new directory structure.
+
+---
+
+## Recent entries (75-84, kept intact)
+
 - `src/transcription/openrouter.py`, `src/titles/openrouter.py`: Hard-coded OpenRouter model defaults to google/gemini-2.5-flash-lite:nitro instead of reading from env-backed config.
 - `README.md`: Updated configuration and model sections to state that only the API key uses environment variables; other knobs are CLI flags or code constants.
 - `.env.example`: Clarified that only OPENROUTER_API_KEY should be set via environment; all other settings are CLI/config-based.
@@ -79,3 +37,6 @@ Entries below are appended by the agent after making code or config changes.
 - `src/config.py`: Now only contains env-backed secret loading/validation; removed all constant definitions from this module.
 - `main.py`, `src/cli.py`, `src/paths.py`, `src/trim.py`, `src/silence/detector.py`, `src/transcription/openrouter.py`: Updated imports to use `src.constants` instead of `src.config` for non-secret constants.
 - `pwsh/Cleanup-ProcessedFiles.ps1`: Updated cleanup to delete only `output/` (temp now lives under `output/temp`) while still moving `raw/` files to `archive/`.
+- `ALGO.md`: Updated documentation to match current target-mode (threshold sweep + padding tuning) and to describe padding/inputs the way segments are actually built in `src/trim.py` / `src/silence/detector.py`.
+- `ALGO.md`: Added concrete examples illustrating how threshold/min_duration/padding change results and a worked target-mode sweep + padding tuning walkthrough.
+- `ALGO.md`: Corrected examples to reflect the "skip silences ≤ 2×pad" rule, avoid threshold-equality ambiguity, and match `find_optimal_padding`'s strict "< target" behavior.
