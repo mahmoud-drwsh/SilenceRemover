@@ -56,3 +56,4 @@ Entries below are appended by the agent after making code or config changes.
 - `src/ffmpeg/__init__.py`: dropped WAV transcode helper from package exports.
 - `src/llm/transcription.py`: removed WAV extraction branch from transcription pipeline and now enforce OGG-only extraction format.
 - `temp/test_openrouter.py`: updated quick-test audio extraction helper to prefer OGG output for consistency.
+- `src/encoding_resolver.py`: switched `hevc_qsv` from `global_quality` (ICQ path) to explicit CQP-style `-q:v` quality control.

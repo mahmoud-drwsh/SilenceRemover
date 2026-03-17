@@ -35,10 +35,8 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
         codec_args=(
             "-preset",
             "slow",
-            "-global_quality",
-            "13",
-            "-look_ahead_depth",
-            "20",
+            "-q:v",
+            "24",
             "-mbbrc",
             "1",
             "-extbrc",
