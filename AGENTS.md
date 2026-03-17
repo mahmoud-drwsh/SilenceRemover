@@ -58,7 +58,7 @@ Entries below are appended by the agent after making code or config changes.
 - `README.md`: Updated documentation to reflect the new default OpenRouter model and that models are controlled via `OPENROUTER_DEFAULT_MODEL` / `OPENROUTER_TITLE_MODEL`.
 - `src/config.py`: Added SCRIPTS_DIR=\"scripts\" to track a dedicated temp/scripts/ folder.
 - `src/paths.py`: create_temp_subdirs now also creates temp/scripts/ using SCRIPTS_DIR.
-- `src/trim.py`: create_silence_removed_audio now writes ffmpeg filter_complex scripts under temp/scripts/ (or a local scripts/ fallback) instead of OS temp, and removes them after use.
+- `src/trim.py`: create_silence_removed_audio now writes ffmpeg filter_complex scripts under temp/scripts/ (or a local scripts/ fallback) instead of OS temp, and leaves them on disk for debugging.
 - `README.md`: Documented temp/scripts/ in the example directory structure as the location for temporary ffmpeg filter scripts.
 - `src/trim.py`: Updated _get_hevc_qsv_quality_params to use high-quality ICQ settings (global_quality=18, lookahead, MB/ext BR control, archive scenario, adaptive dual-GPU) for faster HEVC QSV encoding without visible quality loss.
-- `src/trim.py`: Final video trim path now writes its filter_complex script under temp/scripts/ (derived from output_dir) instead of OS temp, then deletes it after encoding.
+- `src/trim.py`: Final video trim path now writes its filter_complex script under temp/scripts/ (derived from output_dir) instead of OS temp, and leaves it on disk for debugging.

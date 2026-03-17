@@ -176,15 +176,8 @@ def create_silence_removed_audio(
     if max_duration is not None:
         cmd.extend(["-t", str(int(max_duration))])
     cmd.append(str(output_audio_path))
-    try:
-        print_ffmpeg_cmd(cmd)
-        subprocess.run(cmd, check=True)
-    finally:
-        try:
-            filter_script_path.unlink(missing_ok=True)
-        except Exception:
-            pass
-
+    print_ffmpeg_cmd(cmd)
+    subprocess.run(cmd, check=True)
     wait_for_file_release(output_audio_path)
     print(f"Silence-removed audio -> {output_audio_path}")
     return output_audio_path.resolve()
@@ -308,88 +301,82 @@ def trim_single_video(
         ])
         return cmd
 
-    try:
-        print(f"Input: {input_file}")
-        print(f"Output: {output_file}")
-        print(f"Settings: noise={noise_threshold}dB, min_duration={min_duration}s, pad={pad_sec}s")
-        print(f"Filter complex length: {len(filter_complex)} characters")
-        print(f"Number of segments: {len(segments_to_keep)}")
-        last_exc = None
-        last_cmd = None
-        for codec, quality_params in ENCODERS_TO_TRY:
-            cmd = build_encode_cmd(codec, quality_params)
-            print_ffmpeg_cmd(cmd)
-            last_cmd = cmd
-            try:
-                # Run ffmpeg and parse -progress output to display percentage
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
-                current_percent = -1
-                expected_total = resulting_length if resulting_length > 0 else duration_sec
-                try:
-                    assert proc.stdout is not None
-                    for line in proc.stdout:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        # out_time_ms is in microseconds; prefer it if present
-                        if line.startswith("out_time_ms="):
-                            try:
-                                micros = float(line.split("=", 1)[1])
-                                seconds = micros / 1_000_000.0
-                            except ValueError:
-                                continue
-                        elif line.startswith("out_time="):
-                            # Format HH:MM:SS.micro
-                            try:
-                                time_str = line.split("=", 1)[1]
-                                h, m, s = time_str.split(":")
-                                seconds = int(h) * 3600 + int(m) * 60 + float(s)
-                            except Exception:
-                                continue
-                        else:
-                            continue
-                        if expected_total > 0:
-                            pct = int(min(100.0, max(0.0, (seconds / expected_total) * 100.0)))
-                            if pct != current_percent:
-                                current_percent = pct
-                                # Use carriage return so progress stays on one line
-                                print(f"\rProgress: {current_percent}%", end="", flush=True)
-                finally:
-                    retcode = proc.wait()
-                # Ensure we end the progress line cleanly
-                if current_percent >= 0:
-                    print()
-                if retcode != 0:
-                    stdout_data = ""
-                    stderr_data = ""
-                    try:
-                        if proc.stdout:
-                            stdout_data = proc.stdout.read() or ""
-                        if proc.stderr:
-                            stderr_data = proc.stderr.read() or ""
-                    except Exception:
-                        pass
-                    raise subprocess.CalledProcessError(retcode, cmd, stdout_data, stderr_data)
-                break
-            except subprocess.CalledProcessError as e:
-                last_exc = e
-                if codec == "hevc_qsv":
-                    print("hevc_qsv failed, falling back to libx264", file=sys.stderr)
-        else:
-            if last_exc is not None:
-                raise subprocess.CalledProcessError(
-                    last_exc.returncode, last_cmd or [], last_exc.stdout, last_exc.stderr
-                ) from last_exc
-    finally:
+    print(f"Input: {input_file}")
+    print(f"Output: {output_file}")
+    print(f"Settings: noise={noise_threshold}dB, min_duration={min_duration}s, pad={pad_sec}s")
+    print(f"Filter complex length: {len(filter_complex)} characters")
+    print(f"Number of segments: {len(segments_to_keep)}")
+    last_exc = None
+    last_cmd = None
+    for codec, quality_params in ENCODERS_TO_TRY:
+        cmd = build_encode_cmd(codec, quality_params)
+        print_ffmpeg_cmd(cmd)
+        last_cmd = cmd
         try:
-            Path(filter_script_path).unlink(missing_ok=True)
-        except Exception:
-            pass
+            # Run ffmpeg and parse -progress output to display percentage
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            current_percent = -1
+            expected_total = resulting_length if resulting_length > 0 else duration_sec
+            try:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # out_time_ms is in microseconds; prefer it if present
+                    if line.startswith("out_time_ms="):
+                        try:
+                            micros = float(line.split("=", 1)[1])
+                            seconds = micros / 1_000_000.0
+                        except ValueError:
+                            continue
+                    elif line.startswith("out_time="):
+                        # Format HH:MM:SS.micro
+                        try:
+                            time_str = line.split("=", 1)[1]
+                            h, m, s = time_str.split(":")
+                            seconds = int(h) * 3600 + int(m) * 60 + float(s)
+                        except Exception:
+                            continue
+                    else:
+                        continue
+                    if expected_total > 0:
+                        pct = int(min(100.0, max(0.0, (seconds / expected_total) * 100.0)))
+                        if pct != current_percent:
+                            current_percent = pct
+                            # Use carriage return so progress stays on one line
+                            print(f"\rProgress: {current_percent}%", end="", flush=True)
+            finally:
+                retcode = proc.wait()
+            # Ensure we end the progress line cleanly
+            if current_percent >= 0:
+                print()
+            if retcode != 0:
+                stdout_data = ""
+                stderr_data = ""
+                try:
+                    if proc.stdout:
+                        stdout_data = proc.stdout.read() or ""
+                    if proc.stderr:
+                        stderr_data = proc.stderr.read() or ""
+                except Exception:
+                    pass
+                raise subprocess.CalledProcessError(retcode, cmd, stdout_data, stderr_data)
+            break
+        except subprocess.CalledProcessError as e:
+            last_exc = e
+            if codec == "hevc_qsv":
+                print("hevc_qsv failed, falling back to libx264", file=sys.stderr)
+    else:
+        if last_exc is not None:
+            raise subprocess.CalledProcessError(
+                last_exc.returncode, last_cmd or [], last_exc.stdout, last_exc.stderr
+            ) from last_exc
 
     wait_for_file_release(output_file)
     print(f"Done! Output saved to: {output_file}")
