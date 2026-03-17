@@ -2,8 +2,6 @@
 
 import sys
 from pathlib import Path
-
-from src.config import OPENROUTER_TITLE_MODEL
 from src.prompts import (
     ADD_HONORIFIC_PROMPT_TEMPLATE,
     TITLE_PROMPT_TEMPLATE,
@@ -34,9 +32,9 @@ def generate_title_with_openrouter(
     messages1 = [
         {"role": "user", "content": [{"type": "text", "text": prompt1}]},
     ]
-    print(f"Generating title with model: {OPENROUTER_TITLE_MODEL}")
+    print("Generating title with model: google/gemini-2.5-flash-lite:nitro")
     raw_title = openrouter_request(
-        api_key, OPENROUTER_TITLE_MODEL, messages1, log_dir=log_dir
+        api_key, "google/gemini-2.5-flash-lite:nitro", messages1, log_dir=log_dir
     )
     raw_title = _first_line(str(raw_title))
     if not raw_title:
@@ -53,7 +51,7 @@ def generate_title_with_openrouter(
         ]
         print("Adding honorific to title...")
         title_text = openrouter_request(
-            api_key, OPENROUTER_TITLE_MODEL, messages2, log_dir=log_dir
+            api_key, "google/gemini-2.5-flash-lite:nitro", messages2, log_dir=log_dir
         )
         title_text = _first_line(title_text)
     except Exception as e:

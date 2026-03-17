@@ -69,3 +69,9 @@ Entries below are appended by the agent after making code or config changes.
 - `ALGO.md`: Updated target-length documentation to describe multi-pass threshold sweep + padding tuning and the never-exceed safeguard.
 - `src/trim.py`: Removed target-mode segment truncation; if trimming can’t get under target, output may exceed target rather than cutting content.
 - `ALGO.md`: Documented that target mode never truncates content; exceeding target is allowed when silence trimming can’t reduce enough.
+- `src/config.py`: Reduced ENV_VARS to only OPENROUTER_API_KEY, added DEFAULT_* silence constants, and removed env-backed model/CRF settings.
+- `main.py`: Now derives noise_threshold, min_duration, and pad_sec from CLI flags and config constants, using env only for OPENROUTER_API_KEY.
+- `src/fs_utils.py`: Uses fixed timeout and sleep constants for Windows file lock waiting instead of env-driven values.
+- `src/transcription/openrouter.py`, `src/titles/openrouter.py`: Hard-coded OpenRouter model defaults to google/gemini-2.5-flash-lite:nitro instead of reading from env-backed config.
+- `README.md`: Updated configuration and model sections to state that only the API key uses environment variables; other knobs are CLI flags or code constants.
+- `.env.example`: Clarified that only OPENROUTER_API_KEY should be set via environment; all other settings are CLI/config-based.

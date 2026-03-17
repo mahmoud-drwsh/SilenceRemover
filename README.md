@@ -9,7 +9,7 @@ An automated video processing tool that removes silence segments, transcribes au
 - **AI Transcription**: Extracts and transcribes the first 5 minutes of audio using OpenRouter (default model: `google/gemini-2.5-flash-lite:nitro`)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
-- **H.264 Encoding**: Uses Intel Quick Sync (h264_qsv) with high-quality options (preset slower, look-ahead, RDO, etc.); falls back to libx264 if QSV is unavailable. Quality controlled by `VIDEO_CRF` (default 23).
+- **H.264 Encoding**: Uses Intel Quick Sync (h264_qsv) with high-quality options (preset slower, look-ahead, RDO, etc.); falls back to libx264 if QSV is unavailable. Encoding quality is fixed to a high-quality preset in code.
 
 ## Requirements
 
@@ -36,23 +36,15 @@ uv sync
 
 ## Configuration
 
-All configuration (environment variables and static constants) is defined in `src/config.py` (the single source of truth). Configuration is validated at startup with clear error messages.
+All configuration is defined in `src/config.py` (the single source of truth) plus a small set of CLI flags. Environment variables are only used for secrets.
 
-Keep only **secrets** in `.env` (e.g. your OpenRouter API key). Copy `.env.example` to `.env` and set:
+Keep only **secrets** in `.env` (your OpenRouter API key). Copy `.env.example` to `.env` and set:
 
 ```env
 OPENROUTER_API_KEY=your_api_key_here
 ```
 
-All other options (models, silence params, timeouts, etc.) have defaults in `src/config.py` and can be overridden via environment variables if needed.
-
-### Parameter Tuning
-
-- **NOISE_THRESHOLD**: Default is -50dB. Lower values (e.g., -55dB) detect quieter silences; higher values (e.g., -30dB) are more strict. Must be negative.
-- **MIN_DURATION**: Minimum length of silence to be detected (prevents removing brief pauses). Must be positive.
-- **PAD**: Amount of audio/video retained around detected silences (helps preserve natural transitions). Must be non-negative.
-
-**Note:** Invalid configuration values will cause the tool to fail at startup with clear error messages indicating what needs to be fixed.
+All other options (models, silence parameters, timeouts, etc.) are controlled via CLI flags or constants in `src/config.py`.
 
 ## Usage
 
@@ -66,9 +58,9 @@ python main.py /path/to/video/directory
 
 ### Options
 
-- `--target-length FLOAT`: Optimize padding to achieve a target video length (in seconds)
-- `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). With `--target-length`, defaults to SIMPLE_DB if not set.
-- `--min-duration FLOAT`: Override minimum silence duration in seconds (e.g. `0.5`). With `--target-length`, defaults to SIMPLE_MIN_DURATION if not set.
+- `--target-length FLOAT`: Optimize padding to achieve a target video length (in seconds).
+- `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Without `--target-length`, defaults to a conservative value from `src/config.py`.
+- `--min-duration FLOAT`: Override minimum silence duration in seconds (e.g. `0.5`). Without `--target-length`, defaults to a value from `src/config.py`.
 
 ### Examples
 
@@ -99,7 +91,7 @@ The tool processes videos sequentially through four main stages:
 
 ### 3. Transcription & Title Generation
 
-- **Transcription** (`src/transcribe.py`): Extracts and transcribes audio using OpenRouter API (default model: `google/gemini-2.5-flash-lite:nitro`; override via `OPENROUTER_DEFAULT_MODEL`). Optimized for Arabic verbatim transcription.
+- **Transcription** (`src/transcribe.py`): Extracts and transcribes audio using OpenRouter API (default model: `google/gemini-2.5-flash-lite:nitro`). Optimized for Arabic verbatim transcription.
 - **Title** (`src/title.py`): Generates YouTube-style title from transcript. Handles educational content formats (book names, lesson numbers).
 - Both use a shared OpenRouter client (`src/openrouter_client.py`). Phase 1 orchestration is in `src/phase1.py`.
 - **Two-step process**: Separate API calls for transcription and title generation (better quality and control). Transcript and title are stored in `output/data.json` (single source of truth; no separate .txt files).
@@ -148,8 +140,7 @@ The tool maintains state in `output/data.json` to avoid reprocessing videos:
 
 The tool includes built-in retry logic for rate limit errors (exponential backoff) and processes videos sequentially to respect API quotas.
 
-- **Defaults**: Both transcription and title generation default to `google/gemini-2.5-flash-lite:nitro` (see `src/config.py`).
-- **Overrides**: You can override models via `OPENROUTER_DEFAULT_MODEL` and `OPENROUTER_TITLE_MODEL` environment variables.
+- **Defaults**: Both transcription and title generation default to `google/gemini-2.5-flash-lite:nitro` (see the OpenRouter helper modules under `src/transcription` and `src/titles`).
 
 ## Error Handling
 

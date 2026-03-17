@@ -4,10 +4,7 @@ import base64
 import subprocess
 from pathlib import Path
 
-from src.config import (
-    AUDIO_BITRATE,
-    OPENROUTER_DEFAULT_MODEL,
-)
+from src.config import AUDIO_BITRATE
 from src.prompts import TRANSCRIBE_PROMPT
 from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 from src.openrouter_client import request as openrouter_request
@@ -110,7 +107,7 @@ def get_audio_path_for_media(media_path: Path, temp_dir: Path, basename: str) ->
 def transcribe_with_openrouter(
     api_key: str,
     audio_path: Path,
-    model: str = OPENROUTER_DEFAULT_MODEL,
+    model: str = "google/gemini-2.5-flash-lite:nitro",
     log_dir: Path | None = None,
 ) -> str:
     """Transcribe audio using OpenRouter API.
@@ -151,7 +148,7 @@ def transcribe_and_save(
     api_key: str,
     audio_path: Path,
     output_path: Path,
-    model: str = OPENROUTER_DEFAULT_MODEL,
+    model: str = "google/gemini-2.5-flash-lite:nitro",
     log_dir: Path | None = None,
 ) -> None:
     """Transcribe audio and save transcript to file.

@@ -173,7 +173,15 @@ def main() -> None:
     require_input_dir(input_dir)
     require_videos_in(input_dir)
 
-    from src.config import load_config, get_config, SIMPLE_DB, SIMPLE_MIN_DURATION
+    from src.config import (
+        load_config,
+        get_config,
+        DEFAULT_NOISE_THRESHOLD,
+        DEFAULT_MIN_DURATION,
+        DEFAULT_PAD_SEC,
+        SIMPLE_DB,
+        SIMPLE_MIN_DURATION,
+    )
 
     try:
         load_config()
@@ -184,23 +192,22 @@ def main() -> None:
     temp_dir = output_dir / "temp"
     create_temp_subdirs(temp_dir)
 
-    config = get_config()
     if args.noise_threshold is not None:
         noise_threshold = args.noise_threshold
     elif args.target_length is not None:
         noise_threshold = SIMPLE_DB
     else:
-        noise_threshold = config["NOISE_THRESHOLD"]
+        noise_threshold = DEFAULT_NOISE_THRESHOLD
 
     if args.min_duration is not None:
         min_duration = args.min_duration
     elif args.target_length is not None:
         min_duration = SIMPLE_MIN_DURATION
     else:
-        min_duration = config["MIN_DURATION"]
+        min_duration = DEFAULT_MIN_DURATION
 
-    pad_sec = config["PAD"]
-    api_key = config["OPENROUTER_API_KEY"]
+    pad_sec = DEFAULT_PAD_SEC
+    api_key = get_config()["OPENROUTER_API_KEY"]
 
     videos = sorted(p for p in input_dir.iterdir() if is_video_file(p))
     if not videos:
