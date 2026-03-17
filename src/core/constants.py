@@ -12,11 +12,12 @@ TRIM_DECIMAL_PLACES = 6
 TRIM_TIMESTAMP_EPSILON_SEC = 1e-6
 BITRATE_FALLBACK_BPS = 3_000_000
 AUDIO_BITRATE = "192k"
+EDGE_SILENCE_KEEP_SEC = 0.5
 
 # --- Non-target defaults (used when no CLI override) ---
 
 DEFAULT_NOISE_THRESHOLD = -50.0
-DEFAULT_MIN_DURATION = 0.5
+DEFAULT_MIN_DURATION = 1.0
 DEFAULT_PAD_SEC = 0.5
 
 # --- Target-length / target-mode ---
@@ -95,5 +96,6 @@ __all__ = [
     "AUDIO_FORMATS",
     "AUDIO_FILE_EXT",
     "TEXT_FILE_EXT",
+    "EDGE_SILENCE_KEEP_SEC",
 ]
 

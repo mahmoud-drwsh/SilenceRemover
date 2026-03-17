@@ -61,7 +61,7 @@ python main.py /path/to/video/directory
 
 - `--target-length FLOAT`: Optimize padding to achieve a target video length (in seconds).
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Without `--target-length`, defaults to a conservative value from `src/core/config.py`.
-- `--min-duration FLOAT`: Override minimum silence duration in seconds (e.g. `0.5`). Without `--target-length`, defaults to a value from `src/core/config.py`.
+- `--min-duration FLOAT`: Override minimum silence duration in seconds (for non-target mode). Defaults to `1.0` when `--target-length` is not set (from `DEFAULT_MIN_DURATION` in `src/core/constants.py`).
 
 Trimming precision controls (advanced):
 
@@ -97,6 +97,7 @@ The tool processes videos sequentially through four main stages:
 - Analyzes audio track using FFmpeg's `silencedetect` filter
 - Identifies silence segments based on configured threshold and duration
 - Removes silence while preserving padding around segments
+- Leading and trailing edge silences are re-scanned at `-50dB` for both target and non-target runs, then only the edge windows are adjusted with a 500ms keep buffer before pad calculations.
 - Outputs trimmed video to `temp/` directory (sibling to input directory)
 
 **Target Length Mode**: When `--target-length` is specified, the tool automatically calculates optimal padding to get as close as possible to the target duration.

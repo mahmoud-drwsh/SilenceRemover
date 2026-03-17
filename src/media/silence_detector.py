@@ -5,6 +5,7 @@ from pathlib import Path
 from src.core.constants import (
     MAX_PAD_SEC,
     PAD_INCREMENT_SEC,
+    EDGE_SILENCE_KEEP_SEC,
     TRIM_DECIMAL_PLACES,
     TRIM_TIMESTAMP_EPSILON_SEC,
     SIMPLE_DB,
@@ -13,6 +14,8 @@ from src.core.constants import (
     TARGET_NOISE_THRESHOLDS_DB,
 )
 from src.ffmpeg.detection import detect_silence_points as detect_silence_points_via_ffmpeg
+
+EDGE_RESCAN_THRESHOLD_DB = -50.0
 
 
 def normalize_timestamp(value: float, *, minimum: float = 0.0) -> float:
@@ -23,6 +26,109 @@ def normalize_timestamp(value: float, *, minimum: float = 0.0) -> float:
     if normalized == -0.0:
         normalized = 0.0
     return normalized
+
+
+def _normalize_pair_lists(silence_starts: list[float], silence_ends: list[float], duration_sec: float) -> tuple[list[float], list[float]]:
+    starts = [normalize_timestamp(x, minimum=0.0) for x in silence_starts]
+    ends = [normalize_timestamp(x, minimum=0.0) for x in silence_ends]
+    if len(starts) > len(ends):
+        ends = list(ends) + [duration_sec]
+    elif len(starts) < len(ends):
+        ends = list(ends[: len(starts)])
+    return starts, ends
+
+
+def detect_leading_trailing_edge_silence(
+    input_file: Path,
+    duration_sec: float,
+    *,
+    keep_seconds: float = EDGE_SILENCE_KEEP_SEC,
+) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
+    """Detect only leading/trailing silence using a conservative -50dB re-scan."""
+    edge_starts, edge_ends = detect_silence_points(
+        input_file,
+        EDGE_RESCAN_THRESHOLD_DB,
+        SIMPLE_MIN_DURATION,
+    )
+    edge_starts, edge_ends = trim_edge_silence(edge_starts, edge_ends, duration_sec, keep_seconds=keep_seconds)
+    if not edge_starts or not edge_ends:
+        return None, None
+
+    leading = None
+    trailing = None
+
+    if edge_starts[0] <= TRIM_TIMESTAMP_EPSILON_SEC:
+        leading = (edge_starts[0], edge_ends[0])
+
+    if edge_ends[-1] >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC:
+        trailing = (edge_starts[-1], edge_ends[-1])
+
+    return leading, trailing
+
+
+def replace_edge_intervals(
+    silence_starts: list[float],
+    silence_ends: list[float],
+    leading_edge: tuple[float, float] | None,
+    trailing_edge: tuple[float, float] | None,
+    duration_sec: float,
+) -> tuple[list[float], list[float]]:
+    """Replace only leading and trailing intervals in `silence_starts/ends`."""
+    starts, ends = _normalize_pair_lists(silence_starts, silence_ends, duration_sec)
+
+    if not starts or not ends:
+        return [], []
+
+    if starts[0] <= TRIM_TIMESTAMP_EPSILON_SEC and leading_edge is not None:
+        starts[0], ends[0] = leading_edge
+
+    if ends[-1] >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC and trailing_edge is not None:
+        starts[-1], ends[-1] = trailing_edge
+
+    return starts, ends
+
+
+def trim_edge_silence(
+    silence_starts: list[float],
+    silence_ends: list[float],
+    duration_sec: float,
+    *,
+    keep_seconds: float = EDGE_SILENCE_KEEP_SEC,
+) -> tuple[list[float], list[float]]:
+    """Reserve `keep_seconds` at each edge and remove edge silence beyond that.
+
+    When a leading silence starts at the beginning, keep only the last
+    `keep_seconds` of that leading silence. Same for a trailing silence ending
+    at the end of media.
+    """
+    keep_seconds = max(0.0, keep_seconds)
+    starts, ends = _normalize_pair_lists(silence_starts, silence_ends, duration_sec)
+    if not starts or not ends:
+        return [], []
+
+    # Leading silence: trim all but keep_seconds near time 0.
+    if starts[0] <= TRIM_TIMESTAMP_EPSILON_SEC:
+        trimmed_end = ends[0] - keep_seconds
+        if trimmed_end > TRIM_TIMESTAMP_EPSILON_SEC:
+            starts[0] = 0.0
+            ends[0] = normalize_timestamp(trimmed_end)
+        else:
+            starts.pop(0)
+            ends.pop(0)
+
+    if not starts or not ends:
+        return [], []
+
+    # Trailing silence: trim all but keep_seconds near final timestamp.
+    if ends[-1] >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC:
+        trimmed_start = max(0.0, duration_sec - keep_seconds)
+        if trimmed_start - starts[-1] > TRIM_TIMESTAMP_EPSILON_SEC:
+            starts[-1] = normalize_timestamp(trimmed_start)
+        else:
+            starts.pop(-1)
+            ends.pop(-1)
+
+    return starts, ends
 
 
 def calculate_resulting_length(silence_starts: list[float], silence_ends: list[float], duration_sec: float, pad_sec: float) -> float:
@@ -151,10 +257,18 @@ def choose_threshold_and_padding_for_target(
     chosen_starts: list[float] = []
     chosen_ends: list[float] = []
 
+    leading_edge, trailing_edge = detect_leading_trailing_edge_silence(input_file, duration_sec)
+
     for threshold_db in (noise_thresholds_db or [-60.0]):
         silence_starts, silence_ends = detect_silence_points(input_file, threshold_db, min_duration)
-        if len(silence_starts) > len(silence_ends):
-            silence_ends = list(silence_ends) + [duration_sec]
+        silence_starts, silence_ends = replace_edge_intervals(
+            silence_starts,
+            silence_ends,
+            leading_edge,
+            trailing_edge,
+            duration_sec,
+        )
+        silence_starts, silence_ends = trim_edge_silence(silence_starts, silence_ends, duration_sec)
 
         base_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)
         if base_length > target_length:
@@ -171,8 +285,14 @@ def choose_threshold_and_padding_for_target(
         if noise_thresholds_db:
             chosen_threshold = noise_thresholds_db[-1]
         chosen_starts, chosen_ends = detect_silence_points(input_file, chosen_threshold, min_duration)
-        if len(chosen_starts) > len(chosen_ends):
-            chosen_ends = list(chosen_ends) + [duration_sec]
+        chosen_starts, chosen_ends = replace_edge_intervals(
+            chosen_starts,
+            chosen_ends,
+            leading_edge,
+            trailing_edge,
+            duration_sec,
+        )
+        chosen_starts, chosen_ends = trim_edge_silence(chosen_starts, chosen_ends, duration_sec)
         chosen_pad = 0.0
 
     return (chosen_starts, chosen_ends, chosen_threshold, chosen_pad)
@@ -195,6 +315,7 @@ __all__ = [
     "normalize_timestamp",
     "find_optimal_padding",
     "choose_threshold_and_padding_for_target",
+    "trim_edge_silence",
     "truncate_segments_to_max_length",
     "detect_silence_points",
     "detect_silences_simple",

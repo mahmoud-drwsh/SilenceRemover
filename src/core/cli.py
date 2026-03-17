@@ -64,6 +64,6 @@ def parse_args() -> argparse.Namespace:
         "--min-duration",
         type=float,
         default=None,
-        help="Minimum silence duration in seconds (e.g. 0.5). Overrides config; with --target-length uses SIMPLE_MIN_DURATION if not set.",
+        help="Minimum silence duration in seconds (e.g. 1.0). Overrides config; with --target-length uses SIMPLE_MIN_DURATION if not set.",
     )
     return parser.parse_args()

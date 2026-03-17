@@ -29,8 +29,11 @@ from src.ffmpeg.transcode import (
 from src.core.fs_utils import wait_for_file_release
 from src.media.silence_detector import (
     choose_threshold_and_padding_for_target,
+    detect_leading_trailing_edge_silence,
     detect_silence_points,
     normalize_timestamp,
+    replace_edge_intervals,
+    trim_edge_silence,
 )
 
 
@@ -71,6 +74,15 @@ def _resolve_trim_plan(
     """Resolve effective trimming parameters and detected silences."""
     if target_length is None:
         silence_starts, silence_ends = detect_silence_points(input_file, noise_threshold, min_duration)
+        leading_edge, trailing_edge = detect_leading_trailing_edge_silence(input_file, duration_sec)
+        silence_starts, silence_ends = replace_edge_intervals(
+            silence_starts,
+            silence_ends,
+            leading_edge,
+            trailing_edge,
+            duration_sec,
+        )
+        silence_starts, silence_ends = trim_edge_silence(silence_starts, silence_ends, duration_sec)
         return silence_starts, silence_ends, noise_threshold, min_duration, pad_sec
 
     silence_starts, silence_ends, chosen_threshold, chosen_pad = choose_threshold_and_padding_for_target(

@@ -43,3 +43,11 @@ Entries below are appended by the agent after making code or config changes.
 - `main.py`, `README.md`, and stale import sweep: Wired entrypoint to `src.app.pipeline.run`, updated architecture docs, and removed stale legacy modules/directories.
 - `src/encoding_resolver.py`: made encoder probing resilient to unsupported profile options by selecting the codec with reduced args when full profile options fail the probe.
 - `src/encoding_resolver.py`: broadened encoder fallback logic so listed encoders can be selected despite strict probe failures, defaulting to conservative codec arguments when needed.
+- `src/media/silence_detector.py`: added edge-trim handling so leading/trailing detected silences are clipped to keep 500ms at each edge before target-mode padding and non-target trim calculations.
+- `src/media/trim.py`: applied edge silence clipping in the non-target trim plan before pad-based segment synthesis.
+- `src/core/constants.py`: raised non-target `DEFAULT_MIN_DURATION` to `1.0` seconds.
+- `src/media/silence_detector.py`: added shared `-50dB` edge re-scan helpers and target-mode edge replacement before base-length/padding calculations.
+- `src/media/trim.py`: reused edge-interval replacement in the non-target plan before edge trimming and padding.
+- `src/core/cli.py`, `README.md`, and `ALGO.md`: updated non-target defaults and documentation to reflect shared edge re-scan behavior for both modes.
+- `src/core/constants.py`: keeps non-target `DEFAULT_MIN_DURATION` at `1.0` seconds while target mode uses `TARGET_MIN_DURATION`.
+- `README.md` and `ALGO.md`: now explicitly note that `-50dB` edge re-scan/replacement is used in both target and non-target trimming paths.
