@@ -48,4 +48,9 @@ Entries below are appended by the agent after making code or config changes.
 - `src/silence/detector.py`, `src/silence/__init__.py`, `src/silence_detector.py`: Introduced silence package with implementations in src/silence/detector and a shim in src/silence_detector to preserve old import paths.
 - `src/openrouter_client.py`: Changed OpenRouter logging to write per-request files under log_dir/logs/<unix_ts>_request.txt and <unix_ts>_response.txt instead of appending to a single .log file.
 - `src/trim.py`: Updated main encoding path to run ffmpeg with -progress and parse out_time to print percentage progress on a single updating line (using carriage return) instead of raw ffmpeg stats.
+- `src/config.py`: Updated NOISE_THRESHOLD default from -30.0 to -50.0 to better match expander settings.
 - Code organization refactor: Extracted CLI parsing (argparse, validation) to `src/cli.py`; path utilities (sibling_dir, temp paths, markers) to `src/paths.py`; prompt templates to `src/prompts.py`. Renamed `src/silence_utils.py` -> `src/silence_detector.py`. Updated imports in main.py, title.py, transcribe.py, trim.py. Breaking: moved prompts from src.config to src.prompts; renamed silence_utils module.
+- `src/openrouter_client.py`: Normalized SDK response content to a plain string (joining text content blocks) before returning and logging.
+- `src/titles/openrouter.py`: On empty title responses, log to stderr and raise a RuntimeError so callers can skip the item without generating a fallback title.
+- `src/openrouter_client.py`: When the normalized model response is empty, log an input preview to stderr and record an [EMPTY RESPONSE] marker in logs before returning an empty string.
+- `src/openrouter_client.py`: Added best-effort error logging under `temp/logs/errors/` (full input + metadata) for every failed attempt and for empty normalized responses.

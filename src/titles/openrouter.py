@@ -38,8 +38,10 @@ def generate_title_with_openrouter(
     raw_title = openrouter_request(
         api_key, OPENROUTER_TITLE_MODEL, messages1, log_dir=log_dir
     )
-    raw_title = _first_line(raw_title)
+    raw_title = _first_line(str(raw_title))
     if not raw_title:
+        # Log and signal failure so the caller can skip this item.
+        print("Title generation returned empty response.", file=sys.stderr)
         raise RuntimeError("Title generation returned empty response")
 
     # Step 2: Add honorifics (سيدنا before محمد, ﷺ after Prophet mentions); idempotent

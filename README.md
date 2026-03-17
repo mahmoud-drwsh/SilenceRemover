@@ -48,7 +48,7 @@ All other options (models, silence params, timeouts, etc.) have defaults in `src
 
 ### Parameter Tuning
 
-- **NOISE_THRESHOLD**: Lower values (e.g., -40dB) detect quieter silences; higher values (e.g., -20dB) are more strict. Must be negative.
+- **NOISE_THRESHOLD**: Default is -50dB. Lower values (e.g., -55dB) detect quieter silences; higher values (e.g., -30dB) are more strict. Must be negative.
 - **MIN_DURATION**: Minimum length of silence to be detected (prevents removing brief pauses). Must be positive.
 - **PAD**: Amount of audio/video retained around detected silences (helps preserve natural transitions). Must be non-negative.
 

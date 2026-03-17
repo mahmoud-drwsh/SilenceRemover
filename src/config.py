@@ -33,10 +33,10 @@ ENV_VARS = {
     "NOISE_THRESHOLD": {
         "required": False,
         "type": float,
-        "default": -30.0,
+        "default": -50.0,
         "description": "Noise threshold in dB for silence detection (lower = more sensitive)",
         "validator": lambda x: x < 0,
-        "error_msg": "NOISE_THRESHOLD must be negative (e.g., -30.0)",
+        "error_msg": "NOISE_THRESHOLD must be negative (e.g., -50.0)",
     },
     "MIN_DURATION": {
         "required": False,

@@ -2,6 +2,7 @@
 
 import random
 import re
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -92,6 +93,42 @@ def _append_openrouter_log(log_dir: Path, model: str, input_text: str, output_te
         pass
 
 
+def _append_openrouter_error_log(
+    log_dir: Path,
+    model: str,
+    input_text: str,
+    *,
+    attempt: int,
+    error_kind: str,
+    error_text: str,
+    http_status: int | None = None,
+    output_text: str | None = None,
+) -> None:
+    """Write one error record under log_dir/logs/errors/.
+
+    This is best-effort and must never raise.
+    """
+    ts_unix = int(time.time())
+    errors_dir = log_dir / "logs" / "errors"
+    try:
+        errors_dir.mkdir(parents=True, exist_ok=True)
+        error_path = errors_dir / f"{ts_unix}_attempt{attempt}_{error_kind}.txt"
+        body = (
+            f"MODEL: {model}\n"
+            f"TIMESTAMP_UNIX: {ts_unix}\n"
+            f"ATTEMPT: {attempt}\n"
+            f"HTTP_STATUS: {http_status}\n"
+            f"ERROR_KIND: {error_kind}\n"
+            f"ERROR:\n{error_text}\n"
+            f"INPUT:\n{input_text}\n"
+        )
+        if output_text is not None:
+            body += f"OUTPUT:\n{output_text}\n"
+        error_path.write_text(body, encoding="utf-8")
+    except OSError:
+        pass
+
+
 def request(
     api_key: str,
     model: str,
@@ -144,15 +181,65 @@ def request(
                 )
             if response.choices and len(response.choices) > 0:
                 content = response.choices[0].message.content or ""
+                # The SDK may return either a plain string or a list of
+                # content blocks. Normalize to a single text string.
+                if isinstance(content, list):
+                    text_parts: list[str] = []
+                    for block in content:
+                        if not isinstance(block, dict):
+                            continue
+                        if block.get("type") == "text":
+                            text_parts.append(block.get("text", ""))
+                    content = "".join(text_parts)
+
+                # Ensure we are working with a string and trim whitespace.
+                if isinstance(content, str):
+                    normalized = content.strip()
+                else:
+                    normalized = str(content).strip()
+
+                # When the model returns an empty response, explicitly log the
+                # input that produced it so it's easier to debug.
+                if not normalized:
+                    preview = input_log_text[:400] if input_log_text else "<no input captured>"
+                    print(
+                        f"OpenRouter returned empty response for model {model}. "
+                        f"Input preview:\\n{preview}",
+                        file=sys.stderr,
+                    )
+                    if log_dir:
+                        _append_openrouter_log(log_dir, model, input_log_text, "[EMPTY RESPONSE]")
+                        _append_openrouter_error_log(
+                            log_dir,
+                            model,
+                            input_log_text,
+                            attempt=attempt,
+                            error_kind="empty_response",
+                            error_text="Normalized response content was empty.",
+                            http_status=None,
+                            output_text="[EMPTY RESPONSE]",
+                        )
+                    return ""
+
                 if log_dir:
-                    _append_openrouter_log(log_dir, model, input_log_text, content)
-                return content
+                    _append_openrouter_log(log_dir, model, input_log_text, normalized)
+                return normalized
             raise ValueError(f"Unexpected response format: {response}")
         except KeyboardInterrupt:
             raise
         except Exception as e:
             last_err = e
             status = _status_code_from_error(e)
+            if log_dir:
+                _append_openrouter_error_log(
+                    log_dir,
+                    model,
+                    input_log_text,
+                    attempt=attempt,
+                    error_kind="exception",
+                    error_text=repr(e),
+                    http_status=status,
+                )
             if status is not None:
                 if status == 429:
                     suggested_delay = _parse_retry_seconds_from_error(e)
