@@ -7,7 +7,7 @@ This document describes how silence is detected and how the trimmed output lengt
 - **Silence detection** uses FFmpeg’s `silencedetect` filter: `silencedetect=n={noise_threshold}dB:d={min_duration}`.
 - **noise_threshold (dB):** Must be negative. Audio below this level is considered silence. **Higher** (e.g. -20) = more is treated as silence = **shorter** output. **Lower** (e.g. -50) = only very quiet parts = **longer** output.
 - **min_duration (s):** Minimum length of a quiet stretch to count as silence. **Lower** (e.g. 0.2) = short pauses removed = **shorter** output. **Higher** (e.g. 2.0) = only long gaps = **longer** output.
-- **Padding:** For each detected silence, segment-building keeps up to `pad_sec` seconds *before the silence ends* (i.e., it starts the next kept segment at `silence_end - pad_sec`). In addition, silences with **duration ≤ 2 × pad_sec** are treated as non-silence (skipped), merging adjacent speech across very short gaps. **More padding** = **longer** output.
+- **Padding:** The same segment-builder is used in both modes. For each detected silence, segment-building keeps up to `pad_sec` seconds *before the silence ends* (i.e., it starts the next kept segment at `silence_end - pad_sec`). In addition, silences with **duration ≤ 2 × pad_sec** are treated as non-silence (skipped), merging adjacent speech across very short gaps. **More padding** = **longer** output.
 - **Precision policy:** Segment boundaries and length calculations are normalized to `TRIM_DECIMAL_PLACES` (default `6`) and compared against `TRIM_TIMESTAMP_EPSILON_SEC`.
 
 Segments to keep are built from (silence_starts, silence_ends) and padding; the concatenation of those segments is the trimmed duration.
@@ -42,7 +42,8 @@ One detected silence: `silence_start=20.0`, `silence_end=22.0`, `pad_sec=0.5`.
 ## When no target length is set
 
 - `--noise-threshold` / `--min-duration` (if provided) are used; otherwise defaults from `src/constants.py` are used.
-- `pad_sec` is currently always `DEFAULT_PAD_SEC` from `src/constants.py` (no CLI override).
+- Segment build flow is shared with target-mode: detect silences -> build keep segments -> concat.
+- In non-target mode, `pad_sec` is fixed to `DEFAULT_PAD_SEC` from `src/constants.py` (no CLI override).
 
 ## When target length is set (`--target-length`)
 
@@ -106,5 +107,12 @@ Final settings used for segment building: `noise_threshold=-50dB`, `min_duration
 - **Target length ≥ original duration:** Output is a copy of the input (no detection).
 - **No silences:** Base length = full duration; `find_optimal_padding` returns 0; output is the full file.
 - **Base length still > target even at the most aggressive threshold:** padding is forced to 0, and the output may remain above target (no truncation is applied).
+
+## Shared flow across modes
+
+- Both target and non-target paths now use the same segment-builder implementation.
+- The mode difference is how `pad_sec` is selected and what detection parameters are used:
+  - Non-target mode: fixed `noise_threshold`, `min_duration`, and `pad_sec` (`DEFAULT_PAD_SEC`).
+  - Target mode: threshold sweep + padding tuning, with `min_duration=TARGET_MIN_DURATION`.
 
 Implementation: `choose_threshold_and_padding_for_target` and `find_optimal_padding` in `src/silence/detector.py`; target-length path in `trim_single_video` in `src/trim.py`.

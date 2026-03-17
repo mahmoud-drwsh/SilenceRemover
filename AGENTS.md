@@ -51,3 +51,8 @@ Entries below are appended by the agent after making code or config changes.
 - `src/ffmpeg_utils.py`: Added `add_filter_complex_script` helper to use FFmpeg's non-deprecated `-/filter_complex` script input syntax.
 - `src/trim.py`: Switched filter graph script injection from deprecated `-filter_complex_script` to `-/filter_complex`, and updated related debug labels.
 - `README.md`: Added note that FFmpeg now uses `-/filter_complex` and should not emit deprecation warnings.
+
+- `src/trim.py`: Consolidated target and non-target trimming through a single segment-planning path that resolves effective thresholds, min durations, and padding before segment construction.
+- `ALGO.md`: Clarified that both target and non-target flows share the same segment-builder pipeline, with different padding selection behavior for target mode.
+- `src/trim.py`: Removed libx264 fallback logic so both normal and minimal fallback encoding paths now use a single hevc_qsv attempt.
+- `README.md`: Updated encoding behavior documentation to reflect single-encoder `hevc_qsv` flow and direct failure without codec fallback.

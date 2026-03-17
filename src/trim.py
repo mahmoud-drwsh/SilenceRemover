@@ -12,6 +12,7 @@ from src.constants import (
     BITRATE_FALLBACK_BPS,
     SCRIPTS_DIR,
     SNIPPET_DIR,
+    TARGET_MIN_DURATION,
     TRIM_TIMESTAMP_EPSILON_SEC,
 )
 from src.ffmpeg_utils import add_filter_complex_script, build_ffmpeg_cmd, print_ffmpeg_cmd
@@ -65,11 +66,6 @@ def _get_hevc_qsv_quality_params() -> list[str]:
     ]
 
 
-def _get_libx264_quality_params() -> list[str]:
-    """Only the slower preset for libx264; everything else uses encoder defaults."""
-    return ["-preset", "medium", "-profile:v", "high"]
-
-
 def _build_segments_from_silences(
     silence_starts: list[float],
     silence_ends: list[float],
@@ -96,37 +92,66 @@ def _build_segments_from_silences(
     return segments_to_keep
 
 
+def _resolve_trim_plan(
+    input_file: Path,
+    duration_sec: float,
+    target_length: Optional[float],
+    noise_threshold: float,
+    min_duration: float,
+    pad_sec: float,
+) -> tuple[list[float], list[float], float, float, float]:
+    """Resolve effective trimming parameters and detected silences."""
+    if target_length is None:
+        silence_starts, silence_ends = detect_silence_points(input_file, noise_threshold, min_duration)
+        return silence_starts, silence_ends, noise_threshold, min_duration, pad_sec
+
+    silence_starts, silence_ends, chosen_threshold, chosen_pad = choose_threshold_and_padding_for_target(
+        input_file,
+        duration_sec,
+        target_length,
+        min_duration=TARGET_MIN_DURATION,
+    )
+    return silence_starts, silence_ends, chosen_threshold, TARGET_MIN_DURATION, chosen_pad
+
+
 def _build_segments_to_keep(
     input_file: Path,
     noise_threshold: float,
     min_duration: float,
     pad_sec: float,
     target_length: Optional[float],
-) -> tuple[list[tuple[float, float]], float]:
-    """Build segments_to_keep list using same algorithm as full trim. Returns (segments_to_keep, duration_sec)."""
+) -> tuple[list[tuple[float, float]], float, float, float, float]:
+    """Build segments_to_keep list using same algorithm as full trim.
+
+    Returns:
+        (segments_to_keep, duration_sec, resolved_noise_threshold, resolved_min_duration, resolved_pad_sec)
+    """
     duration_sec = _probe_duration(input_file)
     if duration_sec <= 0:
         raise ValueError(f"Invalid video duration: {duration_sec}s. Video file may be corrupted or empty.")
     duration_sec = normalize_timestamp(duration_sec)
 
+    if target_length is not None and target_length >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC:
+        # Target length is already satisfied by source duration.
+        return ([(0.0, normalize_timestamp(duration_sec))], duration_sec, noise_threshold, min_duration, 0.0)
+
+    silence_starts, silence_ends, chosen_threshold, chosen_min_duration, pad_sec = _resolve_trim_plan(
+        input_file,
+        duration_sec,
+        target_length,
+        noise_threshold,
+        min_duration,
+        pad_sec,
+    )
+
+    if len(silence_starts) > len(silence_ends):
+        silence_ends = list(silence_ends) + [duration_sec]
+
     if target_length is not None:
-        if target_length >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC:
-            return ([(0.0, normalize_timestamp(duration_sec))], duration_sec)
-        # Target length: sweep threshold from conservative to aggressive until we can meet target,
-        # then increase padding as much as possible without ever exceeding target.
-        silence_starts, silence_ends, chosen_threshold, pad_sec = choose_threshold_and_padding_for_target(
-            input_file,
-            duration_sec,
-            target_length,
-        )
-        print(f"Target mode: chosen noise_threshold={chosen_threshold}dB, min_duration=0.01s, pad={pad_sec}s")
-    else:
-        silence_starts, silence_ends = detect_silence_points(input_file, noise_threshold, min_duration)
-        if len(silence_starts) > len(silence_ends):
-            silence_ends = list(silence_ends) + [duration_sec]
+        print(f"Target mode: chosen noise_threshold={chosen_threshold}dB, min_duration={chosen_min_duration}s, pad={pad_sec}s")
 
     segments_to_keep = _build_segments_from_silences(silence_starts, silence_ends, duration_sec, pad_sec)
-    return (segments_to_keep, duration_sec)
+    return (segments_to_keep, duration_sec, chosen_threshold, chosen_min_duration, pad_sec)
 
 
 def create_silence_removed_audio(
@@ -150,7 +175,7 @@ def create_silence_removed_audio(
     else:
         acodec = ["-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1"]
 
-    segments_to_keep, duration_sec = _build_segments_to_keep(
+    segments_to_keep, _, _, _, _ = _build_segments_to_keep(
         input_file, noise_threshold, min_duration, pad_sec, target_length
     )
 
@@ -223,18 +248,14 @@ def trim_single_video(
             except Exception as e:
                 print(f"Error copying file: {e}", file=sys.stderr)
                 raise
-        # Target length: sweep threshold, then padding-only tuning (never exceed target).
-        silence_starts, silence_ends, chosen_threshold, pad_sec = choose_threshold_and_padding_for_target(
-            input_file,
-            duration_sec,
-            target_length,
-        )
-        print(f"Target mode: chosen noise_threshold={chosen_threshold}dB, min_duration=0.01s, pad={pad_sec}s")
-        segments_to_keep = _build_segments_from_silences(silence_starts, silence_ends, duration_sec, pad_sec)
-    else:
-        segments_to_keep, duration_sec = _build_segments_to_keep(
-            input_file, noise_threshold, min_duration, pad_sec, target_length
-        )
+
+    segments_to_keep, duration_sec, resolved_noise_threshold, resolved_min_duration, resolved_pad_sec = _build_segments_to_keep(
+        input_file,
+        noise_threshold,
+        min_duration,
+        pad_sec,
+        target_length,
+    )
 
     resulting_length = sum(end - start for start, end in segments_to_keep)
     if target_length is not None:
@@ -244,27 +265,19 @@ def trim_single_video(
     # Handle case where all audio is silence (no segments to keep)
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal video (first frame only).")
-        # Create minimal video with first frame and silence; try hevc_qsv then libx264
-        last_exc = None
-        for codec, quality_params in [
-            ("hevc_qsv", _get_hevc_qsv_quality_params()),
-            ("libx264", _get_libx264_quality_params()),
-        ]:
-            cmd = build_ffmpeg_cmd(overwrite=True)
-            cmd.extend(["-i", str(input_file), "-t", "0.1", "-c:v", codec])
-            cmd.extend(quality_params)
-            cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file)])
-            print_ffmpeg_cmd(cmd)
-            try:
-                subprocess.run(cmd, check=True)
-                wait_for_file_release(output_file)
-                print(f"Done! Output saved to: {output_file}")
-                return output_file.resolve()
-            except subprocess.CalledProcessError as e:
-                last_exc = e
-                if codec == "hevc_qsv":
-                    print("hevc_qsv failed, falling back to libx264", file=sys.stderr)
-        raise RuntimeError("Both hevc_qsv and libx264 failed for minimal video") from last_exc
+        # Create minimal video with first frame and silence using a single hevc_qsv path
+        cmd = build_ffmpeg_cmd(overwrite=True)
+        cmd.extend(["-i", str(input_file), "-t", "0.1", "-c:v", "hevc_qsv"])
+        cmd.extend(_get_hevc_qsv_quality_params())
+        cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file)])
+        print_ffmpeg_cmd(cmd)
+        try:
+            subprocess.run(cmd, check=True)
+            wait_for_file_release(output_file)
+            print(f"Done! Output saved to: {output_file}")
+            return output_file.resolve()
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError("hevc_qsv failed while creating minimal fallback video") from e
 
     filter_chains = ''.join(
         (
@@ -276,12 +289,6 @@ def trim_single_video(
     concat_inputs = ''.join(f"[v{i}][a{i}]" for i in range(len(segments_to_keep)))
     filter_complex = f"{filter_chains}{concat_inputs}concat=n={len(segments_to_keep)}:v=1:a=1[outv][outa]"
 
-    # Try hevc_qsv first (ICQ quality), fallback to libx264.
-    ENCODERS_TO_TRY = [
-        ("hevc_qsv", _get_hevc_qsv_quality_params()),
-        ("libx264", _get_libx264_quality_params()),
-    ]
-
     # Write the filter_complex script under temp/scripts/ (inside output_dir),
     # so paths are stable and debuggable rather than using OS-level temp.
     temp_dir = output_dir / "temp"
@@ -292,18 +299,17 @@ def trim_single_video(
     print(f"[DEBUG] filter_graph_script path: {filter_script_path}")
     print(f"[DEBUG] filter_graph_script exists: {filter_script_path.exists()}")
 
-    def build_encode_cmd(codec: str, quality_params: list[str]) -> list[str]:
+    def build_encode_cmd() -> list[str]:
         cmd = build_ffmpeg_cmd(overwrite=True)
         cmd.extend(["-i", str(input_file)])
         add_filter_complex_script(cmd, filter_script_path)
         cmd.extend([
             "-map", "[outv]", "-map", "[outa]",
-            "-c:v", codec,
+            "-c:v", "hevc_qsv",
         ])
-        cmd.extend(quality_params)
+        cmd.extend(_get_hevc_qsv_quality_params())
         # macOS compatibility: hvc1 tag for QuickTime, faststart for moov at start
-        if codec == "hevc_qsv":
-            cmd.extend(["-tag:v", "hvc1", "-movflags", "+faststart"])
+        cmd.extend(["-tag:v", "hvc1", "-movflags", "+faststart"])
         # Use ffmpeg's -progress output on stdout so we can show percentage
         cmd.extend([
             "-c:a", "aac", "-b:a", AUDIO_BITRATE,
@@ -315,80 +321,69 @@ def trim_single_video(
 
     print(f"Input: {input_file}")
     print(f"Output: {output_file}")
-    print(f"Settings: noise={noise_threshold}dB, min_duration={min_duration}s, pad={pad_sec}s")
+    print(f"Settings: noise={resolved_noise_threshold}dB, min_duration={resolved_min_duration}s, pad={resolved_pad_sec}s")
     print(f"Filter complex length: {len(filter_complex)} characters")
     print(f"Number of segments: {len(segments_to_keep)}")
-    last_exc = None
-    last_cmd = None
-    for codec, quality_params in ENCODERS_TO_TRY:
-        cmd = build_encode_cmd(codec, quality_params)
-        print_ffmpeg_cmd(cmd)
-        last_cmd = cmd
+    cmd = build_encode_cmd()
+    print_ffmpeg_cmd(cmd)
+    try:
+        # Run ffmpeg and parse -progress output to display percentage
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        current_percent = -1
+        expected_total = resulting_length if resulting_length > 0 else duration_sec
         try:
-            # Run ffmpeg and parse -progress output to display percentage
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            current_percent = -1
-            expected_total = resulting_length if resulting_length > 0 else duration_sec
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                # out_time_ms is in microseconds; prefer it if present
+                if line.startswith("out_time_ms="):
+                    try:
+                        micros = float(line.split("=", 1)[1])
+                        seconds = micros / 1_000_000.0
+                    except ValueError:
+                        continue
+                elif line.startswith("out_time="):
+                    # Format HH:MM:SS.micro
+                    try:
+                        time_str = line.split("=", 1)[1]
+                        h, m, s = time_str.split(":")
+                        seconds = int(h) * 3600 + int(m) * 60 + float(s)
+                    except Exception:
+                        continue
+                else:
+                    continue
+                if expected_total > 0:
+                    pct = int(min(100.0, max(0.0, (seconds / expected_total) * 100.0)))
+                    if pct != current_percent:
+                        current_percent = pct
+                        # Use carriage return so progress stays on one line
+                        print(f"\rProgress: {current_percent}%", end="", flush=True)
+        finally:
+            retcode = proc.wait()
+        # Ensure we end the progress line cleanly
+        if current_percent >= 0:
+            print()
+        if retcode != 0:
+            stdout_data = ""
+            stderr_data = ""
             try:
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    # out_time_ms is in microseconds; prefer it if present
-                    if line.startswith("out_time_ms="):
-                        try:
-                            micros = float(line.split("=", 1)[1])
-                            seconds = micros / 1_000_000.0
-                        except ValueError:
-                            continue
-                    elif line.startswith("out_time="):
-                        # Format HH:MM:SS.micro
-                        try:
-                            time_str = line.split("=", 1)[1]
-                            h, m, s = time_str.split(":")
-                            seconds = int(h) * 3600 + int(m) * 60 + float(s)
-                        except Exception:
-                            continue
-                    else:
-                        continue
-                    if expected_total > 0:
-                        pct = int(min(100.0, max(0.0, (seconds / expected_total) * 100.0)))
-                        if pct != current_percent:
-                            current_percent = pct
-                            # Use carriage return so progress stays on one line
-                            print(f"\rProgress: {current_percent}%", end="", flush=True)
-            finally:
-                retcode = proc.wait()
-            # Ensure we end the progress line cleanly
-            if current_percent >= 0:
-                print()
-            if retcode != 0:
-                stdout_data = ""
-                stderr_data = ""
-                try:
-                    if proc.stdout:
-                        stdout_data = proc.stdout.read() or ""
-                    if proc.stderr:
-                        stderr_data = proc.stderr.read() or ""
-                except Exception:
-                    pass
-                raise subprocess.CalledProcessError(retcode, cmd, stdout_data, stderr_data)
-            break
-        except subprocess.CalledProcessError as e:
-            last_exc = e
-            if codec == "hevc_qsv":
-                print("hevc_qsv failed, falling back to libx264", file=sys.stderr)
-    else:
-        if last_exc is not None:
-            raise subprocess.CalledProcessError(
-                last_exc.returncode, last_cmd or [], last_exc.stdout, last_exc.stderr
-            ) from last_exc
+                if proc.stdout:
+                    stdout_data = proc.stdout.read() or ""
+                if proc.stderr:
+                    stderr_data = proc.stderr.read() or ""
+            except Exception:
+                pass
+            raise subprocess.CalledProcessError(retcode, cmd, stdout_data, stderr_data)
+    except subprocess.CalledProcessError:
+        print("hevc_qsv encode failed while trimming video", file=sys.stderr)
+        raise
 
     wait_for_file_release(output_file)
     print(f"Done! Output saved to: {output_file}")
