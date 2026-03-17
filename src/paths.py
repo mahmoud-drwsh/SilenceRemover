@@ -3,12 +3,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from src.config import (
-    COMPLETED_DIR,
-    SNIPPET_DIR,
-    TITLE_DIR,
-    TRANSCRIPT_DIR,
-)
+from src.config import COMPLETED_DIR, SCRIPTS_DIR, SNIPPET_DIR, TITLE_DIR, TRANSCRIPT_DIR
 from src.filename_sanitizer import sanitize_filename
 
 __all__ = [
@@ -35,7 +30,7 @@ def sibling_dir(base_dir: Path, name: str) -> Path:
 
 def create_temp_subdirs(temp_dir: Path) -> None:
     """Create subdirectories in temp directory."""
-    for subdir in [SNIPPET_DIR, TRANSCRIPT_DIR, TITLE_DIR, COMPLETED_DIR]:
+    for subdir in [SNIPPET_DIR, TRANSCRIPT_DIR, TITLE_DIR, COMPLETED_DIR, SCRIPTS_DIR]:
         (temp_dir / subdir).mkdir(parents=True, exist_ok=True)
 
 

@@ -199,6 +199,7 @@ SNIPPET_DIR = "snippet"
 TRANSCRIPT_DIR = "transcript"
 TITLE_DIR = "title"
 COMPLETED_DIR = "completed"
+SCRIPTS_DIR = "scripts"
 
 # Lazy env-backed attributes (used by __getattr__)
 _ENV_ATTR_NAMES = frozenset({
@@ -234,4 +235,5 @@ __all__ = [
     "TRANSCRIPT_DIR",
     "TITLE_DIR",
     "COMPLETED_DIR",
+    "SCRIPTS_DIR",
 ]
