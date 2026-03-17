@@ -51,9 +51,9 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
     VideoEncoderProfile(
         name="apple_videotoolbox_hevc",
         codec="hevc_videotoolbox",
-        codec_args=(
+    codec_args=(
             "-q:v",
-            "32",            
+            "32",
         ),
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
     ),
@@ -66,9 +66,28 @@ def _get_available_encoders() -> set[str]:
     return get_available_encoders()
 
 
-def _can_run_encoder(profile: VideoEncoderProfile) -> bool:
-    """Verify an encoder profile actually runs with a minimal encode test."""
-    return can_run_encoder(profile.codec, profile.codec_args)
+def _probe_encoder_profile(profile: VideoEncoderProfile) -> VideoEncoderProfile | None:
+    """Verify an encoder profile and return a runnable profile variant.
+
+    Some FFmpeg builds expose an encoder but fail a probe when specific options
+    are not supported. We still treat the encoder as usable if a codec-only probe
+    succeeds and fall back to default codec args.
+    """
+    if not can_run_encoder(profile.codec, ()):
+        return None
+
+    # If the full profile passes, keep its tuned args.
+    if can_run_encoder(profile.codec, profile.codec_args):
+        return profile
+
+    # Some builds reject profile-specific args even though the encoder itself is usable.
+    # Prefer a safe fallback that keeps the encoder available.
+    return VideoEncoderProfile(
+        name=profile.name,
+        codec=profile.codec,
+        codec_args=(),
+        container_args=profile.container_args,
+    )
 
 
 def resolve_video_encoder() -> VideoEncoderProfile:
@@ -81,9 +100,10 @@ def resolve_video_encoder() -> VideoEncoderProfile:
     for profile in _ENCODER_PROFILES:
         if profile.codec not in available:
             continue
-        if _can_run_encoder(profile):
-            _RESOLVED_ENCODER = profile
-            return profile
+        probe_result = _probe_encoder_profile(profile)
+        if probe_result is not None:
+            _RESOLVED_ENCODER = probe_result
+            return probe_result
 
     supported = ", ".join(sorted(profile.codec for profile in _ENCODER_PROFILES))
     raise RuntimeError(

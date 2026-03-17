@@ -41,3 +41,4 @@ Entries below are appended by the agent after making code or config changes.
 - `src/media/`: Moved silence detection and trim logic under `src/media` and rewired runtime imports.
 - `src/app/pipeline.py`: Consolidated phase orchestration, replacing legacy content-centric flow and simplifying `main.py` to call the pipeline entrypoint.
 - `main.py`, `README.md`, and stale import sweep: Wired entrypoint to `src.app.pipeline.run`, updated architecture docs, and removed stale legacy modules/directories.
+- `src/encoding_resolver.py`: made encoder probing resilient to unsupported profile options by selecting the codec with reduced args when full profile options fail the probe.
