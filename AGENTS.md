@@ -78,3 +78,4 @@ Entries below are appended by the agent after making code or config changes.
 - `src/constants.py`: Added a dedicated module for all non-secret constants (silence defaults, target-mode thresholds, directories, extensions, bitrate/padding limits).
 - `src/config.py`: Now only contains env-backed secret loading/validation; removed all constant definitions from this module.
 - `main.py`, `src/cli.py`, `src/paths.py`, `src/trim.py`, `src/silence/detector.py`, `src/transcription/openrouter.py`: Updated imports to use `src.constants` instead of `src.config` for non-secret constants.
+- `pwsh/Cleanup-ProcessedFiles.ps1`: Updated cleanup to delete only `output/` (temp now lives under `output/temp`) while still moving `raw/` files to `archive/`.

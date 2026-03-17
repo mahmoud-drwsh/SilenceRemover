@@ -1,5 +1,5 @@
 # Cleanup script for processed video files
-# Moves files from raw to archive and deletes temp and output directories
+# Moves files from raw to archive and deletes only the output directory
 
 $basePath = "C:\Users\user\Videos"
 
@@ -8,7 +8,6 @@ function Cleanup-Directory {
     param(
         [string]$RawPath,
         [string]$ArchivePath,
-        [string]$TempPath,
         [string]$OutputPath,
         [string]$DirectoryName
     )
@@ -39,15 +38,6 @@ function Cleanup-Directory {
         Write-Host "Raw directory does not exist: $RawPath" -ForegroundColor Gray
     }
     
-    # Delete temp directory
-    if (Test-Path $TempPath) {
-        Write-Host "Deleting temp directory..." -ForegroundColor Yellow
-        Remove-Item -Path $TempPath -Recurse -Force
-        Write-Host "✓ Temp directory deleted" -ForegroundColor Green
-    } else {
-        Write-Host "Temp directory does not exist: $TempPath" -ForegroundColor Gray
-    }
-    
     # Delete output directory
     if (Test-Path $OutputPath) {
         Write-Host "Deleting output directory..." -ForegroundColor Yellow
@@ -73,19 +63,17 @@ switch ($selection) {
         # Horizontal directory cleanup
         $rawPath = Join-Path $basePath "raw"
         $archivePath = Join-Path $basePath "archive"
-        $tempPath = Join-Path $basePath "temp"
         $outputPath = Join-Path $basePath "output"
         
-        Cleanup-Directory -RawPath $rawPath -ArchivePath $archivePath -TempPath $tempPath -OutputPath $outputPath -DirectoryName "Horizontal"
+        Cleanup-Directory -RawPath $rawPath -ArchivePath $archivePath -OutputPath $outputPath -DirectoryName "Horizontal"
     }
     "2" {
         # Vertical directory cleanup
         $rawPath = Join-Path $basePath "vertical\raw"
         $archivePath = Join-Path $basePath "vertical\archive"
-        $tempPath = Join-Path $basePath "vertical\temp"
         $outputPath = Join-Path $basePath "vertical\output"
         
-        Cleanup-Directory -RawPath $rawPath -ArchivePath $archivePath -TempPath $tempPath -OutputPath $outputPath -DirectoryName "Vertical"
+        Cleanup-Directory -RawPath $rawPath -ArchivePath $archivePath -OutputPath $outputPath -DirectoryName "Vertical"
     }
     "3" {
         # Clean up both horizontal and vertical
@@ -94,18 +82,16 @@ switch ($selection) {
         # Horizontal
         $rawPath = Join-Path $basePath "raw"
         $archivePath = Join-Path $basePath "archive"
-        $tempPath = Join-Path $basePath "temp"
         $outputPath = Join-Path $basePath "output"
         
-        Cleanup-Directory -RawPath $rawPath -ArchivePath $archivePath -TempPath $tempPath -OutputPath $outputPath -DirectoryName "Horizontal"
+        Cleanup-Directory -RawPath $rawPath -ArchivePath $archivePath -OutputPath $outputPath -DirectoryName "Horizontal"
         
         # Vertical
         $rawPath = Join-Path $basePath "vertical\raw"
         $archivePath = Join-Path $basePath "vertical\archive"
-        $tempPath = Join-Path $basePath "vertical\temp"
         $outputPath = Join-Path $basePath "vertical\output"
         
-        Cleanup-Directory -RawPath $rawPath -ArchivePath $archivePath -TempPath $tempPath -OutputPath $outputPath -DirectoryName "Vertical"
+        Cleanup-Directory -RawPath $rawPath -ArchivePath $archivePath -OutputPath $outputPath -DirectoryName "Vertical"
     }
     default {
         Write-Host "Invalid selection. Please run the script again and select 1, 2, or 3." -ForegroundColor Red
