@@ -286,6 +286,9 @@ def trim_single_video(
             "-c:v", codec,
         ])
         cmd.extend(quality_params)
+        # macOS compatibility: hvc1 tag for QuickTime, faststart for moov at start
+        if codec == "hevc_qsv":
+            cmd.extend(["-tag:v", "hvc1", "-movflags", "+faststart"])
         # Use ffmpeg's -progress output on stdout so we can show percentage
         cmd.extend([
             "-c:a", "aac", "-b:a", AUDIO_BITRATE,
