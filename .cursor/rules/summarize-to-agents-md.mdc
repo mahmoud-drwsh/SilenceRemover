@@ -12,6 +12,7 @@ After making code or config changes in this session (edits, new files, refactors
 1. For each file you changed, append one sentence describing what changed.
 2. Append to `./AGENTS.md` (one line per file).
 3. If `./AGENTS.md` does not exist, create it with a brief intro (e.g. "Session change summaries for AI agents.") then add the new lines.
+4. After every 20 changed files or once `AGENTS.md` exceeds 50 lines, replace detailed entries with a brief condensed section so the file stays compact.
 
 ## Entry format
 

@@ -11,3 +11,4 @@ Entries below are appended by the agent after making code or config changes.
 - Improved interoperability and maintainability through compatibility shims, import/path cleanup, and refined CLI/prompt responsibilities.
 - Updated supporting docs and tooling (`README.md`, `ALGO.md`, `.env.example`, cleanup script) to match current architecture and behavior, plus small quality fixes in prompts and title post-processing.
 - `AGENTS.md`: Compressed this changelog section into a smaller thematic summary while preserving the key implementation milestones.
+- `.cursor/rules/summarize-to-agents-md.mdc`: Added a retention instruction to summarize AGENTS.md entries when file size grows above 50 lines.
