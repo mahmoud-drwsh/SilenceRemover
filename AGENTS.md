@@ -58,3 +58,4 @@ Entries below are appended by the agent after making code or config changes.
 - `temp/test_openrouter.py`: updated quick-test audio extraction helper to prefer OGG output for consistency.
 - `src/encoding_resolver.py`: switched `hevc_qsv` from `global_quality` (ICQ path) to explicit CQP-style `-q:v` quality control.
 - `src/encoding_resolver.py`: changed encoder resolution to fail when configured profile arguments are not runnable, removing implicit downgrade to empty codec args.
+- `src/encoding_resolver.py`: reintroduced `-preset "slow"` for `hevc_qsv` while keeping explicit quality control via `-global_quality`.
