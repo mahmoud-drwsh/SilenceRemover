@@ -16,13 +16,13 @@ from src.ffmpeg.transcode import (
 from src.llm.client import request as openrouter_request
 
 
-def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str = "wav") -> None:
+def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str = "ogg") -> None:
     """Extract first 5 minutes of audio from video.
 
     Args:
         input_video: Input video file
         output_audio: Output audio file path
-        format: Audio format (wav, m4a, etc.). Defaults to wav for better compatibility.
+        format: Audio format (wav, m4a, ogg, etc.). Defaults to ogg.
     """
     output_audio.parent.mkdir(parents=True, exist_ok=True)
 

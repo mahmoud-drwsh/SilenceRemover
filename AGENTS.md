@@ -51,3 +51,4 @@ Entries below are appended by the agent after making code or config changes.
 - `src/core/cli.py`, `README.md`, and `ALGO.md`: updated non-target defaults and documentation to reflect shared edge re-scan behavior for both modes.
 - `src/core/constants.py`: keeps non-target `DEFAULT_MIN_DURATION` at `1.0` seconds while target mode uses `TARGET_MIN_DURATION`.
 - `README.md` and `ALGO.md`: now explicitly note that `-50dB` edge re-scan/replacement is used in both target and non-target trimming paths.
+- `src/llm/transcription.py`: set `extract_first_5min_audio` default output format to `ogg` so transcription always uses OGG unless explicitly overridden.
