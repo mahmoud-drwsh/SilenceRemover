@@ -36,31 +36,8 @@ def _probe_bitrate_bps(input_file: Path) -> int:
 
 
 def _get_hevc_qsv_quality_params() -> list[str]:
-    """hevc_qsv with high-quality ICQ settings.
-
-    -global_quality selects ICQ mode (1=best .. 51=worst). Values around 18–20
-    are visually transparent for most content. Additional options enable
-    lookahead and MB-level bitrate control for better allocation without
-    sacrificing quality.
-    """
-    return [
-        "-preset",
-        "slow",
-        "-global_quality",
-        "18",
-        "-look_ahead_depth",
-        "20",
-        "-mbbrc",
-        "1",
-        "-extbrc",
-        "1",
-        "-scenario",
-        "archive",
-        "-low_power",
-        "0",
-        "-dual_gfx",
-        "2",  # adaptive
-    ]
+    """hevc_qsv with ICQ (Intelligent Constant Quality)."""
+    return ["-preset", "slow", "-global_quality", "23"]
 
 
 def _get_libx264_quality_params() -> list[str]:
