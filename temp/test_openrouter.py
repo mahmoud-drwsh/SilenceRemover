@@ -23,7 +23,7 @@ if not OPENROUTER_API_KEY:
     sys.exit(1)
 
 
-def extract_first_minute_audio(input_video: Path, output_audio: Path, format: str = "wav") -> None:
+def extract_first_minute_audio(input_video: Path, output_audio: Path, format: str = "ogg") -> None:
     """Extract first 60 seconds of audio from video.
     
     Args:
@@ -34,12 +34,15 @@ def extract_first_minute_audio(input_video: Path, output_audio: Path, format: st
     output_audio.parent.mkdir(parents=True, exist_ok=True)
     
     # Convert to specified format
-    if format == "wav":
+    if format != "ogg":
+        raise ValueError("Only OGG format is supported in this helper. Use format='ogg'.")
+
+    if format == "ogg":
         enc_cmd = [
             "ffmpeg", "-hide_banner", "-y",
             "-ss", "0", "-t", "60",  # First 60 seconds
             "-i", str(input_video),
-            "-map", "0:a:0", "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1", "-vn",  # WAV format, 16kHz mono
+            "-map", "0:a:0", "-c:a", "libopus", "-ar", "16000", "-ac", "1", "-b:a", "32k", "-vn",  # OGG/Opus format, 16kHz mono
             str(output_audio),
         ]
     elif format == "m4a":
@@ -158,10 +161,10 @@ def main():
     print(f"Testing with: {test_video.name}")
     print("=" * 60)
     
-    # Extract first minute of audio - try WAV format first (most compatible)
-    audio_output = temp_dir / f"{test_video.stem}_1min.wav"
-    print(f"\n[1/3] Extracting first minute of audio as WAV...")
-    extract_first_minute_audio(test_video, audio_output, format="wav")
+    # Extract first minute of audio - OGG format
+    audio_output = temp_dir / f"{test_video.stem}_1min.ogg"
+    print(f"\n[1/3] Extracting first minute of audio as OGG...")
+    extract_first_minute_audio(test_video, audio_output, format="ogg")
     print(f"Audio extracted: {audio_output}")
     
     # Try transcription with cheapest models

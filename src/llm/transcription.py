@@ -8,10 +8,7 @@ from src.llm.prompts import TRANSCRIBE_PROMPT
 from src.ffmpeg.core import print_ffmpeg_cmd
 from src.ffmpeg.runner import run
 from src.ffmpeg.transcode import (
-    build_first_5min_audio_aac_command,
-    build_first_5min_audio_copy_command,
     build_first_5min_audio_ogg_command,
-    build_first_5min_audio_wav_command,
 )
 from src.llm.client import request as openrouter_request
 
@@ -22,44 +19,21 @@ def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str 
     Args:
         input_video: Input video file
         output_audio: Output audio file path
-        format: Audio format (wav, m4a, ogg, etc.). Defaults to ogg.
+        format: Audio format. Must be "ogg".
     """
     output_audio.parent.mkdir(parents=True, exist_ok=True)
 
-    if format == "wav":
-        # Extract as WAV format (16kHz mono)
-        cmd = build_first_5min_audio_wav_command(input_video=input_video, output_audio=output_audio)
-        print_ffmpeg_cmd(cmd)
-        result = run(cmd, capture_output=True, check=False)
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Audio extraction failed for {input_video}\nstderr={result.stderr}"
-            )
-    elif format == "ogg":
-        # OGG/Opus: smaller payload for transcription (same token cost, less bandwidth)
-        cmd = build_first_5min_audio_ogg_command(input_video=input_video, output_audio=output_audio)
-        print_ffmpeg_cmd(cmd)
-        result = run(cmd, capture_output=True, check=False)
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Audio extraction failed for {input_video}\nstderr={result.stderr}"
-            )
-    else:
-        # Try to copy audio stream first
-        copy_cmd = build_first_5min_audio_copy_command(input_video=input_video, output_audio=output_audio)
-        print_ffmpeg_cmd(copy_cmd)
-        copy_result = run(copy_cmd, capture_output=True, check=False)
-        if copy_result.returncode == 0:
-            return
-        # Fallback: encode to aac
-        enc_cmd = build_first_5min_audio_aac_command(input_video=input_video, output_audio=output_audio)
-        print_ffmpeg_cmd(enc_cmd)
-        encode_result = run(enc_cmd, capture_output=True, check=False)
-        if encode_result.returncode != 0:
-            raise RuntimeError(
-                "Audio extraction failed for "
-                f"{input_video}\ncopy_stderr={copy_result.stderr}\nenc_stderr={encode_result.stderr}"
-            )
+    if format != "ogg":
+        raise ValueError("Only OGG format is supported for transcription extraction. Use format='ogg'.")
+
+    # OGG/Opus: smaller payload for transcription (same token cost, less bandwidth)
+    cmd = build_first_5min_audio_ogg_command(input_video=input_video, output_audio=output_audio)
+    print_ffmpeg_cmd(cmd)
+    result = run(cmd, capture_output=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Audio extraction failed for {input_video}\nstderr={result.stderr}"
+        )
 
 
 def get_audio_path_for_media(media_path: Path, temp_dir: Path, basename: str) -> Path:

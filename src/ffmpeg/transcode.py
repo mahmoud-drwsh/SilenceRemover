@@ -12,30 +12,6 @@ if TYPE_CHECKING:
     from src.encoding_resolver import VideoEncoderProfile
 
 
-def build_first_5min_audio_wav_command(input_video: Path, output_audio: Path) -> list[str]:
-    """Build WAV extraction command."""
-    cmd = build_ffmpeg_cmd(overwrite=True)
-    cmd.extend([
-        "-ss",
-        "0",
-        "-t",
-        "300",
-        "-i",
-        str(input_video),
-        "-map",
-        "0:a:0",
-        "-c:a",
-        "pcm_s16le",
-        "-ar",
-        "16000",
-        "-ac",
-        "1",
-        "-vn",
-        str(output_audio),
-    ])
-    return cmd
-
-
 def build_first_5min_audio_ogg_command(input_video: Path, output_audio: Path) -> list[str]:
     """Build Opus extraction command."""
     cmd = build_ffmpeg_cmd(overwrite=True)

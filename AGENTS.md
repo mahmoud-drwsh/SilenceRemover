@@ -52,3 +52,7 @@ Entries below are appended by the agent after making code or config changes.
 - `src/core/constants.py`: keeps non-target `DEFAULT_MIN_DURATION` at `1.0` seconds while target mode uses `TARGET_MIN_DURATION`.
 - `README.md` and `ALGO.md`: now explicitly note that `-50dB` edge re-scan/replacement is used in both target and non-target trimming paths.
 - `src/llm/transcription.py`: set `extract_first_5min_audio` default output format to `ogg` so transcription always uses OGG unless explicitly overridden.
+- `src/ffmpeg/transcode.py`: removed WAV audio extraction helper so transcription-only audio extraction no longer includes a WAV path.
+- `src/ffmpeg/__init__.py`: dropped WAV transcode helper from package exports.
+- `src/llm/transcription.py`: removed WAV extraction branch from transcription pipeline and now enforce OGG-only extraction format.
+- `temp/test_openrouter.py`: updated quick-test audio extraction helper to prefer OGG output for consistency.
