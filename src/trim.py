@@ -12,6 +12,7 @@ from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 from src.fs_utils import wait_for_file_release
 from src.silence_detector import (
     calculate_resulting_length,
+    choose_threshold_and_padding_for_target,
     detect_silence_points,
     find_optimal_padding,
 )
@@ -94,17 +95,25 @@ def _build_segments_to_keep(
     target_length: Optional[float],
 ) -> tuple[list[tuple[float, float]], float]:
     """Build segments_to_keep list using same algorithm as full trim. Returns (segments_to_keep, duration_sec)."""
-    silence_starts, silence_ends = detect_silence_points(input_file, noise_threshold, min_duration)
     duration_sec = _probe_duration(input_file)
     if duration_sec <= 0:
         raise ValueError(f"Invalid video duration: {duration_sec}s. Video file may be corrupted or empty.")
-    if len(silence_starts) > len(silence_ends):
-        silence_ends = list(silence_ends) + [duration_sec]
 
     if target_length is not None:
         if target_length >= duration_sec:
             return ([(0.0, round(duration_sec, 3))], duration_sec)
-        pad_sec = find_optimal_padding(silence_starts, silence_ends, duration_sec, target_length)
+        # Target length: sweep threshold from conservative to aggressive until we can meet target,
+        # then increase padding as much as possible without ever exceeding target.
+        silence_starts, silence_ends, chosen_threshold, pad_sec = choose_threshold_and_padding_for_target(
+            input_file,
+            duration_sec,
+            target_length,
+        )
+        print(f"Target mode: chosen noise_threshold={chosen_threshold}dB, min_duration=0.01s, pad={pad_sec}s")
+    else:
+        silence_starts, silence_ends = detect_silence_points(input_file, noise_threshold, min_duration)
+        if len(silence_starts) > len(silence_ends):
+            silence_ends = list(silence_ends) + [duration_sec]
 
     segments_to_keep = _build_segments_from_silences(silence_starts, silence_ends, duration_sec, pad_sec)
     return (segments_to_keep, duration_sec)
@@ -205,16 +214,13 @@ def trim_single_video(
             except Exception as e:
                 print(f"Error copying file: {e}", file=sys.stderr)
                 raise
-        # Target length: detect once with caller's threshold/min_duration, then padding-only tuning
-        silence_starts, silence_ends = detect_silence_points(input_file, noise_threshold, min_duration)
-        if len(silence_starts) > len(silence_ends):
-            silence_ends = list(silence_ends) + [duration_sec]
-        base_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)
-        if base_length >= target_length:
-            pad_sec = 0.0
-            print("Base length already >= target, using pad=0")
-        else:
-            pad_sec = find_optimal_padding(silence_starts, silence_ends, duration_sec, target_length)
+        # Target length: sweep threshold, then padding-only tuning (never exceed target).
+        silence_starts, silence_ends, chosen_threshold, pad_sec = choose_threshold_and_padding_for_target(
+            input_file,
+            duration_sec,
+            target_length,
+        )
+        print(f"Target mode: chosen noise_threshold={chosen_threshold}dB, min_duration=0.01s, pad={pad_sec}s")
         segments_to_keep = _build_segments_from_silences(silence_starts, silence_ends, duration_sec, pad_sec)
     else:
         segments_to_keep, duration_sec = _build_segments_to_keep(

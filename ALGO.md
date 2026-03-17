@@ -20,20 +20,39 @@ Segments to keep are built from (silence_starts, silence_ends) and padding; the 
 
 When a target length is set, this algorithm is used. When target is not set, behavior is unchanged (config `NOISE_THRESHOLD` / `MIN_DURATION` / `PAD`).
 
-1. **Detect once** with fixed **-55 dB** and **0.01 s** min_duration (`SIMPLE_DB`, `SIMPLE_MIN_DURATION` in `src/config.py`). No sweep over threshold or min_duration.
+### Overview
 
-2. **Base length:** Compute the resulting length with `pad_sec = 0` using `calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)`.
+Goal: **preserve as much silence as possible** while trying to get the output to **at or under** the target length **without ever truncating content**.
 
-3. **Padding:**
-   - If base length **≥ target:** use `pad_sec = 0` (padding only lengthens; target cannot be reached). A message is printed.
-   - If base length **< target:** call `find_optimal_padding` to get the largest uniform `pad_sec` that keeps the final length just below the target.
+We do this in two phases:
 
-4. **Segments:** Build segments from the same `(silence_starts, silence_ends)` and chosen `pad_sec`. The same rule applies: silences with **duration ≤ 2 × pad_sec** are treated as non-silence (skipped), so very short gaps are merged with adjacent speech. Only longer silences are trimmed with padding before/after.
+1. **Threshold sweep (conservative → aggressive):** start at **-60 dB** and increase the threshold until trimming can reach the target (with `pad=0`). This ensures we pick the *least aggressive* threshold that can meet the target, preserving silence.
+2. **Padding tuning:** once we’ve found a threshold that can meet the target, increase uniform padding to get as close as possible to the target **without exceeding it**.
+
+Min silence duration is fixed at **0.01s** in target mode.
+
+### Steps
+
+1. **Detect in passes** using `silencedetect=n={threshold}dB:d=0.01` for thresholds in `TARGET_NOISE_THRESHOLDS_DB` (starting at -60 dB).
+
+2. **Base length at pad=0:** for each pass, compute:
+   - `base_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)`
+
+3. **Pick the first threshold where `base_length <= target`:**
+   - This is the **least aggressive** pass that can meet the target.
+
+4. **Padding:** compute the largest uniform padding that stays under the target:
+   - `pad_sec = find_optimal_padding(silence_starts, silence_ends, duration_sec, target_length)`
+   - This guarantees the padded result remains **<= target**.
+
+5. **Segments:** build segments from the chosen `(silence_starts, silence_ends)` and `pad_sec`. Silences with **duration ≤ 2 × pad_sec** are treated as non-silence (skipped), so very short gaps are merged with adjacent speech.
+
+6. **No truncation:** if even the most aggressive threshold still results in output **> target**, we keep the output as-is (over target) rather than cutting content.
 
 ### Edge cases
 
 - **Target length ≥ original duration:** Output is a copy of the input (no detection).
 - **No silences:** Base length = full duration; `find_optimal_padding` returns 0; output is the full file.
-- **Base length already ≥ target:** Use `pad_sec = 0`; output may be longer than target.
+- **Base length still > target even at the most aggressive threshold:** padding is forced to 0, and the output may remain above target (no truncation is applied).
 
-Implementation: `detect_silences_simple` and `find_optimal_padding` in `src/silence_utils.py`; target-length path in `trim_single_video` in `src/trim.py`.
+Implementation: `choose_threshold_and_padding_for_target` and `find_optimal_padding` in `src/silence/detector.py`; target-length path in `trim_single_video` in `src/trim.py`.

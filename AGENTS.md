@@ -62,3 +62,10 @@ Entries below are appended by the agent after making code or config changes.
 - `README.md`: Documented temp/scripts/ in the example directory structure as the location for temporary ffmpeg filter scripts.
 - `src/trim.py`: Updated _get_hevc_qsv_quality_params to use high-quality ICQ settings (global_quality=18, lookahead, MB/ext BR control, archive scenario, adaptive dual-GPU) for faster HEVC QSV encoding without visible quality loss.
 - `src/trim.py`: Final video trim path now writes its filter_complex script under temp/scripts/ (derived from output_dir) instead of OS temp, and leaves it on disk for debugging.
+- `src/config.py`: Added target-mode constants for a -60dB-up threshold sweep with fixed 0.01s min_duration.
+- `src/silence/detector.py`: Added a target-mode helper that sweeps thresholds and tunes padding, plus a segment truncation safeguard to never exceed target.
+- `src/silence_detector.py`: Re-exported new target-mode sweep and truncation helpers through the compatibility shim.
+- `src/trim.py`: Switched target-length trimming to threshold sweep + padding tuning and enforced a hard never-over-target guarantee via segment truncation.
+- `ALGO.md`: Updated target-length documentation to describe multi-pass threshold sweep + padding tuning and the never-exceed safeguard.
+- `src/trim.py`: Removed target-mode segment truncation; if trimming can’t get under target, output may exceed target rather than cutting content.
+- `ALGO.md`: Documented that target mode never truncates content; exceeding target is allowed when silence trimming can’t reduce enough.

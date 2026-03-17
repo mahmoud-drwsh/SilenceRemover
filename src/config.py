@@ -189,6 +189,12 @@ AUDIO_BITRATE = "192k"
 SIMPLE_DB = -55.0
 SIMPLE_MIN_DURATION = 0.01
 
+# When --target-length is set: multi-pass threshold sweep with padding-only tuning.
+# Start from a conservative threshold (keep more silence), then increase aggressiveness
+# only until the target can be met without exceeding it.
+TARGET_MIN_DURATION = 0.01
+TARGET_NOISE_THRESHOLDS_DB: list[float] = [-60.0, -55.0, -50.0, -45.0, -40.0, -35.0, -30.0, -25.0, -20.0]
+
 VIDEO_EXTENSIONS = {
     ".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm",
     ".m4v", ".mpg", ".mpeg", ".3gp", ".ogv", ".ts", ".m2ts",
@@ -227,6 +233,8 @@ __all__ = [
     "AUDIO_BITRATE",
     "SIMPLE_DB",
     "SIMPLE_MIN_DURATION",
+    "TARGET_MIN_DURATION",
+    "TARGET_NOISE_THRESHOLDS_DB",
     "VIDEO_CRF",
     "OPENROUTER_DEFAULT_MODEL",
     "OPENROUTER_TITLE_MODEL",
