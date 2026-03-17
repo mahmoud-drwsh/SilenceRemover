@@ -3,7 +3,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from src.config import COMPLETED_DIR, SCRIPTS_DIR, SNIPPET_DIR, TITLE_DIR, TRANSCRIPT_DIR
+from src.constants import COMPLETED_DIR, SCRIPTS_DIR, SNIPPET_DIR, TITLE_DIR, TRANSCRIPT_DIR
 from src.filename_sanitizer import sanitize_filename
 
 __all__ = [

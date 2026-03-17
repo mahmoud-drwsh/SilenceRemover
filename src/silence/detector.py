@@ -4,7 +4,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from src.config import (
+from src.constants import (
     MAX_PAD_SEC,
     PAD_INCREMENT_SEC,
     SIMPLE_DB,

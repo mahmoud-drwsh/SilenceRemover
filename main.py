@@ -14,10 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.cli import parse_args, fail, require_tools, require_input_dir, require_videos_in
-from src.config import (
-    VIDEO_EXTENSIONS,
-    COMPLETED_DIR,
-)
+from src.constants import VIDEO_EXTENSIONS, COMPLETED_DIR
 from src.paths import (
     sibling_dir,
     create_temp_subdirs,
@@ -176,6 +173,8 @@ def main() -> None:
     from src.config import (
         load_config,
         get_config,
+    )
+    from src.constants import (
         DEFAULT_NOISE_THRESHOLD,
         DEFAULT_MIN_DURATION,
         DEFAULT_PAD_SEC,

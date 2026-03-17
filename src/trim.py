@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from src.config import AUDIO_BITRATE, BITRATE_FALLBACK_BPS, SCRIPTS_DIR, SNIPPET_DIR
+from src.constants import AUDIO_BITRATE, BITRATE_FALLBACK_BPS, SCRIPTS_DIR, SNIPPET_DIR
 from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
 from src.fs_utils import wait_for_file_release
 from src.silence_detector import (

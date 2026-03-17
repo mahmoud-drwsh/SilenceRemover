@@ -75,3 +75,6 @@ Entries below are appended by the agent after making code or config changes.
 - `src/transcription/openrouter.py`, `src/titles/openrouter.py`: Hard-coded OpenRouter model defaults to google/gemini-2.5-flash-lite:nitro instead of reading from env-backed config.
 - `README.md`: Updated configuration and model sections to state that only the API key uses environment variables; other knobs are CLI flags or code constants.
 - `.env.example`: Clarified that only OPENROUTER_API_KEY should be set via environment; all other settings are CLI/config-based.
+- `src/constants.py`: Added a dedicated module for all non-secret constants (silence defaults, target-mode thresholds, directories, extensions, bitrate/padding limits).
+- `src/config.py`: Now only contains env-backed secret loading/validation; removed all constant definitions from this module.
+- `main.py`, `src/cli.py`, `src/paths.py`, `src/trim.py`, `src/silence/detector.py`, `src/transcription/openrouter.py`: Updated imports to use `src.constants` instead of `src.config` for non-secret constants.
