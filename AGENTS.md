@@ -57,3 +57,4 @@ Entries below are appended by the agent after making code or config changes.
 - `src/llm/transcription.py`: removed WAV extraction branch from transcription pipeline and now enforce OGG-only extraction format.
 - `temp/test_openrouter.py`: updated quick-test audio extraction helper to prefer OGG output for consistency.
 - `src/encoding_resolver.py`: switched `hevc_qsv` from `global_quality` (ICQ path) to explicit CQP-style `-q:v` quality control.
+- `src/encoding_resolver.py`: changed encoder resolution to fail when configured profile arguments are not runnable, removing implicit downgrade to empty codec args.

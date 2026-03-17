@@ -33,16 +33,11 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
         name="intel_quick_sync_hevc",
         codec="hevc_qsv",
         codec_args=(
-            "-preset",
-            "slow",
-            "-q:v",
-            "18",
-            "-mbbrc",
-            "1",
-            "-extbrc",
-            "1",
-            "-scenario",
-            "archive",
+            "-preset", "slow",
+            "-q:v", "18",
+            "-mbbrc", "1",
+            "-extbrc", "1",
+            "-scenario", "archive",
         ),
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
     ),
@@ -65,33 +60,12 @@ def _get_available_encoders() -> set[str]:
 
 
 def _probe_encoder_profile(profile: VideoEncoderProfile) -> VideoEncoderProfile:
-    """Verify an encoder profile and return a safe runnable variant.
-
-    Some FFmpeg builds expose an encoder but probe commands can fail despite the
-    encoder being usable in normal file-based workflows. To avoid false negatives,
-    this returns:
-    - the full profile when possible
-    - a conservative profile with empty codec args when tuned args fail
-    - a conservative profile even when the probe itself fails unexpectedly
-    """
+    """Verify an encoder profile by probing with exact encoder arguments."""
     if can_run_encoder(profile.codec, profile.codec_args):
         return profile
 
-    if can_run_encoder(profile.codec, ()):
-        return VideoEncoderProfile(
-            name=profile.name,
-            codec=profile.codec,
-            codec_args=(),
-            container_args=profile.container_args,
-        )
-
-    # Conservative fallback when probing is unreliable on this FFmpeg build/host:
-    # keep the encoder and prefer best-effort operation with default arguments.
-    return VideoEncoderProfile(
-        name=profile.name,
-        codec=profile.codec,
-        codec_args=(),
-        container_args=profile.container_args,
+    raise RuntimeError(
+        f"Encoder '{profile.name}' is not runnable with configured options: {list(profile.codec_args)}"
     )
 
 
@@ -102,14 +76,24 @@ def resolve_video_encoder() -> VideoEncoderProfile:
         return _RESOLVED_ENCODER
 
     available = _get_available_encoders()
+    probe_failures: list[str] = []
     for profile in _ENCODER_PROFILES:
         if profile.codec not in available:
             continue
-        probe_result = _probe_encoder_profile(profile)
-        _RESOLVED_ENCODER = probe_result
-        return probe_result
+        try:
+            probe_result = _probe_encoder_profile(profile)
+            _RESOLVED_ENCODER = probe_result
+            return probe_result
+        except RuntimeError as exc:
+            probe_failures.append(f"{profile.name}: {exc}")
+            continue
 
     supported = ", ".join(sorted(profile.codec for profile in _ENCODER_PROFILES))
+    if probe_failures:
+        raise RuntimeError(
+            f"Configured encoder profiles are not runnable. Tried in order: {supported}. "
+            f"Probe failures: {'; '.join(probe_failures)}"
+        )
     raise RuntimeError(
         f"No runnable hardware encoder found. Tried in order: {supported}. "
         "Install/configure one of these encoders in your ffmpeg build."
