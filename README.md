@@ -44,7 +44,7 @@ Keep only **secrets** in `.env` (your OpenRouter API key). Copy `.env.example` t
 OPENROUTER_API_KEY=your_api_key_here
 ```
 
-All other options (models, silence parameters, timeouts, etc.) are controlled via CLI flags or constants in `src/config.py`.
+All other options (models, silence parameters, timeouts, etc.) are controlled via CLI flags or constants in `src/config.py` and `src/constants.py`.
 
 ## Usage
 
@@ -61,6 +61,12 @@ python main.py /path/to/video/directory
 - `--target-length FLOAT`: Optimize padding to achieve a target video length (in seconds).
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Without `--target-length`, defaults to a conservative value from `src/config.py`.
 - `--min-duration FLOAT`: Override minimum silence duration in seconds (e.g. `0.5`). Without `--target-length`, defaults to a value from `src/config.py`.
+
+Trimming precision controls (advanced):
+
+- `src/constants.py`: `TRIM_DECIMAL_PLACES` controls timestamp precision used when calculating and applying segment boundaries (default `6`).
+- `src/constants.py`: `PAD_INCREMENT_SEC` controls target-length padding search granularity (default `0.001`).
+- `src/constants.py`: `TRIM_TIMESTAMP_EPSILON_SEC` controls floating-point under-target tolerance in length checks.
 
 ### Examples
 
@@ -159,6 +165,8 @@ Ensure FFmpeg and FFprobe are installed and available on your PATH:
 ffmpeg -version
 ffprobe -version
 ```
+
+Note: This project uses FFmpeg's non-deprecated filter graph script option `-/filter_complex`, so you should no longer see `-filter_complex_script is deprecated` warnings in normal runs.
 
 ### API Key Issues
 

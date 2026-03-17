@@ -42,3 +42,12 @@ Entries below are appended by the agent after making code or config changes.
 - `ALGO.md`: Corrected examples to reflect the "skip silences ≤ 2×pad" rule, avoid threshold-equality ambiguity, and match `find_optimal_padding`'s strict "< target" behavior.
 - `src/titles/openrouter.py`: Added deterministic post-processing to normalize/dedupe repeated `ﷺ` when Prophet epithets appear consecutively.
 - `src/prompts.py`: Fixed the `المصطفى` spelling in the honorific-enrichment prompt examples.
+- `src/constants.py`: Added precision controls for trim timestamp precision and target-mode padding tolerance/step sizing.
+- `src/silence/detector.py`: Centralized timestamp normalization and precision-aware segment length/padding calculations, plus precision-aware `find_optimal_padding`.
+- `src/silence_detector.py`: Re-exported `normalize_timestamp` for compatibility through shim imports.
+- `src/trim.py`: Reused shared normalization in segment construction and target/no-target boundary handling for consistent timing.
+- `README.md`: Documented trimming precision configuration knobs in `src/constants.py`.
+- `ALGO.md`: Updated trimming precision behavior and `PAD_INCREMENT_SEC` target-mode impact.
+- `src/ffmpeg_utils.py`: Added `add_filter_complex_script` helper to use FFmpeg's non-deprecated `-/filter_complex` script input syntax.
+- `src/trim.py`: Switched filter graph script injection from deprecated `-filter_complex_script` to `-/filter_complex`, and updated related debug labels.
+- `README.md`: Added note that FFmpeg now uses `-/filter_complex` and should not emit deprecation warnings.

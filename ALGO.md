@@ -8,6 +8,7 @@ This document describes how silence is detected and how the trimmed output lengt
 - **noise_threshold (dB):** Must be negative. Audio below this level is considered silence. **Higher** (e.g. -20) = more is treated as silence = **shorter** output. **Lower** (e.g. -50) = only very quiet parts = **longer** output.
 - **min_duration (s):** Minimum length of a quiet stretch to count as silence. **Lower** (e.g. 0.2) = short pauses removed = **shorter** output. **Higher** (e.g. 2.0) = only long gaps = **longer** output.
 - **Padding:** For each detected silence, segment-building keeps up to `pad_sec` seconds *before the silence ends* (i.e., it starts the next kept segment at `silence_end - pad_sec`). In addition, silences with **duration ≤ 2 × pad_sec** are treated as non-silence (skipped), merging adjacent speech across very short gaps. **More padding** = **longer** output.
+- **Precision policy:** Segment boundaries and length calculations are normalized to `TRIM_DECIMAL_PLACES` (default `6`) and compared against `TRIM_TIMESTAMP_EPSILON_SEC`.
 
 Segments to keep are built from (silence_starts, silence_ends) and padding; the concatenation of those segments is the trimmed duration.
 
@@ -70,6 +71,7 @@ Min silence duration is fixed at **0.01s** in target mode.
 
 4. **Padding:** compute the largest uniform padding that stays under the target:
    - `pad_sec = find_optimal_padding(silence_starts, silence_ends, duration_sec, target_length)`
+   - Search steps are controlled by `PAD_INCREMENT_SEC` in `src/constants.py` (default `0.001`).
    - This guarantees the padded result is **strictly under** the target (it may land slightly under). If `pad=0` already equals the target, padding stays at 0.
 
 5. **Segments:** build segments from the chosen `(silence_starts, silence_ends)` and `pad_sec`. Silences with **duration ≤ 2 × pad_sec** are treated as non-silence (skipped), so very short gaps are merged with adjacent speech.

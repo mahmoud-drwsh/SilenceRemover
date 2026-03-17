@@ -1,5 +1,6 @@
 """FFmpeg command building utilities."""
 
+from pathlib import Path
 import shlex
 
 
@@ -10,6 +11,11 @@ def print_ffmpeg_cmd(cmd: list[str]) -> None:
     # Print as a copy-pastable shell command (quote args with spaces)
     quoted = [shlex.quote(str(a)) for a in cmd]
     print("FFmpeg:", " ".join(quoted))
+
+
+def add_filter_complex_script(cmd: list[str], filter_script_path: Path) -> None:
+    """Attach a filter graph script using the non-deprecated FFmpeg option."""
+    cmd.extend(["-/filter_complex", str(filter_script_path)])
 
 
 def build_ffmpeg_cmd(overwrite: bool = True, *additional_flags: str) -> list[str]:

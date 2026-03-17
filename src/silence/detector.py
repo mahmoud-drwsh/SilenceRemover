@@ -7,12 +7,24 @@ from pathlib import Path
 from src.constants import (
     MAX_PAD_SEC,
     PAD_INCREMENT_SEC,
+    TRIM_DECIMAL_PLACES,
+    TRIM_TIMESTAMP_EPSILON_SEC,
     SIMPLE_DB,
     SIMPLE_MIN_DURATION,
     TARGET_MIN_DURATION,
     TARGET_NOISE_THRESHOLDS_DB,
 )
 from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
+
+
+def normalize_timestamp(value: float, *, minimum: float = 0.0) -> float:
+    """Normalize a timestamp to the configured trimming precision."""
+    normalized = round(float(value), TRIM_DECIMAL_PLACES)
+    if normalized < minimum:
+        normalized = minimum
+    if normalized == -0.0:
+        normalized = 0.0
+    return normalized
 
 
 def calculate_resulting_length(silence_starts: list[float], silence_ends: list[float], duration_sec: float, pad_sec: float) -> float:
@@ -27,6 +39,11 @@ def calculate_resulting_length(silence_starts: list[float], silence_ends: list[f
     Returns:
         Total length of segments to keep in seconds
     """
+    pad_sec = normalize_timestamp(max(0.0, pad_sec))
+    duration_sec = normalize_timestamp(duration_sec)
+    silence_starts = [normalize_timestamp(x) for x in silence_starts]
+    silence_ends = [normalize_timestamp(x) for x in silence_ends]
+
     if len(silence_starts) != len(silence_ends):
         if len(silence_starts) > len(silence_ends):
             silence_ends = list(silence_ends) + [duration_sec]
@@ -35,16 +52,14 @@ def calculate_resulting_length(silence_starts: list[float], silence_ends: list[f
     segments_to_keep: list[tuple[float, float]] = []
     prev_end = 0.0
     for silence_start, silence_end in zip(silence_starts, silence_ends):
-        if silence_end - silence_start <= pad_sec * 2:
+        if silence_end - silence_start <= pad_sec * 2 + TRIM_TIMESTAMP_EPSILON_SEC:
             continue
-        if silence_start > prev_end:
-            segment_start = round(prev_end, 3)
-            segment_end = round(silence_start, 3)
-            segments_to_keep.append((segment_start, segment_end))
-        prev_end = max(0.0, silence_end - pad_sec)
-    if prev_end < duration_sec:
-        segments_to_keep.append((round(prev_end, 3), round(duration_sec, 3)))
-    return sum(end - start for start, end in segments_to_keep)
+        if silence_start > prev_end + TRIM_TIMESTAMP_EPSILON_SEC:
+            segments_to_keep.append((normalize_timestamp(prev_end), normalize_timestamp(silence_start)))
+        prev_end = normalize_timestamp(max(0.0, silence_end - pad_sec))
+    if prev_end < duration_sec - TRIM_TIMESTAMP_EPSILON_SEC:
+        segments_to_keep.append((normalize_timestamp(prev_end), normalize_timestamp(duration_sec)))
+    return normalize_timestamp(sum(end - start for start, end in segments_to_keep))
 
 
 def find_optimal_padding(silence_starts: list[float], silence_ends: list[float], duration_sec: float, target_length: float) -> float:
@@ -59,25 +74,27 @@ def find_optimal_padding(silence_starts: list[float], silence_ends: list[float],
     Returns:
         Optimal padding value in seconds
     """
+    if target_length >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC:
+        return 0.0
     if not silence_starts:
         return 0.0
     result_with_0 = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)
-    if target_length >= duration_sec:
-        return 0.0
-    if result_with_0 > target_length:
+    if result_with_0 + TRIM_TIMESTAMP_EPSILON_SEC > target_length:
         return 0.0
     max_pad = MAX_PAD_SEC
     pad_increment = PAD_INCREMENT_SEC
-    current_pad = 0.0
+    if pad_increment <= 0:
+        return 0.0
+    max_steps = int(max_pad / pad_increment + TRIM_TIMESTAMP_EPSILON_SEC)
     best_pad = 0.0
-    while current_pad <= max_pad:
+    for step in range(max_steps + 1):
+        current_pad = normalize_timestamp(min(max_pad, step * pad_increment))
         resulting_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, current_pad)
-        if resulting_length < target_length:
+        if resulting_length < target_length - TRIM_TIMESTAMP_EPSILON_SEC:
             best_pad = current_pad
-        else:
-            break
-        current_pad += pad_increment
-    return round(best_pad, 3)
+            continue
+        break
+    return best_pad
 
 
 def truncate_segments_to_max_length(
@@ -105,7 +122,7 @@ def truncate_segments_to_max_length(
             if remaining <= 0:
                 break
         else:
-            out.append((start, round(start + remaining, 3)))
+            out.append((start, normalize_timestamp(start + remaining)))
             remaining = 0.0
             break
     return out
@@ -201,6 +218,7 @@ def detect_silences_simple(input_file: Path) -> tuple[list[float], list[float]]:
 
 __all__ = [
     "calculate_resulting_length",
+    "normalize_timestamp",
     "find_optimal_padding",
     "choose_threshold_and_padding_for_target",
     "truncate_segments_to_max_length",

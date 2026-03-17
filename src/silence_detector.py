@@ -10,6 +10,7 @@ from src.silence.detector import (
     find_optimal_padding,
     detect_silence_points,
     detect_silences_simple,
+    normalize_timestamp,
     truncate_segments_to_max_length,
 )
 
@@ -17,6 +18,7 @@ __all__ = [
     "calculate_resulting_length",
     "choose_threshold_and_padding_for_target",
     "find_optimal_padding",
+    "normalize_timestamp",
     "detect_silence_points",
     "detect_silences_simple",
     "truncate_segments_to_max_length",

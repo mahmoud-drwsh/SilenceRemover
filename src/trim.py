@@ -7,14 +7,19 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from src.constants import AUDIO_BITRATE, BITRATE_FALLBACK_BPS, SCRIPTS_DIR, SNIPPET_DIR
-from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
+from src.constants import (
+    AUDIO_BITRATE,
+    BITRATE_FALLBACK_BPS,
+    SCRIPTS_DIR,
+    SNIPPET_DIR,
+    TRIM_TIMESTAMP_EPSILON_SEC,
+)
+from src.ffmpeg_utils import add_filter_complex_script, build_ffmpeg_cmd, print_ffmpeg_cmd
 from src.fs_utils import wait_for_file_release
 from src.silence_detector import (
-    calculate_resulting_length,
     choose_threshold_and_padding_for_target,
     detect_silence_points,
-    find_optimal_padding,
+    normalize_timestamp,
 )
 
 
@@ -72,18 +77,22 @@ def _build_segments_from_silences(
     pad_sec: float,
 ) -> list[tuple[float, float]]:
     """Build segments to keep from precomputed silence lists. Silences with duration <= 2*pad_sec are skipped."""
+    silence_starts = [normalize_timestamp(x) for x in silence_starts]
+    silence_ends = [normalize_timestamp(x) for x in silence_ends]
+    duration_sec = normalize_timestamp(duration_sec)
+    pad_sec = normalize_timestamp(max(0.0, pad_sec))
     if len(silence_starts) > len(silence_ends):
         silence_ends = list(silence_ends) + [duration_sec]
     segments_to_keep: list[tuple[float, float]] = []
     prev_end = 0.0
     for silence_start, silence_end in zip(silence_starts, silence_ends):
-        if silence_end - silence_start <= pad_sec * 2:
+        if silence_end - silence_start <= pad_sec * 2 + TRIM_TIMESTAMP_EPSILON_SEC:
             continue
-        if silence_start > prev_end:
-            segments_to_keep.append((round(prev_end, 3), round(silence_start, 3)))
-        prev_end = max(0.0, silence_end - pad_sec)
-    if prev_end < duration_sec:
-        segments_to_keep.append((round(prev_end, 3), round(duration_sec, 3)))
+        if silence_start > prev_end + TRIM_TIMESTAMP_EPSILON_SEC:
+            segments_to_keep.append((normalize_timestamp(prev_end), normalize_timestamp(silence_start)))
+        prev_end = normalize_timestamp(max(0.0, silence_end - pad_sec))
+    if prev_end < duration_sec - TRIM_TIMESTAMP_EPSILON_SEC:
+        segments_to_keep.append((normalize_timestamp(prev_end), normalize_timestamp(duration_sec)))
     return segments_to_keep
 
 
@@ -98,10 +107,11 @@ def _build_segments_to_keep(
     duration_sec = _probe_duration(input_file)
     if duration_sec <= 0:
         raise ValueError(f"Invalid video duration: {duration_sec}s. Video file may be corrupted or empty.")
+    duration_sec = normalize_timestamp(duration_sec)
 
     if target_length is not None:
-        if target_length >= duration_sec:
-            return ([(0.0, round(duration_sec, 3))], duration_sec)
+        if target_length >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC:
+            return ([(0.0, normalize_timestamp(duration_sec))], duration_sec)
         # Target length: sweep threshold from conservative to aggressive until we can meet target,
         # then increase padding as much as possible without ever exceeding target.
         silence_starts, silence_ends, chosen_threshold, pad_sec = choose_threshold_and_padding_for_target(
@@ -166,14 +176,13 @@ def create_silence_removed_audio(
     script_name = f"{output_audio_path.stem}_{int(time.time())}.ffscript"
     filter_script_path = scripts_dir / script_name
     filter_script_path.write_text(filter_complex, encoding="utf-8")
-    print(f"[DEBUG] filter_complex_script path: {filter_script_path}")
-    print(f"[DEBUG] filter_complex_script exists: {filter_script_path.exists()}")
+    print(f"[DEBUG] filter_graph_script path: {filter_script_path}")
+    print(f"[DEBUG] filter_graph_script exists: {filter_script_path.exists()}")
     cmd = build_ffmpeg_cmd(overwrite=True)
-    cmd.extend([
-        "-i", str(input_file),
-        "-filter_complex_script", str(filter_script_path),
-        "-map", "[outa]", "-vn",
-    ] + acodec)
+    cmd.extend(["-i", str(input_file), "-vn"])
+    add_filter_complex_script(cmd, filter_script_path)
+    cmd.extend(["-map", "[outa]"])
+    cmd.extend(acodec)
     if max_duration is not None:
         cmd.extend(["-t", str(int(max_duration))])
     cmd.append(str(output_audio_path))
@@ -280,13 +289,13 @@ def trim_single_video(
     scripts_dir.mkdir(parents=True, exist_ok=True)
     filter_script_path = scripts_dir / f"{output_file.stem}_{int(time.time())}.ffscript"
     filter_script_path.write_text(filter_complex, encoding="utf-8")
-    print(f"[DEBUG] filter_complex_script path: {filter_script_path}")
-    print(f"[DEBUG] filter_complex_script exists: {filter_script_path.exists()}")
+    print(f"[DEBUG] filter_graph_script path: {filter_script_path}")
+    print(f"[DEBUG] filter_graph_script exists: {filter_script_path.exists()}")
 
     def build_encode_cmd(codec: str, quality_params: list[str]) -> list[str]:
         cmd = build_ffmpeg_cmd(overwrite=True)
         cmd.extend(["-i", str(input_file)])
-        cmd.extend(["-filter_complex_script", str(filter_script_path)])
+        add_filter_complex_script(cmd, filter_script_path)
         cmd.extend([
             "-map", "[outv]", "-map", "[outa]",
             "-c:v", codec,
