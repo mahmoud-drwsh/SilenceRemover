@@ -66,22 +66,29 @@ def _get_available_encoders() -> set[str]:
     return get_available_encoders()
 
 
-def _probe_encoder_profile(profile: VideoEncoderProfile) -> VideoEncoderProfile | None:
-    """Verify an encoder profile and return a runnable profile variant.
+def _probe_encoder_profile(profile: VideoEncoderProfile) -> VideoEncoderProfile:
+    """Verify an encoder profile and return a safe runnable variant.
 
-    Some FFmpeg builds expose an encoder but fail a probe when specific options
-    are not supported. We still treat the encoder as usable if a codec-only probe
-    succeeds and fall back to default codec args.
+    Some FFmpeg builds expose an encoder but probe commands can fail despite the
+    encoder being usable in normal file-based workflows. To avoid false negatives,
+    this returns:
+    - the full profile when possible
+    - a conservative profile with empty codec args when tuned args fail
+    - a conservative profile even when the probe itself fails unexpectedly
     """
-    if not can_run_encoder(profile.codec, ()):
-        return None
-
-    # If the full profile passes, keep its tuned args.
     if can_run_encoder(profile.codec, profile.codec_args):
         return profile
 
-    # Some builds reject profile-specific args even though the encoder itself is usable.
-    # Prefer a safe fallback that keeps the encoder available.
+    if can_run_encoder(profile.codec, ()):
+        return VideoEncoderProfile(
+            name=profile.name,
+            codec=profile.codec,
+            codec_args=(),
+            container_args=profile.container_args,
+        )
+
+    # Conservative fallback when probing is unreliable on this FFmpeg build/host:
+    # keep the encoder and prefer best-effort operation with default arguments.
     return VideoEncoderProfile(
         name=profile.name,
         codec=profile.codec,
@@ -101,9 +108,8 @@ def resolve_video_encoder() -> VideoEncoderProfile:
         if profile.codec not in available:
             continue
         probe_result = _probe_encoder_profile(profile)
-        if probe_result is not None:
-            _RESOLVED_ENCODER = probe_result
-            return probe_result
+        _RESOLVED_ENCODER = probe_result
+        return probe_result
 
     supported = ", ".join(sorted(profile.codec for profile in _ENCODER_PROFILES))
     raise RuntimeError(
