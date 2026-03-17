@@ -10,6 +10,7 @@ An automated video processing tool that removes silence segments, transcribes au
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
 - **Video encoding**: Uses a centralized resolver that currently tries HEVC Intel Quick Sync (`hevc_qsv`) first, then Apple VideoToolbox (`hevc_videotoolbox`). The resolver design is intentionally extensible for future hardware encoders, and failures are reported directly without codec fallback.
+- **FFmpeg Centralization**: Consolidates command building, execution, probing, and filter graph generation under the new `src/ffmpeg` package.
 
 ## Requirements
 
@@ -36,7 +37,7 @@ uv sync
 
 ## Configuration
 
-All configuration is defined in `src/config.py` (the single source of truth) plus a small set of CLI flags. Environment variables are only used for secrets.
+All configuration is defined in `src/core/config.py` (the single source of truth) plus a small set of CLI flags. Environment variables are only used for secrets.
 
 Keep only **secrets** in `.env` (your OpenRouter API key). Copy `.env.example` to `.env` and set:
 
@@ -44,7 +45,7 @@ Keep only **secrets** in `.env` (your OpenRouter API key). Copy `.env.example` t
 OPENROUTER_API_KEY=your_api_key_here
 ```
 
-All other options (models, silence parameters, timeouts, etc.) are controlled via CLI flags or constants in `src/config.py` and `src/constants.py`.
+All other options (models, silence parameters, timeouts, etc.) are controlled via CLI flags or constants in `src/core/config.py` and `src/core/constants.py`.
 
 ## Usage
 
@@ -59,14 +60,14 @@ python main.py /path/to/video/directory
 ### Options
 
 - `--target-length FLOAT`: Optimize padding to achieve a target video length (in seconds).
-- `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Without `--target-length`, defaults to a conservative value from `src/config.py`.
-- `--min-duration FLOAT`: Override minimum silence duration in seconds (e.g. `0.5`). Without `--target-length`, defaults to a value from `src/config.py`.
+- `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Without `--target-length`, defaults to a conservative value from `src/core/config.py`.
+- `--min-duration FLOAT`: Override minimum silence duration in seconds (e.g. `0.5`). Without `--target-length`, defaults to a value from `src/core/config.py`.
 
 Trimming precision controls (advanced):
 
-- `src/constants.py`: `TRIM_DECIMAL_PLACES` controls timestamp precision used when calculating and applying segment boundaries (default `6`).
-- `src/constants.py`: `PAD_INCREMENT_SEC` controls target-length padding search granularity (default `0.001`).
-- `src/constants.py`: `TRIM_TIMESTAMP_EPSILON_SEC` controls floating-point under-target tolerance in length checks.
+- `src/core/constants.py`: `TRIM_DECIMAL_PLACES` controls timestamp precision used when calculating and applying segment boundaries (default `6`).
+- `src/core/constants.py`: `PAD_INCREMENT_SEC` controls target-length padding search granularity (default `0.001`).
+- `src/core/constants.py`: `TRIM_TIMESTAMP_EPSILON_SEC` controls floating-point under-target tolerance in length checks.
 
 ### Examples
 
@@ -75,6 +76,17 @@ Process videos with target length optimization:
 ```bash
 python main.py ~/Videos/lectures --target-length 600
 ```
+
+## FFmpeg Command Architecture
+
+FFmpeg responsibilities are now organized in the `src/ffmpeg` package:
+
+- `core.py`: shared command builders and debug formatting for ffmpeg/ffprobe.
+- `runner.py`: standardized run and streaming-progress execution helpers.
+- `probing.py`: duration/bitrate probes and encoder capability checks.
+- `detection.py`: silencedetect command construction and result parsing.
+- `filter_graph.py`: reusable audio/video concat graph builders.
+- `transcode.py`: extraction and encode command builders for transcription and trimming.
 
 ## How It Works
 
@@ -97,17 +109,17 @@ The tool processes videos sequentially through four main stages:
 
 ### 3. Transcription & Title Generation
 
-- **Transcription** (`src/transcribe.py`): Extracts and transcribes audio using OpenRouter API (default model: `google/gemini-2.5-flash-lite:nitro`). Optimized for Arabic verbatim transcription.
-- **Title** (`src/title.py`): Generates YouTube-style title from transcript. Handles educational content formats (book names, lesson numbers).
-- Both use a shared OpenRouter client (`src/openrouter_client.py`). Phase 1 orchestration is in `src/phase1.py`.
-- **Two-step process**: Separate API calls for transcription and title generation (better quality and control). Transcript and title are stored in `output/data.json` (single source of truth; no separate .txt files).
+- **Transcription** (`src/llm/transcription.py`): Extracts and transcribes audio using OpenRouter API (default model: `google/gemini-2.5-flash-lite:nitro`). Optimized for Arabic verbatim transcription.
+- **Title** (`src/llm/title.py`): Generates a YouTube-style title from transcript text.
+- Both use a shared OpenRouter client (`src/llm/client.py`). Pipeline orchestration is in `src/app/pipeline.py`.
+- **Two-step process**: Separate API calls for transcription and title generation (better quality and control). Transcript and title are stored in `temp/transcript/{basename}.txt` and `temp/title/{basename}.txt`.
 
 ### 4. File Renaming
 
-- Reads generated title from `output/data.json`
+- Reads generated title from `temp/title/{basename}.txt`
 - Sanitizes filename (removes invalid characters)
 - Handles duplicate names by appending `_N` suffix
-- Copies trimmed video from `temp/` to `output/` directory with the new title-based filename
+- Writes trimmed video from `output/temp/` to `output/` directory with the new title-based filename
 
 ## Directory Structure
 
@@ -120,23 +132,25 @@ input-directory/
   └── ...
 
 output/                    # Sibling to input-directory
-  ├── data.json           # Transcript, title, and completion state per video
   ├── generated-title-1.mp4
   └── generated-title-2.mkv
 
 temp/                      # Sibling to input-directory (intermediate audio/snippets only)
-  ├── video1_snippet.wav   # Silence-removed snippet for transcription
+  ├── snippet/             # Silence-removed snippets for transcription
+  ├── transcript/          # Transcript text files
+  ├── title/               # Title text files
+  ├── completed/           # Completion markers
   ├── scripts/             # Temporary ffmpeg filter_complex scripts (cleaned up automatically)
   └── ...
 ```
 
 ## Process Tracking
 
-The tool maintains state in `output/data.json` to avoid reprocessing videos:
+The tool maintains state in files inside `temp/` to avoid reprocessing videos:
 
-- **Per-video keys**: `transcript`, `title`, and `completed` (Phase 1 vs Phase 2 done)
-- **Automatic Skip**: Phase 1 is skipped if transcript and title already exist for that video; Phase 2 is skipped if `completed` is true
-- **Manual Reset**: Edit or delete entries in `data.json` to reprocess specific videos (or delete the file to reprocess all)
+- **Per-video markers**: `transcript/{basename}.txt`, `title/{basename}.txt`, and `completed/{basename}.txt`
+- **Automatic Skip**: Phase 1 is skipped if transcript exists; Phase 2 is skipped if title exists; Phase 3 is skipped when completed marker exists
+- **Manual Reset**: Delete corresponding files under `temp/transcript`, `temp/title`, and `temp/completed` to reprocess specific videos.
 
 ## Supported Formats
 
@@ -146,7 +160,17 @@ The tool maintains state in `output/data.json` to avoid reprocessing videos:
 
 The tool includes built-in retry logic for rate limit errors (exponential backoff) and processes videos sequentially to respect API quotas.
 
-- **Defaults**: Both transcription and title generation default to `google/gemini-2.5-flash-lite:nitro` (see the OpenRouter helper modules under `src/transcription` and `src/titles`).
+- **Defaults**: Both transcription and title generation default to `google/gemini-2.5-flash-lite:nitro` (see the helper modules under `src/llm/transcription.py` and `src/llm/title.py`).
+
+## Domain Package Layout
+
+The project is organized into four packages:
+
+- `src/core`: shared constants, config loading, path utilities, and CLI utilities.
+- `src/media`: silence detection and trimming algorithms.
+- `src/llm`: OpenRouter client, prompt templates, transcription, and title flows.
+- `src/app`: high-level pipeline orchestration (`run` entrypoint).
+- `src/ffmpeg`: centralized FFmpeg command construction, probing, execution, and filter-graph helpers.
 
 ## Error Handling
 

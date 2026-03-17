@@ -1,10 +1,8 @@
 """Silence detection and trimming algorithm utilities."""
 
-import re
-import subprocess
 from pathlib import Path
 
-from src.constants import (
+from src.core.constants import (
     MAX_PAD_SEC,
     PAD_INCREMENT_SEC,
     TRIM_DECIMAL_PLACES,
@@ -14,7 +12,7 @@ from src.constants import (
     TARGET_MIN_DURATION,
     TARGET_NOISE_THRESHOLDS_DB,
 )
-from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
+from src.ffmpeg.detection import detect_silence_points as detect_silence_points_via_ffmpeg
 
 
 def normalize_timestamp(value: float, *, minimum: float = 0.0) -> float:
@@ -181,31 +179,7 @@ def choose_threshold_and_padding_for_target(
 
 
 def detect_silence_points(input_file: Path, noise_threshold: float, min_duration: float) -> tuple[list[float], list[float]]:
-    """Detect silence points in a video file using FFmpeg's silencedetect filter.
-
-    Args:
-        input_file: Path to input video file
-        noise_threshold: Noise threshold in dB for silence detection
-        min_duration: Minimum duration in seconds for a silence to be detected
-
-    Returns:
-        Tuple of (silence_starts, silence_ends) lists in seconds
-    """
-    silence_filter = f"silencedetect=n={noise_threshold}dB:d={min_duration}"
-
-    cmd = build_ffmpeg_cmd(overwrite=True)
-    # Audio-only analysis: skip video/subtitle/data decoding for speed
-    cmd.extend(["-vn", "-sn", "-dn", "-i", str(input_file), "-map", "0:a:0", "-af", silence_filter, "-f", "null", "-"])
-
-    print_ffmpeg_cmd(cmd)
-    result = subprocess.run(
-        cmd,
-        stderr=subprocess.PIPE,
-        text=True,
-    ).stderr
-    silence_starts = [float(x) for x in re.findall(r"silence_start: (-?\d+\.?\d*)", result)]
-    silence_ends = [float(x) for x in re.findall(r"silence_end: (\d+\.?\d*)", result)]
-    return silence_starts, silence_ends
+    return detect_silence_points_via_ffmpeg(input_file, noise_threshold, min_duration)
 
 
 def detect_silences_simple(input_file: Path) -> tuple[list[float], list[float]]:

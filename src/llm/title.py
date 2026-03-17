@@ -3,11 +3,9 @@
 import re
 import sys
 from pathlib import Path
-from src.prompts import (
-    ADD_HONORIFIC_PROMPT_TEMPLATE,
-    TITLE_PROMPT_TEMPLATE,
-)
-from src.openrouter_client import request as openrouter_request
+
+from src.llm.prompts import ADD_HONORIFIC_PROMPT_TEMPLATE, TITLE_PROMPT_TEMPLATE
+from src.llm.client import request as openrouter_request
 
 
 def _first_line(text: str) -> str:
@@ -118,7 +116,7 @@ def generate_title_from_transcript(
     print(f"Reading transcript from: {transcript_path}")
     transcript = transcript_path.read_text(encoding="utf-8")
     title_text = generate_title_with_openrouter(api_key, transcript, log_dir)
-    
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(title_text, encoding="utf-8")
     print(f"Title saved to: {output_path}")
@@ -128,4 +126,3 @@ __all__ = [
     "generate_title_with_openrouter",
     "generate_title_from_transcript",
 ]
-

@@ -1,36 +1,14 @@
-"""Utilities for resolving the video encoder profile used by FFmpeg.
-
-The resolver centralizes both codec selection and encoder-specific options so
-adding additional hardware encoders in the future only requires updating this file.
-"""
+"""Utilities for resolving the video encoder profile used by FFmpeg."""
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass
 from functools import lru_cache
-import re
+
+from src.ffmpeg.probing import can_run_encoder, get_available_encoders
 
 
 _RESOLVED_ENCODER: VideoEncoderProfile | None = None
-
-
-def _parse_ffmpeg_encoder_lines(output: str) -> set[str]:
-    """Extract encoder names from `ffmpeg -encoders` output."""
-    encoders: set[str] = set()
-    for raw_line in output.splitlines():
-        if not raw_line.strip():
-            continue
-
-        match = _ENCODER_LINE_RE.match(raw_line)
-        if match is None:
-            continue
-
-        parts = raw_line.split()
-        encoder = parts[1]
-        if encoder:
-            encoders.add(encoder)
-    return encoders
 
 
 @dataclass(frozen=True)
@@ -82,40 +60,15 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
 )
 
 
-_ENCODER_LINE_RE = re.compile(r"^\s*[.A-Z]{6}\s+\S+")
-
-
 @lru_cache(maxsize=1)
 def _get_available_encoders() -> set[str]:
     """Return supported FFmpeg encoder names from current installation."""
-    completed = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-encoders"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return _parse_ffmpeg_encoder_lines(completed.stdout)
+    return get_available_encoders()
 
 
 def _can_run_encoder(profile: VideoEncoderProfile) -> bool:
     """Verify an encoder profile actually runs with a minimal encode test."""
-    cmd = [
-        "ffmpeg",
-        "-hide_banner",
-        "-v",
-        "error",
-        "-f",
-        "lavfi",
-        "-i",
-        "color=black:s=16x16:d=0.1",
-        "-frames:v",
-        "1",
-        "-c:v",
-        profile.codec,
-    ]
-    cmd.extend(profile.codec_args)
-    cmd.extend(["-f", "null", "-"])
-    return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
+    return can_run_encoder(profile.codec, profile.codec_args)
 
 
 def resolve_video_encoder() -> VideoEncoderProfile:

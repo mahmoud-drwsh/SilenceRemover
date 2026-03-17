@@ -1,7 +1,7 @@
 """Central configuration: environment variables (with validation).
 
 Only secrets (e.g. OPENROUTER_API_KEY) need to live in .env; all other options have
-defaults in src/constants.py and are configured via CLI flags or constants.
+defaults in src/core/constants.py and are configured via CLI flags or constants.
 Use load_config() / get_config() for env-backed values at runtime.
 """
 
@@ -11,7 +11,7 @@ from typing import Any
 # --- Environment variable definitions (metadata, validation) ---
 
 # We intentionally keep only secrets (API keys) in the environment. All other
-# tuning knobs are configured via CLI flags or constants in src/constants.py.
+# tuning knobs are configured via CLI flags or constants in src/core/constants.py.
 
 ENV_VARS = {
     "OPENROUTER_API_KEY": {

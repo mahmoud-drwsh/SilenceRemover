@@ -2,45 +2,36 @@
 
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 from typing import Optional
 
-from src.constants import (
-    AUDIO_BITRATE,
-    BITRATE_FALLBACK_BPS,
+from src.core.constants import (
     SCRIPTS_DIR,
-    SNIPPET_DIR,
     TARGET_MIN_DURATION,
     TRIM_TIMESTAMP_EPSILON_SEC,
 )
 from src.encoding_resolver import resolve_video_encoder
-from src.ffmpeg_utils import add_filter_complex_script, build_ffmpeg_cmd, print_ffmpeg_cmd
-from src.fs_utils import wait_for_file_release
-from src.silence_detector import (
+from src.ffmpeg.core import print_ffmpeg_cmd
+from src.ffmpeg.filter_graph import (
+    build_audio_concat_filter_graph,
+    build_video_audio_concat_filter_graph,
+    write_filter_graph_script,
+)
+from src.ffmpeg.probing import probe_duration
+from src.ffmpeg.runner import run, run_with_progress
+from src.ffmpeg.transcode import (
+    build_final_trim_command,
+    build_minimal_audio_command,
+    build_minimal_video_command,
+    build_silence_removed_audio_command,
+)
+from src.core.fs_utils import wait_for_file_release
+from src.media.silence_detector import (
     choose_threshold_and_padding_for_target,
     detect_silence_points,
     normalize_timestamp,
 )
-
-
-def _probe_duration(input_file: Path) -> float:
-    out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(input_file)],
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    return float(out) if out else 0.0
-
-
-def _probe_bitrate_bps(input_file: Path) -> int:
-    format_probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=bit_rate", "-of", "default=nw=1:nk=1", str(input_file)],
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    return int(format_probe) if format_probe else BITRATE_FALLBACK_BPS
 
 
 def _build_segments_from_silences(
@@ -103,7 +94,7 @@ def _build_segments_to_keep(
     Returns:
         (segments_to_keep, duration_sec, resolved_noise_threshold, resolved_min_duration, resolved_pad_sec)
     """
-    duration_sec = _probe_duration(input_file)
+    duration_sec = probe_duration(input_file)
     if duration_sec <= 0:
         raise ValueError(f"Invalid video duration: {duration_sec}s. Video file may be corrupted or empty.")
     duration_sec = normalize_timestamp(duration_sec)
@@ -158,38 +149,35 @@ def create_silence_removed_audio(
 
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal audio.")
-        cmd = build_ffmpeg_cmd(overwrite=True)
-        cmd.extend(["-i", str(input_file), "-t", "0.1", "-vn"] + acodec + [str(output_audio_path)])
+        cmd = build_minimal_audio_command(
+            input_file=input_file,
+            output_audio=output_audio_path,
+            codec_args=acodec,
+        )
         print_ffmpeg_cmd(cmd)
-        subprocess.run(cmd, check=True)
+        run(cmd, check=True)
         wait_for_file_release(output_audio_path)
         return output_audio_path.resolve()
 
     # Audio-only filter: atrim each segment, then concat
-    filter_chains = "".join(
-        f"[0:a]atrim=start={seg_start}:end={seg_end},asetpts=PTS-STARTPTS[a{i}];"
-        for i, (seg_start, seg_end) in enumerate(segments_to_keep)
-    )
-    concat_inputs = "".join(f"[a{i}]" for i in range(len(segments_to_keep)))
-    filter_complex = f"{filter_chains}{concat_inputs}concat=n={len(segments_to_keep)}:v=0:a=1[outa]"
+    filter_complex = build_audio_concat_filter_graph(segments_to_keep)
 
     scripts_dir = temp_dir / SCRIPTS_DIR
     scripts_dir.mkdir(parents=True, exist_ok=True)
     script_name = f"{output_audio_path.stem}_{int(time.time())}.ffscript"
     filter_script_path = scripts_dir / script_name
-    filter_script_path.write_text(filter_complex, encoding="utf-8")
+    write_filter_graph_script(filter_script_path, filter_complex)
     print(f"[DEBUG] filter_graph_script path: {filter_script_path}")
     print(f"[DEBUG] filter_graph_script exists: {filter_script_path.exists()}")
-    cmd = build_ffmpeg_cmd(overwrite=True)
-    cmd.extend(["-i", str(input_file), "-vn"])
-    add_filter_complex_script(cmd, filter_script_path)
-    cmd.extend(["-map", "[outa]"])
-    cmd.extend(acodec)
-    if max_duration is not None:
-        cmd.extend(["-t", str(int(max_duration))])
-    cmd.append(str(output_audio_path))
+    cmd = build_silence_removed_audio_command(
+        input_file=input_file,
+        output_audio_path=output_audio_path,
+        filter_script_path=filter_script_path,
+        acodec=acodec,
+        max_duration=max_duration,
+    )
     print_ffmpeg_cmd(cmd)
-    subprocess.run(cmd, check=True)
+    run(cmd, check=True)
     print(f"[DEBUG] ffmpeg completed, script still at: {filter_script_path}")
     wait_for_file_release(output_audio_path)
     print(f"Silence-removed audio -> {output_audio_path}")
@@ -211,7 +199,7 @@ def trim_single_video(
     output_file = (output_dir / f"{basename}.mp4").resolve()
 
     if target_length is not None:
-        duration_sec = _probe_duration(input_file)
+        duration_sec = probe_duration(input_file)
         if duration_sec <= 0:
             raise ValueError(f"Invalid video duration: {duration_sec}s. Video file may be corrupted or empty.")
         if target_length >= duration_sec:
@@ -244,28 +232,21 @@ def trim_single_video(
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal video (first frame only).")
         # Create minimal video with first frame and silence using the resolved encoder profile.
-        cmd = build_ffmpeg_cmd(overwrite=True)
-        cmd.extend(["-i", str(input_file), "-t", "0.1"])
-        cmd.extend(encoder.video_args())
-        cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file)])
+        cmd = build_minimal_video_command(
+            input_file=input_file,
+            output_file=output_file,
+            encoder=encoder,
+        )
         print_ffmpeg_cmd(cmd)
         try:
-            subprocess.run(cmd, check=True)
+            run(cmd, check=True)
             wait_for_file_release(output_file)
             print(f"Done! Output saved to: {output_file}")
             return output_file.resolve()
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"{encoder.codec} failed while creating minimal fallback video") from e
 
-    filter_chains = ''.join(
-        (
-            f"[0:v]trim=start={segment_start}:end={segment_end},setpts=PTS-STARTPTS[v{segment_index}];"
-            f"[0:a]atrim=start={segment_start}:end={segment_end},asetpts=PTS-STARTPTS[a{segment_index}];"
-        )
-        for segment_index, (segment_start, segment_end) in enumerate(segments_to_keep)
-    )
-    concat_inputs = ''.join(f"[v{i}][a{i}]" for i in range(len(segments_to_keep)))
-    filter_complex = f"{filter_chains}{concat_inputs}concat=n={len(segments_to_keep)}:v=1:a=1[outv][outa]"
+    filter_complex = build_video_audio_concat_filter_graph(segments_to_keep)
 
     # Write the filter_complex script under temp/scripts/ (inside output_dir),
     # so paths are stable and debuggable rather than using OS-level temp.
@@ -273,89 +254,38 @@ def trim_single_video(
     scripts_dir = temp_dir / SCRIPTS_DIR
     scripts_dir.mkdir(parents=True, exist_ok=True)
     filter_script_path = scripts_dir / f"{output_file.stem}_{int(time.time())}.ffscript"
-    filter_script_path.write_text(filter_complex, encoding="utf-8")
+    write_filter_graph_script(filter_script_path, filter_complex)
     print(f"[DEBUG] filter_graph_script path: {filter_script_path}")
     print(f"[DEBUG] filter_graph_script exists: {filter_script_path.exists()}")
-
-    def build_encode_cmd() -> list[str]:
-        cmd = build_ffmpeg_cmd(overwrite=True)
-        cmd.extend(["-i", str(input_file)])
-        add_filter_complex_script(cmd, filter_script_path)
-        cmd.extend([
-            "-map", "[outv]", "-map", "[outa]",
-        ])
-        cmd.extend(encoder.video_args(include_container_args=True))
-        # Use ffmpeg's -progress output on stdout so we can show percentage
-        cmd.extend([
-            "-c:a", "aac", "-b:a", AUDIO_BITRATE,
-            "-progress", "pipe:1",
-            "-nostats", "-loglevel", "error",
-            str(output_file),
-        ])
-        return cmd
 
     print(f"Input: {input_file}")
     print(f"Output: {output_file}")
     print(f"Settings: noise={resolved_noise_threshold}dB, min_duration={resolved_min_duration}s, pad={resolved_pad_sec}s")
     print(f"Filter complex length: {len(filter_complex)} characters")
     print(f"Number of segments: {len(segments_to_keep)}")
-    cmd = build_encode_cmd()
+    cmd = build_final_trim_command(
+        input_file=input_file,
+        output_file=output_file,
+        filter_script_path=filter_script_path,
+        encoder=encoder,
+    )
     print_ffmpeg_cmd(cmd)
+    emitted_progress = False
+
+    def _on_progress(percent: int) -> None:
+        nonlocal emitted_progress
+        emitted_progress = True
+        print(f"\rProgress: {percent}%", end="", flush=True)
+
     try:
         # Run ffmpeg and parse -progress output to display percentage
-        proc = subprocess.Popen(
+        run_with_progress(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
+            on_progress=_on_progress,
         )
-        current_percent = -1
-        expected_total = resulting_length if resulting_length > 0 else duration_sec
-        try:
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                line = line.strip()
-                if not line:
-                    continue
-                # out_time_ms is in microseconds; prefer it if present
-                if line.startswith("out_time_ms="):
-                    try:
-                        micros = float(line.split("=", 1)[1])
-                        seconds = micros / 1_000_000.0
-                    except ValueError:
-                        continue
-                elif line.startswith("out_time="):
-                    # Format HH:MM:SS.micro
-                    try:
-                        time_str = line.split("=", 1)[1]
-                        h, m, s = time_str.split(":")
-                        seconds = int(h) * 3600 + int(m) * 60 + float(s)
-                    except Exception:
-                        continue
-                else:
-                    continue
-                if expected_total > 0:
-                    pct = int(min(100.0, max(0.0, (seconds / expected_total) * 100.0)))
-                    if pct != current_percent:
-                        current_percent = pct
-                        # Use carriage return so progress stays on one line
-                        print(f"\rProgress: {current_percent}%", end="", flush=True)
-        finally:
-            retcode = proc.wait()
-        # Ensure we end the progress line cleanly
-        if current_percent >= 0:
+        if emitted_progress:
             print()
-        if retcode != 0:
-            stdout_data = ""
-            stderr_data = ""
-            try:
-                if proc.stdout:
-                    stdout_data = proc.stdout.read() or ""
-                if proc.stderr:
-                    stderr_data = proc.stderr.read() or ""
-            except Exception:
-                pass
-            raise subprocess.CalledProcessError(retcode, cmd, stdout_data, stderr_data)
     except subprocess.CalledProcessError:
         print(f"{encoder.codec} encode failed while trimming video", file=sys.stderr)
         raise

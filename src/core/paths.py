@@ -3,8 +3,8 @@
 from datetime import datetime
 from pathlib import Path
 
-from src.constants import AUDIO_FILE_EXT, COMPLETED_DIR, SCRIPTS_DIR, SNIPPET_DIR, TEXT_FILE_EXT, TITLE_DIR, TRANSCRIPT_DIR
-from src.filename_sanitizer import sanitize_filename
+from src.core.constants import AUDIO_FILE_EXT, COMPLETED_DIR, SCRIPTS_DIR, SNIPPET_DIR, TEXT_FILE_EXT, TITLE_DIR, TRANSCRIPT_DIR
+from src.core.filename_sanitizer import sanitize_filename
 
 __all__ = [
     "sibling_dir",

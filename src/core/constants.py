@@ -1,7 +1,7 @@
 """Project-wide constants (non-secret configuration).
 
 This module contains all tunable constants that are not environment-backed.
-Secrets (e.g. OPENROUTER_API_KEY) live in src/config.py.
+Secrets (e.g. OPENROUTER_API_KEY) live in src/core/config.py.
 """
 
 # --- Padding / bitrate ---

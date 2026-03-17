@@ -1,13 +1,19 @@
 """Video transcription: audio extraction and OpenRouter transcription."""
 
 import base64
-import subprocess
 from pathlib import Path
 
-from src.constants import AUDIO_BITRATE, AUDIO_FORMATS, AUDIO_EXTENSIONS, AUDIO_FILE_EXT
-from src.prompts import TRANSCRIBE_PROMPT
-from src.ffmpeg_utils import build_ffmpeg_cmd, print_ffmpeg_cmd
-from src.openrouter_client import request as openrouter_request
+from src.core.constants import AUDIO_EXTENSIONS, AUDIO_FILE_EXT, AUDIO_FORMATS
+from src.llm.prompts import TRANSCRIBE_PROMPT
+from src.ffmpeg.core import print_ffmpeg_cmd
+from src.ffmpeg.runner import run
+from src.ffmpeg.transcode import (
+    build_first_5min_audio_aac_command,
+    build_first_5min_audio_copy_command,
+    build_first_5min_audio_ogg_command,
+    build_first_5min_audio_wav_command,
+)
+from src.llm.client import request as openrouter_request
 
 
 def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str = "wav") -> None:
@@ -22,60 +28,37 @@ def extract_first_5min_audio(input_video: Path, output_audio: Path, format: str 
 
     if format == "wav":
         # Extract as WAV format (16kHz mono)
-        enc_cmd = build_ffmpeg_cmd(overwrite=True)
-        enc_cmd.extend([
-            "-ss", "0", "-t", "300",  # First 5 minutes
-            "-i", str(input_video),
-            "-map", "0:a:0", "-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1", "-vn",
-            str(output_audio),
-        ])
-        print_ffmpeg_cmd(enc_cmd)
-        r = subprocess.run(enc_cmd, capture_output=True, text=True)
-        if r.returncode != 0:
+        cmd = build_first_5min_audio_wav_command(input_video=input_video, output_audio=output_audio)
+        print_ffmpeg_cmd(cmd)
+        result = run(cmd, capture_output=True, check=False)
+        if result.returncode != 0:
             raise RuntimeError(
-                f"Audio extraction failed for {input_video}\nstderr={r.stderr}"
+                f"Audio extraction failed for {input_video}\nstderr={result.stderr}"
             )
     elif format == "ogg":
         # OGG/Opus: smaller payload for transcription (same token cost, less bandwidth)
-        enc_cmd = build_ffmpeg_cmd(overwrite=True)
-        enc_cmd.extend([
-            "-ss", "0", "-t", "300",
-            "-i", str(input_video),
-            "-map", "0:a:0", "-c:a", "libopus", "-ar", "16000", "-ac", "1", "-b:a", "32k", "-vn",
-            str(output_audio),
-        ])
-        print_ffmpeg_cmd(enc_cmd)
-        r = subprocess.run(enc_cmd, capture_output=True, text=True)
-        if r.returncode != 0:
+        cmd = build_first_5min_audio_ogg_command(input_video=input_video, output_audio=output_audio)
+        print_ffmpeg_cmd(cmd)
+        result = run(cmd, capture_output=True, check=False)
+        if result.returncode != 0:
             raise RuntimeError(
-                f"Audio extraction failed for {input_video}\nstderr={r.stderr}"
+                f"Audio extraction failed for {input_video}\nstderr={result.stderr}"
             )
     else:
         # Try to copy audio stream first
-        copy_cmd = build_ffmpeg_cmd(overwrite=True)
-        copy_cmd.extend([
-            "-ss", "0", "-t", "300",
-            "-i", str(input_video),
-            "-map", "0:a:0", "-c:a", "copy", "-vn",
-            str(output_audio),
-        ])
+        copy_cmd = build_first_5min_audio_copy_command(input_video=input_video, output_audio=output_audio)
         print_ffmpeg_cmd(copy_cmd)
-        r = subprocess.run(copy_cmd, capture_output=True, text=True)
-        if r.returncode == 0:
+        copy_result = run(copy_cmd, capture_output=True, check=False)
+        if copy_result.returncode == 0:
             return
         # Fallback: encode to aac
-        enc_cmd = build_ffmpeg_cmd(overwrite=True)
-        enc_cmd.extend([
-            "-ss", "0", "-t", "300",
-            "-i", str(input_video),
-            "-map", "0:a:0", "-c:a", "aac", "-b:a", AUDIO_BITRATE, "-vn",
-            str(output_audio),
-        ])
+        enc_cmd = build_first_5min_audio_aac_command(input_video=input_video, output_audio=output_audio)
         print_ffmpeg_cmd(enc_cmd)
-        r2 = subprocess.run(enc_cmd, capture_output=True, text=True)
-        if r2.returncode != 0:
+        encode_result = run(enc_cmd, capture_output=True, check=False)
+        if encode_result.returncode != 0:
             raise RuntimeError(
-                f"Audio extraction failed for {input_video}\ncopy_stderr={r.stderr}\nenc_stderr={r2.stderr}"
+                "Audio extraction failed for "
+                f"{input_video}\ncopy_stderr={copy_result.stderr}\nenc_stderr={encode_result.stderr}"
             )
 
 
@@ -161,7 +144,7 @@ def transcribe_and_save(
     """
     print(f"Transcribing audio: {audio_path.name}")
     transcript_text = transcribe_with_openrouter(api_key, audio_path, model, log_dir)
-    
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(transcript_text, encoding="utf-8")
     print(f"Transcript saved to: {output_path}")
@@ -173,4 +156,3 @@ __all__ = [
     "transcribe_with_openrouter",
     "transcribe_and_save",
 ]
-

@@ -8,7 +8,7 @@ from pathlib import Path
 __all__ = ["parse_args", "fail", "require_tools", "require_input_dir", "require_videos_in"]
 
 # Import VIDEO_EXTENSIONS here to avoid circular imports
-from src.constants import VIDEO_EXTENSIONS
+from src.core.constants import VIDEO_EXTENSIONS
 
 
 def fail(message: str) -> None:
