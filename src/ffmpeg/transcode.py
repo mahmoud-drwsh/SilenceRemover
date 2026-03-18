@@ -9,7 +9,7 @@ from src.core.constants import AUDIO_BITRATE
 from src.ffmpeg.core import add_filter_complex_script, build_ffmpeg_cmd
 
 if TYPE_CHECKING:
-    from src.encoding_resolver import VideoEncoderProfile
+    from src.ffmpeg.encoding_resolver import VideoEncoderProfile
 
 
 def build_first_5min_audio_ogg_command(input_video: Path, output_audio: Path) -> list[str]:

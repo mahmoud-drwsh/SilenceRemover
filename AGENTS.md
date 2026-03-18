@@ -78,3 +78,12 @@ Entries below are appended by the agent after making code or config changes.
 - `src/app/pipeline.py`: Passed startup-resolved encoder into phase-3 output trimming to avoid an extra encoder resolution call.
 - `src/media/trim.py`: Added an optional pre-resolved encoder parameter to `trim_single_video`, falling back to resolver lookup when omitted.
 - `src/app/pipeline.py`: Removed redundant in-run no-video fallback guard that is already enforced during startup validation.
+- `src/ffmpeg/encoding_resolver.py`: Added the relocated encoder resolver module with `VideoEncoderProfile` and `resolve_video_encoder` to the `src.ffmpeg` package.
+- `src/startup/bootstrap.py`: Rewired startup resolver imports to `src.ffmpeg.encoding_resolver`.
+- `src/media/trim.py`: Rewired resolver imports to `src.ffmpeg.encoding_resolver` for `VideoEncoderProfile` and `resolve_video_encoder`.
+- `src/app/pipeline.py`: Rewired `VideoEncoderProfile` import to `src.ffmpeg.encoding_resolver`.
+- `src/ffmpeg/transcode.py`: Rewired `TYPE_CHECKING` resolver import to `src.ffmpeg.encoding_resolver`.
+- `src/ffmpeg/__init__.py`: Exported `VideoEncoderProfile` and `resolve_video_encoder` from the FFmpeg package API.
+- `src/encoding_resolver.py`: Removed the legacy top-level module after migration.
+
+- `AGENTS.md`: Removed malformed/placeholder historical bullets introduced during prior AGENTS updates.

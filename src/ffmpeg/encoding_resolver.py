@@ -45,7 +45,7 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
     VideoEncoderProfile(
         name="apple_videotoolbox_hevc",
         codec="hevc_videotoolbox",
-    codec_args=(
+        codec_args=(
             "-q:v",
             "32",
         ),

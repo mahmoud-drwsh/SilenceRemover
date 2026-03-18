@@ -11,7 +11,7 @@ from src.core.constants import (
     TARGET_MIN_DURATION,
     TRIM_TIMESTAMP_EPSILON_SEC,
 )
-from src.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
+from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
 from src.ffmpeg.core import print_ffmpeg_cmd
 from src.ffmpeg.filter_graph import (
     build_audio_concat_filter_graph,

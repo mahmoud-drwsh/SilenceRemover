@@ -17,7 +17,7 @@ from src.core.constants import (
     SIMPLE_MIN_DURATION,
 )
 from src.core.paths import create_temp_subdirs, sibling_dir
-from src.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
+from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
 
 
 @dataclass(frozen=True)
