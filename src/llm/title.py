@@ -4,13 +4,35 @@ import re
 import sys
 from pathlib import Path
 
-from src.llm.prompts import ADD_HONORIFIC_PROMPT_TEMPLATE, TITLE_PROMPT_TEMPLATE
+from src.llm.prompts import (
+    HONORIFIC_APPLY_PROMPT_TEMPLATE,
+    HONORIFIC_CHECK_PROMPT_TEMPLATE,
+    TITLE_PROMPT_TEMPLATE,
+)
 from src.llm.client import request as openrouter_request
 
 
 def _first_line(text: str) -> str:
     """Extract first non-empty line from response text."""
     return (text.strip().splitlines() or [""])[0]
+
+
+def _single_non_empty_line(text: str) -> str:
+    """Return a single non-empty line only; otherwise return an empty string."""
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    if len(lines) != 1:
+        return ""
+    return lines[0]
+
+
+def _parse_honorific_check(raw_response: str) -> bool | None:
+    """Parse strict YES/NO output from honorific-check model step."""
+    response = _single_non_empty_line(raw_response).upper()
+    if response == "YES":
+        return True
+    if response == "NO":
+        return False
+    return None
 
 
 _PROPHET_TERMS = [
@@ -78,24 +100,49 @@ def generate_title_with_openrouter(
         print("Title generation returned empty response.", file=sys.stderr)
         raise RuntimeError("Title generation returned empty response")
 
-    # Step 2: Add honorifics (سيدنا before محمد, ﷺ after Prophet mentions); idempotent
-    # On empty response or exception, fall back to raw title
     try:
-        prompt2 = ADD_HONORIFIC_PROMPT_TEMPLATE.format(title=raw_title)
+        # Step 2: Check whether honorific edits are needed.
+        check_prompt = HONORIFIC_CHECK_PROMPT_TEMPLATE.format(title=raw_title)
+        check_messages = [
+            {"role": "user", "content": [{"type": "text", "text": check_prompt}]},
+        ]
+        print("Checking whether honorifics are needed...")
+        check_response = openrouter_request(
+            api_key,
+            "google/gemini-2.5-flash-lite:nitro",
+            check_messages,
+            log_dir=log_dir,
+        )
+        needs_honorific = _parse_honorific_check(str(check_response))
+        if needs_honorific is None:
+            print(
+                "Honorific check returned non-binary response; using original title.",
+                file=sys.stderr,
+            )
+            return raw_title
+        if not needs_honorific:
+            return raw_title
+
+        # Step 3: Apply only honorific edits when needed.
+        apply_prompt = HONORIFIC_APPLY_PROMPT_TEMPLATE.format(title=raw_title)
         messages2 = [
-            {"role": "user", "content": [{"type": "text", "text": prompt2}]},
+            {"role": "user", "content": [{"type": "text", "text": apply_prompt}]},
         ]
         print("Adding honorific to title...")
-        title_text = openrouter_request(
+        title_response = openrouter_request(
             api_key, "google/gemini-2.5-flash-lite:nitro", messages2, log_dir=log_dir
         )
-        title_text = _normalize_honorifics(_first_line(title_text))
+        title_text = _normalize_honorifics(_single_non_empty_line(str(title_response)))
+        if not title_text:
+            print(
+                "Honorific apply returned invalid response, using original title.",
+                file=sys.stderr,
+            )
+            return raw_title
     except Exception as e:
-        print(f"Honorific step failed ({e}), using original title.", file=sys.stderr)
+        print(f"Honorific pipeline failed ({e}), using original title.", file=sys.stderr)
         return raw_title
-    if not title_text:
-        print("Honorific step returned empty response, using original title.", file=sys.stderr)
-        return raw_title
+
     return title_text
 
 

@@ -3,6 +3,8 @@
 __all__ = [
     "TRANSCRIBE_PROMPT",
     "TITLE_PROMPT_TEMPLATE",
+    "HONORIFIC_CHECK_PROMPT_TEMPLATE",
+    "HONORIFIC_APPLY_PROMPT_TEMPLATE",
     "ADD_HONORIFIC_PROMPT_TEMPLATE",
 ]
 
@@ -20,16 +22,37 @@ Transcript:
 {transcript}
 """
 
-ADD_HONORIFIC_PROMPT_TEMPLATE = """\
-You are given an Arabic video title. Your task is to add Islamic honorifics where they are missing—do not duplicate if already present.
+HONORIFIC_CHECK_PROMPT_TEMPLATE = """\
+You are given one Arabic video title. Determine whether Islamic honorific edits are missing.
 
-1. Before the name محمد only (not before رسول الله، المصطفى، النبي), add سيدنا immediately before محمد. If سيدنا is already there, leave it.
-2. Immediately after each mention of the Prophet in the title (e.g. محمد، رسول الله، المصطفى، النبي), add the honorific ﷺ. If ﷺ is already after that mention, do not add it again.
+Rules to check:
+1. Before the name "محمد" only (not before رسول الله, المصطفى, or النبي), "سيدنا" should appear immediately before محمد.
+2. Immediately after each mention of the Prophet (محمد, رسول الله, المصطفى, النبي), the honorific "ﷺ" should appear.
+3. A single title must only be modified when one or more of the above is missing.
 
-If the given title already follows these rules and needs no changes, return it exactly as-is.
+If the title already follows the rules, return:
+NO
+If any title change is needed, return:
+YES
 
-Output only the final title, nothing else. No commentary.
+Output exactly one token and nothing else. No commentary, no explanation, and no markdown.
 
 Title:
 {title}
 """
+
+HONORIFIC_APPLY_PROMPT_TEMPLATE = """\
+You are given an Arabic video title. Your task is to add Islamic honorifics where they are missing—do not duplicate any that are already present.
+
+1. Before the name محمد only (not before رسول الله, المصطفى, النبي), add سيدنا immediately before محمد. If سيدنا is already there, leave it.
+2. Immediately after each mention of the Prophet in the title (محمد, رسول الله, المصطفى, النبي), add the honorific ﷺ. If ﷺ is already after that mention, do not add it again.
+
+If the title already follows these rules and needs no changes, return the title exactly as-is.
+
+Output only the final title text on one line. No commentary, no explanation, no extra formatting.
+
+Title:
+{title}
+"""
+
+ADD_HONORIFIC_PROMPT_TEMPLATE = HONORIFIC_APPLY_PROMPT_TEMPLATE

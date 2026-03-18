@@ -62,3 +62,5 @@ Entries below are appended by the agent after making code or config changes.
 - `src/ffmpeg/probing.py`: added probe-level logging to print exact FFmpeg commands and stderr when encoder-option checks fail.
 - `src/ffmpeg/probing.py`: hardened encoder probe with a stable HEVC-QSV-compatible test signal (`64x64`, multi-frame, `nv12`, I-frame-only GOP) to avoid false negatives.
 - `src/encoding_resolver.py`: restored QSV profile quality-related options `-q:v`, `-look_ahead_depth`, `-mbbrc`, `-extbrc`, and `-scenario archive`.
+- `src/llm/prompts.py`: Added strict honorific-check/apply prompt templates with explicit no-commentary contracts and a binary `YES`/`NO` decision format for the check step.
+- `src/llm/title.py`: Split honorific handling into a check gate plus conditional apply step, with strict output validation and raw-title fallback on malformed responses.
