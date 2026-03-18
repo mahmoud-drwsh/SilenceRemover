@@ -97,7 +97,7 @@ The tool processes videos sequentially through four main stages:
 - Analyzes audio track using FFmpeg's `silencedetect` filter
 - Identifies silence segments based on configured threshold and duration
 - Removes silence while preserving padding around segments
-- Leading and trailing edge silences are re-scanned at `-50dB` for both target and non-target runs, then only the edge windows are adjusted with a 500ms keep buffer before pad calculations.
+- Leading and trailing edge silences are re-scanned at `-55dB` for both target and non-target runs, then only the edge windows are adjusted with a 200ms keep buffer before pad calculations.
 - Outputs trimmed video to `temp/` directory (sibling to input directory)
 
 **Target Length Mode**: When `--target-length` is specified, the tool automatically calculates optimal padding to get as close as possible to the target duration.

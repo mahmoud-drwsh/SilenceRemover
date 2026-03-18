@@ -43,7 +43,7 @@ One detected silence: `silence_start=20.0`, `silence_end=22.0`, `pad_sec=0.5`.
 ## When no target length is set
 
 - `--noise-threshold` / `--min-duration` (if provided) are used; otherwise defaults from `src/core/constants.py` are used (`DEFAULT_NOISE_THRESHOLD`, `DEFAULT_MIN_DURATION=1.0` in non-target mode).
-- Before padding is applied, the non-target flow runs a dedicated edge scan at `-50dB` and replaces only the primary leading/trailing silence intervals, then keeps only `EDGE_SILENCE_KEEP_SEC` (0.5s) at each edge.
+- Before padding is applied, the non-target flow runs a dedicated edge scan at `-55dB` and replaces only the primary leading/trailing silence intervals, then keeps only `EDGE_SILENCE_KEEP_SEC` (0.2s) at each edge.
 - Segment build flow is shared with target-mode: detect silences -> build keep segments -> concat.
 - In non-target mode, `pad_sec` is fixed to `DEFAULT_PAD_SEC` from `src/core/constants.py` (no CLI override).
 
@@ -65,7 +65,7 @@ Min silence duration is fixed at `TARGET_MIN_DURATION` (**0.01s**) in target mod
 ### Steps
 
 1. **Detect in passes** using `silencedetect=n={threshold}dB:d=0.01` for thresholds in `TARGET_NOISE_THRESHOLDS_DB` (starting at -60 dB).
-   - For each target run, perform a dedicated edge-only scan using `silencedetect=n=-50dB:d=0.01`, then replace only leading/trailing silence intervals from the primary threshold pass before base-length and padding checks.
+   - For each target run, perform a dedicated edge-only scan using `silencedetect=n=-55dB:d=0.01`, then replace only leading/trailing silence intervals from the primary threshold pass before base-length and padding checks.
 
 2. **Base length at pad=0:** for each pass, compute:
    - `base_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)`
@@ -115,7 +115,7 @@ Final settings used for segment building: `noise_threshold=-50dB`, `min_duration
 
 - Both target and non-target paths now use the same segment-builder implementation.
 - The mode difference is how `pad_sec` is selected and what detection parameters are used:
-  - Non-target mode: fixed `noise_threshold`, `min_duration`, and `pad_sec` (`DEFAULT_PAD_SEC`) with an edge-only re-scan override at `-50dB` applied before padding.
-  - Target mode: threshold sweep + padding tuning, with `min_duration=TARGET_MIN_DURATION`, plus edge-only `-50dB` interval replacement before each candidate length evaluation.
+  - Non-target mode: fixed `noise_threshold`, `min_duration`, and `pad_sec` (`DEFAULT_PAD_SEC`) with an edge-only re-scan override at `-55dB` applied before padding.
+  - Target mode: threshold sweep + padding tuning, with `min_duration=TARGET_MIN_DURATION`, plus edge-only `-55dB` interval replacement before each candidate length evaluation.
 
 Implementation: `choose_threshold_and_padding_for_target` and `find_optimal_padding` in `src/media/silence_detector.py`; target-length path in `trim_single_video` in `src/media/trim.py`.

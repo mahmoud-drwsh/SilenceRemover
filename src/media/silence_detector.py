@@ -15,7 +15,7 @@ from src.core.constants import (
 )
 from src.ffmpeg.detection import detect_silence_points as detect_silence_points_via_ffmpeg
 
-EDGE_RESCAN_THRESHOLD_DB = -50.0
+EDGE_RESCAN_THRESHOLD_DB = -55.0
 
 
 def normalize_timestamp(value: float, *, minimum: float = 0.0) -> float:
@@ -44,7 +44,7 @@ def detect_leading_trailing_edge_silence(
     *,
     keep_seconds: float = EDGE_SILENCE_KEEP_SEC,
 ) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
-    """Detect only leading/trailing silence using a conservative -50dB re-scan."""
+    """Detect only leading/trailing silence using a conservative edge re-scan."""
     edge_starts, edge_ends = detect_silence_points(
         input_file,
         EDGE_RESCAN_THRESHOLD_DB,

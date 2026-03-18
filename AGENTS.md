@@ -64,3 +64,8 @@ Entries below are appended by the agent after making code or config changes.
 - `src/encoding_resolver.py`: restored QSV profile quality-related options `-q:v`, `-look_ahead_depth`, `-mbbrc`, `-extbrc`, and `-scenario archive`.
 - `src/llm/prompts.py`: Added strict honorific-check/apply prompt templates with explicit no-commentary contracts and a binary `YES`/`NO` decision format for the check step.
 - `src/llm/title.py`: Split honorific handling into a check gate plus conditional apply step, with strict output validation and raw-title fallback on malformed responses.
+- `src/core/constants.py`: Set `EDGE_SILENCE_KEEP_SEC` to `0.2` to preserve only 200ms at file edges during edge-silence handling.
+- `src/media/silence_detector.py`: Changed edge silence re-scan threshold to `-55.0` dB so edge interval detection is consistently less aggressive.
+- `README.md`: Updated edge silence documentation to reflect a `-55dB` edge re-scan and 200ms edge keep buffer.
+- `ALGO.md`: Updated edge-trim algorithm documentation to match the `-55dB` edge scan and 200ms keep behavior.
+- `AGENTS.md`: Added this session’s edge-silence keep/threshold updates to the condensed change log.
