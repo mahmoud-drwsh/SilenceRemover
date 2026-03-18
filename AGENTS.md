@@ -69,3 +69,11 @@ Entries below are appended by the agent after making code or config changes.
 - `README.md`: Updated edge silence documentation to reflect a `-55dB` edge re-scan and 200ms edge keep buffer.
 - `ALGO.md`: Updated edge-trim algorithm documentation to match the `-55dB` edge scan and 200ms keep behavior.
 - `AGENTS.md`: Added this session’s edge-silence keep/threshold updates to the condensed change log.
+- `src/startup/bootstrap.py`: Added a startup bootstrap context to centralize CLI validation, config loading, encoder resolution, output/temp directory setup, and run-time defaults.
+- `src/startup/__init__.py`: Exported startup bootstrap API for clean app-level import.
+- `src/app/pipeline.py`: Refactored pipeline startup path to consume `build_startup_context` instead of inlining preflight and defaults.
+- `README.md`: Updated package layout documentation to include the new `src/startup` package.
+
+- `src/startup/bootstrap.py`: Removed redundant empty-video logging from startup context assembly since early validation already enforces input videos exist.
+- `src/app/pipeline.py`: Passed startup-resolved encoder into phase-3 output trimming to avoid an extra encoder resolution call.
+- `src/media/trim.py`: Added an optional pre-resolved encoder parameter to `trim_single_video`, falling back to resolver lookup when omitted.

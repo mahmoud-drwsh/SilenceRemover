@@ -7,20 +7,11 @@ import traceback
 from pathlib import Path
 from typing import Optional
 
-from src.core.cli import parse_args, fail, require_input_dir, require_tools, require_videos_in
-from src.core.config import get_config, load_config
+from src.core.cli import parse_args
 from src.core.constants import (
     COMPLETED_DIR,
-    DEFAULT_MIN_DURATION,
-    DEFAULT_NOISE_THRESHOLD,
-    DEFAULT_PAD_SEC,
-    SIMPLE_DB,
-    SIMPLE_MIN_DURATION,
-    VIDEO_EXTENSIONS,
 )
 from src.core.paths import (
-    create_temp_subdirs,
-    get_completed_path,
     get_snippet_path,
     get_title_path,
     get_transcript_path,
@@ -29,16 +20,12 @@ from src.core.paths import (
     is_transcript_done,
     mark_completed,
     resolve_output_basename,
-    sibling_dir,
 )
-from src.encoding_resolver import resolve_video_encoder
+from src.startup import build_startup_context
 from src.llm.title import generate_title_from_transcript
 from src.llm.transcription import get_audio_path_for_media, transcribe_and_save
+from src.encoding_resolver import VideoEncoderProfile
 from src.media.trim import create_silence_removed_audio, trim_single_video
-
-
-def is_video_file(path: Path) -> bool:
-    return path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
 
 
 def transcribe_media(media_path: Path, temp_dir: Path, api_key: str, basename: str) -> None:
@@ -155,6 +142,7 @@ def run_output_phase(
     min_duration: float,
     pad_sec: float,
     target_length: Optional[float],
+    encoder: VideoEncoderProfile | None = None,
 ) -> bool:
     """Phase 3: Full video trim with title-based output filename."""
     basename = video_path.stem
@@ -183,6 +171,7 @@ def run_output_phase(
             pad_sec=pad_sec,
             target_length=target_length,
             output_basename=chosen_basename,
+            encoder=encoder,
         )
         mark_completed(temp_dir, basename)
         print(f"\n✓ Phase 3 (output) done: {video_path.name}")
@@ -196,65 +185,34 @@ def run_output_phase(
 def run() -> None:
     """Run the full three-phase media processing pipeline."""
     args = parse_args()
-    input_dir = Path(args.input_dir)
+    startup = build_startup_context(args)
+    selected_encoder = startup.encoder
+    api_key = startup.api_key
+    temp_dir = startup.temp_dir
+    videos = startup.videos
 
-    require_tools("ffmpeg", "ffprobe")
-    require_input_dir(input_dir)
-    require_videos_in(input_dir)
+    print(f"Resolved encoder: {selected_encoder.name} ({selected_encoder.codec})")
 
-    try:
-        load_config()
-    except ValueError as e:
-        fail(str(e))
-
-    try:
-        selected_encoder = resolve_video_encoder()
-        print(f"Resolved encoder: {selected_encoder.name} ({selected_encoder.codec})")
-    except RuntimeError as e:
-        fail(str(e))
-
-    output_dir = sibling_dir(input_dir, "output")
-    temp_dir = output_dir / "temp"
-    create_temp_subdirs(temp_dir)
-
-    if args.noise_threshold is not None:
-        noise_threshold = args.noise_threshold
-    elif args.target_length is not None:
-        noise_threshold = SIMPLE_DB
-    else:
-        noise_threshold = DEFAULT_NOISE_THRESHOLD
-
-    if args.min_duration is not None:
-        min_duration = args.min_duration
-    elif args.target_length is not None:
-        min_duration = SIMPLE_MIN_DURATION
-    else:
-        min_duration = DEFAULT_MIN_DURATION
-
-    pad_sec = DEFAULT_PAD_SEC
-    api_key = get_config()["OPENROUTER_API_KEY"]
-
-    videos = sorted(p for p in input_dir.iterdir() if is_video_file(p))
-    if not videos:
-        print(f"No video files found in '{input_dir}'")
+    if not startup.videos:
+        print(f"No video files found in '{startup.input_dir}'")
         return
 
-    print(f"Found {len(videos)} video file(s)")
-    print(f"Input: {input_dir}")
-    print(f"Output: {output_dir}")
-    print(f"Temp: {temp_dir}")
+    print(f"Found {len(startup.videos)} video file(s)")
+    print(f"Input: {startup.input_dir}")
+    print(f"Output: {startup.output_dir}")
+    print(f"Temp: {startup.temp_dir}")
     print("-" * 60)
 
-    for i, video_file in enumerate(videos, 1):
+    for i, video_file in enumerate(startup.videos, 1):
         print(f"\n{'='*60}")
         print(f"[1/3][{i}/{len(videos)}] Transcription: {video_file.name}")
         print(f"{'='*60}")
         run_transcription_phase(
             video_path=video_file,
             temp_dir=temp_dir,
-            noise_threshold=noise_threshold,
-            min_duration=min_duration,
-            pad_sec=pad_sec,
+            noise_threshold=startup.noise_threshold,
+            min_duration=startup.min_duration,
+            pad_sec=startup.pad_sec,
             api_key=api_key,
         )
 
@@ -274,15 +232,16 @@ def run() -> None:
         print(f"{'='*60}")
         run_output_phase(
             video_path=video_file,
-            output_dir=output_dir,
-            temp_dir=temp_dir,
-            noise_threshold=noise_threshold,
-            min_duration=min_duration,
-            pad_sec=pad_sec,
-            target_length=args.target_length,
+            output_dir=startup.output_dir,
+            temp_dir=startup.temp_dir,
+            noise_threshold=startup.noise_threshold,
+            min_duration=startup.min_duration,
+            pad_sec=startup.pad_sec,
+            target_length=startup.target_length,
+            encoder=startup.encoder,
         )
 
-    completed_dir = temp_dir / COMPLETED_DIR
+    completed_dir = startup.temp_dir / COMPLETED_DIR
     completed = sum(1 for p in completed_dir.iterdir() if p.is_file())
     print(f"\n{'='*60}")
     print("Processing complete!")

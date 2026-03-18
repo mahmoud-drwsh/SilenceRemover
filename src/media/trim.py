@@ -11,7 +11,7 @@ from src.core.constants import (
     TARGET_MIN_DURATION,
     TRIM_TIMESTAMP_EPSILON_SEC,
 )
-from src.encoding_resolver import resolve_video_encoder
+from src.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
 from src.ffmpeg.core import print_ffmpeg_cmd
 from src.ffmpeg.filter_graph import (
     build_audio_concat_filter_graph,
@@ -204,6 +204,7 @@ def trim_single_video(
     pad_sec: float,
     target_length: Optional[float],
     output_basename: Optional[str] = None,
+    encoder: VideoEncoderProfile | None = None,
 ) -> Path:
     """Trim a single video and return the output file path."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -233,7 +234,7 @@ def trim_single_video(
         pad_sec,
         target_length,
     )
-    encoder = resolve_video_encoder()
+    encoder = encoder or resolve_video_encoder()
 
     resulting_length = sum(end - start for start, end in segments_to_keep)
     if target_length is not None:

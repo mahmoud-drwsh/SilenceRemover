@@ -165,13 +165,14 @@ The tool includes built-in retry logic for rate limit errors (exponential backof
 
 ## Domain Package Layout
 
-The project is organized into four packages:
+The project is organized into six packages:
 
 - `src/core`: shared constants, config loading, path utilities, and CLI utilities.
 - `src/media`: silence detection and trimming algorithms.
 - `src/llm`: OpenRouter client, prompt templates, transcription, and title flows.
 - `src/app`: high-level pipeline orchestration (`run` entrypoint).
 - `src/ffmpeg`: centralized FFmpeg command construction, probing, execution, and filter-graph helpers.
+- `src/startup`: startup bootstrap and runtime context assembly.
 
 ## Error Handling
 
