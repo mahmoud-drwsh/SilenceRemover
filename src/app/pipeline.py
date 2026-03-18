@@ -193,10 +193,6 @@ def run() -> None:
 
     print(f"Resolved encoder: {selected_encoder.name} ({selected_encoder.codec})")
 
-    if not startup.videos:
-        print(f"No video files found in '{startup.input_dir}'")
-        return
-
     print(f"Found {len(startup.videos)} video file(s)")
     print(f"Input: {startup.input_dir}")
     print(f"Output: {startup.output_dir}")

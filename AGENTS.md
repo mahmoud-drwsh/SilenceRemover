@@ -77,3 +77,4 @@ Entries below are appended by the agent after making code or config changes.
 - `src/startup/bootstrap.py`: Removed redundant empty-video logging from startup context assembly since early validation already enforces input videos exist.
 - `src/app/pipeline.py`: Passed startup-resolved encoder into phase-3 output trimming to avoid an extra encoder resolution call.
 - `src/media/trim.py`: Added an optional pre-resolved encoder parameter to `trim_single_video`, falling back to resolver lookup when omitted.
+- `src/app/pipeline.py`: Removed redundant in-run no-video fallback guard that is already enforced during startup validation.
