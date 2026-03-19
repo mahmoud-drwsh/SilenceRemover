@@ -122,3 +122,4 @@ Entries below are appended by the agent after making code or config changes.
 - `src/ffmpeg/core.py`: switched filter-graph script command construction to prefer modern `-/filter_complex`.
 - `src/ffmpeg/runner.py`: added a compatibility retry to legacy `-filter_complex_script` only when `-/filter_complex` is rejected.
 - `README.md`: clarified that shared command construction uses `-/filter_complex` and documents the updated filter-script behavior.
+- `src/ffmpeg/runner.py`: removed legacy `-filter_complex_script` fallback now that FFmpeg 8+ `-/filter_complex` is assumed to be available.
