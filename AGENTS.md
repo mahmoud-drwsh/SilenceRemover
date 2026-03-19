@@ -113,3 +113,7 @@ Entries below are appended by the agent after making code or config changes.
 - `src/core/cli.py`: Added CLI validation that positive floats are required for `--target-length` and `--min-duration`.
 - `src/startup/bootstrap.py`: Removed duplicate video-directory scan by validating collected files directly once.
 - `README.md`: Clarified `--min-duration` wording so it applies in both target and non-target modes.
+- `src/media/trim.py`: Added a shared `TrimPlan` dataclass and `build_trim_plan` planner entrypoint, centralizing target/non-target trim policies, target-duration short-circuiting, and segment/result synthesis.
+- `src/media/silence_detector.py`: Removed redundant standalone target-duration guard in `choose_threshold_and_padding_for_target` so the target-length copy/truncation decision is now made in planner logic.
+- `src/media/trim.py`: Extracted shared silence-removal execution scaffolding (`_run_silence_removed_media`, `_run_minimal_output`) for audio and video output workflows.
+- `src/ffmpeg/transcode.py`: Added `_build_input_command` to deduplicate shared ffmpeg input-command scaffolding across minimal/final builders.

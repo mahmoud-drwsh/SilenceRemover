@@ -293,9 +293,6 @@ def choose_threshold_and_padding_for_target(
     Returns:
         (silence_starts, silence_ends, chosen_threshold_db, pad_sec)
     """
-    if target_length >= duration_sec:
-        return ([], [], noise_thresholds_db[0] if noise_thresholds_db else -60.0, 0.0)
-
     if noise_thresholds_db is None:
         noise_thresholds_db = [TARGET_NOISE_THRESHOLD_DB]
 

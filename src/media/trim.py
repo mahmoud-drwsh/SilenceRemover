@@ -1,10 +1,11 @@
 """Video trimming functionality."""
 
 import subprocess
-import sys
 import time
+import shutil
 from pathlib import Path
-from typing import Optional
+from dataclasses import dataclass
+from typing import Callable, Literal, Optional
 
 from src.core.constants import (
     SCRIPTS_DIR,
@@ -12,6 +13,7 @@ from src.core.constants import (
     SNIPPET_MIN_DURATION_SEC,
     SNIPPET_NOISE_THRESHOLD_DB,
     TRIM_TIMESTAMP_EPSILON_SEC,
+    TrimDefaults,
     resolve_trim_defaults,
 )
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
@@ -38,6 +40,28 @@ from src.media.silence_detector import (
     truncate_segments_to_max_length,
 )
 
+TrimPlanMode = Literal["target", "non_target"]
+
+
+@dataclass(frozen=True)
+class TrimPlan:
+    """Resolved trim strategy and segment output for one media run."""
+
+    mode: TrimPlanMode
+    segments_to_keep: list[tuple[float, float]]
+    input_duration_sec: float
+    resulting_length_sec: float
+    resolved_noise_threshold: float
+    resolved_min_duration: float
+    resolved_pad_sec: float
+    target_length: Optional[float]
+    should_copy_input: bool = False
+
+
+def should_copy_when_target_exceeds_input(duration_sec: float, target_length: Optional[float]) -> bool:
+    """Return True when target mode can skip trimming because input is already short enough."""
+    return target_length is not None and target_length >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC
+
 
 def _probe_and_validate_duration(input_file: Path) -> float:
     duration_sec = probe_duration(input_file)
@@ -46,38 +70,116 @@ def _probe_and_validate_duration(input_file: Path) -> float:
     return normalize_timestamp(duration_sec)
 
 
-def _resolve_trim_plan(
+def build_trim_plan(
     input_file: Path,
-    duration_sec: float,
     target_length: Optional[float],
     noise_threshold: float,
     min_duration: float,
     pad_sec: float,
-) -> tuple[list[float], list[float], float, float, float]:
-    """Resolve effective trimming parameters and detected silences."""
+) -> TrimPlan:
+    """Resolve mode policy and return a reusable trim plan."""
     trim_defaults = resolve_trim_defaults(
         target_length=target_length,
         noise_threshold=noise_threshold,
         min_duration=min_duration,
+        pad_sec=pad_sec,
     )
+    duration_sec = _probe_and_validate_duration(input_file)
+    if should_copy_when_target_exceeds_input(duration_sec, target_length):
+        return TrimPlan(
+            mode="target",
+            segments_to_keep=[(0.0, normalize_timestamp(duration_sec))],
+            input_duration_sec=duration_sec,
+            resulting_length_sec=duration_sec,
+            resolved_noise_threshold=trim_defaults.noise_threshold,
+            resolved_min_duration=trim_defaults.min_duration,
+            resolved_pad_sec=0.0,
+            target_length=target_length,
+            should_copy_input=True,
+        )
 
     if target_length is None:
-        silence_starts, silence_ends = prepare_silence_intervals_with_edges(
-            input_file=input_file,
-            duration_sec=duration_sec,
-            noise_threshold=trim_defaults.noise_threshold,
-            min_duration=trim_defaults.min_duration,
-        )
-        return silence_starts, silence_ends, trim_defaults.noise_threshold, trim_defaults.min_duration, trim_defaults.pad_sec
+        return _build_non_target_trim_plan(input_file=input_file, duration_sec=duration_sec, trim_defaults=trim_defaults)
 
+    return _build_target_trim_plan(
+        input_file=input_file,
+        duration_sec=duration_sec,
+        target_length=target_length,
+        trim_defaults=trim_defaults,
+    )
+
+
+def _build_non_target_trim_plan(
+    input_file: Path,
+    duration_sec: float,
+    trim_defaults: TrimDefaults,
+) -> TrimPlan:
+    """Build a non-target trim plan."""
+    silence_starts, silence_ends = prepare_silence_intervals_with_edges(
+        input_file=input_file,
+        duration_sec=duration_sec,
+        noise_threshold=trim_defaults.noise_threshold,
+        min_duration=trim_defaults.min_duration,
+    )
+    segments_to_keep = build_keep_segments_from_silences(
+        silence_starts=silence_starts,
+        silence_ends=silence_ends,
+        duration_sec=duration_sec,
+        pad_sec=trim_defaults.pad_sec,
+    )
+    resulting_length = normalize_timestamp(sum(end - start for start, end in segments_to_keep))
+    return TrimPlan(
+        mode="non_target",
+        segments_to_keep=segments_to_keep,
+        input_duration_sec=duration_sec,
+        resulting_length_sec=resulting_length,
+        resolved_noise_threshold=trim_defaults.noise_threshold,
+        resolved_min_duration=trim_defaults.min_duration,
+        resolved_pad_sec=trim_defaults.pad_sec,
+        target_length=None,
+    )
+
+
+def _build_target_trim_plan(
+    input_file: Path,
+    duration_sec: float,
+    target_length: float,
+    trim_defaults: TrimDefaults,
+) -> TrimPlan:
+    """Build a target-mode trim plan with adaptive threshold/padding policy."""
     silence_starts, silence_ends, chosen_threshold, chosen_pad = choose_threshold_and_padding_for_target(
-        input_file,
-        duration_sec,
-        target_length,
-        min_duration=min_duration,
+        input_file=input_file,
+        duration_sec=duration_sec,
+        target_length=target_length,
+        min_duration=trim_defaults.min_duration,
         override_noise_threshold=trim_defaults.noise_threshold,
     )
-    return silence_starts, silence_ends, chosen_threshold, trim_defaults.min_duration, chosen_pad
+    segments_to_keep = build_keep_segments_from_silences(
+        silence_starts=silence_starts,
+        silence_ends=silence_ends,
+        duration_sec=duration_sec,
+        pad_sec=chosen_pad,
+    )
+    resulting_length = normalize_timestamp(sum(end - start for start, end in segments_to_keep))
+
+    if resulting_length > target_length + TRIM_TIMESTAMP_EPSILON_SEC:
+        segments_to_keep = truncate_segments_to_max_length(segments_to_keep, target_length)
+        resulting_length = normalize_timestamp(sum(end - start for start, end in segments_to_keep))
+
+    print(
+        f"Target mode: chosen noise_threshold={chosen_threshold}dB, "
+        f"min_duration={trim_defaults.min_duration}s, pad={chosen_pad}s"
+    )
+    return TrimPlan(
+        mode="target",
+        segments_to_keep=segments_to_keep,
+        input_duration_sec=duration_sec,
+        resulting_length_sec=resulting_length,
+        resolved_noise_threshold=chosen_threshold,
+        resolved_min_duration=trim_defaults.min_duration,
+        resolved_pad_sec=chosen_pad,
+        target_length=target_length,
+    )
 
 
 def _build_segments_to_keep(
@@ -92,30 +194,104 @@ def _build_segments_to_keep(
     Returns:
         (segments_to_keep, duration_sec, resolved_noise_threshold, resolved_min_duration, resolved_pad_sec)
     """
-    duration_sec = _probe_and_validate_duration(input_file)
-
-    if target_length is not None and target_length >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC:
-        # Target length is already satisfied by source duration.
-        return ([(0.0, normalize_timestamp(duration_sec))], duration_sec, noise_threshold, min_duration, 0.0)
-
-    silence_starts, silence_ends, chosen_threshold, chosen_min_duration, pad_sec = _resolve_trim_plan(
+    plan = build_trim_plan(
         input_file,
-        duration_sec,
         target_length,
         noise_threshold,
         min_duration,
         pad_sec,
     )
+    return (
+        plan.segments_to_keep,
+        plan.input_duration_sec,
+        plan.resolved_noise_threshold,
+        plan.resolved_min_duration,
+        plan.resolved_pad_sec,
+    )
 
-    if target_length is not None:
-        print(f"Target mode: chosen noise_threshold={chosen_threshold}dB, min_duration={chosen_min_duration}s, pad={pad_sec}s")
 
-    segments_to_keep = build_keep_segments_from_silences(silence_starts, silence_ends, duration_sec, pad_sec)
-    if target_length is not None:
-        resulting_length = sum(end - start for start, end in segments_to_keep)
-        if resulting_length > target_length + TRIM_TIMESTAMP_EPSILON_SEC:
-            segments_to_keep = truncate_segments_to_max_length(segments_to_keep, target_length)
-    return (segments_to_keep, duration_sec, chosen_threshold, chosen_min_duration, pad_sec)
+def _copy_input_video(input_file: Path, output_file: Path) -> Path:
+    print(
+        f"Target length >= original duration, copying original file "
+        f"{input_file} -> {output_file}"
+    )
+    try:
+        shutil.copyfile(input_file, output_file)
+        return output_file.resolve()
+    except Exception as exc:
+        raise RuntimeError(f"Failed to copy original file from {input_file} to {output_file}") from exc
+
+
+def _run_minimal_output(
+    *,
+    output_file: Path,
+    cmd: list[str],
+    command_label: str,
+) -> Path:
+    print_ffmpeg_cmd(cmd)
+    try:
+        run(cmd, check=True)
+        wait_for_file_release(output_file)
+        return output_file.resolve()
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"{command_label} failed while creating minimal output") from exc
+
+
+def _run_silence_removed_media(
+    *,
+    input_file: Path,
+    output_file: Path,
+    temp_dir: Path,
+    segments_to_keep: list[tuple[float, float]],
+    build_filter_graph: Callable[[list[tuple[float, float]]], str],
+    build_command: Callable[[Path, Path, Path], list[str]],
+    expected_total_seconds: Optional[float] = None,
+    on_progress: Optional[Callable[[int], None]] = None,
+    command_label: Optional[str] = None,
+) -> Path:
+    filter_complex = build_filter_graph(segments_to_keep)
+
+    scripts_dir = temp_dir / SCRIPTS_DIR
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    filter_script_path = scripts_dir / f"{output_file.stem}_{int(time.time())}.ffscript"
+    write_filter_graph_script(filter_script_path, filter_complex)
+    print(f"[DEBUG] filter_graph_script path: {filter_script_path}")
+    print(f"[DEBUG] filter_graph_script exists: {filter_script_path.exists()}")
+
+    cmd = build_command(input_file, output_file, filter_script_path)
+    print_ffmpeg_cmd(cmd)
+    if expected_total_seconds is not None:
+        emitted_progress = False
+
+        def _on_progress(percent: int) -> None:
+            nonlocal emitted_progress
+            emitted_progress = True
+            if on_progress is not None:
+                on_progress(percent)
+        try:
+            run_with_progress(
+                cmd,
+                expected_total_seconds=expected_total_seconds,
+                on_progress=_on_progress,
+            )
+        except subprocess.CalledProcessError as exc:
+            if command_label is None:
+                raise
+            raise RuntimeError(f"{command_label} failed") from exc
+        if emitted_progress:
+            print()
+    else:
+        try:
+            run(cmd, check=True)
+        except subprocess.CalledProcessError as exc:
+            if command_label is not None:
+                raise RuntimeError(f"{command_label} failed") from exc
+            raise
+
+    wait_for_file_release(output_file)
+    print(f"[DEBUG] ffmpeg completed, script still at: {filter_script_path}")
+    print(f"Done! Output saved to: {output_file}")
+    return output_file.resolve()
 
 
 def create_silence_removed_snippet(
@@ -169,39 +345,31 @@ def create_silence_removed_audio(
 
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal audio.")
-        cmd = build_minimal_audio_command(
-            input_file=input_file,
-            output_audio=output_audio_path,
-            codec_args=acodec,
+        return _run_minimal_output(
+            output_file=output_audio_path,
+            cmd=build_minimal_audio_command(
+                input_file=input_file,
+                output_audio=output_audio_path,
+                codec_args=acodec,
+            ),
+            command_label="Audio",
         )
-        print_ffmpeg_cmd(cmd)
-        run(cmd, check=True)
-        wait_for_file_release(output_audio_path)
-        return output_audio_path.resolve()
 
-    # Audio-only filter: atrim each segment, then concat
-    filter_complex = build_audio_concat_filter_graph(segments_to_keep)
-
-    scripts_dir = temp_dir / SCRIPTS_DIR
-    scripts_dir.mkdir(parents=True, exist_ok=True)
-    script_name = f"{output_audio_path.stem}_{int(time.time())}.ffscript"
-    filter_script_path = scripts_dir / script_name
-    write_filter_graph_script(filter_script_path, filter_complex)
-    print(f"[DEBUG] filter_graph_script path: {filter_script_path}")
-    print(f"[DEBUG] filter_graph_script exists: {filter_script_path.exists()}")
-    cmd = build_silence_removed_audio_command(
+    return _run_silence_removed_media(
         input_file=input_file,
-        output_audio_path=output_audio_path,
-        filter_script_path=filter_script_path,
-        acodec=acodec,
-        max_duration=max_duration,
+        output_file=output_audio_path,
+        temp_dir=temp_dir,
+        segments_to_keep=segments_to_keep,
+        build_filter_graph=build_audio_concat_filter_graph,
+        build_command=lambda in_file, out_file, filter_script_path: build_silence_removed_audio_command(
+            input_file=in_file,
+            output_audio_path=out_file,
+            filter_script_path=filter_script_path,
+            acodec=acodec,
+            max_duration=max_duration,
+        ),
+        command_label="Silence-removed audio",
     )
-    print_ffmpeg_cmd(cmd)
-    run(cmd, check=True)
-    print(f"[DEBUG] ffmpeg completed, script still at: {filter_script_path}")
-    wait_for_file_release(output_audio_path)
-    print(f"Silence-removed audio -> {output_audio_path}")
-    return output_audio_path.resolve()
 
 
 def trim_single_video(
@@ -219,30 +387,31 @@ def trim_single_video(
     basename = output_basename if output_basename is not None else input_file.stem
     output_file = (output_dir / f"{basename}.mp4").resolve()
 
-    if target_length is not None:
-        duration_sec = _probe_and_validate_duration(input_file)
-        if target_length >= duration_sec:
-            print(f"Target length ({target_length}s) >= original duration ({duration_sec:.3f}s), copying original file")
-            try:
-                import shutil
-                shutil.copyfile(input_file, output_file)
-                wait_for_file_release(output_file)
-                print(f"Done! Output saved to: {output_file}")
-                return output_file.resolve()
-            except Exception as e:
-                print(f"Error copying file: {e}", file=sys.stderr)
-                raise
-
-    segments_to_keep, duration_sec, resolved_noise_threshold, resolved_min_duration, resolved_pad_sec = _build_segments_to_keep(
-        input_file,
-        noise_threshold,
-        min_duration,
-        pad_sec,
-        target_length,
+    plan = build_trim_plan(
+        input_file=input_file,
+        target_length=target_length,
+        noise_threshold=noise_threshold,
+        min_duration=min_duration,
+        pad_sec=pad_sec,
     )
-    encoder = encoder or resolve_video_encoder()
 
-    resulting_length = sum(end - start for start, end in segments_to_keep)
+    if plan.should_copy_input:
+        copied_output_file = _copy_input_video(input_file=input_file, output_file=output_file)
+        wait_for_file_release(copied_output_file)
+        return copied_output_file
+
+    segments_to_keep = plan.segments_to_keep
+    duration_sec = plan.input_duration_sec
+    resolved_noise_threshold = plan.resolved_noise_threshold
+    resolved_min_duration = plan.resolved_min_duration
+    resolved_pad_sec = plan.resolved_pad_sec
+    encoder = encoder or resolve_video_encoder()
+    resulting_length = plan.resulting_length_sec
+    print(f"Input: {input_file}")
+    print(f"Output: {output_file}")
+    print(f"Settings: noise={resolved_noise_threshold}dB, min_duration={resolved_min_duration}s, pad={resolved_pad_sec}s")
+    print(f"Number of segments: {len(segments_to_keep)}")
+
     if target_length is not None:
         print(f"Target length: {target_length}s")
         print(f"Expected resulting length: {resulting_length:.3f}s")
@@ -251,66 +420,30 @@ def trim_single_video(
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal video (first frame only).")
         # Create minimal video with first frame and silence using the resolved encoder profile.
-        cmd = build_minimal_video_command(
-            input_file=input_file,
+        return _run_minimal_output(
             output_file=output_file,
-            encoder=encoder,
+            cmd=build_minimal_video_command(
+                input_file=input_file,
+                output_file=output_file,
+                encoder=encoder,
+            ),
+            command_label=f"{encoder.codec} encode",
         )
-        print_ffmpeg_cmd(cmd)
-        try:
-            run(cmd, check=True)
-            wait_for_file_release(output_file)
-            print(f"Done! Output saved to: {output_file}")
-            return output_file.resolve()
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"{encoder.codec} failed while creating minimal fallback video") from e
 
-    filter_complex = build_video_audio_concat_filter_graph(segments_to_keep)
-
-    # Write the filter_complex script under temp/scripts/ (inside output_dir),
-    # so paths are stable and debuggable rather than using OS-level temp.
-    temp_dir = output_dir / "temp"
-    scripts_dir = temp_dir / SCRIPTS_DIR
-    scripts_dir.mkdir(parents=True, exist_ok=True)
-    filter_script_path = scripts_dir / f"{output_file.stem}_{int(time.time())}.ffscript"
-    write_filter_graph_script(filter_script_path, filter_complex)
-    print(f"[DEBUG] filter_graph_script path: {filter_script_path}")
-    print(f"[DEBUG] filter_graph_script exists: {filter_script_path.exists()}")
-
-    print(f"Input: {input_file}")
-    print(f"Output: {output_file}")
-    print(f"Settings: noise={resolved_noise_threshold}dB, min_duration={resolved_min_duration}s, pad={resolved_pad_sec}s")
-    print(f"Filter complex length: {len(filter_complex)} characters")
-    print(f"Number of segments: {len(segments_to_keep)}")
-    cmd = build_final_trim_command(
+    return _run_silence_removed_media(
         input_file=input_file,
         output_file=output_file,
-        filter_script_path=filter_script_path,
-        encoder=encoder,
+        temp_dir=output_dir / "temp",
+        segments_to_keep=segments_to_keep,
+        build_filter_graph=build_video_audio_concat_filter_graph,
+        build_command=lambda in_file, out_file, filter_script: build_final_trim_command(
+            input_file=in_file,
+            output_file=out_file,
+            filter_script_path=filter_script,
+            encoder=encoder,
+        ),
+        expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
+        on_progress=lambda percent: print(f"\rProgress: {percent}%", end="", flush=True),
+        command_label=f"{encoder.codec} encode",
     )
-    print_ffmpeg_cmd(cmd)
-    emitted_progress = False
-
-    def _on_progress(percent: int) -> None:
-        nonlocal emitted_progress
-        emitted_progress = True
-        print(f"\rProgress: {percent}%", end="", flush=True)
-
-    try:
-        # Run ffmpeg and parse -progress output to display percentage
-        run_with_progress(
-            cmd,
-            expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
-            on_progress=_on_progress,
-        )
-        if emitted_progress:
-            print()
-    except subprocess.CalledProcessError:
-        print(f"{encoder.codec} encode failed while trimming video", file=sys.stderr)
-        raise
-
-    wait_for_file_release(output_file)
-    print(f"Done! Output saved to: {output_file}")
-    print(f"[DEBUG] ffmpeg completed, script still at: {filter_script_path}")
-    return output_file.resolve()
 
