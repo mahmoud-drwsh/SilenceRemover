@@ -37,7 +37,7 @@ def build_audio_window_extract_command(
 ) -> list[str]:
     """Build a fixed-window audio extraction command."""
     cmd = _build_input_command_with_options(
-        input_file=input_file,
+        input_file,
         "-ss",
         str(start_seconds),
         "-t",

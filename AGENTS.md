@@ -118,3 +118,4 @@ Entries below are appended by the agent after making code or config changes.
 - `src/media/trim.py`: Extracted shared silence-removal execution scaffolding (`_run_silence_removed_media`, `_run_minimal_output`) for audio and video output workflows.
 - `src/ffmpeg/transcode.py`: Added `_build_input_command` to deduplicate shared ffmpeg input-command scaffolding across minimal/final builders.
 - `src/ffmpeg/probing.py`: Fixed invalid `build_ffmpeg_cmd` call syntax by moving positional ffmpeg flags before/without keyword argument usage to restore importability.
+- `src/ffmpeg/transcode.py`: Fixed positional-after-keyword call in `_build_audio_window_extract_command` so module import no longer fails with `SyntaxError`.
