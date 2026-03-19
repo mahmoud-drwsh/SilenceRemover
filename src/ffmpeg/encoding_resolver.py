@@ -34,7 +34,7 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
         codec="hevc_qsv",
         codec_args=(
             "-preset", "3",
-            "-q:v", "21",
+            "-q:v", "19",
             "-look_ahead_depth", "23",
             "-mbbrc", "1",
             "-extbrc", "1",
