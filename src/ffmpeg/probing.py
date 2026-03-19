@@ -31,7 +31,7 @@ def parse_ffmpeg_encoder_lines(output: str) -> set[str]:
 
 def get_available_encoders() -> set[str]:
     """Return supported encoder names from the current FFmpeg installation."""
-    cmd = build_ffmpeg_cmd(overwrite=False, "-encoders")
+    cmd = build_ffmpeg_cmd(False, "-encoders")
     result = run(cmd, check=True, capture_output=True)
     return parse_ffmpeg_encoder_lines(result.stdout)
 
@@ -39,7 +39,7 @@ def get_available_encoders() -> set[str]:
 def build_encoder_probe_command(codec: str, codec_args: Sequence[str] = ()) -> list[str]:
     """Build a probe command for encoding tests."""
     cmd = build_ffmpeg_cmd(
-        overwrite=False,
+        False,
         "-v",
         "error",
         "-f",
