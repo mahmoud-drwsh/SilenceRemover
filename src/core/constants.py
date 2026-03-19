@@ -4,8 +4,10 @@ This module contains all tunable constants that are not environment-backed.
 Secrets (e.g. OPENROUTER_API_KEY) live in src/core/config.py.
 """
 
-# --- Padding / bitrate ---
+from dataclasses import dataclass
 
+
+# --- Padding / bitrate ---
 MAX_PAD_SEC = 10.0
 PAD_INCREMENT_SEC = 0.001
 TRIM_DECIMAL_PLACES = 6
@@ -14,8 +16,11 @@ BITRATE_FALLBACK_BPS = 3_000_000
 AUDIO_BITRATE = "192k"
 EDGE_SILENCE_KEEP_SEC = 0.2
 
-# --- Non-target mode defaults ---
+# --- Edge scan defaults ---
+EDGE_RESCAN_THRESHOLD_DB = -55.0
+EDGE_RESCAN_MIN_DURATION_SEC = 0.01
 
+# --- Non-target mode defaults ---
 NON_TARGET_NOISE_THRESHOLD_DB = -50.0
 NON_TARGET_MIN_DURATION_SEC = 1.0
 NON_TARGET_PAD_SEC = 0.5
@@ -64,13 +69,51 @@ SNIPPET_NOISE_THRESHOLD_DB = TARGET_NOISE_THRESHOLD_DB
 SNIPPET_MIN_DURATION_SEC = TARGET_MIN_DURATION_SEC
 SNIPPET_MAX_DURATION_SEC = 300.0
 
-# Compatibility aliases (kept for external compatibility, prefer the mode-prefixed names above)
-DEFAULT_NOISE_THRESHOLD = NON_TARGET_NOISE_THRESHOLD_DB
-DEFAULT_MIN_DURATION = NON_TARGET_MIN_DURATION_SEC
-DEFAULT_PAD_SEC = NON_TARGET_PAD_SEC
-SIMPLE_DB = TARGET_NOISE_THRESHOLD_DB
-SIMPLE_MIN_DURATION = TARGET_MIN_DURATION_SEC
-TARGET_MIN_DURATION = TARGET_MIN_DURATION_SEC
+# --- Shared runtime defaults ---
+
+@dataclass(frozen=True)
+class TrimDefaults:
+    """Resolved trim defaults after applying request overrides."""
+
+    noise_threshold: float
+    min_duration: float
+    pad_sec: float
+
+
+def resolve_trim_defaults(
+    *,
+    target_length: float | None,
+    noise_threshold: float | None,
+    min_duration: float | None,
+    pad_sec: float | None = None,
+) -> TrimDefaults:
+    """Resolve effective trim policy from CLI overrides and mode flags."""
+    if target_length is None:
+        return TrimDefaults(
+            noise_threshold=NON_TARGET_NOISE_THRESHOLD_DB if noise_threshold is None else noise_threshold,
+            min_duration=NON_TARGET_MIN_DURATION_SEC if min_duration is None else min_duration,
+            pad_sec=NON_TARGET_PAD_SEC if pad_sec is None else pad_sec,
+        )
+
+    return TrimDefaults(
+        noise_threshold=TARGET_NOISE_THRESHOLD_DB if noise_threshold is None else noise_threshold,
+        min_duration=TARGET_MIN_DURATION_SEC if min_duration is None else min_duration,
+        pad_sec=NON_TARGET_PAD_SEC if pad_sec is None else pad_sec,
+    )
+
+
+# Compatibility aliases for downstream users and older import paths.
+_COMPATIBILITY_CONSTANT_ALIASES = {
+    "DEFAULT_NOISE_THRESHOLD": "NON_TARGET_NOISE_THRESHOLD_DB",
+    "DEFAULT_MIN_DURATION": "NON_TARGET_MIN_DURATION_SEC",
+    "DEFAULT_PAD_SEC": "NON_TARGET_PAD_SEC",
+    "SIMPLE_DB": "TARGET_NOISE_THRESHOLD_DB",
+    "SIMPLE_MIN_DURATION": "TARGET_MIN_DURATION_SEC",
+    "TARGET_MIN_DURATION": "TARGET_MIN_DURATION_SEC",
+}
+
+for _alias, _canonical_name in _COMPATIBILITY_CONSTANT_ALIASES.items():
+    globals()[_alias] = globals()[_canonical_name]
 
 # --- Supported inputs ---
 
@@ -107,12 +150,16 @@ AUDIO_FILE_EXT = ".ogg"
 TEXT_FILE_EXT = ".txt"
 
 __all__ = [
+    "TrimDefaults",
+    "resolve_trim_defaults",
     "MAX_PAD_SEC",
     "PAD_INCREMENT_SEC",
     "TRIM_DECIMAL_PLACES",
     "TRIM_TIMESTAMP_EPSILON_SEC",
     "BITRATE_FALLBACK_BPS",
     "AUDIO_BITRATE",
+    "EDGE_RESCAN_THRESHOLD_DB",
+    "EDGE_RESCAN_MIN_DURATION_SEC",
     "NON_TARGET_NOISE_THRESHOLD_DB",
     "NON_TARGET_MIN_DURATION_SEC",
     "NON_TARGET_PAD_SEC",

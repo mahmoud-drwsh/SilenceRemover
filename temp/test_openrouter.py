@@ -4,12 +4,14 @@
 import base64
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
+
+from src.ffmpeg.runner import run
+from src.ffmpeg.transcode import build_audio_window_extract_command
 
 # Load environment variables
 load_dotenv()
@@ -33,51 +35,36 @@ def extract_first_minute_audio(input_video: Path, output_audio: Path, format: st
     """
     output_audio.parent.mkdir(parents=True, exist_ok=True)
     
-    # Convert to specified format
-    if format != "ogg":
-        raise ValueError("Only OGG format is supported in this helper. Use format='ogg'.")
-
     if format == "ogg":
-        enc_cmd = [
-            "ffmpeg", "-hide_banner", "-y",
-            "-ss", "0", "-t", "60",  # First 60 seconds
-            "-i", str(input_video),
-            "-map", "0:a:0", "-c:a", "libopus", "-ar", "16000", "-ac", "1", "-b:a", "32k", "-vn",  # OGG/Opus format, 16kHz mono
-            str(output_audio),
-        ]
+        command = build_audio_window_extract_command(
+            input_file=input_video,
+            output_audio=output_audio,
+            duration_seconds=60,
+            codec_args=["-c:a", "libopus", "-ar", "16000", "-ac", "1", "-b:a", "32k"],
+        )
     elif format == "m4a":
-        # Try to copy audio stream first
-        copy_cmd = [
-            "ffmpeg", "-hide_banner", "-y",
-            "-ss", "0", "-t", "60",
-            "-i", str(input_video),
-            "-map", "0:a:0", "-c:a", "copy", "-vn",
-            str(output_audio),
-        ]
-        r = subprocess.run(copy_cmd, capture_output=True, text=True)
-        if r.returncode == 0:
+        copy_cmd = build_audio_window_extract_command(
+            input_file=input_video,
+            output_audio=output_audio,
+            duration_seconds=60,
+            codec_args=["-c:a", "copy"],
+        )
+        copy_result = run(copy_cmd, capture_output=True, text=True, check=False)
+        if copy_result.returncode == 0:
             return
-        # Fallback: encode to aac
-        enc_cmd = [
-            "ffmpeg", "-hide_banner", "-y",
-            "-ss", "0", "-t", "60",
-            "-i", str(input_video),
-            "-map", "0:a:0", "-c:a", "aac", "-b:a", "192k", "-vn",
-            str(output_audio),
-        ]
+        command = build_audio_window_extract_command(
+            input_file=input_video,
+            output_audio=output_audio,
+            duration_seconds=60,
+            codec_args=["-c:a", "aac", "-b:a", "192k"],
+        )
     else:
-        enc_cmd = [
-            "ffmpeg", "-hide_banner", "-y",
-            "-ss", "0", "-t", "60",
-            "-i", str(input_video),
-            "-map", "0:a:0", "-vn",
-            str(output_audio),
-        ]
-    
-    r2 = subprocess.run(enc_cmd, capture_output=True, text=True)
-    if r2.returncode != 0:
+        raise ValueError("Unsupported audio format for this helper. Use 'ogg' or 'm4a'.")
+
+    result = run(command, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
         raise RuntimeError(
-            f"Audio extraction failed for {input_video}\nstderr={r2.stderr}"
+            f"Audio extraction failed for {input_video}\nstderr={result.stderr}"
         )
 
 

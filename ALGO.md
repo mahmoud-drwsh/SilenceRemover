@@ -18,8 +18,8 @@ Segments to keep are built from (silence_starts, silence_ends) and padding; the 
 Phase 1 always creates a fixed-rule snippet for transcription:
 
 - Silence detection runs once with `silencedetect=n=-55dB:d=0.01` (`SNIPPET_NOISE_THRESHOLD_DB` + `SNIPPET_MIN_DURATION_SEC` semantics).
-- Leading and trailing edge silences are rescanned using the same edge constants and only the leading/trailing interval is replaced before trimming.
-- Leading/trailing edges are then reduced to the 200ms keep buffer via `trim_edge_silence`.
+- Leading and trailing edge silences are rescanned using the shared `prepare_silence_intervals_with_edges` policy, and only the edge intervals are replaced before trimming.
+- Leading/trailing edges are then reduced to the 200ms keep buffer via shared edge normalization.
 - `pad_sec` is still applied through the shared segment-builder.
 - The resulting audio is capped to 300 seconds (`5 min`) after concatenation.
 - This phase is intentionally independent of CLI `--noise-threshold`, `--min-duration`, and `--target-length` settings.
@@ -54,7 +54,7 @@ One detected silence: `silence_start=20.0`, `silence_end=22.0`, `pad_sec=0.5`.
 ## When no target length is set
 
 - For final output trim in non-target mode, `--noise-threshold` / `--min-duration` (if provided) are used; otherwise defaults from `src/core/constants.py` are used (`NON_TARGET_NOISE_THRESHOLD_DB=-50.0`, `NON_TARGET_MIN_DURATION_SEC=1.0`).
-- Before padding is applied, the non-target flow runs a dedicated edge scan at `-55dB` and replaces only the primary leading/trailing silence intervals, then keeps only `EDGE_SILENCE_KEEP_SEC` (0.2s) at each edge.
+- Before padding is applied, the non-target flow runs `prepare_silence_intervals_with_edges` (`EDGE_RESCAN_THRESHOLD_DB` / `EDGE_RESCAN_MIN_DURATION_SEC`) which replaces only the primary leading/trailing silence intervals and retains `EDGE_SILENCE_KEEP_SEC` (0.2s) at each edge.
 - Segment build flow is shared with target-mode: detect silences -> build keep segments -> concat.
 - In non-target mode, `pad_sec` is fixed to `NON_TARGET_PAD_SEC` from `src/core/constants.py` (no CLI override).
 
@@ -76,7 +76,7 @@ Min silence duration is fixed at `TARGET_MIN_DURATION_SEC` (**0.01s**) in target
 ### Steps
 
 1. **Detect in passes** using `silencedetect=n={threshold}dB:d=0.01` for thresholds in `TARGET_NOISE_THRESHOLDS_DB` (starting at -60 dB).
-   - For each target run, perform a dedicated edge-only scan using `silencedetect=n=-55dB:d=0.01`, then replace only leading/trailing silence intervals from the primary threshold pass before base-length and padding checks.
+   - For each target run, use `prepare_silence_intervals_with_edges` with `EDGE_RESCAN_THRESHOLD_DB`/`EDGE_RESCAN_MIN_DURATION_SEC` after each threshold pass, then keep leading/trailing edge handling before base-length and padding checks.
 
 2. **Base length at pad=0:** for each pass, compute:
    - `base_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)`
@@ -126,7 +126,8 @@ Final settings used for segment building: `noise_threshold=-50dB`, `min_duration
 
 - Both target and non-target paths now use the same segment-builder implementation.
 - The mode difference is how `pad_sec` is selected and what detection parameters are used:
-  - Non-target mode: fixed `noise_threshold`, `min_duration`, and `pad_sec` (`NON_TARGET_PAD_SEC`) with an edge-only re-scan override at `-55dB` applied before padding.
-  - Target mode: threshold sweep + padding tuning, with `min_duration=TARGET_MIN_DURATION_SEC`, plus edge-only `-55dB` interval replacement before each candidate length evaluation.
+  - Both modes now use the same shared edge-normalization helper (`prepare_silence_intervals_with_edges`) to apply edge replacement/trimming.
+  - Non-target mode: fixed `noise_threshold`, `min_duration`, and `pad_sec` (`NON_TARGET_PAD_SEC`) with the shared edge helper applied before padding.
+  - Target mode: threshold sweep + padding tuning, with `min_duration=TARGET_MIN_DURATION_SEC`, and the shared edge helper applied before each candidate length evaluation.
 
 Implementation: `choose_threshold_and_padding_for_target` and `find_optimal_padding` in `src/media/silence_detector.py`; target-length path in `trim_single_video` in `src/media/trim.py`.

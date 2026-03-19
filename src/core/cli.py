@@ -5,10 +5,23 @@ import shutil
 import sys
 from pathlib import Path
 
-__all__ = ["parse_args", "fail", "require_tools", "require_input_dir", "require_videos_in"]
+__all__ = [
+    "collect_video_files",
+    "parse_args",
+    "fail",
+    "require_tools",
+    "require_input_dir",
+    "require_videos_in",
+]
 
 # Import VIDEO_EXTENSIONS here to avoid circular imports
-from src.core.constants import VIDEO_EXTENSIONS
+from src.core.constants import (
+    NON_TARGET_MIN_DURATION_SEC,
+    NON_TARGET_NOISE_THRESHOLD_DB,
+    TARGET_MIN_DURATION_SEC,
+    TARGET_NOISE_THRESHOLD_DB,
+    VIDEO_EXTENSIONS,
+)
 
 
 def fail(message: str) -> None:
@@ -30,17 +43,30 @@ def require_input_dir(input_dir: Path) -> None:
         fail(f"Input directory does not exist: {input_dir}")
 
 
+def collect_video_files(input_dir: Path) -> list[Path]:
+    """Collect supported video files from a directory."""
+    return sorted(p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS)
+
+
 def require_videos_in(input_dir: Path) -> None:
     """Check that input directory contains video files."""
-    def is_video_file(path: Path) -> bool:
-        return path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
-
     try:
-        has_video = any(is_video_file(p) for p in input_dir.iterdir())
+        has_video = len(collect_video_files(input_dir)) > 0
     except FileNotFoundError:
         has_video = False
     if not has_video:
         fail(f"No video files found in '{input_dir}'")
+
+
+def _positive_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Must be a number, got '{value}'")
+
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(f"Value must be greater than 0, got '{value}'")
+    return parsed
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,19 +77,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("input_dir", type=str, help="Input directory (raw videos)")
     parser.add_argument(
         "--target-length",
-        type=float,
+        type=_positive_float,
         help="Target length in seconds for final output (Phase 3)",
     )
     parser.add_argument(
         "--noise-threshold",
         type=float,
         default=None,
-        help="Silence detection threshold in dB (e.g. -55). Overrides config; with --target-length uses TARGET_NOISE_THRESHOLD_DB (-55) if not set.",
+        help=(
+            "Silence detection threshold in dB. Overrides config; with --target-length "
+            f"it defaults to {TARGET_NOISE_THRESHOLD_DB}."
+        ),
     )
     parser.add_argument(
         "--min-duration",
-        type=float,
+        type=_positive_float,
         default=None,
-        help="Minimum silence duration in seconds (e.g. 1.0). Overrides config; with --target-length uses TARGET_MIN_DURATION_SEC (0.01) if not set.",
+        help=(
+            "Minimum silence duration in seconds. Overrides config. With --target-length, defaults to "
+            f"{TARGET_MIN_DURATION_SEC}; otherwise {NON_TARGET_MIN_DURATION_SEC}."
+        ),
     )
     return parser.parse_args()

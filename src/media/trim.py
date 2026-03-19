@@ -11,8 +11,8 @@ from src.core.constants import (
     SNIPPET_MAX_DURATION_SEC,
     SNIPPET_MIN_DURATION_SEC,
     SNIPPET_NOISE_THRESHOLD_DB,
-    TARGET_MIN_DURATION_SEC,
     TRIM_TIMESTAMP_EPSILON_SEC,
+    resolve_trim_defaults,
 )
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
 from src.ffmpeg.core import print_ffmpeg_cmd
@@ -32,38 +32,18 @@ from src.ffmpeg.transcode import (
 from src.core.fs_utils import wait_for_file_release
 from src.media.silence_detector import (
     choose_threshold_and_padding_for_target,
-    detect_leading_trailing_edge_silence,
-    detect_silence_points,
     normalize_timestamp,
-    replace_edge_intervals,
-    trim_edge_silence,
+    build_keep_segments_from_silences,
+    prepare_silence_intervals_with_edges,
+    truncate_segments_to_max_length,
 )
 
 
-def _build_segments_from_silences(
-    silence_starts: list[float],
-    silence_ends: list[float],
-    duration_sec: float,
-    pad_sec: float,
-) -> list[tuple[float, float]]:
-    """Build segments to keep from precomputed silence lists. Silences with duration <= 2*pad_sec are skipped."""
-    silence_starts = [normalize_timestamp(x) for x in silence_starts]
-    silence_ends = [normalize_timestamp(x) for x in silence_ends]
-    duration_sec = normalize_timestamp(duration_sec)
-    pad_sec = normalize_timestamp(max(0.0, pad_sec))
-    if len(silence_starts) > len(silence_ends):
-        silence_ends = list(silence_ends) + [duration_sec]
-    segments_to_keep: list[tuple[float, float]] = []
-    prev_end = 0.0
-    for silence_start, silence_end in zip(silence_starts, silence_ends):
-        if silence_end - silence_start <= pad_sec * 2 + TRIM_TIMESTAMP_EPSILON_SEC:
-            continue
-        if silence_start > prev_end + TRIM_TIMESTAMP_EPSILON_SEC:
-            segments_to_keep.append((normalize_timestamp(prev_end), normalize_timestamp(silence_start)))
-        prev_end = normalize_timestamp(max(0.0, silence_end - pad_sec))
-    if prev_end < duration_sec - TRIM_TIMESTAMP_EPSILON_SEC:
-        segments_to_keep.append((normalize_timestamp(prev_end), normalize_timestamp(duration_sec)))
-    return segments_to_keep
+def _probe_and_validate_duration(input_file: Path) -> float:
+    duration_sec = probe_duration(input_file)
+    if duration_sec <= 0:
+        raise ValueError(f"Invalid video duration: {duration_sec}s. Video file may be corrupted or empty.")
+    return normalize_timestamp(duration_sec)
 
 
 def _resolve_trim_plan(
@@ -75,26 +55,29 @@ def _resolve_trim_plan(
     pad_sec: float,
 ) -> tuple[list[float], list[float], float, float, float]:
     """Resolve effective trimming parameters and detected silences."""
+    trim_defaults = resolve_trim_defaults(
+        target_length=target_length,
+        noise_threshold=noise_threshold,
+        min_duration=min_duration,
+    )
+
     if target_length is None:
-        silence_starts, silence_ends = detect_silence_points(input_file, noise_threshold, min_duration)
-        leading_edge, trailing_edge = detect_leading_trailing_edge_silence(input_file, duration_sec)
-        silence_starts, silence_ends = replace_edge_intervals(
-            silence_starts,
-            silence_ends,
-            leading_edge,
-            trailing_edge,
-            duration_sec,
+        silence_starts, silence_ends = prepare_silence_intervals_with_edges(
+            input_file=input_file,
+            duration_sec=duration_sec,
+            noise_threshold=trim_defaults.noise_threshold,
+            min_duration=trim_defaults.min_duration,
         )
-        silence_starts, silence_ends = trim_edge_silence(silence_starts, silence_ends, duration_sec)
-        return silence_starts, silence_ends, noise_threshold, min_duration, pad_sec
+        return silence_starts, silence_ends, trim_defaults.noise_threshold, trim_defaults.min_duration, trim_defaults.pad_sec
 
     silence_starts, silence_ends, chosen_threshold, chosen_pad = choose_threshold_and_padding_for_target(
         input_file,
         duration_sec,
         target_length,
-        min_duration=TARGET_MIN_DURATION_SEC,
+        min_duration=min_duration,
+        override_noise_threshold=trim_defaults.noise_threshold,
     )
-    return silence_starts, silence_ends, chosen_threshold, TARGET_MIN_DURATION_SEC, chosen_pad
+    return silence_starts, silence_ends, chosen_threshold, trim_defaults.min_duration, chosen_pad
 
 
 def _build_segments_to_keep(
@@ -109,10 +92,7 @@ def _build_segments_to_keep(
     Returns:
         (segments_to_keep, duration_sec, resolved_noise_threshold, resolved_min_duration, resolved_pad_sec)
     """
-    duration_sec = probe_duration(input_file)
-    if duration_sec <= 0:
-        raise ValueError(f"Invalid video duration: {duration_sec}s. Video file may be corrupted or empty.")
-    duration_sec = normalize_timestamp(duration_sec)
+    duration_sec = _probe_and_validate_duration(input_file)
 
     if target_length is not None and target_length >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC:
         # Target length is already satisfied by source duration.
@@ -127,13 +107,14 @@ def _build_segments_to_keep(
         pad_sec,
     )
 
-    if len(silence_starts) > len(silence_ends):
-        silence_ends = list(silence_ends) + [duration_sec]
-
     if target_length is not None:
         print(f"Target mode: chosen noise_threshold={chosen_threshold}dB, min_duration={chosen_min_duration}s, pad={pad_sec}s")
 
-    segments_to_keep = _build_segments_from_silences(silence_starts, silence_ends, duration_sec, pad_sec)
+    segments_to_keep = build_keep_segments_from_silences(silence_starts, silence_ends, duration_sec, pad_sec)
+    if target_length is not None:
+        resulting_length = sum(end - start for start, end in segments_to_keep)
+        if resulting_length > target_length + TRIM_TIMESTAMP_EPSILON_SEC:
+            segments_to_keep = truncate_segments_to_max_length(segments_to_keep, target_length)
     return (segments_to_keep, duration_sec, chosen_threshold, chosen_min_duration, pad_sec)
 
 
@@ -146,8 +127,8 @@ def create_silence_removed_snippet(
 ) -> Path:
     """Create the fixed-parameter transcription snippet.
 
-    Snippet creation always uses a single conservative detection sweep:
-    SNIPPET_NOISE_THRESHOLD_DB (-55dB) and SNIPPET_MIN_DURATION_SEC (0.01s), plus standard edge handling.
+    Snippet creation uses `prepare_silence_intervals_with_edges` through the shared trim
+    path in `_build_segments_to_keep` to keep edge handling aligned with final output.
     """
     return create_silence_removed_audio(
         input_file=input_file,
@@ -239,9 +220,7 @@ def trim_single_video(
     output_file = (output_dir / f"{basename}.mp4").resolve()
 
     if target_length is not None:
-        duration_sec = probe_duration(input_file)
-        if duration_sec <= 0:
-            raise ValueError(f"Invalid video duration: {duration_sec}s. Video file may be corrupted or empty.")
+        duration_sec = _probe_and_validate_duration(input_file)
         if target_length >= duration_sec:
             print(f"Target length ({target_length}s) >= original duration ({duration_sec:.3f}s), copying original file")
             try:

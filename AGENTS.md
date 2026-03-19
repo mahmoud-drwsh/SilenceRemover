@@ -99,3 +99,17 @@ Entries below are appended by the agent after making code or config changes.
 - `src/media/trim.py` and `src/media/silence_detector.py`: Updated trimming and detection callsites to consume the renamed mode-specific constants with existing behavior preserved.
 - `src/core/__init__.py`: Re-exported explicit mode-specific constants and aliases to make package imports mode-aware.
 - `src/core/cli.py`: Updated flag help text to reference explicit target-mode defaults.
+- `src/core/constants.py`: Added shared edge-scan defaults (`EDGE_RESCAN_THRESHOLD_DB`, `EDGE_RESCAN_MIN_DURATION_SEC`) and exported them from the core package API.
+- `src/media/silence_detector.py`: Added `prepare_silence_intervals_with_edges` and refactored both target and non-target interval preparation to use it before padding.
+- `src/media/trim.py`: Rewired non-target and snippet paths in trim planning to route through shared edge interval preparation.
+- `README.md`: Documented that snippet extraction and final trim now share the same edge handling policy.
+- `ALGO.md`: Updated shared-flow description to describe one edge-normalization policy across snippet, target, and non-target modes.
+- `src/core/constants.py`: Reordered trim default resolver definitions after canonical constants and added explicit alias-map compatibility exports.
+- `src/app/pipeline.py`: Removed duplicated module copies from iterative refactoring and kept a single phase-orchestrated pipeline implementation.
+- `src/ffmpeg/core.py`: Corrected filter-complex script flag usage to `-filter_complex_script`.
+- `src/ffmpeg/transcode.py`: Preserved `max_duration` precision when emitting `-t` for silence-removed audio extraction.
+- `src/media/silence_detector.py`: Allowed `choose_threshold_and_padding_for_target` to accept an explicit threshold override for target-length mode.
+- `src/media/trim.py`: Threaded target threshold overrides into threshold search and truncated target-mode segments when requested length is still unmet.
+- `src/core/cli.py`: Added CLI validation that positive floats are required for `--target-length` and `--min-duration`.
+- `src/startup/bootstrap.py`: Removed duplicate video-directory scan by validating collected files directly once.
+- `README.md`: Clarified `--min-duration` wording so it applies in both target and non-target modes.

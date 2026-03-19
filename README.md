@@ -61,7 +61,7 @@ python main.py /path/to/video/directory
 
 - `--target-length FLOAT`: Optimize padding to achieve a target video length (in seconds).
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Defaults are `TARGET_NOISE_THRESHOLD_DB` (`-55.0`) when `--target-length` is set, otherwise `NON_TARGET_NOISE_THRESHOLD_DB` (`-50.0`).
-- `--min-duration FLOAT`: Override minimum silence duration in seconds (for both flows when not using `--target-length`). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with target mode and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
+- `--min-duration FLOAT`: Override minimum silence duration in seconds (applies in both modes). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with `--target-length` and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
 
 Trimming precision controls (advanced):
 
@@ -97,15 +97,15 @@ The tool processes videos sequentially through four main stages:
 - Analyzes audio track using FFmpeg's `silencedetect` filter
 - Identifies silence segments based on configured threshold and duration
 - Removes silence while preserving padding around segments
-- For phase 1 transcription snippets, a fixed single sweep is used: `SNIPPET_NOISE_THRESHOLD_DB` (`-55dB`) and `SNIPPET_MIN_DURATION_SEC` (`0.01s`), plus edge replacement/trim.
-- Leading and trailing edge silences are re-scanned at `-55dB` for both target and non-target final trim runs, then only the edge windows are adjusted with a 200ms keep buffer before pad calculations.
+- For phase 1 transcription snippets, a fixed single sweep is used: `SNIPPET_NOISE_THRESHOLD_DB` (`-55dB`) and `SNIPPET_MIN_DURATION_SEC` (`0.01s`), and the same shared edge normalization helper as final trim.
+- Leading and trailing edge silences are re-scanned at `EDGE_RESCAN_THRESHOLD_DB` (`-55dB`) for both target and non-target final trim runs, then only the edge windows are replaced and reduced to a `EDGE_SILENCE_KEEP_SEC` (200ms) buffer before pad calculations.
 - Outputs trimmed video to `temp/` directory (sibling to input directory)
 
 **Target Length Mode**: When `--target-length` is specified, the tool automatically calculates optimal padding to get as close as possible to the target duration.
 
 ### 2. Audio Extraction
 
-- Extracts first 5 minutes of silence-removed, snippet audio for transcription
+- Extracts first 5 minutes of silence-removed, snippet audio for transcription using the same edge policy as final trim.
 - Saves as `.m4a` file in `temp/` directory
 - Phase-1 snippet extraction ignores `--noise-threshold`/`--min-duration` overrides and always uses `SNIPPET_NOISE_THRESHOLD_DB` (`-55dB`) and `SNIPPET_MIN_DURATION_SEC` (`0.01s`) via snippet defaults.
 - Reuses existing audio files if already extracted
