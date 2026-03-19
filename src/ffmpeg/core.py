@@ -32,8 +32,8 @@ def build_ffprobe_cmd(*args: str) -> list[str]:
 
 
 def add_filter_complex_script(cmd: list[str], filter_script_path: Path) -> None:
-    """Attach a filter graph script using the non-deprecated FFmpeg option."""
-    cmd.extend(["-filter_complex_script", str(filter_script_path)])
+    """Attach a filter graph script using FFmpeg's modern non-deprecated option."""
+    cmd.extend(["-/filter_complex", str(filter_script_path)])
 
 
 def print_ffmpeg_cmd(cmd: list[str]) -> None:

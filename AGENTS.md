@@ -119,3 +119,6 @@ Entries below are appended by the agent after making code or config changes.
 - `src/ffmpeg/transcode.py`: Added `_build_input_command` to deduplicate shared ffmpeg input-command scaffolding across minimal/final builders.
 - `src/ffmpeg/probing.py`: Fixed invalid `build_ffmpeg_cmd` call syntax by moving positional ffmpeg flags before/without keyword argument usage to restore importability.
 - `src/ffmpeg/transcode.py`: Fixed positional-after-keyword call in `_build_audio_window_extract_command` so module import no longer fails with `SyntaxError`.
+- `src/ffmpeg/core.py`: switched filter-graph script command construction to prefer modern `-/filter_complex`.
+- `src/ffmpeg/runner.py`: added a compatibility retry to legacy `-filter_complex_script` only when `-/filter_complex` is rejected.
+- `README.md`: clarified that shared command construction uses `-/filter_complex` and documents the updated filter-script behavior.

@@ -194,7 +194,7 @@ ffmpeg -version
 ffprobe -version
 ```
 
-Note: This project uses FFmpeg's non-deprecated filter graph script option `-/filter_complex`, so you should no longer see `-filter_complex_script is deprecated` warnings in normal runs.
+Note: This project’s shared FFmpeg command builder (`src/ffmpeg/core.py:add_filter_complex_script`) uses the non-deprecated filter graph script option `-/filter_complex`, so you should no longer see the `-filter_complex_script is deprecated` warning in normal runs.
 
 ### API Key Issues
 
