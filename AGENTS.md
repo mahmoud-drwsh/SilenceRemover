@@ -87,3 +87,15 @@ Entries below are appended by the agent after making code or config changes.
 - `src/encoding_resolver.py`: Removed the legacy top-level module after migration.
 
 - `AGENTS.md`: Removed malformed/placeholder historical bullets introduced during prior AGENTS updates.
+- `src/media/trim.py`: Added `create_silence_removed_snippet` so transcription snippets use fixed `-55dB`, `0.01s` parameters and existing edge trimming.
+- `src/app/pipeline.py`: Routed phase-1 snippet generation to `create_silence_removed_snippet` so target and non-target runs share the same snippet extraction behavior.
+- `src/media/__init__.py`: Exported `create_silence_removed_snippet` while keeping `create_silence_removed_audio` available for generic use.
+- `src/core/constants.py`: Added explicit snippet constants for threshold, minimum duration, and duration cap.
+- `src/core/__init__.py`: Exported snippet constants through the core package API.
+- `README.md` and `ALGO.md`: Documented fixed phase-1 snippet extraction settings and independent edge-based behavior.
+- `README.md`: Clarified that phase-1 snippet extraction ignores `--noise-threshold`/`--min-duration` overrides.
+- `src/core/constants.py`: Renamed silence defaults into explicit `NON_TARGET_*`, `TARGET_*`, and `SNIPPET_*` groups while keeping compatibility aliases for historical names.
+- `src/startup/bootstrap.py`: Switched startup default resolution to explicit target/non-target constants (`TARGET_NOISE_THRESHOLD_DB`, `TARGET_MIN_DURATION_SEC`, and non-target counterparts).
+- `src/media/trim.py` and `src/media/silence_detector.py`: Updated trimming and detection callsites to consume the renamed mode-specific constants with existing behavior preserved.
+- `src/core/__init__.py`: Re-exported explicit mode-specific constants and aliases to make package imports mode-aware.
+- `src/core/cli.py`: Updated flag help text to reference explicit target-mode defaults.

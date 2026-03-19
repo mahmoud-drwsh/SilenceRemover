@@ -10,6 +10,7 @@ from typing import Optional
 from src.core.cli import parse_args
 from src.core.constants import (
     COMPLETED_DIR,
+    SNIPPET_MAX_DURATION_SEC,
 )
 from src.core.paths import (
     get_snippet_path,
@@ -25,7 +26,7 @@ from src.startup import build_startup_context
 from src.llm.title import generate_title_from_transcript
 from src.llm.transcription import get_audio_path_for_media, transcribe_and_save
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile
-from src.media.trim import create_silence_removed_audio, trim_single_video
+from src.media.trim import create_silence_removed_snippet, trim_single_video
 
 
 def transcribe_media(media_path: Path, temp_dir: Path, api_key: str, basename: str) -> None:
@@ -73,8 +74,6 @@ def transcribe_single_video(media_path: Path, temp_dir: Path, api_key: str, base
 def run_transcription_phase(
     video_path: Path,
     temp_dir: Path,
-    noise_threshold: float,
-    min_duration: float,
     pad_sec: float,
     api_key: str,
 ) -> bool:
@@ -88,15 +87,12 @@ def run_transcription_phase(
 
     try:
         print(f"\n[1/3] Creating snippet (first 5 min, silence-removed): {video_path.name}")
-        create_silence_removed_audio(
+        create_silence_removed_snippet(
             input_file=video_path,
             output_audio_path=snippet_path,
             temp_dir=temp_dir,
-            noise_threshold=noise_threshold,
-            min_duration=min_duration,
             pad_sec=pad_sec,
-            target_length=None,
-            max_duration=300,
+            max_duration=SNIPPET_MAX_DURATION_SEC,
         )
 
         print(f"\n[1/3] Transcribing: {snippet_path.name}")
@@ -206,8 +202,6 @@ def run() -> None:
         run_transcription_phase(
             video_path=video_file,
             temp_dir=temp_dir,
-            noise_threshold=startup.noise_threshold,
-            min_duration=startup.min_duration,
             pad_sec=startup.pad_sec,
             api_key=api_key,
         )

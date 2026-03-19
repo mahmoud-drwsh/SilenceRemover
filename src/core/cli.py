@@ -58,12 +58,12 @@ def parse_args() -> argparse.Namespace:
         "--noise-threshold",
         type=float,
         default=None,
-        help="Silence detection threshold in dB (e.g. -55). Overrides config; with --target-length uses SIMPLE_DB if not set.",
+        help="Silence detection threshold in dB (e.g. -55). Overrides config; with --target-length uses TARGET_NOISE_THRESHOLD_DB (-55) if not set.",
     )
     parser.add_argument(
         "--min-duration",
         type=float,
         default=None,
-        help="Minimum silence duration in seconds (e.g. 1.0). Overrides config; with --target-length uses SIMPLE_MIN_DURATION if not set.",
+        help="Minimum silence duration in seconds (e.g. 1.0). Overrides config; with --target-length uses TARGET_MIN_DURATION_SEC (0.01) if not set.",
     )
     return parser.parse_args()

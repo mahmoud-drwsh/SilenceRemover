@@ -9,12 +9,12 @@ from pathlib import Path
 from src.core.cli import fail, require_input_dir, require_tools, require_videos_in
 from src.core.config import get_config, load_config
 from src.core.constants import (
-    DEFAULT_MIN_DURATION,
-    DEFAULT_NOISE_THRESHOLD,
-    DEFAULT_PAD_SEC,
+    NON_TARGET_MIN_DURATION_SEC,
+    NON_TARGET_NOISE_THRESHOLD_DB,
+    NON_TARGET_PAD_SEC,
     VIDEO_EXTENSIONS,
-    SIMPLE_DB,
-    SIMPLE_MIN_DURATION,
+    TARGET_MIN_DURATION_SEC,
+    TARGET_NOISE_THRESHOLD_DB,
 )
 from src.core.paths import create_temp_subdirs, sibling_dir
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
@@ -61,18 +61,18 @@ def build_startup_context(args: Namespace) -> StartupContext:
     if args.noise_threshold is not None:
         noise_threshold = args.noise_threshold
     elif args.target_length is not None:
-        noise_threshold = SIMPLE_DB
+        noise_threshold = TARGET_NOISE_THRESHOLD_DB
     else:
-        noise_threshold = DEFAULT_NOISE_THRESHOLD
+        noise_threshold = NON_TARGET_NOISE_THRESHOLD_DB
 
     if args.min_duration is not None:
         min_duration = args.min_duration
     elif args.target_length is not None:
-        min_duration = SIMPLE_MIN_DURATION
+        min_duration = TARGET_MIN_DURATION_SEC
     else:
-        min_duration = DEFAULT_MIN_DURATION
+        min_duration = NON_TARGET_MIN_DURATION_SEC
 
-    pad_sec = DEFAULT_PAD_SEC
+    pad_sec = NON_TARGET_PAD_SEC
     api_key = get_config()["OPENROUTER_API_KEY"]
     videos = sorted(p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS)
 

@@ -8,9 +8,9 @@ from src.core.constants import (
     EDGE_SILENCE_KEEP_SEC,
     TRIM_DECIMAL_PLACES,
     TRIM_TIMESTAMP_EPSILON_SEC,
-    SIMPLE_DB,
-    SIMPLE_MIN_DURATION,
-    TARGET_MIN_DURATION,
+    TARGET_NOISE_THRESHOLD_DB,
+    TARGET_MIN_DURATION_SEC,
+    SNIPPET_MIN_DURATION_SEC,
     TARGET_NOISE_THRESHOLDS_DB,
 )
 from src.ffmpeg.detection import detect_silence_points as detect_silence_points_via_ffmpeg
@@ -48,7 +48,7 @@ def detect_leading_trailing_edge_silence(
     edge_starts, edge_ends = detect_silence_points(
         input_file,
         EDGE_RESCAN_THRESHOLD_DB,
-        SIMPLE_MIN_DURATION,
+        SNIPPET_MIN_DURATION_SEC,
     )
     edge_starts, edge_ends = trim_edge_silence(edge_starts, edge_ends, duration_sec, keep_seconds=keep_seconds)
     if not edge_starts or not edge_ends:
@@ -237,7 +237,7 @@ def choose_threshold_and_padding_for_target(
     duration_sec: float,
     target_length: float,
     *,
-    min_duration: float = TARGET_MIN_DURATION,
+    min_duration: float = TARGET_MIN_DURATION_SEC,
     noise_thresholds_db: list[float] = TARGET_NOISE_THRESHOLDS_DB,
 ) -> tuple[list[float], list[float], float, float]:
     """Pick the least-aggressive threshold that can meet target, then tune padding.
@@ -305,9 +305,9 @@ def detect_silence_points(input_file: Path, noise_threshold: float, min_duration
 def detect_silences_simple(input_file: Path) -> tuple[list[float], list[float]]:
     """Detect all silences with fixed settings when --target-length is set.
 
-    Uses SIMPLE_DB and SIMPLE_MIN_DURATION for a single detection pass.
+    Uses TARGET_NOISE_THRESHOLD_DB and TARGET_MIN_DURATION_SEC for a single detection pass.
     """
-    return detect_silence_points(input_file, SIMPLE_DB, SIMPLE_MIN_DURATION)
+    return detect_silence_points(input_file, TARGET_NOISE_THRESHOLD_DB, TARGET_MIN_DURATION_SEC)
 
 
 __all__ = [

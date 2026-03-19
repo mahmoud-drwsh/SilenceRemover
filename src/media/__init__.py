@@ -10,7 +10,7 @@ from src.media.silence_detector import (
     normalize_timestamp,
     truncate_segments_to_max_length,
 )
-from src.media.trim import create_silence_removed_audio, trim_single_video
+from src.media.trim import create_silence_removed_audio, create_silence_removed_snippet, trim_single_video
 
 __all__ = [
     "TRIM_TIMESTAMP_EPSILON_SEC",
@@ -21,6 +21,7 @@ __all__ = [
     "find_optimal_padding",
     "normalize_timestamp",
     "truncate_segments_to_max_length",
+    "create_silence_removed_snippet",
     "create_silence_removed_audio",
     "trim_single_video",
 ]

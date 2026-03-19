@@ -8,7 +8,10 @@ from typing import Optional
 
 from src.core.constants import (
     SCRIPTS_DIR,
-    TARGET_MIN_DURATION,
+    SNIPPET_MAX_DURATION_SEC,
+    SNIPPET_MIN_DURATION_SEC,
+    SNIPPET_NOISE_THRESHOLD_DB,
+    TARGET_MIN_DURATION_SEC,
     TRIM_TIMESTAMP_EPSILON_SEC,
 )
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
@@ -89,9 +92,9 @@ def _resolve_trim_plan(
         input_file,
         duration_sec,
         target_length,
-        min_duration=TARGET_MIN_DURATION,
+        min_duration=TARGET_MIN_DURATION_SEC,
     )
-    return silence_starts, silence_ends, chosen_threshold, TARGET_MIN_DURATION, chosen_pad
+    return silence_starts, silence_ends, chosen_threshold, TARGET_MIN_DURATION_SEC, chosen_pad
 
 
 def _build_segments_to_keep(
@@ -132,6 +135,30 @@ def _build_segments_to_keep(
 
     segments_to_keep = _build_segments_from_silences(silence_starts, silence_ends, duration_sec, pad_sec)
     return (segments_to_keep, duration_sec, chosen_threshold, chosen_min_duration, pad_sec)
+
+
+def create_silence_removed_snippet(
+    input_file: Path,
+    output_audio_path: Path,
+    temp_dir: Path,
+    pad_sec: float,
+    max_duration: Optional[float] = SNIPPET_MAX_DURATION_SEC,
+) -> Path:
+    """Create the fixed-parameter transcription snippet.
+
+    Snippet creation always uses a single conservative detection sweep:
+    SNIPPET_NOISE_THRESHOLD_DB (-55dB) and SNIPPET_MIN_DURATION_SEC (0.01s), plus standard edge handling.
+    """
+    return create_silence_removed_audio(
+        input_file=input_file,
+        output_audio_path=output_audio_path,
+        temp_dir=temp_dir,
+        noise_threshold=SNIPPET_NOISE_THRESHOLD_DB,
+        min_duration=SNIPPET_MIN_DURATION_SEC,
+        pad_sec=pad_sec,
+        target_length=None,
+        max_duration=max_duration,
+    )
 
 
 def create_silence_removed_audio(
