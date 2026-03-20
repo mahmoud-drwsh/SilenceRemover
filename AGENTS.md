@@ -135,3 +135,5 @@ Entries below are appended by the agent after making code or config changes.
 - `src/llm/prompts.py`: Simplified title early-selection rule to remove unsupported silence/non-silence rationale and make it actionable from transcript text alone.
 - `src/llm/prompts.py`: Removed the separate honorific reminder from the title prompt to keep the model's goal hyperfocused on verbatim span selection.
 - `src/llm/title.py`: Added verbatim verification + up-to-3 regeneration attempts before honorific gate/apply.
+- `src/llm/prompts.py`: Updated honorific check/apply prompts to skip adding redundant `ﷺ` when titles already contain `عليه الصلاة والسلام` / `عليه السلام` after Prophet mentions (including `آل سيدنا ...`).
+- `src/llm/title.py`: Added deterministic normalization to strip redundant `ﷺ` following `عليه الصلاة والسلام` / `عليه السلام`.

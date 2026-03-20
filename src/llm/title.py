@@ -69,6 +69,14 @@ def _normalize_honorifics(title: str) -> str:
     if not text:
         return text
 
+    # If the title already contains "عليه الصلاة والسلام"/"عليه السلام",
+    # then a following standalone "ﷺ" is typically redundant—remove it deterministically.
+    text = re.sub(
+        r"(عليه\s+الصلاة\s+والسلام|عليه\s+السلام)\s*ﷺ+",
+        r"\1",
+        text,
+    )
+
     # Collapse consecutive/repeated honorific tokens.
     text = re.sub(r"(?:\s*ﷺ){2,}", " ﷺ", text)
 

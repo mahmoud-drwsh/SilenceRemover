@@ -53,11 +53,14 @@ You are given one Arabic video title. Determine whether Islamic honorific edits 
 
 Rules to check:
 1. The title should include "سيدنا" immediately before the first Prophet reference in the Prophet-related phrase/block: "محمد", "رسول الله", or "النبي المصطفى".
-2. The honorific "ﷺ" must appear exactly once, immediately after the end of that Prophet-related phrase/block:
-   - "محمد" -> after محمد
-   - "رسول الله" (including inside "محمد رسول الله") -> after رسول الله (at the end of the block)
-   - "النبي المصطفى" -> after المصطفى
-   Also remove/flag any duplicate "ﷺ" that appears inside that block.
+2. The honorific "ﷺ":
+   - Normally, it must appear exactly once immediately after the end of that Prophet-related phrase/block:
+     - "محمد" -> after محمد
+     - "رسول الله" (including inside "محمد رسول الله") -> after رسول الله (at the end of the block)
+     - "النبي المصطفى" -> after المصطفى
+   - Exception: if the title contains "عليه الصلاة والسلام" or "عليه السلام" immediately after the Prophet reference within that phrase/block, then do NOT require/expect any extra "ﷺ" for that Prophet mention.
+     - If "ﷺ" appears immediately after "عليه الصلاة والسلام" / "عليه السلام", that "ﷺ" is unnecessary and should be removed (so return YES).
+Also remove/flag any duplicate "ﷺ" that appears inside that block (unless the exception rule above applies).
 3. Return YES if "سيدنا" and/or "ﷺ" placement is missing or duplicated; otherwise return NO.
 
 Examples (where "ﷺ" should be added vs not added):
@@ -72,6 +75,11 @@ Examples (where "ﷺ" should be added vs not added):
 - Title: سيدنا النبي المصطفى ﷺ -> follows rules, return NO
 - Title: رسول الله -> honorific edits missing (missing سيدنا prefix and ending ﷺ), return YES
 - Title: سيدنا رسول الله ﷺ -> follows rules, return NO
+- Title: آل سيدنا النبي عليه الصلاة والسلام -> follows rules (no extra ﷺ needed), return NO
+- Title: آل سيدنا النبي عليه الصلاة والسلام ﷺ -> unnecessary extra ﷺ after "عليه الصلاة والسلام", return YES
+- Title: آل النبي عليه الصلاة والسلام -> honorific edits missing (missing سيدنا), return YES
+- Title: سيدنا النبي عليه الصلاة والسلام -> follows rules (no extra ﷺ needed), return NO
+- Title: سيدنا النبي عليه الصلاة والسلام ﷺ -> unnecessary extra ﷺ after "عليه الصلاة والسلام", return YES
 
 If the title already follows the rules, return:
 NO
@@ -88,7 +96,9 @@ HONORIFIC_APPLY_PROMPT_TEMPLATE = """\
 You are given an Arabic video title. Your task is to add Islamic honorifics where they are missing—do not duplicate any that are already present.
 
 1. Ensure "سيدنا" appears immediately before the Prophet-related phrase/block that starts with any of: "محمد", "رسول الله", or "النبي المصطفى". If "سيدنا" is already there, leave it.
-2. Ensure there is exactly one "ﷺ" at the end of that Prophet-related phrase/block (after محمد / after رسول الله / after المصطفى). Remove any duplicate "ﷺ" that appears earlier inside that block.
+2. Ensure the salawat honorific "ﷺ" placement follows these rules:
+   - Normally, ensure there is exactly one "ﷺ" at the end of that Prophet-related phrase/block (after محمد / after رسول الله / after المصطفى). Remove any duplicate "ﷺ" that appears earlier inside that block.
+   - Exception: if the Prophet-related phrase/block contains "عليه الصلاة والسلام" or "عليه السلام", then do NOT add any extra "ﷺ" after that phrase. If there is an extra "ﷺ" immediately after "عليه الصلاة والسلام"/"عليه السلام", remove it.
 
 Examples (output rules):
 - Input: محمد -> Output: سيدنا محمد ﷺ
@@ -99,6 +109,12 @@ Examples (output rules):
 - Input: محمد ﷺ ﷺ رسول الله ﷺ ﷺ -> Output: سيدنا محمد رسول الله ﷺ (remove extra duplicates)
 - Input: النبي المصطفى -> Output: سيدنا النبي المصطفى ﷺ
 - Input: رسول الله -> Output: سيدنا رسول الله ﷺ
+- Input: آل سيدنا النبي عليه الصلاة والسلام -> Output: آل سيدنا النبي عليه الصلاة والسلام
+- Input: آل سيدنا النبي عليه الصلاة والسلام ﷺ -> Output: آل سيدنا النبي عليه الصلاة والسلام
+- Input: آل النبي عليه الصلاة والسلام -> Output: آل سيدنا النبي عليه الصلاة والسلام
+- Input: سيدنا النبي عليه الصلاة والسلام -> Output: سيدنا النبي عليه الصلاة والسلام
+- Input: سيدنا النبي عليه الصلاة والسلام ﷺ -> Output: سيدنا النبي عليه الصلاة والسلام
+- Input: النبي عليه الصلاة والسلام -> Output: سيدنا النبي عليه الصلاة والسلام
 
 If the title already follows these rules and needs no changes, return the title exactly as-is.
 
