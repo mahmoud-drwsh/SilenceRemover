@@ -3,6 +3,7 @@
 __all__ = [
     "TRANSCRIBE_PROMPT",
     "TITLE_PROMPT_TEMPLATE",
+    "TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE",
     "HONORIFIC_CHECK_PROMPT_TEMPLATE",
     "HONORIFIC_APPLY_PROMPT_TEMPLATE",
     "ADD_HONORIFIC_PROMPT_TEMPLATE",
@@ -27,6 +28,24 @@ Rules: 60–90 characters (max 100). One title only.
 
 Transcript:
 {transcript}
+"""
+
+TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE = """\
+You are given:
+- Transcript: {transcript}
+- CandidateTitle: {candidate_title}
+
+Task:
+Verify whether CandidateTitle is a verbatim title taken from the Transcript with no extra words or commentary.
+
+Rules:
+1. The candidate must not include any prefix/suffix like "العنوان", "Title:", quotes, or any extra commentary.
+2. The candidate must not introduce any words that do not appear in the transcript.
+3. Minor differences in whitespace/punctuation are allowed.
+
+Output exactly one token: YES or NO (no punctuation, no extra text).
+CandidateTitle:
+{candidate_title}
 """
 
 HONORIFIC_CHECK_PROMPT_TEMPLATE = """\

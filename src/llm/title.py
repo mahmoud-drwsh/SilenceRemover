@@ -8,6 +8,7 @@ from src.llm.prompts import (
     HONORIFIC_APPLY_PROMPT_TEMPLATE,
     HONORIFIC_CHECK_PROMPT_TEMPLATE,
     TITLE_PROMPT_TEMPLATE,
+    TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE,
 )
 from src.llm.client import request as openrouter_request
 
@@ -28,6 +29,20 @@ def _single_non_empty_line(text: str) -> str:
 def _parse_honorific_check(raw_response: str) -> bool | None:
     """Parse strict YES/NO output from honorific-check model step."""
     response = _single_non_empty_line(raw_response).upper()
+    if response == "YES":
+        return True
+    if response == "NO":
+        return False
+    return None
+
+
+def _parse_yes_no(raw_response: str) -> bool | None:
+    """Parse strict YES/NO output from a model step."""
+    response = _single_non_empty_line(raw_response).upper()
+    if not response:
+        return None
+    # Allow trailing punctuation like YES. / NO!
+    response = re.sub(r"[.!?]+$", "", response).strip()
     if response == "YES":
         return True
     if response == "NO":
@@ -85,19 +100,61 @@ def generate_title_with_openrouter(
     Returns:
         Generated title with honorifics (single line)
     """
-    # Step 1: Generate title from transcript (no honorific rules)
+    # Step 1: Generate base title (verbatim) with up to 3 retries + verifier gate.
     prompt1 = TITLE_PROMPT_TEMPLATE.format(transcript=transcript)
     messages1 = [
         {"role": "user", "content": [{"type": "text", "text": prompt1}]},
     ]
-    print("Generating title with model: google/gemini-2.5-flash-lite:nitro")
-    raw_title = openrouter_request(
-        api_key, "google/gemini-2.5-flash-lite:nitro", messages1, log_dir=log_dir
-    )
-    raw_title = _first_line(str(raw_title))
+    verifier_model = "google/gemini-2.5-flash-lite:nitro"
+
+    raw_title: str = ""
+    last_candidate: str = ""
+    for attempt in range(1, 4):
+        print(
+            f"Generating base title (attempt {attempt}/3) with model: {verifier_model}"
+        )
+        candidate = openrouter_request(
+            api_key, verifier_model, messages1, log_dir=log_dir
+        )
+        candidate = _first_line(str(candidate)).strip()
+        if not candidate:
+            print("Title generation returned empty response; retrying...", file=sys.stderr)
+            continue
+
+        # Verify the candidate is verbatim from the transcript.
+        verify_prompt = TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE.format(
+            transcript=transcript, candidate_title=candidate
+        )
+        verify_messages = [
+            {"role": "user", "content": [{"type": "text", "text": verify_prompt}]}
+        ]
+        print("Verifying candidate is verbatim from transcript...")
+        verify_response = openrouter_request(
+            api_key, verifier_model, verify_messages, log_dir=log_dir
+        )
+        is_verbatim = _parse_yes_no(str(verify_response))
+        if is_verbatim is True:
+            raw_title = candidate
+            break
+
+        last_candidate = candidate
+        print(
+            "Verbatim verification rejected the candidate; retrying...",
+            file=sys.stderr,
+        )
+
+    if not raw_title:
+        if last_candidate:
+            print(
+                "Verbatim verification rejected all candidates; proceeding with last candidate.",
+                file=sys.stderr,
+            )
+            raw_title = last_candidate
+        else:
+            raw_title = ""
     if not raw_title:
         # Log and signal failure so the caller can skip this item.
-        print("Title generation returned empty response.", file=sys.stderr)
+        print("Title generation returned empty response after retries.", file=sys.stderr)
         raise RuntimeError("Title generation returned empty response")
 
     try:
