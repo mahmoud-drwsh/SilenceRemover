@@ -6,7 +6,7 @@ An automated video processing tool that removes silence segments, transcribes au
 
 - **Silence Detection & Removal**: Automatically detects and trims silence segments using FFmpeg's `silencedetect` filter
 - **Smart Trimming**: Optional target length optimization that adjusts padding to achieve desired video duration
-- **AI Transcription**: Extracts and transcribes the first 5 minutes of audio using OpenRouter (default model: `google/gemini-2.5-flash-lite:nitro`)
+- **AI Transcription**: Extracts and transcribes the first 5 minutes of audio using OpenRouter (default model: `google/gemini-3.1-flash-lite-preview`)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
 - **Video encoding**: Uses a centralized resolver that currently tries HEVC Intel Quick Sync (`hevc_qsv`) first, then Apple VideoToolbox (`hevc_videotoolbox`). The resolver design is intentionally extensible for future hardware encoders, and failures are reported directly without codec fallback.
@@ -112,7 +112,7 @@ The tool processes videos sequentially through four main stages:
 
 ### 3. Transcription & Title Generation
 
-- **Transcription** (`src/llm/transcription.py`): Extracts and transcribes audio using OpenRouter API (default model: `google/gemini-2.5-flash-lite:nitro`). Optimized for Arabic verbatim transcription.
+- **Transcription** (`src/llm/transcription.py`): Extracts and transcribes audio using OpenRouter API (default model: `google/gemini-3.1-flash-lite-preview`). Optimized for Arabic verbatim transcription.
 - **Title** (`src/llm/title.py`): Generates a YouTube-style title from transcript text.
 - Both use a shared OpenRouter client (`src/llm/client.py`). Pipeline orchestration is in `src/app/pipeline.py`.
 - **Two-step process**: Separate API calls for transcription and title generation (better quality and control). Transcript and title are stored in `temp/transcript/{basename}.txt` and `temp/title/{basename}.txt`.
@@ -163,7 +163,7 @@ The tool maintains state in files inside `temp/` to avoid reprocessing videos:
 
 The tool includes built-in retry logic for rate limit errors (exponential backoff) and processes videos sequentially to respect API quotas.
 
-- **Defaults**: Both transcription and title generation default to `google/gemini-2.5-flash-lite:nitro` (see the helper modules under `src/llm/transcription.py` and `src/llm/title.py`).
+- **Defaults**: Both transcription and title generation default to `google/gemini-3.1-flash-lite-preview` (see the helper modules under `src/llm/transcription.py` and `src/llm/title.py`).
 
 ## Domain Package Layout
 

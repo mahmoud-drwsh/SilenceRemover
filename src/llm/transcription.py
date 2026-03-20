@@ -62,7 +62,7 @@ def get_audio_path_for_media(media_path: Path, temp_dir: Path, basename: str) ->
 def transcribe_with_openrouter(
     api_key: str,
     audio_path: Path,
-    model: str = "google/gemini-2.5-flash-lite:nitro",
+    model: str = "google/gemini-3.1-flash-lite-preview",
     log_dir: Path | None = None,
 ) -> str:
     """Transcribe audio using OpenRouter API.
@@ -104,7 +104,7 @@ def transcribe_and_save(
     api_key: str,
     audio_path: Path,
     output_path: Path,
-    model: str = "google/gemini-2.5-flash-lite:nitro",
+    model: str = "google/gemini-3.1-flash-lite-preview",
     log_dir: Path | None = None,
 ) -> None:
     """Transcribe audio and save transcript to file.

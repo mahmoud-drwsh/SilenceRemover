@@ -113,7 +113,7 @@ def generate_title_with_openrouter(
     messages1 = [
         {"role": "user", "content": [{"type": "text", "text": prompt1}]},
     ]
-    verifier_model = "google/gemini-2.5-flash-lite:nitro"
+    verifier_model = "google/gemini-3.1-flash-lite-preview"
 
     raw_title: str = ""
     last_candidate: str = ""
@@ -174,7 +174,7 @@ def generate_title_with_openrouter(
         print("Checking whether honorifics are needed...")
         check_response = openrouter_request(
             api_key,
-            "google/gemini-2.5-flash-lite:nitro",
+            "google/gemini-3.1-flash-lite-preview",
             check_messages,
             log_dir=log_dir,
         )
@@ -195,7 +195,7 @@ def generate_title_with_openrouter(
         ]
         print("Adding honorific to title...")
         title_response = openrouter_request(
-            api_key, "google/gemini-2.5-flash-lite:nitro", messages2, log_dir=log_dir
+            api_key, "google/gemini-3.1-flash-lite-preview", messages2, log_dir=log_dir
         )
         title_text = _normalize_honorifics(_single_non_empty_line(str(title_response)))
         if not title_text:

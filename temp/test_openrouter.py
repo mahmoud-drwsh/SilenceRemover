@@ -68,7 +68,7 @@ def extract_first_minute_audio(input_video: Path, output_audio: Path, format: st
         )
 
 
-def transcribe_with_openrouter(audio_path: Path, model: str = "google/gemini-2.0-flash-lite-001") -> dict:
+def transcribe_with_openrouter(audio_path: Path, model: str = "google/gemini-3.1-flash-lite-preview") -> dict:
     """Transcribe audio using OpenRouter API.
     
     Args:
@@ -154,11 +154,9 @@ def main():
     extract_first_minute_audio(test_video, audio_output, format="ogg")
     print(f"Audio extracted: {audio_output}")
     
-    # Try transcription with cheapest models
+    # Try transcription with the configured model.
     models_to_try = [
-        "google/gemini-2.0-flash-lite-001",  # Cheapest option
-        "mistralai/voxtral-small-24b-2507",  # Second cheapest
-        "google/gemini-2.5-flash-lite",  # Third cheapest
+        "google/gemini-3.1-flash-lite-preview",
     ]
     
     for model in models_to_try:

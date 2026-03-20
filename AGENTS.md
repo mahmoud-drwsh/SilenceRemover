@@ -138,3 +138,8 @@ Entries below are appended by the agent after making code or config changes.
 - `src/llm/prompts.py`: Updated honorific check/apply prompts to skip adding redundant `ﷺ` when titles already contain `عليه الصلاة والسلام` / `عليه السلام` after Prophet mentions (including `آل سيدنا ...`).
 - `src/llm/title.py`: Added deterministic normalization to strip redundant `ﷺ` following `عليه الصلاة والسلام` / `عليه السلام`.
 - `src/core/constants.py`: Increased `SNIPPET_MAX_DURATION_SEC` for transcription snippet extraction from `60.0` to `180.0` seconds (3 minutes).
+- `src/llm/title.py`: Switched title-generation, verbatim verification, and honorific-check/apply model calls to `google/gemini-3.1-flash-lite-preview`.
+- `README.md`: Updated default model documentation to `google/gemini-3.1-flash-lite-preview` for transcription and title generation.
+- `src/llm/transcription.py`: Updated default OpenRouter model parameters from `google/gemini-2.5-flash-lite:nitro` to `google/gemini-3.1-flash-lite-preview`.
+- `temp/test_openrouter.py`: Standardized OpenRouter test model IDs to `google/gemini-3.1-flash-lite-preview` for uniform helper behavior.
+- `src/llm/client.py`: Added shared OpenRouter request defaults to cap input/context and output token budgets at 10,000 via request payload parameters.

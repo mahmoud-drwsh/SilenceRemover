@@ -133,6 +133,8 @@ def request(
     api_key: str,
     model: str,
     messages: list[dict],
+    max_input_tokens: int | None = 10_000,
+    max_output_tokens: int | None = 10_000,
     max_attempts: int = 5,
     initial_backoff_sec: float = 1.0,
     max_backoff_sec: float = 30.0,
@@ -152,6 +154,8 @@ def request(
         api_key: OpenRouter API key
         model: Model name to use
         messages: List of message dictionaries for the API
+        max_input_tokens: Maximum input/context tokens for the request
+        max_output_tokens: Maximum output tokens for the request
         max_attempts: Maximum number of retry attempts
         initial_backoff_sec: Initial backoff delay in seconds
         max_backoff_sec: Maximum backoff delay in seconds
@@ -174,11 +178,27 @@ def request(
                 http_referer="https://github.com/SilenceRemover",
                 x_title="SilenceRemover",
             ) as client:
-                response = client.chat.send(
-                    model=model,
-                    messages=messages,
-                    stream=False,
-                )
+                request_payload = {
+                    "model": model,
+                    "messages": messages,
+                    "stream": False,
+                }
+                if max_input_tokens is not None:
+                    request_payload["max_input_tokens"] = max_input_tokens
+                if max_output_tokens is not None:
+                    request_payload["max_tokens"] = max_output_tokens
+                try:
+                    response = client.chat.send(**request_payload)
+                except Exception as err:
+                    # Some providers/SDK versions may not accept max_input_tokens.
+                    if max_input_tokens is not None and "max_input_tokens" in request_payload:
+                        if "max_input_tokens" in str(err):
+                            request_payload.pop("max_input_tokens", None)
+                            response = client.chat.send(**request_payload)
+                        else:
+                            raise
+                    else:
+                        raise
             if response.choices and len(response.choices) > 0:
                 content = response.choices[0].message.content or ""
                 # The SDK may return either a plain string or a list of
