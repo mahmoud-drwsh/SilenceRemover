@@ -16,7 +16,7 @@ TRANSCRIBE_PROMPT = """Transcribe the Arabic audio as clean verbatim text in Ara
 TITLE_PROMPT_TEMPLATE = """\
 Generate one YouTube video title in Arabic from the transcript below. The title must be in Arabic. Output only the title—no commentary, no explanation, no quotes around it, and nothing else.
 
-Rules: 60–90 characters (max 100). One title only. Be accurate and descriptive; prefer wording from the transcript.
+Rules: 60–90 characters (max 100). One title only. The speaker says the title at the very beginning, so prioritize the opening verbatim words and use the first complete title phrase from the start. Be accurate and descriptive; prefer exact wording from the opening transcript words.
 
 Transcript:
 {transcript}

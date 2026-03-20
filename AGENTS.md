@@ -123,3 +123,6 @@ Entries below are appended by the agent after making code or config changes.
 - `src/ffmpeg/runner.py`: added a compatibility retry to legacy `-filter_complex_script` only when `-/filter_complex` is rejected.
 - `README.md`: clarified that shared command construction uses `-/filter_complex` and documents the updated filter-script behavior.
 - `src/ffmpeg/runner.py`: removed legacy `-filter_complex_script` fallback now that FFmpeg 8+ `-/filter_complex` is assumed to be available.
+- `src/core/constants.py`: Reduced transcription snippet cap by setting `SNIPPET_MAX_DURATION_SEC` to `60.0` for one-minute transcription input.
+- `src/llm/title.py`: Added first-words transcript prefixing (30-word default) and now feeds that prefix into title generation instead of the full transcript.
+- `src/llm/prompts.py`: Updated title-generation instructions to prioritize the opening verbatim words and the first complete title phrase at the start.
