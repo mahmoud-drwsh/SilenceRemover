@@ -126,3 +126,6 @@ Entries below are appended by the agent after making code or config changes.
 - `src/core/constants.py`: Reduced transcription snippet cap by setting `SNIPPET_MAX_DURATION_SEC` to `60.0` for one-minute transcription input.
 - `src/llm/title.py`: Added first-words transcript prefixing (30-word default) and now feeds that prefix into title generation instead of the full transcript.
 - `src/llm/prompts.py`: Updated title-generation instructions to prioritize the opening verbatim words and the first complete title phrase at the start.
+- `src/llm/prompts.py`: Updated honorific prompt wording to use “where appropriate” and added brief honorific insertion examples to reduce duplicate ﷺ additions.
+- `src/llm/prompts.py`: Expanded honorific prompt examples to cover duplicate ﷺ cases (e.g., `ﷺ ﷺ` after mentions) and clarify where ﷺ should be added vs not.
+- `src/llm/prompts.py`: Corrected honorific prompt check/apply example pairs and rule wording so they match the expected "سيدنا" prefix and single trailing ﷺ behavior.

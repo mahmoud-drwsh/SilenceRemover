@@ -26,9 +26,26 @@ HONORIFIC_CHECK_PROMPT_TEMPLATE = """\
 You are given one Arabic video title. Determine whether Islamic honorific edits are missing.
 
 Rules to check:
-1. Before the name "محمد" only (not before رسول الله, المصطفى, or النبي), "سيدنا" should appear immediately before محمد.
-2. Immediately after each mention of the Prophet (محمد, رسول الله, المصطفى, النبي), the honorific "ﷺ" should appear.
-3. A single title must only be modified when one or more of the above is missing.
+1. The title should include "سيدنا" immediately before the first Prophet reference in the Prophet-related phrase/block: "محمد", "رسول الله", or "النبي المصطفى".
+2. The honorific "ﷺ" must appear exactly once, immediately after the end of that Prophet-related phrase/block:
+   - "محمد" -> after محمد
+   - "رسول الله" (including inside "محمد رسول الله") -> after رسول الله (at the end of the block)
+   - "النبي المصطفى" -> after المصطفى
+   Also remove/flag any duplicate "ﷺ" that appears inside that block.
+3. Return YES if "سيدنا" and/or "ﷺ" placement is missing or duplicated; otherwise return NO.
+
+Examples (where "ﷺ" should be added vs not added):
+- Title: محمد -> honorific edits missing (missing سيدنا and ﷺ), return YES
+- Title: سيدنا محمد ﷺ -> follows rules, return NO
+- Title: محمد ﷺ -> honorific edits missing (missing سيدنا), return YES
+- Title: محمد ﷺ ﷺ -> honorific edits missing (duplicate ﷺ), return YES
+- Title: محمد رسول الله -> honorific edits missing (missing سيدنا prefix and ending ﷺ), return YES
+- Title: سيدنا محمد رسول الله ﷺ -> follows rules, return NO
+- Title: محمد ﷺ رسول الله ﷺ -> honorific edits missing (ﷺ duplicated inside block), return YES
+- Title: النبي المصطفى -> honorific edits missing (missing سيدنا prefix and ending ﷺ), return YES
+- Title: سيدنا النبي المصطفى ﷺ -> follows rules, return NO
+- Title: رسول الله -> honorific edits missing (missing سيدنا prefix and ending ﷺ), return YES
+- Title: سيدنا رسول الله ﷺ -> follows rules, return NO
 
 If the title already follows the rules, return:
 NO
@@ -44,8 +61,18 @@ Title:
 HONORIFIC_APPLY_PROMPT_TEMPLATE = """\
 You are given an Arabic video title. Your task is to add Islamic honorifics where they are missing—do not duplicate any that are already present.
 
-1. Before the name محمد only (not before رسول الله, المصطفى, النبي), add سيدنا immediately before محمد. If سيدنا is already there, leave it.
-2. Immediately after each mention of the Prophet in the title (محمد, رسول الله, المصطفى, النبي), add the honorific ﷺ. If ﷺ is already after that mention, do not add it again.
+1. Ensure "سيدنا" appears immediately before the Prophet-related phrase/block that starts with any of: "محمد", "رسول الله", or "النبي المصطفى". If "سيدنا" is already there, leave it.
+2. Ensure there is exactly one "ﷺ" at the end of that Prophet-related phrase/block (after محمد / after رسول الله / after المصطفى). Remove any duplicate "ﷺ" that appears earlier inside that block.
+
+Examples (output rules):
+- Input: محمد -> Output: سيدنا محمد ﷺ
+- Input: محمد ﷺ -> Output: سيدنا محمد ﷺ
+- Input: محمد ﷺ ﷺ -> Output: سيدنا محمد ﷺ (remove duplicate ﷺ)
+- Input: محمد رسول الله -> Output: سيدنا محمد رسول الله ﷺ
+- Input: محمد ﷺ رسول الله ﷺ -> Output: سيدنا محمد رسول الله ﷺ
+- Input: محمد ﷺ ﷺ رسول الله ﷺ ﷺ -> Output: سيدنا محمد رسول الله ﷺ (remove extra duplicates)
+- Input: النبي المصطفى -> Output: سيدنا النبي المصطفى ﷺ
+- Input: رسول الله -> Output: سيدنا رسول الله ﷺ
 
 If the title already follows these rules and needs no changes, return the title exactly as-is.
 
