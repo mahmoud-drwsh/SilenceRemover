@@ -133,3 +133,4 @@ Entries below are appended by the agent after making code or config changes.
 - `src/llm/prompts.py`: Revised `TITLE_PROMPT_TEMPLATE` to extract the title from the first few sentences of the transcript from the 1st non-silence minute.
 - `src/llm/prompts.py`: Tightened transcription/title prompt instructions to prefer verbatim wording from the transcript/audio, forbid paraphrasing/rephrasing, and ensure the title is a verbatim contiguous span (honorifics handled only in post-processing).
 - `src/llm/prompts.py`: Simplified title early-selection rule to remove unsupported silence/non-silence rationale and make it actionable from transcript text alone.
+- `src/llm/prompts.py`: Removed the separate honorific reminder from the title prompt to keep the model's goal hyperfocused on verbatim span selection.

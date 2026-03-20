@@ -23,8 +23,7 @@ Rules: 60–90 characters (max 100). One title only.
 1. Verbatim constraint: the title must be a verbatim contiguous span from the provided transcript (exact same Arabic words in the same order). Do not paraphrase, do not rephrase, and do not add any words.
 2. Early selection: use only the earliest part of the transcript (first few sentences from the start of the provided transcript).
    Choose the best verbatim contiguous span within those sentences that can serve as a 60–90 character YouTube title.
-3. Honorifics: do not add "سيدنا" or "ﷺ" yourself. Leave honorific insertion to the separate honorific post-processing step.
-4. Length fit: if you must shorten for the 60–90 character limit, truncate by removing leading/trailing words from the span (keep the remaining words identical to the transcript).
+3. Length fit: if you must shorten for the 60–90 character limit, truncate by removing leading/trailing words from the span (keep the remaining words identical to the transcript).
 
 Transcript:
 {transcript}
