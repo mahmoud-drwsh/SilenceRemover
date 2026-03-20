@@ -11,12 +11,20 @@ __all__ = [
 TRANSCRIBE_PROMPT = """Transcribe the Arabic audio as clean verbatim text in Arabic.
 - No timestamps
 - No speaker labels
-- Keep punctuation and natural phrasing."""
+- Preserve the original wording as much as possible (do not paraphrase, summarize, or correct phrasing).
+- Keep punctuation as in the audio where possible.
+- If a word is unclear, choose the most likely wording, but do not invent new content."""
 
 TITLE_PROMPT_TEMPLATE = """\
 Generate one YouTube video title in Arabic from the transcript below. The title must be in Arabic. Output only the title—no commentary, no explanation, no quotes around it, and nothing else.
 
-Rules: 60–90 characters (max 100). One title only. Extract the title from the first few sentences of the provided transcript (early speech from the 1st non-silence minute); let the model choose the best phrase(s) within those sentences rather than assuming the very first words are always the title. Be accurate and descriptive; prefer exact wording from that early part of the transcript.
+Rules: 60–90 characters (max 100). One title only.
+
+1. Verbatim constraint: the title must be a verbatim contiguous span from the provided transcript (exact same Arabic words in the same order). Do not paraphrase, do not rephrase, and do not add any words.
+2. Early selection: use only the earliest part of the transcript (first few sentences from the start of the provided transcript).
+   Choose the best verbatim contiguous span within those sentences that can serve as a 60–90 character YouTube title.
+3. Honorifics: do not add "سيدنا" or "ﷺ" yourself. Leave honorific insertion to the separate honorific post-processing step.
+4. Length fit: if you must shorten for the 60–90 character limit, truncate by removing leading/trailing words from the span (keep the remaining words identical to the transcript).
 
 Transcript:
 {transcript}
