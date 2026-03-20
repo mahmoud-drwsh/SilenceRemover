@@ -329,7 +329,7 @@ def create_silence_removed_audio(
     max_duration: Optional[float] = None,
 ) -> Path:
     """Create silence-removed audio (same algorithm as video trim), audio only (-vn).
-    If max_duration is set (e.g. 300), limit output to that many seconds (e.g. first 5 min)."""
+    If max_duration is set (e.g. 180), limit output to that many seconds (e.g. first 3 min)."""
     output_audio_path.parent.mkdir(parents=True, exist_ok=True)
 
     # OGG/Opus for smaller payload when path is .ogg; else WAV

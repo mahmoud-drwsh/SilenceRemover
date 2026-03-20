@@ -105,7 +105,7 @@ The tool processes videos sequentially through four main stages:
 
 ### 2. Audio Extraction
 
-- Extracts first 5 minutes of silence-removed, snippet audio for transcription using the same edge policy as final trim.
+- Extracts first 3 minutes of silence-removed, snippet audio for transcription using the same edge policy as final trim.
 - Saves as `.m4a` file in `temp/` directory
 - Phase-1 snippet extraction ignores `--noise-threshold`/`--min-duration` overrides and always uses `SNIPPET_NOISE_THRESHOLD_DB` (`-55dB`) and `SNIPPET_MIN_DURATION_SEC` (`0.01s`) via snippet defaults.
 - Reuses existing audio files if already extracted

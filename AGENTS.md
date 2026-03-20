@@ -137,3 +137,4 @@ Entries below are appended by the agent after making code or config changes.
 - `src/llm/title.py`: Added verbatim verification + up-to-3 regeneration attempts before honorific gate/apply.
 - `src/llm/prompts.py`: Updated honorific check/apply prompts to skip adding redundant `ﷺ` when titles already contain `عليه الصلاة والسلام` / `عليه السلام` after Prophet mentions (including `آل سيدنا ...`).
 - `src/llm/title.py`: Added deterministic normalization to strip redundant `ﷺ` following `عليه الصلاة والسلام` / `عليه السلام`.
+- `src/core/constants.py`: Increased `SNIPPET_MAX_DURATION_SEC` for transcription snippet extraction from `60.0` to `180.0` seconds (3 minutes).

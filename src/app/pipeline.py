@@ -130,7 +130,7 @@ def run_transcription_phase(
     snippet_path = get_snippet_path(temp_dir, basename)
 
     def _perform() -> None:
-        print(f"\n[1/3] Creating snippet (first 5 min, silence-removed): {video_path.name}")
+        print(f"\n[1/3] Creating snippet (first 3 min, silence-removed): {video_path.name}")
         create_silence_removed_snippet(
             input_file=video_path,
             output_audio_path=snippet_path,

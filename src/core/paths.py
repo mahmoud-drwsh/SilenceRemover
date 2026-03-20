@@ -35,7 +35,7 @@ def create_temp_subdirs(temp_dir: Path) -> None:
 
 
 def get_snippet_path(temp_dir: Path, basename: str) -> Path:
-    """Path to snippet audio file (first 5 min, silence-removed)."""
+    """Path to snippet audio file (first 3 min, silence-removed)."""
     return temp_dir / SNIPPET_DIR / f"{basename}{AUDIO_FILE_EXT}"
 
 
