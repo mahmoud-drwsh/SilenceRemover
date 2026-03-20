@@ -129,3 +129,5 @@ Entries below are appended by the agent after making code or config changes.
 - `src/llm/prompts.py`: Updated honorific prompt wording to use “where appropriate” and added brief honorific insertion examples to reduce duplicate ﷺ additions.
 - `src/llm/prompts.py`: Expanded honorific prompt examples to cover duplicate ﷺ cases (e.g., `ﷺ ﷺ` after mentions) and clarify where ﷺ should be added vs not.
 - `src/llm/prompts.py`: Corrected honorific prompt check/apply example pairs and rule wording so they match the expected "سيدنا" prefix and single trailing ﷺ behavior.
+- `src/llm/title.py`: Updated title generation to use the full transcript (no 30-word truncation) so the model can decide what to use.
+- `src/llm/prompts.py`: Revised `TITLE_PROMPT_TEMPLATE` to extract the title from the first few sentences of the transcript from the 1st non-silence minute.

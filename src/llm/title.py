@@ -11,8 +11,6 @@ from src.llm.prompts import (
 )
 from src.llm.client import request as openrouter_request
 
-TITLE_TRANSCRIPT_PREFIX_WORDS = 30
-
 
 def _first_line(text: str) -> str:
     """Extract first non-empty line from response text."""
@@ -25,16 +23,6 @@ def _single_non_empty_line(text: str) -> str:
     if len(lines) != 1:
         return ""
     return lines[0]
-
-
-def _first_n_words(text: str, word_count: int) -> str:
-    """Return the first word_count words from text."""
-    if word_count <= 0:
-        return ""
-    words = (text or "").split()
-    if not words:
-        return ""
-    return " ".join(words[:word_count])
 
 
 def _parse_honorific_check(raw_response: str) -> bool | None:
@@ -173,9 +161,10 @@ def generate_title_from_transcript(
         log_dir: If set, log request/response to log_dir/openrouter_requests.log
     """
     print(f"Reading transcript from: {transcript_path}")
-    transcript = transcript_path.read_text(encoding="utf-8")
-    title_context = _first_n_words(transcript, TITLE_TRANSCRIPT_PREFIX_WORDS)
-    title_text = generate_title_with_openrouter(api_key, title_context, log_dir)
+    transcript = transcript_path.read_text(encoding="utf-8").strip()
+    # Use the full transcript for the title step; the prompt instructs the model
+    # to extract from the early speech portion of the transcript.
+    title_text = generate_title_with_openrouter(api_key, transcript, log_dir)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(title_text, encoding="utf-8")
