@@ -17,14 +17,15 @@ TRANSCRIBE_PROMPT = """Transcribe the Arabic audio as clean verbatim text in Ara
 - If a word is unclear, choose the most likely wording, but do not invent new content."""
 
 TITLE_PROMPT_TEMPLATE = """\
-Generate one YouTube video title in Arabic from the transcript below. The title must be in Arabic. Output only the title—no commentary, no explanation, no quotes around it, and nothing else.
+Generate one YouTube video title in Arabic from the transcript below. The title must be in Arabic. Output only the title text on one line—no commentary, no explanation, no quotes around it, and nothing else.
 
-Rules: 60–90 characters (max 100). One title only.
+Rules: one title only. Use YouTube title length (up to 100 characters).
 
 1. Verbatim constraint: the title must be a verbatim contiguous span from the provided transcript (exact same Arabic words in the same order). Do not paraphrase, do not rephrase, and do not add any words.
-2. Early selection: use only the earliest part of the transcript (first few sentences from the start of the provided transcript).
-   Choose the best verbatim contiguous span within those sentences that can serve as a 60–90 character YouTube title.
-3. Length fit: if you must shorten for the 60–90 character limit, truncate by removing leading/trailing words from the span (keep the remaining words identical to the transcript).
+2. Beginning-only extraction: the title is always stated at the beginning of the transcript. Extract it only from the opening complete-sentence part at the start of the transcript.
+3. Do NOT use later answer/explanation body text. If a candidate phrase appears in later explanatory content, reject it and choose from the opening complete sentences instead.
+4. Keep sentence integrity while selecting: choose a natural contiguous span from those opening complete sentences.
+5. Length fit: if you must shorten for YouTube length limits, truncate only by removing leading/trailing words from that same opening span (keep the remaining words identical to the transcript).
 
 Transcript:
 {transcript}
@@ -41,7 +42,8 @@ Verify whether CandidateTitle is a verbatim title taken from the Transcript with
 Rules:
 1. The candidate must not include any prefix/suffix like "العنوان", "Title:", quotes, or any extra commentary.
 2. The candidate must not introduce any words that do not appear in the transcript.
-3. Minor differences in whitespace/punctuation are allowed.
+3. Source-position constraint: the candidate must come from the opening complete-sentence part at the start of the transcript (where the title is introduced), not from later answer/explanatory content.
+4. Minor differences in whitespace/punctuation are allowed.
 
 Output exactly one token: YES or NO (no punctuation, no extra text).
 CandidateTitle:

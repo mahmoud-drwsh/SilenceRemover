@@ -116,6 +116,12 @@ The tool processes videos sequentially through four main stages:
 - **Title** (`src/llm/title.py`): Generates a YouTube-style title from transcript text.
 - Both use a shared OpenRouter client (`src/llm/client.py`). Pipeline orchestration is in `src/app/pipeline.py`.
 - **Two-step process**: Separate API calls for transcription and title generation (better quality and control). Transcript and title are stored in `temp/transcript/{basename}.txt` and `temp/title/{basename}.txt`.
+- **Title extraction constraints**:
+  - Output is exactly one Arabic title line (no commentary).
+  - The title must be a verbatim contiguous span from the transcript.
+  - The title is extracted from the opening complete-sentence portion at the start of the transcript (title-intro area), not from later answer/explanatory body text.
+  - The model generates a small pool of candidate titles; each candidate is checked with a verbatim/position verifier, then the best passing candidate is chosen deterministically (earliest transcript match, then length near a practical band). If none pass verification, a deterministic fallback is chosen from the pool and logged.
+  - Verbatim verification and honorific check/apply run after title selection.
 
 ### 4. File Renaming
 

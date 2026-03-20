@@ -50,6 +50,129 @@ def _parse_yes_no(raw_response: str) -> bool | None:
     return None
 
 
+# Title candidate pool: generation count and practical length band for ranking.
+_TITLE_CANDIDATE_TARGET_COUNT = 3
+_TITLE_CANDIDATE_MAX_GENERATION_ATTEMPTS = 8
+_TITLE_LENGTH_IDEAL_MIN = 20
+_TITLE_LENGTH_IDEAL_MAX = 80
+
+
+def _sanitize_title_candidate(raw: str) -> str | None:
+    """Keep first non-empty line as the title candidate."""
+    text = _first_line(str(raw)).strip()
+    if not text:
+        return None
+    return text
+
+
+def _generate_title_candidates(
+    api_key: str,
+    verifier_model: str,
+    messages: list[dict],
+    *,
+    target_count: int = _TITLE_CANDIDATE_TARGET_COUNT,
+    max_attempts: int = _TITLE_CANDIDATE_MAX_GENERATION_ATTEMPTS,
+    log_dir: Path | None = None,
+) -> list[str]:
+    """Generate up to `target_count` unique single-line title candidates."""
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for attempt in range(1, max_attempts + 1):
+        if len(candidates) >= target_count:
+            break
+        print(
+            f"Generating base title candidate ({len(candidates) + 1}/{target_count}, "
+            f"draw {attempt}) with model: {verifier_model}"
+        )
+        raw = openrouter_request(
+            api_key, verifier_model, messages, log_dir=log_dir
+        )
+        candidate = _sanitize_title_candidate(str(raw))
+        if not candidate:
+            print(
+                "Title generation returned empty or invalid multi-line response; retrying...",
+                file=sys.stderr,
+            )
+            continue
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        candidates.append(candidate)
+    return candidates
+
+
+def _verify_title_candidate(
+    api_key: str,
+    verifier_model: str,
+    transcript: str,
+    candidate: str,
+    log_dir: Path | None,
+) -> bool:
+    """Return True if the verbatim checker accepts the candidate."""
+    verify_prompt = TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE.format(
+        transcript=transcript, candidate_title=candidate
+    )
+    verify_messages = [
+        {"role": "user", "content": [{"type": "text", "text": verify_prompt}]},
+    ]
+    print(f"Verifying candidate verbatim: {candidate[:60]!r}...")
+    verify_response = openrouter_request(
+        api_key, verifier_model, verify_messages, log_dir=log_dir
+    )
+    return _parse_yes_no(str(verify_response)) is True
+
+
+def _selection_sort_key(
+    transcript: str, candidate: str, generation_index: int
+) -> tuple[int, int, int]:
+    """Lower tuple is better: earliest match, then length near ideal band, then earlier generation."""
+    pos = transcript.find(candidate) if candidate else -1
+    pos_key = pos if pos >= 0 else 10**9
+    length = len(candidate)
+    if length < _TITLE_LENGTH_IDEAL_MIN:
+        len_penalty = _TITLE_LENGTH_IDEAL_MIN - length
+    elif length > _TITLE_LENGTH_IDEAL_MAX:
+        len_penalty = length - _TITLE_LENGTH_IDEAL_MAX
+    else:
+        len_penalty = 0
+    return (pos_key, len_penalty, generation_index)
+
+
+def _choose_best_title(
+    transcript: str,
+    candidates: list[str],
+    verified_mask: list[bool],
+) -> tuple[str, bool]:
+    """Pick best title among verified candidates; if none verified, pick best unverified with warning.
+
+    Returns:
+        (chosen_title, used_verified_candidate)
+    """
+    verified_pairs: list[tuple[str, int]] = [
+        (c, i) for i, c in enumerate(candidates) if verified_mask[i]
+    ]
+    if verified_pairs:
+        best_c, best_i = min(
+            verified_pairs,
+            key=lambda pair: _selection_sort_key(transcript, pair[0], pair[1]),
+        )
+        return best_c, True
+
+    if candidates:
+        print(
+            "No candidate passed verbatim verification; using deterministic fallback "
+            "among generated candidates.",
+            file=sys.stderr,
+        )
+        best_c, best_i = min(
+            [(c, i) for i, c in enumerate(candidates)],
+            key=lambda pair: _selection_sort_key(transcript, pair[0], pair[1]),
+        )
+        return best_c, False
+
+    return "", False
+
+
 _PROPHET_TERMS = [
     "محمد",
     "رسول الله",
@@ -108,61 +231,61 @@ def generate_title_with_openrouter(
     Returns:
         Generated title with honorifics (single line)
     """
-    # Step 1: Generate base title (verbatim) with up to 3 retries + verifier gate.
-    prompt1 = TITLE_PROMPT_TEMPLATE.format(transcript=transcript)
+    # Use one shared transcript payload for generation and verifier prompts.
+    # The templates enforce beginning-only extraction from opening complete sentences.
+    title_source_transcript = transcript.strip()
+
+    prompt1 = TITLE_PROMPT_TEMPLATE.format(transcript=title_source_transcript)
     messages1 = [
         {"role": "user", "content": [{"type": "text", "text": prompt1}]},
     ]
     verifier_model = "google/gemini-3.1-flash-lite-preview"
 
-    raw_title: str = ""
-    last_candidate: str = ""
-    for attempt in range(1, 4):
+    # Phase 1: build a small candidate pool, then verify all, then pick best.
+    candidates = _generate_title_candidates(
+        api_key,
+        verifier_model,
+        messages1,
+        target_count=_TITLE_CANDIDATE_TARGET_COUNT,
+        max_attempts=_TITLE_CANDIDATE_MAX_GENERATION_ATTEMPTS,
+        log_dir=log_dir,
+    )
+    if not candidates:
         print(
-            f"Generating base title (attempt {attempt}/3) with model: {verifier_model}"
+            "Title generation produced no usable candidates after attempts.",
+            file=sys.stderr,
         )
-        candidate = openrouter_request(
-            api_key, verifier_model, messages1, log_dir=log_dir
-        )
-        candidate = _first_line(str(candidate)).strip()
-        if not candidate:
-            print("Title generation returned empty response; retrying...", file=sys.stderr)
-            continue
+        raise RuntimeError("Title generation returned empty response")
 
-        # Verify the candidate is verbatim from the transcript.
-        verify_prompt = TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE.format(
-            transcript=transcript, candidate_title=candidate
+    verified_mask: list[bool] = []
+    for candidate in candidates:
+        ok = _verify_title_candidate(
+            api_key,
+            verifier_model,
+            title_source_transcript,
+            candidate,
+            log_dir,
         )
-        verify_messages = [
-            {"role": "user", "content": [{"type": "text", "text": verify_prompt}]}
-        ]
-        print("Verifying candidate is verbatim from transcript...")
-        verify_response = openrouter_request(
-            api_key, verifier_model, verify_messages, log_dir=log_dir
-        )
-        is_verbatim = _parse_yes_no(str(verify_response))
-        if is_verbatim is True:
-            raw_title = candidate
-            break
+        verified_mask.append(ok)
+        if not ok:
+            print(
+                "Verbatim verification rejected a candidate; continuing pool check...",
+                file=sys.stderr,
+            )
 
-        last_candidate = candidate
+    raw_title, used_verified = _choose_best_title(
+        title_source_transcript, candidates, verified_mask
+    )
+    if used_verified:
+        print("Selected best verified title from candidate pool.")
+    else:
         print(
-            "Verbatim verification rejected the candidate; retrying...",
+            "Proceeding with deterministic fallback title (no verified candidate).",
             file=sys.stderr,
         )
 
     if not raw_title:
-        if last_candidate:
-            print(
-                "Verbatim verification rejected all candidates; proceeding with last candidate.",
-                file=sys.stderr,
-            )
-            raw_title = last_candidate
-        else:
-            raw_title = ""
-    if not raw_title:
-        # Log and signal failure so the caller can skip this item.
-        print("Title generation returned empty response after retries.", file=sys.stderr)
+        print("Title selection produced empty result.", file=sys.stderr)
         raise RuntimeError("Title generation returned empty response")
 
     try:

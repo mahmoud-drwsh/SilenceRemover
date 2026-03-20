@@ -143,3 +143,6 @@ Entries below are appended by the agent after making code or config changes.
 - `src/llm/transcription.py`: Updated default OpenRouter model parameters from `google/gemini-2.5-flash-lite:nitro` to `google/gemini-3.1-flash-lite-preview`.
 - `temp/test_openrouter.py`: Standardized OpenRouter test model IDs to `google/gemini-3.1-flash-lite-preview` for uniform helper behavior.
 - `src/llm/client.py`: Added shared OpenRouter request defaults to cap input/context and output token budgets at 10,000 via request payload parameters.
+- `src/llm/prompts.py`: Refined title generation and verbatim-check prompts to enforce beginning-only extraction from opening complete sentences and reject later answer-body text.
+- `src/llm/title.py`: Refactored title step to use a deduplicated candidate pool, per-candidate verbatim verification, deterministic best-title selection (with fallback when none verify), while keeping a shared transcript payload for generation and verifier prompts.
+- `README.md`: Documented title extraction constraints including multi-candidate generation, verification, deterministic selection, fallback behavior, and honorific post-processing.
