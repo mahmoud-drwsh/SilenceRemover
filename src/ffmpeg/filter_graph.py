@@ -11,7 +11,10 @@ def build_filter_graph_script(segment_count: int, filter_chains: str, concat_inp
     return f"{filter_chains}{concat_inputs}concat=n={segment_count}:v=0:a=1[outa]"
 
 
-def build_audio_concat_filter_graph(segments_to_keep: list[tuple[float, float]]) -> str:
+def build_audio_concat_filter_graph(
+    segments_to_keep: list[tuple[float, float]],
+    overlay_y: int | None = None,
+) -> str:
     """Build audio-only concat graph from keep segments."""
     filter_chains = "".join(
         f"[0:a]atrim=start={segment_start}:end={segment_end},asetpts=PTS-STARTPTS[a{i}];"
@@ -26,7 +29,10 @@ def build_audio_concat_filter_graph(segments_to_keep: list[tuple[float, float]])
     )
 
 
-def build_video_audio_concat_filter_graph(segments_to_keep: list[tuple[float, float]]) -> str:
+def build_video_audio_concat_filter_graph(
+    segments_to_keep: list[tuple[float, float]],
+    overlay_y: int | None = None,
+) -> str:
     """Build video+audio concat graph from keep segments."""
     filter_chains = "".join(
         (
@@ -48,7 +54,10 @@ def _segment_audio_duration_sec(segment_start: float, segment_end: float) -> flo
     return max(1e-6, float(segment_end) - float(segment_start))
 
 
-def build_video_lavfi_audio_concat_filter_graph(segments_to_keep: list[tuple[float, float]]) -> str:
+def build_video_lavfi_audio_concat_filter_graph(
+    segments_to_keep: list[tuple[float, float]],
+    overlay_y: int | None = None,
+) -> str:
     """Video from input 0 + silent stereo audio from lavfi input 1 (per-segment `atrim` lengths)."""
     filter_chains = "".join(
         (
@@ -87,8 +96,9 @@ def _escape_ffmpeg_single_quoted_path(value: str) -> str:
 
 def build_video_audio_concat_filter_graph_with_title_overlay(
     segments_to_keep: list[tuple[float, float]],
+    overlay_y: int | None = None,
 ) -> str:
-    """Build trim/concat graph and overlay a pre-rendered title PNG banner."""
+    """Build trim/concat graph and overlay a pre-rendered title PNG banner at y=overlay_y."""
     segment_count = len(segments_to_keep)
     filter_chains = "".join(
         (
@@ -98,15 +108,17 @@ def build_video_audio_concat_filter_graph_with_title_overlay(
         for i, (segment_start, segment_end) in enumerate(segments_to_keep)
     )
     concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(segment_count))
+    ov_y = overlay_y if overlay_y is not None else 0
     return (
         f"{filter_chains}{concat_inputs}concat=n={segment_count}:v=1:a=1[outv][outa];"
         "[1:v]format=rgba[overlay];"
-        "[outv][overlay]overlay=0:0:shortest=1[outv]"
+        f"[outv][overlay]overlay=0:{ov_y}:shortest=1[outv]"
     )
 
 
 def build_video_lavfi_audio_concat_filter_graph_with_title_overlay(
     segments_to_keep: list[tuple[float, float]],
+    overlay_y: int | None = None,
 ) -> str:
     """Like `build_video_audio_concat_filter_graph_with_title_overlay` but audio from lavfi input 2."""
     segment_count = len(segments_to_keep)
@@ -119,8 +131,9 @@ def build_video_lavfi_audio_concat_filter_graph_with_title_overlay(
         for i, (segment_start, segment_end) in enumerate(segments_to_keep)
     )
     concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(segment_count))
+    ov_y = overlay_y if overlay_y is not None else 0
     return (
         f"{filter_chains}{concat_inputs}concat=n={segment_count}:v=1:a=1[outv][outa];"
         "[1:v]format=rgba[overlay];"
-        "[outv][overlay]overlay=0:0:shortest=1[outv]"
+        f"[outv][overlay]overlay=0:{ov_y}:shortest=1[outv]"
     )

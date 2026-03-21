@@ -250,13 +250,14 @@ def _run_silence_removed_media(
     output_file: Path,
     temp_dir: Path,
     segments_to_keep: list[tuple[float, float]],
-    build_filter_graph: Callable[[list[tuple[float, float]]], str],
+    build_filter_graph: Callable[[list[tuple[float, float]], int | None], str],
     build_command: Callable[[Path, Path, Path], list[str]],
     expected_total_seconds: Optional[float] = None,
     on_progress: Optional[Callable[[int], None]] = None,
     command_label: Optional[str] = None,
+    overlay_y: int | None = None,
 ) -> Path:
-    filter_complex = build_filter_graph(segments_to_keep)
+    filter_complex = build_filter_graph(segments_to_keep, overlay_y)
 
     scripts_dir = temp_dir / SCRIPTS_DIR
     scripts_dir.mkdir(parents=True, exist_ok=True)
@@ -456,15 +457,18 @@ def trim_single_video(
     font_name = title_font or TITLE_FONT_DEFAULT
     temp_dir = output_dir / "temp"
     title_overlay_path: Path | None = None
+    banner_top: int | None = None
     if title_path is not None:
         title_text = title_path.read_text(encoding="utf-8").strip()
         if not title_text:
             raise RuntimeError(f"Empty title at {title_path}")
-        width, height = probe_video_dimensions(input_file)
+        video_width, video_height = probe_video_dimensions(input_file)
+        banner_height = max(1, int(video_height * 0.2))
+        banner_top = int(video_height * 0.2)
         title_overlay_path = build_title_overlay(
             title=title_text,
-            width=width,
-            height=height,
+            video_width=video_width,
+            banner_height=banner_height,
             output_file=get_title_overlay_path(temp_dir, basename),
             font_family=font_name,
             font_cache_dir=get_font_cache_path(temp_dir),
@@ -481,6 +485,7 @@ def trim_single_video(
                 output_file=output_file,
                 encoder=encoder,
                 title_overlay_path=title_overlay_path,
+                title_overlay_y=banner_top,
             ),
             command_label=f"{encoder.codec} encode",
         )
@@ -511,10 +516,12 @@ def trim_single_video(
             filter_script_path=filter_script,
             encoder=encoder,
             title_overlay_path=title_overlay_path,
+            title_overlay_y=banner_top,
             extra_silent_audio_lavfi=use_lavfi_silent_audio,
         ),
         expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
         on_progress=lambda percent: print(f"\rProgress: {percent}%", end="", flush=True),
         command_label=f"{encoder.codec} encode",
+        overlay_y=banner_top,
     )
 

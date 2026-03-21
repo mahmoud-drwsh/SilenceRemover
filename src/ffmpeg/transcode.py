@@ -134,6 +134,7 @@ def build_minimal_video_command(
     encoder: "VideoEncoderProfile",
     *,
     title_overlay_path: Path | None = None,
+    title_overlay_y: int | None = None,
 ) -> list[str]:
     """Build a minimal fallback encode command when no audio remains."""
     cmd = _build_input_command(input_file)
@@ -141,10 +142,11 @@ def build_minimal_video_command(
 
     if title_overlay_path is not None:
         cmd.extend(["-stream_loop", "-1", "-i", str(title_overlay_path)])
+        overlay_y_str = str(title_overlay_y) if title_overlay_y is not None else "0"
         cmd.extend(
             [
                 "-filter_complex",
-                "[0:v][1:v]overlay=0:0:shortest=1[outv]",
+                f"[0:v][1:v]overlay=0:{overlay_y_str}:shortest=1[outv]",
                 "-map",
                 "[outv]",
                 "-map",
@@ -164,6 +166,7 @@ def build_final_trim_command(
     encoder: "VideoEncoderProfile",
     *,
     title_overlay_path: Path | None = None,
+    title_overlay_y: int | None = None,
     extra_silent_audio_lavfi: bool = False,
 ) -> list[str]:
     """Build final video trim + encode command.

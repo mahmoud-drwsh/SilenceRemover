@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
 import re
 import urllib.error
 import urllib.request
@@ -16,8 +15,6 @@ from PIL import Image, ImageDraw, ImageFont
 
 from src.core.constants import (
     TITLE_BANNER_BG_ALPHA,
-    TITLE_BANNER_HEIGHT_FRACTION,
-    TITLE_BANNER_START_FRACTION,
     TITLE_FONT_DEFAULT,
 )
 
@@ -101,120 +98,107 @@ def _line_for_pillow(logical_line: str) -> str:
     return get_display(reshaped)
 
 
-def _wrap_title_lines(
-    draw: ImageDraw.ImageDraw,
-    text: str,
-    font: ImageFont.ImageFont,
-    max_width: int,
-    *,
-    line_to_display: Callable[[str], str],
-) -> list[str]:
-    """Word-wrap using *logical* tokens but measure width on display strings."""
-    words = text.split()
-    if not words:
-        return []
-
-    lines: list[str] = []
-    line = ""
-    for word in words:
-        candidate = f"{line} {word}".strip()
-        width = draw.textlength(line_to_display(candidate), font=font)
-        if width <= max_width:
-            line = candidate
-            continue
-
-        if line:
-            lines.append(line)
-        if draw.textlength(line_to_display(word), font=font) > max_width:
-            if not line:
-                lines.append(word)
-                line = ""
-            else:
-                line = word
-        else:
-            line = word
-
-    if line:
-        lines.append(line)
-    return lines
-
-
 def build_title_overlay(
     *,
     title: str,
-    width: int,
-    height: int,
+    video_width: int,
+    banner_height: int,
     output_file: Path,
     font_family: str = TITLE_FONT_DEFAULT,
     font_cache_dir: Path,
 ) -> Path:
-    """Render a title overlay PNG sized to the source video."""
+    """Render a banner PNG with the title centered inside.
+
+    The PNG is sized exactly to the banner dimensions (video_width × banner_height).
+    FFmpeg then overlays it at the correct vertical position on the video.
+    """
     cleaned_title = " ".join(title.split())
     if not cleaned_title:
         raise ValueError("Cannot render empty title overlay.")
 
-    if width <= 0 or height <= 0:
-        raise ValueError(f"Invalid video size for title overlay: {width}x{height}")
+    if video_width <= 0 or banner_height <= 0:
+        raise ValueError(f"Invalid banner dimensions: {video_width}x{banner_height}")
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     font_path = _resolve_google_font_path(font_family, font_cache_dir)
 
-    band_top = int(height * TITLE_BANNER_START_FRACTION)
-    band_height = max(1, int(height * TITLE_BANNER_HEIGHT_FRACTION))
-    background_alpha = int(255 * TITLE_BANNER_BG_ALPHA)
+    bg_alpha = int(255 * TITLE_BANNER_BG_ALPHA)
+    banner_center_y = banner_height / 2
 
-    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    image = Image.new("RGBA", (video_width, banner_height), (0, 0, 0, bg_alpha))
     draw = ImageDraw.Draw(image)
-    draw.rectangle(
-        xy=(0, band_top, width, band_top + band_height),
-        fill=(0, 0, 0, background_alpha),
-    )
 
-    font_size = max(12, int(height / 12))
+    font_size = max(12, int(banner_height / 12))
     font = ImageFont.truetype(font_path, font_size)
-    max_line_width = max(1, int(width * 0.92))
+    max_line_width = max(1, int(video_width * 0.92))
 
-    lines = _wrap_title_lines(
-        draw, cleaned_title, font, max_line_width, line_to_display=_line_for_pillow
-    )
+    words = cleaned_title.split()
+    lines: list[str] = []
+    line = ""
+    for word in words:
+        candidate = f"{line} {word}".strip()
+        w = draw.textlength(_line_for_pillow(candidate), font=font)
+        if w <= max_line_width:
+            line = candidate
+        else:
+            if line:
+                lines.append(line)
+            line = word
+    if line:
+        lines.append(line)
+
     while True:
         if not lines:
             break
 
-        bboxes = [
-            draw.textbbox((0, 0), _line_for_pillow(line), font=font) for line in lines
-        ]
-        text_width = max(bbox[2] - bbox[0] for bbox in bboxes)
-        text_height = sum((bbox[3] - bbox[1]) for bbox in bboxes) + 8 * (len(lines) - 1)
+        display_lines = [_line_for_pillow(l) for l in lines]
+        bboxes = [draw.textbbox((0, 0), dl, font=font) for dl in display_lines]
+        line_height = max(b[3] - b[1] for b in bboxes)
+        inter_line_gap = 8
+        visual_block_h = bboxes[-1][3] - bboxes[0][1] + inter_line_gap * max(0, len(lines) - 1)
 
-        if text_width <= max_line_width and text_height <= band_height * 0.9:
+        fits_width = all(draw.textlength(dl, font=font) <= max_line_width for dl in display_lines)
+        fits_height = visual_block_h <= banner_height * 0.9
+
+        if fits_width and fits_height:
             break
 
-        proposed_size = font.size - 2
-        if proposed_size < 20:
+        proposed = font.size - 2
+        if proposed < 20:
             break
 
-        font = ImageFont.truetype(font_path, proposed_size)
-        lines = _wrap_title_lines(
-            draw, cleaned_title, font, max_line_width, line_to_display=_line_for_pillow
-        )
+        font = ImageFont.truetype(font_path, proposed)
+        words = cleaned_title.split()
+        lines = []
+        line = ""
+        for word in words:
+            candidate = f"{line} {word}".strip()
+            w = draw.textlength(_line_for_pillow(candidate), font=font)
+            if w <= max_line_width:
+                line = candidate
+            else:
+                if line:
+                    lines.append(line)
+                line = word
+        if line:
+            lines.append(line)
 
     if not lines:
         return output_file
 
-    bboxes = [draw.textbbox((0, 0), _line_for_pillow(line), font=font) for line in lines]
-    text_width = max(bbox[2] - bbox[0] for bbox in bboxes)
-    line_height = max((bbox[3] - bbox[1]) for bbox in bboxes)
-    total_height = line_height * len(lines) + 8 * max(0, len(lines) - 1)
-    start_y = band_top + max(0, (band_height - total_height) // 2)
-    y = start_y
+    display_lines = [_line_for_pillow(l) for l in lines]
+    bboxes = [draw.textbbox((0, 0), dl, font=font) for dl in display_lines]
+    line_height = max(b[3] - b[1] for b in bboxes)
+    inter_line_gap = 8
+    visual_block_h = bboxes[-1][3] - bboxes[0][1] + inter_line_gap * max(0, len(lines) - 1)
 
-    for line in lines:
-        display_line = _line_for_pillow(line)
-        line_width = draw.textlength(display_line, font=font)
-        x = max(0, int((width - line_width) / 2))
-        draw.text((x, y), display_line, fill=(255, 255, 255, 255), font=font)
-        y += line_height + 8
+    first_anchor_y = banner_center_y - visual_block_h / 2 - bboxes[0][1]
+
+    for i, (line, dl) in enumerate(zip(lines, display_lines)):
+        lw = draw.textlength(dl, font=font)
+        x = int((video_width - lw) / 2)
+        anchor_y = first_anchor_y + i * (line_height + inter_line_gap) + (bboxes[i][1] - bboxes[0][1])
+        draw.text((x, anchor_y), dl, fill=(255, 255, 255, 255), font=font)
 
     image.save(output_file, format="PNG")
     return output_file
