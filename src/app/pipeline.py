@@ -270,6 +270,7 @@ def run_output_phase(
     pad_sec: float,
     target_length: Optional[float],
     encoder: VideoEncoderProfile | None = None,
+    title_font: str | None = None,
     *,
     total_phases: int = 3,
 ) -> bool:
@@ -308,6 +309,8 @@ def run_output_phase(
             target_length=target_length,
             output_basename=chosen_basename,
             encoder=encoder,
+            title_path=title_path,
+            title_font=title_font,
         )
         mark_completed(temp_dir, basename)
 
@@ -406,6 +409,7 @@ def run() -> None:
                     pad_sec=startup.pad_sec,
                     target_length=startup.target_length,
                     encoder=startup.encoder,
+                    title_font=startup.title_font,
                     total_phases=total_phases,
                 ),
             ),

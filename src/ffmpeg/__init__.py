@@ -7,6 +7,9 @@ from src.ffmpeg.filter_graph import (
     build_audio_concat_filter_graph,
     build_filter_graph_script,
     build_video_audio_concat_filter_graph,
+    build_video_audio_concat_filter_graph_with_title_overlay,
+    build_video_lavfi_audio_concat_filter_graph,
+    build_video_lavfi_audio_concat_filter_graph_with_title_overlay,
     write_filter_graph_script,
 )
 from src.ffmpeg.probing import (
@@ -15,6 +18,8 @@ from src.ffmpeg.probing import (
     get_available_encoders,
     probe_bitrate_bps,
     probe_duration,
+    probe_has_audio_stream,
+    probe_video_dimensions,
 )
 from src.ffmpeg.runner import run, run_with_progress
 from src.ffmpeg.transcode import (
@@ -25,6 +30,7 @@ from src.ffmpeg.transcode import (
     build_final_trim_command,
     build_minimal_audio_command,
     build_minimal_video_command,
+    build_silent_audio_file_command,
     build_silence_removed_audio_command,
 )
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
@@ -40,12 +46,17 @@ __all__ = [
     "build_audio_concat_filter_graph",
     "build_filter_graph_script",
     "build_video_audio_concat_filter_graph",
+    "build_video_audio_concat_filter_graph_with_title_overlay",
+    "build_video_lavfi_audio_concat_filter_graph",
+    "build_video_lavfi_audio_concat_filter_graph_with_title_overlay",
     "write_filter_graph_script",
     "BITRATE_FALLBACK_BPS",
     "can_run_encoder",
     "get_available_encoders",
     "probe_bitrate_bps",
     "probe_duration",
+    "probe_has_audio_stream",
+    "probe_video_dimensions",
     "ExecutionMode",
     "RunnerOptions",
     "run",
@@ -57,6 +68,7 @@ __all__ = [
     "build_final_trim_command",
     "build_minimal_audio_command",
     "build_minimal_video_command",
+    "build_silent_audio_file_command",
     "build_silence_removed_audio_command",
     "VideoEncoderProfile",
     "resolve_video_encoder",

@@ -86,6 +86,19 @@ def build_first_5min_audio_aac_command(input_video: Path, output_audio: Path) ->
     )
 
 
+def build_silent_audio_file_command(
+    output_audio: Path,
+    duration_sec: float,
+    codec_args: Sequence[str],
+) -> list[str]:
+    """Encode silent audio of `duration_sec` (e.g. when the source has no audio stream)."""
+    cmd = build_ffmpeg_cmd(overwrite=True)
+    cmd.extend(["-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", str(duration_sec)])
+    cmd.extend(list(codec_args))
+    cmd.append(str(output_audio))
+    return cmd
+
+
 def build_minimal_audio_command(input_file: Path, output_audio: Path, codec_args: Sequence[str]) -> list[str]:
     """Build a short fallback audio extraction command."""
     cmd = _build_input_command(input_file)
@@ -115,10 +128,30 @@ def build_silence_removed_audio_command(
     return cmd
 
 
-def build_minimal_video_command(input_file: Path, output_file: Path, encoder: "VideoEncoderProfile") -> list[str]:
+def build_minimal_video_command(
+    input_file: Path,
+    output_file: Path,
+    encoder: "VideoEncoderProfile",
+    *,
+    title_overlay_path: Path | None = None,
+) -> list[str]:
     """Build a minimal fallback encode command when no audio remains."""
     cmd = _build_input_command(input_file)
     cmd.extend(["-t", "0.1"])
+
+    if title_overlay_path is not None:
+        cmd.extend(["-stream_loop", "-1", "-i", str(title_overlay_path)])
+        cmd.extend(
+            [
+                "-filter_complex",
+                "[0:v][1:v]overlay=0:0:shortest=1[outv]",
+                "-map",
+                "[outv]",
+                "-map",
+                "0:a?",
+            ]
+        )
+
     cmd.extend(encoder.video_args())
     cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file)])
     return cmd
@@ -129,9 +162,20 @@ def build_final_trim_command(
     output_file: Path,
     filter_script_path: Path,
     encoder: "VideoEncoderProfile",
+    *,
+    title_overlay_path: Path | None = None,
+    extra_silent_audio_lavfi: bool = False,
 ) -> list[str]:
-    """Build final video trim + encode command."""
+    """Build final video trim + encode command.
+
+    When ``extra_silent_audio_lavfi`` is True, append a stereo `anullsrc` so the
+    filter graph can use ``[1:a]`` (no overlay) or ``[2:a]`` (with PNG overlay) for audio.
+    """
     cmd = _build_input_command(input_file)
+    if title_overlay_path is not None:
+        cmd.extend(["-stream_loop", "-1", "-i", str(title_overlay_path)])
+    if extra_silent_audio_lavfi:
+        cmd.extend(["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"])
     add_filter_complex_script(cmd, filter_script_path)
     cmd.extend(["-map", "[outv]", "-map", "[outa]"])
     cmd.extend(encoder.video_args(include_container_args=True))

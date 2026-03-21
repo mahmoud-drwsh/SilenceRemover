@@ -3,7 +3,17 @@
 from datetime import datetime
 from pathlib import Path
 
-from src.core.constants import AUDIO_FILE_EXT, COMPLETED_DIR, SCRIPTS_DIR, SNIPPET_DIR, TEXT_FILE_EXT, TITLE_DIR, TRANSCRIPT_DIR
+from src.core.constants import (
+    AUDIO_FILE_EXT,
+    COMPLETED_DIR,
+    FONTS_DIR,
+    SCRIPTS_DIR,
+    SNIPPET_DIR,
+    TEXT_FILE_EXT,
+    TITLE_DIR,
+    TITLE_OVERLAYS_DIR,
+    TRANSCRIPT_DIR,
+)
 from src.core.filename_sanitizer import sanitize_filename
 
 __all__ = [
@@ -12,6 +22,8 @@ __all__ = [
     "get_snippet_path",
     "get_transcript_path",
     "get_title_path",
+    "get_font_cache_path",
+    "get_title_overlay_path",
     "get_completed_path",
     "is_transcript_done",
     "is_title_done",
@@ -30,7 +42,15 @@ def sibling_dir(base_dir: Path, name: str) -> Path:
 
 def create_temp_subdirs(temp_dir: Path) -> None:
     """Create subdirectories in temp directory."""
-    for subdir in [SNIPPET_DIR, TRANSCRIPT_DIR, TITLE_DIR, COMPLETED_DIR, SCRIPTS_DIR]:
+    for subdir in [
+        SNIPPET_DIR,
+        TRANSCRIPT_DIR,
+        TITLE_DIR,
+        COMPLETED_DIR,
+        SCRIPTS_DIR,
+        FONTS_DIR,
+        TITLE_OVERLAYS_DIR,
+    ]:
         (temp_dir / subdir).mkdir(parents=True, exist_ok=True)
 
 
@@ -47,6 +67,16 @@ def get_transcript_path(temp_dir: Path, basename: str) -> Path:
 def get_title_path(temp_dir: Path, basename: str) -> Path:
     """Path to title text file."""
     return temp_dir / TITLE_DIR / f"{basename}{TEXT_FILE_EXT}"
+
+
+def get_font_cache_path(temp_dir: Path) -> Path:
+    """Path to downloaded font cache directory."""
+    return temp_dir / FONTS_DIR
+
+
+def get_title_overlay_path(temp_dir: Path, basename: str) -> Path:
+    """Path to generated title overlay PNG."""
+    return temp_dir / TITLE_OVERLAYS_DIR / f"{basename}.png"
 
 
 def get_completed_path(temp_dir: Path, basename: str) -> Path:

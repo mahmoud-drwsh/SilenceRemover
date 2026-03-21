@@ -6,4 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "openrouter",
     "python-dotenv",
+    "pillow",
+    "arabic-reshaper",
+    "python-bidi",
 ]

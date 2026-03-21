@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-import subprocess
 
 from src.ffmpeg.core import build_ffmpeg_cmd, print_ffmpeg_cmd
+from src.ffmpeg.probing import probe_has_audio_stream
 from src.ffmpeg.runner import run
 
 
@@ -27,8 +27,10 @@ def parse_silence_output(result: str) -> tuple[list[float], list[float]]:
 
 def detect_silence_points(input_file: Path, noise_threshold: float, min_duration: float) -> tuple[list[float], list[float]]:
     """Detect silence start/end points via FFmpeg's silencedetect filter."""
+    if not probe_has_audio_stream(input_file):
+        return [], []
+
     cmd = build_silence_detection_command(input_file, noise_threshold, min_duration)
     print_ffmpeg_cmd(cmd)
-    result = run(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True, check=True)
+    result = run(cmd, capture_output=True, text=True, check=True)
     return parse_silence_output(result.stderr)
-

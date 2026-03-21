@@ -12,6 +12,7 @@ from src.core.constants import (
     SNIPPET_MAX_DURATION_SEC,
     SNIPPET_MIN_DURATION_SEC,
     SNIPPET_NOISE_THRESHOLD_DB,
+    TITLE_FONT_DEFAULT,
     TRIM_TIMESTAMP_EPSILON_SEC,
     TrimDefaults,
     resolve_trim_defaults,
@@ -21,17 +22,23 @@ from src.ffmpeg.core import print_ffmpeg_cmd
 from src.ffmpeg.filter_graph import (
     build_audio_concat_filter_graph,
     build_video_audio_concat_filter_graph,
+    build_video_audio_concat_filter_graph_with_title_overlay,
+    build_video_lavfi_audio_concat_filter_graph,
+    build_video_lavfi_audio_concat_filter_graph_with_title_overlay,
     write_filter_graph_script,
 )
-from src.ffmpeg.probing import probe_duration
+from src.ffmpeg.probing import probe_duration, probe_has_audio_stream, probe_video_dimensions
+from src.media.title_overlay import build_title_overlay
 from src.ffmpeg.runner import run, run_with_progress
 from src.ffmpeg.transcode import (
     build_final_trim_command,
     build_minimal_audio_command,
     build_minimal_video_command,
+    build_silent_audio_file_command,
     build_silence_removed_audio_command,
 )
 from src.core.fs_utils import wait_for_file_release
+from src.core.paths import get_font_cache_path, get_title_overlay_path
 from src.media.silence_detector import (
     choose_threshold_and_padding_for_target,
     normalize_timestamp,
@@ -255,8 +262,6 @@ def _run_silence_removed_media(
     scripts_dir.mkdir(parents=True, exist_ok=True)
     filter_script_path = scripts_dir / f"{output_file.stem}_{int(time.time())}.ffscript"
     write_filter_graph_script(filter_script_path, filter_complex)
-    print(f"[DEBUG] filter_graph_script path: {filter_script_path}")
-    print(f"[DEBUG] filter_graph_script exists: {filter_script_path.exists()}")
 
     cmd = build_command(input_file, output_file, filter_script_path)
     print_ffmpeg_cmd(cmd)
@@ -289,7 +294,6 @@ def _run_silence_removed_media(
             raise
 
     wait_for_file_release(output_file)
-    print(f"[DEBUG] ffmpeg completed, script still at: {filter_script_path}")
     print(f"Done! Output saved to: {output_file}")
     return output_file.resolve()
 
@@ -339,12 +343,41 @@ def create_silence_removed_audio(
     else:
         acodec = ["-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1"]
 
+    if not probe_has_audio_stream(input_file):
+        duration_sec = probe_duration(input_file)
+        if max_duration is not None:
+            duration_sec = min(duration_sec, max_duration)
+        duration_sec = max(0.1, float(duration_sec))
+        print("Warning: Input has no audio stream; writing silent audio for transcription/snippet.")
+        return _run_minimal_output(
+            output_file=output_audio_path,
+            cmd=build_silent_audio_file_command(
+                output_audio=output_audio_path,
+                duration_sec=duration_sec,
+                codec_args=acodec,
+            ),
+            command_label="Silent audio (no input audio)",
+        )
+
     segments_to_keep, _, _, _, _ = _build_segments_to_keep(
         input_file, noise_threshold, min_duration, pad_sec, target_length
     )
 
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal audio.")
+        if not probe_has_audio_stream(input_file):
+            duration_sec = max(0.1, float(probe_duration(input_file)))
+            if max_duration is not None:
+                duration_sec = min(duration_sec, max_duration)
+            return _run_minimal_output(
+                output_file=output_audio_path,
+                cmd=build_silent_audio_file_command(
+                    output_audio=output_audio_path,
+                    duration_sec=duration_sec,
+                    codec_args=acodec,
+                ),
+                command_label="Silent audio (no input audio)",
+            )
         return _run_minimal_output(
             output_file=output_audio_path,
             cmd=build_minimal_audio_command(
@@ -381,6 +414,8 @@ def trim_single_video(
     target_length: Optional[float],
     output_basename: Optional[str] = None,
     encoder: VideoEncoderProfile | None = None,
+    title_path: Path | None = None,
+    title_font: str | None = None,
 ) -> Path:
     """Trim a single video and return the output file path."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -395,7 +430,7 @@ def trim_single_video(
         pad_sec=pad_sec,
     )
 
-    if plan.should_copy_input:
+    if plan.should_copy_input and title_path is None:
         copied_output_file = _copy_input_video(input_file=input_file, output_file=output_file)
         wait_for_file_release(copied_output_file)
         return copied_output_file
@@ -407,6 +442,7 @@ def trim_single_video(
     resolved_pad_sec = plan.resolved_pad_sec
     encoder = encoder or resolve_video_encoder()
     resulting_length = plan.resulting_length_sec
+    input_has_audio = probe_has_audio_stream(input_file)
     print(f"Input: {input_file}")
     print(f"Output: {output_file}")
     print(f"Settings: noise={resolved_noise_threshold}dB, min_duration={resolved_min_duration}s, pad={resolved_pad_sec}s")
@@ -415,6 +451,24 @@ def trim_single_video(
     if target_length is not None:
         print(f"Target length: {target_length}s")
         print(f"Expected resulting length: {resulting_length:.3f}s")
+
+    # Handle case where all audio is silence (no segments to keep)
+    font_name = title_font or TITLE_FONT_DEFAULT
+    temp_dir = output_dir / "temp"
+    title_overlay_path: Path | None = None
+    if title_path is not None:
+        title_text = title_path.read_text(encoding="utf-8").strip()
+        if not title_text:
+            raise RuntimeError(f"Empty title at {title_path}")
+        width, height = probe_video_dimensions(input_file)
+        title_overlay_path = build_title_overlay(
+            title=title_text,
+            width=width,
+            height=height,
+            output_file=get_title_overlay_path(temp_dir, basename),
+            font_family=font_name,
+            font_cache_dir=get_font_cache_path(temp_dir),
+        )
 
     # Handle case where all audio is silence (no segments to keep)
     if len(segments_to_keep) == 0:
@@ -426,21 +480,38 @@ def trim_single_video(
                 input_file=input_file,
                 output_file=output_file,
                 encoder=encoder,
+                title_overlay_path=title_overlay_path,
             ),
             command_label=f"{encoder.codec} encode",
         )
 
+    if title_overlay_path is not None:
+        filter_builder = (
+            build_video_audio_concat_filter_graph_with_title_overlay
+            if input_has_audio
+            else build_video_lavfi_audio_concat_filter_graph_with_title_overlay
+        )
+        use_lavfi_silent_audio = not input_has_audio
+    else:
+        filter_builder = (
+            build_video_audio_concat_filter_graph
+            if input_has_audio
+            else build_video_lavfi_audio_concat_filter_graph
+        )
+        use_lavfi_silent_audio = not input_has_audio
     return _run_silence_removed_media(
         input_file=input_file,
         output_file=output_file,
         temp_dir=output_dir / "temp",
         segments_to_keep=segments_to_keep,
-        build_filter_graph=build_video_audio_concat_filter_graph,
+        build_filter_graph=filter_builder,
         build_command=lambda in_file, out_file, filter_script: build_final_trim_command(
             input_file=in_file,
             output_file=out_file,
             filter_script_path=filter_script,
             encoder=encoder,
+            title_overlay_path=title_overlay_path,
+            extra_silent_audio_lavfi=use_lavfi_silent_audio,
         ),
         expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
         on_progress=lambda percent: print(f"\rProgress: {percent}%", end="", flush=True),

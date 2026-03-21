@@ -8,7 +8,7 @@ from pathlib import Path
 
 from src.core.cli import collect_video_files, fail, require_input_dir, require_tools
 from src.core.config import get_config, load_config
-from src.core.constants import resolve_trim_defaults
+from src.core.constants import TITLE_FONT_DEFAULT, resolve_trim_defaults
 from src.core.paths import create_temp_subdirs, sibling_dir
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
 
@@ -27,6 +27,7 @@ class StartupContext:
     target_length: float | None
     api_key: str
     llm_only: bool
+    title_font: str
     encoder: VideoEncoderProfile | None
 
 
@@ -78,5 +79,6 @@ def build_startup_context(args: Namespace) -> StartupContext:
         target_length=args.target_length,
         api_key=api_key,
         llm_only=llm_only,
+        title_font=(args.title_font or "").strip() or TITLE_FONT_DEFAULT,
         encoder=selected_encoder,
     )

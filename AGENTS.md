@@ -23,3 +23,31 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/app/pipeline.py`: Branched `run()` for LLM-only mode (two phases, session header + per-title appends to `temp/titles.txt`, console dump, summary); parameterized phase step labels with `total_phases`; refactored `run_title_phase` for manifest appends on generate and skip.
 - `README.md`: Documented `--llm-only`, `titles.txt` append behavior, and Phase 3 skip.
 - `pwsh/Start-VerticalLlmDryRun.ps1`: Added helper to run `--llm-only` against the vertical raw video folder (same layout as `Start-VerticalVideoProcessing.ps1`).
+- `src/app/pipeline.py`: Passed `title_path` into Phase 3 so the generated title file can be burned into the final video.
+- `src/media/trim.py`: Added optional `title_path` handling to force FFmpeg encoding (no copy-input) and to select the title overlay filter graph.
+- `src/ffmpeg/filter_graph.py`: Added a concat+burn-in filter graph that draws a full-width 50%-alpha black banner from `y=h/5` to `y=2*h/5` and centers the title text from a file.
+- `src/ffmpeg/transcode.py`: Updated the minimal “all-audio-silence” fallback to optionally burn the title via `-vf drawbox+drawtext`.
+- `src/core/constants.py`: Added title overlay/font constants and default font name for new PNG overlay pipeline.
+- `src/core/paths.py`: Added helpers and temp directories for font cache and generated title overlay PNG storage.
+- `src/core/cli.py`: Added `--title-font` option for Google Font configuration.
+- `src/startup/bootstrap.py`: Threaded `title_font` through `StartupContext` using default constant.
+- `src/app/pipeline.py`: Passed `title_font` into phase 3 output rendering path.
+- `src/ffmpeg/probing.py`: Added exact video width/height probing helper for overlay rendering.
+- `src/ffmpeg/filter_graph.py`: Replaced drawtext-based title graph with PNG overlay concat overlay variant.
+- `src/ffmpeg/transcode.py`: Added PNG overlay support to minimal and final trim command builders.
+- `src/media/title_overlay.py`: New module to download/cache Google Fonts and render exact-position RGBA title overlay PNGs.
+- `src/media/trim.py`: Integrated title overlay generation, overlay command wiring, and font selection into final/minimal video render.
+- `src/ffmpeg/__init__.py`: Exported title-overlay graph and video-dimension probe updates.
+- `pyproject.toml`: Added Pillow dependency for PIL-based overlay rendering.
+- `src/media/title_overlay.py`: Font download via Google Fonts CSS2 + direct TTF; Arabic overlay uses `arabic-reshaper` + `python-bidi`; removed temporary NDJSON debug logging.
+- `pyproject.toml`: Added `arabic-reshaper` and `python-bidi` for Arabic title overlays.
+- `src/ffmpeg/probing.py`: Added `probe_has_audio_stream` for ffprobe-based audio stream detection.
+- `src/ffmpeg/detection.py`: Skip `silencedetect` when there is no audio stream; use `run(..., capture_output=True)` for silence parse (fixes missing `subprocess` import on audio files).
+- `src/ffmpeg/filter_graph.py`: Added lavfi-backed concat graphs for video-only sources (`[1:a]` / `[2:a]` with title overlay).
+- `src/ffmpeg/transcode.py`: Added `build_silent_audio_file_command` and `extra_silent_audio_lavfi` on final trim commands.
+- `src/media/trim.py`: Silent snippet generation and video encode path for inputs without audio streams.
+- `src/ffmpeg/__init__.py`: Exported new probe/filter/transcode helpers.
+- `README.md`: Title font/overlay docs, Arabic/RTL shaping note, and video-only (no audio) pipeline behavior.
+- `src/ffmpeg/filter_graph.py`: Updated PNG title overlay filters to `shortest=1` so looped image input cannot extend output video duration.
+- `src/ffmpeg/transcode.py`: Updated minimal overlay fallback filter to `shortest=1` for consistent bounded duration behavior.
+- `src/media/trim.py`: Removed leftover `[DEBUG]` progress-script instrumentation prints from silence-removed media execution.

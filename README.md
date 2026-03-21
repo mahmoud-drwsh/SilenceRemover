@@ -63,6 +63,20 @@ python main.py /path/to/video/directory
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Defaults are `TARGET_NOISE_THRESHOLD_DB` (`-55.0`) when `--target-length` is set, otherwise `NON_TARGET_NOISE_THRESHOLD_DB` (`-50.0`).
 - `--min-duration FLOAT`: Override minimum silence duration in seconds (applies in both modes). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with `--target-length` and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
 - `--llm-only`: Run **phases 1–2 only** (silence-removed snippet, transcription, title). Skips hardware encoder probing and **Phase 3** (no final MP4). After processing, prints each video’s transcript and title to the console. Also maintains an append-only log at `output/temp/titles.txt`: after Phase 1 finishes for all videos, each run appends a `======` / timestamp / `======` header (with blank lines before it if the file already has content), then Phase 2 appends one tab-separated line per video (`stem<TAB>title`) as soon as that video’s title step completes (including when the title phase is skipped as already done).
+- `--title-font`: Google Font family name used to render the title overlay. The font is auto-downloaded from Google Fonts on first use and cached under `output/temp/fonts/`.
+
+### Suggested Arabic-friendly Google Fonts
+- `Noto Naskh Arabic`
+- `Noto Kufi Arabic`
+- `Cairo`
+- `Tajawal`
+- `Amiri`
+- `IBM Plex Sans Arabic`
+- `Mada`
+
+The first run for each font downloads the family from Google Fonts into `output/temp/fonts/` and reuses that file on subsequent runs.
+
+**Video-only files (no audio stream):** Some exports are silent (video track only). The pipeline detects missing audio with ffprobe, skips `silencedetect` (which would otherwise fail on `-map 0:a:0`), generates a **silent** transcription snippet from the video duration, and muxes **silent stereo** from `anullsrc` during the final trim/encode so Phase 3 still produces a valid MP4 with a title overlay. Transcripts will be empty or minimal for those inputs.
 
 Trimming precision controls (advanced):
 
@@ -76,6 +90,12 @@ Process videos with target length optimization:
 
 ```bash
 python main.py ~/Videos/lectures --target-length 600
+```
+
+Customize title typography with a specific Google Font:
+
+```bash
+python main.py ~/Videos/lectures --title-font "Cairo"
 ```
 
 ## FFmpeg Command Architecture
@@ -125,6 +145,17 @@ The tool processes videos sequentially through four main stages:
   - The final title is returned after that scoring step (no further LLM calls).
 
 ### 4. File Renaming
+
+### 5. Title Overlay Rendering (Phase 3)
+
+- The title text from `temp/title/{basename}.txt` is loaded right before output encoding.
+- `ffprobe` extracts the source video width and height, and a full-screen RGBA PNG is generated for each title in `temp/title_overlays/`.
+- The overlay PNG contains:
+  - A full-width black banner from `y = 1/5 * height` to `y = 2/5 * height`.
+  - 50% banner opacity (`alpha=0.5`).
+  - Centered white title text rendered with the selected `--title-font`.
+  - **Arabic / RTL titles**: Pillow draws left-to-right only, so the overlay path runs text through `arabic-reshaper` (joining/presentation forms) and `python-bidi` (`get_display`) before measuring and drawing. Mixed Arabic + Latin/numbers should follow Unicode bidirectional rules.
+- FFmpeg then applies the overlay with the existing trim/concat graph via `overlay=0:0`, so the banner is raster-dimension exact and no longer depends on `drawtext` availability.
 
 - Reads generated title from `temp/title/{basename}.txt`
 - Sanitizes filename (removes invalid characters)

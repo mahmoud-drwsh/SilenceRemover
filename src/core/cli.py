@@ -18,6 +18,7 @@ __all__ = [
 from src.core.constants import (
     NON_TARGET_MIN_DURATION_SEC,
     NON_TARGET_NOISE_THRESHOLD_DB,
+    TITLE_FONT_DEFAULT,
     TARGET_MIN_DURATION_SEC,
     TARGET_NOISE_THRESHOLD_DB,
     VIDEO_EXTENSIONS,
@@ -105,6 +106,15 @@ def parse_args() -> argparse.Namespace:
             "Transcription and title generation only (phases 1–2): no final video output, "
             "results printed to the console; hardware encoder probe is skipped. "
             "Appends per-video titles to output/temp/titles.txt as each title is ready."
+        ),
+    )
+    parser.add_argument(
+        "--title-font",
+        type=str,
+        default=TITLE_FONT_DEFAULT,
+        help=(
+            "Google Font family name used to render the title overlay band (downloaded on first use). "
+            f"Defaults to {TITLE_FONT_DEFAULT}."
         ),
     )
     return parser.parse_args()

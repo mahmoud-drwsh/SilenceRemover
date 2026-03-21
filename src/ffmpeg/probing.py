@@ -83,6 +83,65 @@ def run_ffprobe_float(input_file: Path, format_entry: str, fallback: float) -> f
         return fallback
 
 
+def build_ffprobe_stream_dimensions_command(input_file: Path) -> list[str]:
+    """Build a command to query stream width and height."""
+    return build_ffprobe_cmd(
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "csv=p=0:nk=1",
+        str(input_file),
+    )
+
+
+def build_ffprobe_has_audio_command(input_file: Path) -> list[str]:
+    """Return whether the file has at least one audio stream (non-empty ffprobe output)."""
+    return build_ffprobe_cmd(
+        "-v",
+        "error",
+        "-select_streams",
+        "a",
+        "-show_entries",
+        "stream=index",
+        "-of",
+        "csv=p=0",
+        str(input_file),
+    )
+
+
+def probe_has_audio_stream(input_file: Path) -> bool:
+    """True if ffprobe finds any audio stream on the file."""
+    result = run(build_ffprobe_has_audio_command(input_file), capture_output=True, check=False)
+    if result.returncode != 0:
+        return False
+    return bool(result.stdout.strip())
+
+
+def probe_video_dimensions(input_file: Path) -> tuple[int, int]:
+    """Probe and return (width, height) for the first video stream."""
+    result = run(build_ffprobe_stream_dimensions_command(input_file), capture_output=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to probe dimensions for {input_file}") from None
+
+    raw_dimensions = result.stdout.strip().replace(" ", "")
+    if not raw_dimensions:
+        raise RuntimeError(f"Failed to read dimensions for {input_file}")
+
+    parts = [part for part in re.split(r"[, \n]", raw_dimensions) if part]
+    if len(parts) < 2:
+        raise RuntimeError(f"Unexpected ffprobe dimensions format for {input_file}: {result.stdout}")
+
+    width = int(parts[0])
+    height = int(parts[1])
+    if width <= 0 or height <= 0:
+        raise RuntimeError(f"Invalid dimensions for {input_file}: {width}x{height}")
+    return width, height
+
+
 def can_run_encoder(codec: str, codec_args: Sequence[str] = ()) -> bool:
     """Check whether the given codec can run in a minimal encode test."""
     cmd = build_encoder_probe_command(codec, codec_args)

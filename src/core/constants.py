@@ -141,6 +141,8 @@ TRANSCRIPT_DIR = "transcript"
 TITLE_DIR = "title"
 COMPLETED_DIR = "completed"
 SCRIPTS_DIR = "scripts"
+FONTS_DIR = "fonts"
+TITLE_OVERLAYS_DIR = "title_overlays"
 
 # --- File extensions ---
 
@@ -148,6 +150,11 @@ AUDIO_EXTENSIONS: frozenset[str] = frozenset({".wav", ".m4a", ".mp3", ".aac", ".
 AUDIO_FORMATS: frozenset[str] = frozenset(ext.lstrip(".") for ext in AUDIO_EXTENSIONS)
 AUDIO_FILE_EXT = ".ogg"
 TEXT_FILE_EXT = ".txt"
+
+TITLE_BANNER_START_FRACTION = 0.2
+TITLE_BANNER_HEIGHT_FRACTION = 0.2
+TITLE_BANNER_BG_ALPHA = 0.5
+TITLE_FONT_DEFAULT = "Noto Naskh Arabic"
 
 __all__ = [
     "TrimDefaults",
@@ -181,10 +188,16 @@ __all__ = [
     "TITLE_DIR",
     "COMPLETED_DIR",
     "SCRIPTS_DIR",
+    "FONTS_DIR",
+    "TITLE_OVERLAYS_DIR",
     "AUDIO_EXTENSIONS",
     "AUDIO_FORMATS",
     "AUDIO_FILE_EXT",
     "TEXT_FILE_EXT",
+    "TITLE_BANNER_START_FRACTION",
+    "TITLE_BANNER_HEIGHT_FRACTION",
+    "TITLE_BANNER_BG_ALPHA",
+    "TITLE_FONT_DEFAULT",
     "EDGE_SILENCE_KEEP_SEC",
 ]
 
