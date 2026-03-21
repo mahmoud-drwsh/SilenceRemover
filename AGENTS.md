@@ -1,171 +1,24 @@
 # Session change summaries for AI agents
 
-Entries below are appended by the agent after making code or config changes.
+After code or config changes, agents append short notes here. When this file grows past ~50 lines, **replace** the changelog with an updated condensed section instead of keeping one bullet per file forever.
 
-## Condensed entries (1-84)
+## Condensed changelog
 
-- Refactored configuration and runtime constants so `.env` only stores secrets (`OPENROUTER_API_KEY`), `src/constants.py` owns non-secret defaults, and dependent modules now import shared constants consistently.
-- Migrated OpenRouter integration in transcription/title flows to the SDK with shared request/retry/logging behavior and standardized default model selection.
-- Reworked silence and trim behavior around a unified segment-planning pipeline with adaptive threshold/padding, timestamp normalization, precision tuning, and consistent target-mode handling.
-- Modernized FFmpeg and media pipeline execution with `-/filter_complex`, progress parsing, HEVC-QSV-focused encoding behavior, and a reduced fallback surface.
-- Improved interoperability and maintainability through compatibility shims, import/path cleanup, and refined CLI/prompt responsibilities.
-- Updated supporting docs and tooling (`README.md`, `ALGO.md`, `.env.example`, cleanup script) to match current architecture and behavior, plus small quality fixes in prompts and title post-processing.
-- `AGENTS.md`: Compressed this changelog section into a smaller thematic summary while preserving the key implementation milestones.
-- `.cursor/rules/summarize-to-agents-md.mdc`: Added a retention instruction to summarize AGENTS.md entries when file size grows above 50 lines.
-- `src/encoding_resolver.py`: Added a strict encoder resolver with a shared `VideoEncoderProfile` contract and HEVC-QSV defaults for central codec selection.
-- `src/trim.py`: Replaced hardcoded `hevc_qsv` flag lists with resolved encoder profiles for both minimal-fallback and normal video encoding paths.
-- `README.md`: Updated encoding documentation to describe resolver-driven default selection and future hardware encoder extensibility.
-- `src/encoding_resolver.py`: Added `hevc_videotoolbox` to the encoder resolution chain so HEVC VideoToolbox is supported when available.
-- `src/encoding_resolver.py`: Changed resolver behavior to probe encoders in order with a minimal FFmpeg encode test and cache the first runnable profile.
-- `main.py`: Added early startup encoder resolution at startup, failing fast if no runnable hardware encoder is found.
-- `src/encoding_resolver.py`: Added `-q:v 25` for the `hevc_videotoolbox` profile so videotoolbox quality is explicitly set to 25.
-- `src/ffmpeg/__init__.py`: Added a package API to expose centralized ffmpeg builders, probing, detection, filter graph, and transcode helpers.
-- `src/ffmpeg/core.py`: Centralized `ffmpeg`/`ffprobe` base command and script/filter utilities used by all modules.
-- `src/ffmpeg/runner.py`: Added unified FFmpeg command runners for checked execution and `-progress` streaming parsing.
-- `src/ffmpeg/probing.py`: Centralized duration/bitrate probes, encoder discovery, and encoder smoke-test checks.
-- `src/ffmpeg/detection.py`: Moved silencedetect command construction/parsing into dedicated ffmpeg detection helpers.
-- `src/ffmpeg/filter_graph.py`: Moved audio/video concat filter-graph generation and script-write helpers into dedicated functions.
-- `src/ffmpeg/types.py`: Added shared typing contracts for ffmpeg execution helpers.
-- `src/ffmpeg/transcode.py`: Consolidated extraction, minimal-output, and final-trim command builders used by transcription and trimming flows.
-- `src/encoding_resolver.py`: Switched resolver probing path to `src/ffmpeg/probing.py` and kept profile-based codec orchestration intact.
-- `src/silence/detector.py`: Routed silence detection through centralized ffmpeg detection helper and retained algorithm APIs.
-- `src/trim.py`: Routed probing, audio trim graph construction, and all ffmpeg execution through centralized ffmpeg modules and runners.
-- `src/transcription/openrouter.py`: Replaced inline ffmpeg extraction command execution with centralized transcode command builders and runner execution.
-- `src/content.py`: Updated imports away from legacy top-level `src.title`/`src.transcribe` shim modules to package-based imports.
-- `src/transcribe.py`: Removed legacy compatibility shim module in favor of direct `src.transcription` imports.
-- `src/title.py`: Removed legacy compatibility shim module in favor of direct `src.titles` imports.
-- `src/silence_detector.py`: Removed legacy compatibility shim module in favor of direct `src.silence.detector` imports.
-- `src/app/__init__.py`: Added package entrypoints for pipeline orchestration exports.
-- `src/core/`: Moved configuration, constants, paths, CLI, filesystem, and filename utilities into the new package namespace.
-- `src/llm/`: Moved OpenRouter client, prompts, transcription, and title flows under `src/llm` with updated imports.
-- `src/media/`: Moved silence detection and trim logic under `src/media` and rewired runtime imports.
-- `src/app/pipeline.py`: Consolidated phase orchestration, replacing legacy content-centric flow and simplifying `main.py` to call the pipeline entrypoint.
-- `main.py`, `README.md`, and stale import sweep: Wired entrypoint to `src.app.pipeline.run`, updated architecture docs, and removed stale legacy modules/directories.
-- `src/encoding_resolver.py`: made encoder probing resilient to unsupported profile options by selecting the codec with reduced args when full profile options fail the probe.
-- `src/encoding_resolver.py`: broadened encoder fallback logic so listed encoders can be selected despite strict probe failures, defaulting to conservative codec arguments when needed.
-- `src/media/silence_detector.py`: added edge-trim handling so leading/trailing detected silences are clipped to keep 500ms at each edge before target-mode padding and non-target trim calculations.
-- `src/media/trim.py`: applied edge silence clipping in the non-target trim plan before pad-based segment synthesis.
-- `src/core/constants.py`: raised non-target `DEFAULT_MIN_DURATION` to `1.0` seconds.
-- `src/media/silence_detector.py`: added shared `-50dB` edge re-scan helpers and target-mode edge replacement before base-length/padding calculations.
-- `src/media/trim.py`: reused edge-interval replacement in the non-target plan before edge trimming and padding.
-- `src/core/cli.py`, `README.md`, and `ALGO.md`: updated non-target defaults and documentation to reflect shared edge re-scan behavior for both modes.
-- `src/core/constants.py`: keeps non-target `DEFAULT_MIN_DURATION` at `1.0` seconds while target mode uses `TARGET_MIN_DURATION`.
-- `README.md` and `ALGO.md`: now explicitly note that `-50dB` edge re-scan/replacement is used in both target and non-target trimming paths.
-- `src/llm/transcription.py`: set `extract_first_5min_audio` default output format to `ogg` so transcription always uses OGG unless explicitly overridden.
-- `src/ffmpeg/transcode.py`: removed WAV audio extraction helper so transcription-only audio extraction no longer includes a WAV path.
-- `src/ffmpeg/__init__.py`: dropped WAV transcode helper from package exports.
-- `src/llm/transcription.py`: removed WAV extraction branch from transcription pipeline and now enforce OGG-only extraction format.
-- `temp/test_openrouter.py`: updated quick-test audio extraction helper to prefer OGG output for consistency.
-- `src/encoding_resolver.py`: switched `hevc_qsv` from `global_quality` (ICQ path) to explicit CQP-style `-q:v` quality control.
-- `src/encoding_resolver.py`: changed encoder resolution to fail when configured profile arguments are not runnable, removing implicit downgrade to empty codec args.
-- `src/encoding_resolver.py`: reintroduced `-preset "slow"` for `hevc_qsv` while keeping explicit quality control via `-global_quality`.
-- `src/ffmpeg/probing.py`: added probe-level logging to print exact FFmpeg commands and stderr when encoder-option checks fail.
-- `src/ffmpeg/probing.py`: hardened encoder probe with a stable HEVC-QSV-compatible test signal (`64x64`, multi-frame, `nv12`, I-frame-only GOP) to avoid false negatives.
-- `src/encoding_resolver.py`: restored QSV profile quality-related options `-q:v`, `-look_ahead_depth`, `-mbbrc`, `-extbrc`, and `-scenario archive`.
-- `src/llm/prompts.py`: Added strict honorific-check/apply prompt templates with explicit no-commentary contracts and a binary `YES`/`NO` decision format for the check step.
-- `src/llm/title.py`: Split honorific handling into a check gate plus conditional apply step, with strict output validation and raw-title fallback on malformed responses.
-- `src/core/constants.py`: Set `EDGE_SILENCE_KEEP_SEC` to `0.2` to preserve only 200ms at file edges during edge-silence handling.
-- `src/media/silence_detector.py`: Changed edge silence re-scan threshold to `-55.0` dB so edge interval detection is consistently less aggressive.
-- `README.md`: Updated edge silence documentation to reflect a `-55dB` edge re-scan and 200ms edge keep buffer.
-- `ALGO.md`: Updated edge-trim algorithm documentation to match the `-55dB` edge scan and 200ms keep behavior.
-- `AGENTS.md`: Added this session’s edge-silence keep/threshold updates to the condensed change log.
-- `src/startup/bootstrap.py`: Added a startup bootstrap context to centralize CLI validation, config loading, encoder resolution, output/temp directory setup, and run-time defaults.
-- `src/startup/__init__.py`: Exported startup bootstrap API for clean app-level import.
-- `src/app/pipeline.py`: Refactored pipeline startup path to consume `build_startup_context` instead of inlining preflight and defaults.
-- `README.md`: Updated package layout documentation to include the new `src/startup` package.
+- **Config & layout**: `.env` holds secrets (e.g. `OPENROUTER_API_KEY`); shared defaults live in `src/core/constants.py`. Packages: `src/core`, `src/media`, `src/llm`, `src/ffmpeg`, `src/startup`; orchestration in `src/app/pipeline.py`. Legacy top-level shim modules were removed.
+- **FFmpeg layer**: Central builders, runners (including progress parsing), probing, silencedetect helpers, filter-graph utilities, and transcode command assembly. Scripted graphs use `-/filter_complex`; legacy `-filter_complex_script` fallback was dropped (FFmpeg 8+ assumed).
+- **Encoding**: `src/ffmpeg/encoding_resolver.py` picks a runnable hardware HEVC profile (e.g. QSV, VideoToolbox) via probes/smoke tests; startup fails fast if none work; the resolved profile is passed into trim to avoid resolving again.
+- **Silence & trim**: `TrimPlan` / `build_trim_plan` unify target vs non-target policies. `prepare_silence_intervals_with_edges` shares edge normalization across snippet, target, and non-target paths. Edge re-scan uses a relaxed threshold and a short keep buffer at file ends. Constants are grouped as `TARGET_*`, `NON_TARGET_*`, and `SNIPPET_*`. CLI requires positive `--target-length` and `--min-duration`; target mode supports threshold overrides and truncation when a target duration cannot be met.
+- **Transcription snippet**: Phase 1 uses `create_silence_removed_snippet` with fixed snippet constants (ignores `--noise-threshold` / `--min-duration`); max length `SNIPPET_MAX_DURATION_SEC` (180s). Snippet path reuses the same edge policy as final trim.
+- **Transcription audio**: Extraction pipeline favors OGG for the audio sent to the transcription model.
+- **LLM client**: OpenRouter requests default to capping input/context and output size (10k tokens each), with compatibility handling if the API rejects some fields.
+- **Default models**: Transcription and title flows default to `google/gemini-3.1-flash-lite-preview` on OpenRouter unless callers override.
+- **Title generation**: Prompts require verbatim, beginning-only title spans from the full transcript. One model call emits a small JSON array of candidates; one call returns per-candidate `verbatim_score` and `correctness_score`; the highest combined score wins with deterministic tie-breaks. There is **no** separate honorific add/check LLM step after selection.
+- **Documentation**: `README.md` and `ALGO.md` track architecture, CLI defaults, edge and snippet behavior, encoding, and title rules.
 
-- `src/startup/bootstrap.py`: Removed redundant empty-video logging from startup context assembly since early validation already enforces input videos exist.
-- `src/app/pipeline.py`: Passed startup-resolved encoder into phase-3 output trimming to avoid an extra encoder resolution call.
-- `src/media/trim.py`: Added an optional pre-resolved encoder parameter to `trim_single_video`, falling back to resolver lookup when omitted.
-- `src/app/pipeline.py`: Removed redundant in-run no-video fallback guard that is already enforced during startup validation.
-- `src/ffmpeg/encoding_resolver.py`: Added the relocated encoder resolver module with `VideoEncoderProfile` and `resolve_video_encoder` to the `src.ffmpeg` package.
-- `src/startup/bootstrap.py`: Rewired startup resolver imports to `src.ffmpeg.encoding_resolver`.
-- `src/media/trim.py`: Rewired resolver imports to `src.ffmpeg.encoding_resolver` for `VideoEncoderProfile` and `resolve_video_encoder`.
-- `src/app/pipeline.py`: Rewired `VideoEncoderProfile` import to `src.ffmpeg.encoding_resolver`.
-- `src/ffmpeg/transcode.py`: Rewired `TYPE_CHECKING` resolver import to `src.ffmpeg.encoding_resolver`.
-- `src/ffmpeg/__init__.py`: Exported `VideoEncoderProfile` and `resolve_video_encoder` from the FFmpeg package API.
-- `src/encoding_resolver.py`: Removed the legacy top-level module after migration.
+## Latest session edits
 
-- `AGENTS.md`: Removed malformed/placeholder historical bullets introduced during prior AGENTS updates.
-- `src/media/trim.py`: Added `create_silence_removed_snippet` so transcription snippets use fixed `-55dB`, `0.01s` parameters and existing edge trimming.
-- `src/app/pipeline.py`: Routed phase-1 snippet generation to `create_silence_removed_snippet` so target and non-target runs share the same snippet extraction behavior.
-- `src/media/__init__.py`: Exported `create_silence_removed_snippet` while keeping `create_silence_removed_audio` available for generic use.
-- `src/core/constants.py`: Added explicit snippet constants for threshold, minimum duration, and duration cap.
-- `src/core/__init__.py`: Exported snippet constants through the core package API.
-- `README.md` and `ALGO.md`: Documented fixed phase-1 snippet extraction settings and independent edge-based behavior.
-- `README.md`: Clarified that phase-1 snippet extraction ignores `--noise-threshold`/`--min-duration` overrides.
-- `src/core/constants.py`: Renamed silence defaults into explicit `NON_TARGET_*`, `TARGET_*`, and `SNIPPET_*` groups while keeping compatibility aliases for historical names.
-- `src/startup/bootstrap.py`: Switched startup default resolution to explicit target/non-target constants (`TARGET_NOISE_THRESHOLD_DB`, `TARGET_MIN_DURATION_SEC`, and non-target counterparts).
-- `src/media/trim.py` and `src/media/silence_detector.py`: Updated trimming and detection callsites to consume the renamed mode-specific constants with existing behavior preserved.
-- `src/core/__init__.py`: Re-exported explicit mode-specific constants and aliases to make package imports mode-aware.
-- `src/core/cli.py`: Updated flag help text to reference explicit target-mode defaults.
-- `src/core/constants.py`: Added shared edge-scan defaults (`EDGE_RESCAN_THRESHOLD_DB`, `EDGE_RESCAN_MIN_DURATION_SEC`) and exported them from the core package API.
-- `src/media/silence_detector.py`: Added `prepare_silence_intervals_with_edges` and refactored both target and non-target interval preparation to use it before padding.
-- `src/media/trim.py`: Rewired non-target and snippet paths in trim planning to route through shared edge interval preparation.
-- `README.md`: Documented that snippet extraction and final trim now share the same edge handling policy.
-- `ALGO.md`: Updated shared-flow description to describe one edge-normalization policy across snippet, target, and non-target modes.
-- `src/core/constants.py`: Reordered trim default resolver definitions after canonical constants and added explicit alias-map compatibility exports.
-- `src/app/pipeline.py`: Removed duplicated module copies from iterative refactoring and kept a single phase-orchestrated pipeline implementation.
-- `src/ffmpeg/core.py`: Corrected filter-complex script flag usage to `-filter_complex_script`.
-- `src/ffmpeg/transcode.py`: Preserved `max_duration` precision when emitting `-t` for silence-removed audio extraction.
-- `src/media/silence_detector.py`: Allowed `choose_threshold_and_padding_for_target` to accept an explicit threshold override for target-length mode.
-- `src/media/trim.py`: Threaded target threshold overrides into threshold search and truncated target-mode segments when requested length is still unmet.
-- `src/core/cli.py`: Added CLI validation that positive floats are required for `--target-length` and `--min-duration`.
-- `src/startup/bootstrap.py`: Removed duplicate video-directory scan by validating collected files directly once.
-- `README.md`: Clarified `--min-duration` wording so it applies in both target and non-target modes.
-- `src/media/trim.py`: Added a shared `TrimPlan` dataclass and `build_trim_plan` planner entrypoint, centralizing target/non-target trim policies, target-duration short-circuiting, and segment/result synthesis.
-- `src/media/silence_detector.py`: Removed redundant standalone target-duration guard in `choose_threshold_and_padding_for_target` so the target-length copy/truncation decision is now made in planner logic.
-- `src/media/trim.py`: Extracted shared silence-removal execution scaffolding (`_run_silence_removed_media`, `_run_minimal_output`) for audio and video output workflows.
-- `src/ffmpeg/transcode.py`: Added `_build_input_command` to deduplicate shared ffmpeg input-command scaffolding across minimal/final builders.
-- `src/ffmpeg/probing.py`: Fixed invalid `build_ffmpeg_cmd` call syntax by moving positional ffmpeg flags before/without keyword argument usage to restore importability.
-- `src/ffmpeg/transcode.py`: Fixed positional-after-keyword call in `_build_audio_window_extract_command` so module import no longer fails with `SyntaxError`.
-- `src/ffmpeg/core.py`: switched filter-graph script command construction to prefer modern `-/filter_complex`.
-- `src/ffmpeg/runner.py`: added a compatibility retry to legacy `-filter_complex_script` only when `-/filter_complex` is rejected.
-- `README.md`: clarified that shared command construction uses `-/filter_complex` and documents the updated filter-script behavior.
-- `src/ffmpeg/runner.py`: removed legacy `-filter_complex_script` fallback now that FFmpeg 8+ `-/filter_complex` is assumed to be available.
-- `src/core/constants.py`: Reduced transcription snippet cap by setting `SNIPPET_MAX_DURATION_SEC` to `60.0` for one-minute transcription input.
-- `src/llm/title.py`: Added first-words transcript prefixing (30-word default) and now feeds that prefix into title generation instead of the full transcript.
-- `src/llm/prompts.py`: Updated title-generation instructions to prioritize the opening verbatim words and the first complete title phrase at the start.
-- `src/llm/prompts.py`: Updated honorific prompt wording to use “where appropriate” and added brief honorific insertion examples to reduce duplicate ﷺ additions.
-- `src/llm/prompts.py`: Expanded honorific prompt examples to cover duplicate ﷺ cases (e.g., `ﷺ ﷺ` after mentions) and clarify where ﷺ should be added vs not.
-- `src/llm/prompts.py`: Corrected honorific prompt check/apply example pairs and rule wording so they match the expected "سيدنا" prefix and single trailing ﷺ behavior.
-- `src/llm/title.py`: Updated title generation to use the full transcript (no 30-word truncation) so the model can decide what to use.
-- `src/llm/prompts.py`: Revised `TITLE_PROMPT_TEMPLATE` to extract the title from the first few sentences of the transcript from the 1st non-silence minute.
-- `src/llm/prompts.py`: Tightened transcription/title prompt instructions to prefer verbatim wording from the transcript/audio, forbid paraphrasing/rephrasing, and ensure the title is a verbatim contiguous span (honorifics handled only in post-processing).
-- `src/llm/prompts.py`: Simplified title early-selection rule to remove unsupported silence/non-silence rationale and make it actionable from transcript text alone.
-- `src/llm/prompts.py`: Removed the separate honorific reminder from the title prompt to keep the model's goal hyperfocused on verbatim span selection.
-- `src/llm/title.py`: Added verbatim verification + up-to-3 regeneration attempts before honorific gate/apply.
-- `src/llm/prompts.py`: Updated honorific check/apply prompts to skip adding redundant `ﷺ` when titles already contain `عليه الصلاة والسلام` / `عليه السلام` after Prophet mentions (including `آل سيدنا ...`).
-- `src/llm/title.py`: Added deterministic normalization to strip redundant `ﷺ` following `عليه الصلاة والسلام` / `عليه السلام`.
-- `src/core/constants.py`: Increased `SNIPPET_MAX_DURATION_SEC` for transcription snippet extraction from `60.0` to `180.0` seconds (3 minutes).
-- `src/llm/title.py`: Switched title-generation, verbatim verification, and honorific-check/apply model calls to `google/gemini-3.1-flash-lite-preview`.
-- `README.md`: Updated default model documentation to `google/gemini-3.1-flash-lite-preview` for transcription and title generation.
-- `src/llm/transcription.py`: Updated default OpenRouter model parameters from `google/gemini-2.5-flash-lite:nitro` to `google/gemini-3.1-flash-lite-preview`.
-- `temp/test_openrouter.py`: Standardized OpenRouter test model IDs to `google/gemini-3.1-flash-lite-preview` for uniform helper behavior.
-- `src/llm/client.py`: Added shared OpenRouter request defaults to cap input/context and output token budgets at 10,000 via request payload parameters.
-- `src/llm/prompts.py`: Refined title generation and verbatim-check prompts to enforce beginning-only extraction from opening complete sentences and reject later answer-body text.
-- `src/llm/title.py`: Refactored title step to use a deduplicated candidate pool, per-candidate verbatim verification, deterministic best-title selection (with fallback when none verify), while keeping a shared transcript payload for generation and verifier prompts.
-- `README.md`: Documented title extraction constraints including multi-candidate generation, verification, deterministic selection, and fallback behavior.
-- `src/llm/title.py`: Removed honorific check/apply pipeline and related helpers so the selected verified (or fallback) title is returned directly after candidate verification and selection.
-- `src/llm/prompts.py`: Deleted honorific prompt templates and removed their `__all__` exports.
-- `src/llm/__init__.py`: Removed `ADD_HONORIFIC_PROMPT_TEMPLATE` from package imports and `__all__`.
-- `README.md`: Clarified that the title path ends after verbatim verification and deterministic selection with no post-selection honorific LLM step.
-- `AGENTS.md`: Logged honorific removal and aligned prior README changelog wording with the updated title flow.
-- `README.md`: Aligned Features and audio-extraction docs with silence-removed OGG snippets under `temp/snippet/` and `SNIPPET_MAX_DURATION_SEC` (180s) instead of 5-minute/m4a wording.
-- `ALGO.md`: Corrected phase-1 snippet duration cap to `SNIPPET_MAX_DURATION_SEC` (180s default) instead of 300s.
-- `src/llm/prompts.py`: Allowed optional trailing punctuation on verbatim verifier YES/NO output to match `_parse_yes_no`.
-- `src/llm/__init__.py`: Re-exported `TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE` alongside existing prompt exports.
-- `src/llm/transcription.py`: Updated extraction docstrings/log to describe the `SNIPPET_MAX_DURATION_SEC` window instead of a fixed five-minute claim.
-- `src/ffmpeg/transcode.py`: Clarified `build_first_5min_audio_ogg_command` docstring to reference the snippet-duration default.
-- `AGENTS.md`: Logged README/ALGO/transcription doc alignment and LLM package prompt export tweak.
-- `src/llm/prompts.py`: Added `TITLE_CANDIDATES_PROMPT_TEMPLATE` for one-shot JSON-array title candidate generation.
-- `src/llm/title.py`: Replaced multi-call candidate loop with a single OpenRouter request plus strict JSON parsing, deduplication, and optional fence stripping.
-- `src/llm/__init__.py`: Exported `TITLE_CANDIDATES_PROMPT_TEMPLATE`.
-- `README.md`: Documented single-call batch candidate generation followed by per-candidate verification.
-- `AGENTS.md`: Logged single-call title batch generation changes.
-- `src/llm/title.py`: Capped batch-parsed candidates to the requested pool size and preserved JSON parse exception chaining for easier debugging.
-- `src/llm/prompts.py`: Replaced per-candidate verbatim YES/NO template with `TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE` for one-shot 0–10 scoring of all candidates.
-- `src/llm/title.py`: Swapped per-candidate verifier loop for a single scoring call plus combined-score argmax and `_selection_sort_key` tie-breaks.
-- `src/llm/__init__.py`: Exported `TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE` instead of `TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE`.
-- `README.md`: Documented two-call title flow (batch generate + batch score/select).
-- `AGENTS.md`: Logged scored batch title evaluation changes.
+- `AGENTS.md`: Replaced the long per-file bullet history with a compact thematic changelog and clarified re-condensing when the file grows past ~50 lines.
+- `src/core/cli.py`: Added `--llm-only` for transcription/title-only runs with console output and incremental `titles.txt` logging.
+- `src/startup/bootstrap.py`: Added `llm_only` to `StartupContext`, optional `encoder`, and skipped hardware encoder resolution when `--llm-only` is set.
+- `src/app/pipeline.py`: Branched `run()` for LLM-only mode (two phases, session header + per-title appends to `temp/titles.txt`, console dump, summary); parameterized phase step labels with `total_phases`; refactored `run_title_phase` for manifest appends on generate and skip.
+- `README.md`: Documented `--llm-only`, `titles.txt` append behavior, and Phase 3 skip.

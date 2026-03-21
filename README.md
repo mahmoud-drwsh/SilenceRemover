@@ -62,6 +62,7 @@ python main.py /path/to/video/directory
 - `--target-length FLOAT`: Optimize padding to achieve a target video length (in seconds).
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Defaults are `TARGET_NOISE_THRESHOLD_DB` (`-55.0`) when `--target-length` is set, otherwise `NON_TARGET_NOISE_THRESHOLD_DB` (`-50.0`).
 - `--min-duration FLOAT`: Override minimum silence duration in seconds (applies in both modes). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with `--target-length` and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
+- `--llm-only`: Run **phases 1–2 only** (silence-removed snippet, transcription, title). Skips hardware encoder probing and **Phase 3** (no final MP4). After processing, prints each video’s transcript and title to the console. Also maintains an append-only log at `output/temp/titles.txt`: after Phase 1 finishes for all videos, each run appends a `======` / timestamp / `======` header (with blank lines before it if the file already has content), then Phase 2 appends one tab-separated line per video (`stem<TAB>title`) as soon as that video’s title step completes (including when the title phase is skipped as already done).
 
 Trimming precision controls (advanced):
 

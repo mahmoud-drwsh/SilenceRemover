@@ -98,4 +98,13 @@ def parse_args() -> argparse.Namespace:
             f"{TARGET_MIN_DURATION_SEC}; otherwise {NON_TARGET_MIN_DURATION_SEC}."
         ),
     )
+    parser.add_argument(
+        "--llm-only",
+        action="store_true",
+        help=(
+            "Transcription and title generation only (phases 1–2): no final video output, "
+            "results printed to the console; hardware encoder probe is skipped. "
+            "Appends per-video titles to output/temp/titles.txt as each title is ready."
+        ),
+    )
     return parser.parse_args()
