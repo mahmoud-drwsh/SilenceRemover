@@ -4,7 +4,7 @@ __all__ = [
     "TRANSCRIBE_PROMPT",
     "TITLE_PROMPT_TEMPLATE",
     "TITLE_CANDIDATES_PROMPT_TEMPLATE",
-    "TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE",
+    "TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE",
 ]
 
 TRANSCRIBE_PROMPT = """Transcribe the Arabic audio as clean verbatim text in Arabic.
@@ -52,21 +52,31 @@ Transcript:
 {transcript}
 """
 
-TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE = """\
-You are given:
-- Transcript: {transcript}
-- CandidateTitle: {candidate_title}
+# Used by `src/llm/title.py` for one-shot scoring of all candidates (JSON object output).
+TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE = """\
+You evaluate Arabic video title candidates against a transcript. Score every candidate in order.
 
-Task:
-Verify whether CandidateTitle is a verbatim title taken from the Transcript with no extra words or commentary.
+Transcript:
+{transcript}
 
-Rules:
-1. The candidate must not include any prefix/suffix like "العنوان", "Title:", quotes, or any extra commentary.
-2. The candidate must not introduce any words that do not appear in the transcript.
-3. Source-position constraint: the candidate must come from the opening complete-sentence part at the start of the transcript (where the title is introduced), not from later answer/explanatory content.
-4. Minor differences in whitespace/punctuation are allowed.
+Candidates (JSON array, fixed order — evaluation index i corresponds to candidates[i]):
+{candidates_json}
 
-Output exactly one token: YES or NO. Optional single trailing punctuation (e.g. `YES.`) is allowed; no other text.
-CandidateTitle:
-{candidate_title}
+For each candidate, output two integer scores from 0 to 10 (inclusive):
+
+1) verbatim_score (0–10): How well the string matches a single contiguous verbatim span of the transcript (same Arabic words in the same order). No paraphrase, no added words.
+   - 10: exact contiguous substring match (minor whitespace/punctuation differences only).
+   - 5–9: mostly verbatim but small mismatches or alignment issues.
+   - 0–4: clearly not a verbatim substring or largely invented wording.
+
+2) correctness_score (0–10): Whether it behaves like a proper title from the opening/title-intro portion (not from later answer/explanation body), with no junk prefix/suffix (e.g. "العنوان", "Title:", wrapping quotes, extra commentary).
+   - 10: clearly from the opening complete-sentence title-intro region, clean single title.
+   - 5–9: mostly correct position/format with minor issues.
+   - 0–4: drawn from later body text, or has labels/extra commentary, or otherwise violates title-intro rules.
+
+Output format (required):
+- Output only one JSON object, no markdown fences, no commentary.
+- Shape: {{"evaluations":[{{"verbatim_score":int,"correctness_score":int}}, ...]}}
+- The "evaluations" array must have exactly the same length as the Candidates array above, in the same order.
+- Each score must be an integer from 0 through 10.
 """

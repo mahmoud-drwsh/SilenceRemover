@@ -164,3 +164,8 @@ Entries below are appended by the agent after making code or config changes.
 - `README.md`: Documented single-call batch candidate generation followed by per-candidate verification.
 - `AGENTS.md`: Logged single-call title batch generation changes.
 - `src/llm/title.py`: Capped batch-parsed candidates to the requested pool size and preserved JSON parse exception chaining for easier debugging.
+- `src/llm/prompts.py`: Replaced per-candidate verbatim YES/NO template with `TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE` for one-shot 0–10 scoring of all candidates.
+- `src/llm/title.py`: Swapped per-candidate verifier loop for a single scoring call plus combined-score argmax and `_selection_sort_key` tie-breaks.
+- `src/llm/__init__.py`: Exported `TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE` instead of `TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE`.
+- `README.md`: Documented two-call title flow (batch generate + batch score/select).
+- `AGENTS.md`: Logged scored batch title evaluation changes.

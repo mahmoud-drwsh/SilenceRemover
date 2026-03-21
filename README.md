@@ -120,8 +120,8 @@ The tool processes videos sequentially through four main stages:
   - Output is exactly one Arabic title line (no commentary).
   - The title must be a verbatim contiguous span from the transcript.
   - The title is extracted from the opening complete-sentence portion at the start of the transcript (title-intro area), not from later answer/explanatory body text.
-  - The model produces a small pool of candidate titles in **one** generation call (JSON array of distinct titles). Each candidate is then checked with a separate verbatim/position verifier call; the best passing candidate is chosen deterministically (earliest transcript match, then length near a practical band). If none pass verification, a deterministic fallback is chosen from the pool and logged.
-  - After that pool is verified, the selected title is returned directly (no post-selection LLM step).
+  - The model produces a small pool of candidate titles in **one** generation call (JSON array of distinct titles). A **second** call scores every candidate in one shot (`verbatim_score` and `correctness_score`, each 0–10); the implementation picks the highest **combined** score (sum). Ties break deterministically (earliest transcript substring match, then length near a practical band, then candidate order).
+  - The final title is returned after that scoring step (no further LLM calls).
 
 ### 4. File Renaming
 

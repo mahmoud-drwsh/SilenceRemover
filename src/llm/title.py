@@ -1,37 +1,14 @@
 """Title generation from transcript using OpenRouter."""
 
 import json
-import re
 import sys
 from pathlib import Path
 
 from src.llm.prompts import (
     TITLE_CANDIDATES_PROMPT_TEMPLATE,
-    TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE,
+    TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE,
 )
 from src.llm.client import request as openrouter_request
-
-
-def _single_non_empty_line(text: str) -> str:
-    """Return a single non-empty line only; otherwise return an empty string."""
-    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
-    if len(lines) != 1:
-        return ""
-    return lines[0]
-
-
-def _parse_yes_no(raw_response: str) -> bool | None:
-    """Parse strict YES/NO output from a model step."""
-    response = _single_non_empty_line(raw_response).upper()
-    if not response:
-        return None
-    # Allow trailing punctuation like YES. / NO!
-    response = re.sub(r"[.!?]+$", "", response).strip()
-    if response == "YES":
-        return True
-    if response == "NO":
-        return False
-    return None
 
 
 # Title candidate pool: generation count and practical length band for ranking.
@@ -113,6 +90,122 @@ def _parse_title_candidates_json(raw: str, expected: int) -> list[str]:
     return out
 
 
+def _coerce_score_0_10(field: str, index: int, value: object) -> int:
+    """Validate and return an integer score in 0..10."""
+    n: int
+    if isinstance(value, bool):
+        raise RuntimeError(
+            f"evaluation[{index}].{field}: boolean is not a valid score"
+        )
+    if isinstance(value, int):
+        n = value
+    elif isinstance(value, float):
+        if not value.is_integer():
+            raise RuntimeError(
+                f"evaluation[{index}].{field}: expected integer score, got {value!r}"
+            )
+        n = int(value)
+    else:
+        raise RuntimeError(
+            f"evaluation[{index}].{field}: expected number, got {type(value).__name__}"
+        )
+    if not 0 <= n <= 10:
+        raise RuntimeError(
+            f"evaluation[{index}].{field}: score {n} out of allowed 0..10 range"
+        )
+    return n
+
+
+def _parse_title_evaluation_json(raw: str, n: int) -> list[tuple[int, int]]:
+    """Parse evaluations JSON object; return list of (verbatim_score, correctness_score)."""
+    text = _strip_optional_json_fences(raw.strip())
+    data: object
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as first_err:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise RuntimeError(
+                "Title scoring returned no parseable JSON object"
+            ) from first_err
+        try:
+            data = json.loads(text[start : end + 1])
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Title scoring JSON parse failed: {e}") from e
+
+    if not isinstance(data, dict):
+        raise RuntimeError("Title scoring JSON must be a JSON object")
+
+    evaluations = data.get("evaluations")
+    if not isinstance(evaluations, list):
+        raise RuntimeError('Title scoring JSON must contain an "evaluations" array')
+
+    if len(evaluations) != n:
+        raise RuntimeError(
+            f"Title scoring expected {n} evaluations, got {len(evaluations)}"
+        )
+
+    out: list[tuple[int, int]] = []
+    for i, item in enumerate(evaluations):
+        if not isinstance(item, dict):
+            raise RuntimeError(f"evaluation[{i}] must be a JSON object")
+        if "verbatim_score" not in item or "correctness_score" not in item:
+            raise RuntimeError(
+                f"evaluation[{i}] must include verbatim_score and correctness_score"
+            )
+        v = _coerce_score_0_10("verbatim_score", i, item["verbatim_score"])
+        c = _coerce_score_0_10("correctness_score", i, item["correctness_score"])
+        out.append((v, c))
+    return out
+
+
+def _evaluate_title_candidates(
+    api_key: str,
+    model: str,
+    transcript: str,
+    candidates: list[str],
+    log_dir: Path | None,
+) -> list[tuple[int, int]]:
+    """One model call: score all candidates (verbatim + correctness)."""
+    candidates_json = json.dumps(candidates, ensure_ascii=False)
+    prompt = TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE.format(
+        transcript=transcript,
+        candidates_json=candidates_json,
+    )
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": prompt}]},
+    ]
+    print(
+        f"Scoring {len(candidates)} title candidates in one call with model: {model}"
+    )
+    raw = openrouter_request(api_key, model, messages, log_dir=log_dir)
+    return _parse_title_evaluation_json(str(raw), n=len(candidates))
+
+
+def _select_title_by_scores(
+    transcript: str,
+    candidates: list[str],
+    scores: list[tuple[int, int]],
+) -> str:
+    """Pick candidate with highest combined score; tie-break with _selection_sort_key."""
+    if not candidates or len(scores) != len(candidates):
+        return ""
+    combined = [v + c for v, c in scores]
+    best = max(combined)
+    tie_indices = [i for i, s in enumerate(combined) if s == best]
+    best_i = min(
+        tie_indices,
+        key=lambda i: _selection_sort_key(transcript, candidates[i], i),
+    )
+    v, c = scores[best_i]
+    print(
+        f"Selected candidate index {best_i} (combined={best}, "
+        f"verbatim={v}, correctness={c})."
+    )
+    return candidates[best_i]
+
+
 def _generate_title_candidates(
     api_key: str,
     verifier_model: str,
@@ -136,27 +229,6 @@ def _generate_title_candidates(
     return _parse_title_candidates_json(str(raw), expected=target_count)
 
 
-def _verify_title_candidate(
-    api_key: str,
-    verifier_model: str,
-    transcript: str,
-    candidate: str,
-    log_dir: Path | None,
-) -> bool:
-    """Return True if the verbatim checker accepts the candidate."""
-    verify_prompt = TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE.format(
-        transcript=transcript, candidate_title=candidate
-    )
-    verify_messages = [
-        {"role": "user", "content": [{"type": "text", "text": verify_prompt}]},
-    ]
-    print(f"Verifying candidate verbatim: {candidate[:60]!r}...")
-    verify_response = openrouter_request(
-        api_key, verifier_model, verify_messages, log_dir=log_dir
-    )
-    return _parse_yes_no(str(verify_response)) is True
-
-
 def _selection_sort_key(
     transcript: str, candidate: str, generation_index: int
 ) -> tuple[int, int, int]:
@@ -173,45 +245,10 @@ def _selection_sort_key(
     return (pos_key, len_penalty, generation_index)
 
 
-def _choose_best_title(
-    transcript: str,
-    candidates: list[str],
-    verified_mask: list[bool],
-) -> tuple[str, bool]:
-    """Pick best title among verified candidates; if none verified, pick best unverified with warning.
-
-    Returns:
-        (chosen_title, used_verified_candidate)
-    """
-    verified_pairs: list[tuple[str, int]] = [
-        (c, i) for i, c in enumerate(candidates) if verified_mask[i]
-    ]
-    if verified_pairs:
-        best_c, best_i = min(
-            verified_pairs,
-            key=lambda pair: _selection_sort_key(transcript, pair[0], pair[1]),
-        )
-        return best_c, True
-
-    if candidates:
-        print(
-            "No candidate passed verbatim verification; using deterministic fallback "
-            "among generated candidates.",
-            file=sys.stderr,
-        )
-        best_c, best_i = min(
-            [(c, i) for i, c in enumerate(candidates)],
-            key=lambda pair: _selection_sort_key(transcript, pair[0], pair[1]),
-        )
-        return best_c, False
-
-    return "", False
-
-
 def generate_title_with_openrouter(
     api_key: str, transcript: str, log_dir: Path | None = None
 ) -> str:
-    """Generate title from transcript using OpenRouter (candidate pool, verify, select).
+    """Generate title from transcript using OpenRouter (batch candidates, batch score, select).
 
     Args:
         api_key: OpenRouter API key
@@ -221,17 +258,16 @@ def generate_title_with_openrouter(
     Returns:
         Selected title text (single line)
     """
-    # Use one shared transcript payload for generation and verifier prompts.
-    # The templates enforce beginning-only extraction from opening complete sentences.
+    # Shared transcript for generation and scoring prompts (opening-span rules).
     title_source_transcript = transcript.strip()
 
-    verifier_model = "google/gemini-3.1-flash-lite-preview"
+    model = "google/gemini-3.1-flash-lite-preview"
 
-    # Phase 1: one generation call for the candidate pool, then verify all, then pick best.
+    # Phase 1: one generation call for the candidate pool.
     try:
         candidates = _generate_title_candidates(
             api_key,
-            verifier_model,
+            model,
             title_source_transcript,
             target_count=_TITLE_CANDIDATE_TARGET_COUNT,
             log_dir=log_dir,
@@ -246,32 +282,28 @@ def generate_title_with_openrouter(
         )
         raise RuntimeError("Title generation returned empty response")
 
-    verified_mask: list[bool] = []
-    for candidate in candidates:
-        ok = _verify_title_candidate(
+    # Phase 2: one scoring call (verbatim + correctness per candidate), then argmax + tie-break.
+    try:
+        score_rows = _evaluate_title_candidates(
             api_key,
-            verifier_model,
+            model,
             title_source_transcript,
-            candidate,
+            candidates,
             log_dir,
         )
-        verified_mask.append(ok)
-        if not ok:
-            print(
-                "Verbatim verification rejected a candidate; continuing pool check...",
-                file=sys.stderr,
-            )
+    except RuntimeError as e:
+        print(f"Title batch scoring failed: {e}", file=sys.stderr)
+        raise
 
-    raw_title, used_verified = _choose_best_title(
-        title_source_transcript, candidates, verified_mask
-    )
-    if used_verified:
-        print("Selected best verified title from candidate pool.")
-    else:
+    for i, (v, c) in enumerate(score_rows):
         print(
-            "Proceeding with deterministic fallback title (no verified candidate).",
+            f"  Candidate {i}: verbatim={v}, correctness={c}, combined={v + c}",
             file=sys.stderr,
         )
+
+    raw_title = _select_title_by_scores(
+        title_source_transcript, candidates, score_rows
+    )
 
     if not raw_title:
         print("Title selection produced empty result.", file=sys.stderr)

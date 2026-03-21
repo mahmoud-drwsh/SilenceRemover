@@ -3,8 +3,8 @@
 from src.llm.client import request
 from src.llm.prompts import (
     TITLE_CANDIDATES_PROMPT_TEMPLATE,
+    TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE,
     TITLE_PROMPT_TEMPLATE,
-    TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE,
     TRANSCRIBE_PROMPT,
 )
 from src.llm.title import generate_title_from_transcript, generate_title_with_openrouter
@@ -19,7 +19,7 @@ __all__ = [
     "request",
     "TITLE_PROMPT_TEMPLATE",
     "TITLE_CANDIDATES_PROMPT_TEMPLATE",
-    "TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE",
+    "TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE",
     "TRANSCRIBE_PROMPT",
     "generate_title_from_transcript",
     "generate_title_with_openrouter",
