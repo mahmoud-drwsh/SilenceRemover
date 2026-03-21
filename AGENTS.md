@@ -22,3 +22,4 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/startup/bootstrap.py`: Added `llm_only` to `StartupContext`, optional `encoder`, and skipped hardware encoder resolution when `--llm-only` is set.
 - `src/app/pipeline.py`: Branched `run()` for LLM-only mode (two phases, session header + per-title appends to `temp/titles.txt`, console dump, summary); parameterized phase step labels with `total_phases`; refactored `run_title_phase` for manifest appends on generate and skip.
 - `README.md`: Documented `--llm-only`, `titles.txt` append behavior, and Phase 3 skip.
+- `pwsh/Start-VerticalLlmDryRun.ps1`: Added helper to run `--llm-only` against the vertical raw video folder (same layout as `Start-VerticalVideoProcessing.ps1`).
