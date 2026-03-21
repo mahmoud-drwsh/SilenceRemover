@@ -6,7 +6,7 @@ An automated video processing tool that removes silence segments, transcribes au
 
 - **Silence Detection & Removal**: Automatically detects and trims silence segments using FFmpeg's `silencedetect` filter
 - **Smart Trimming**: Optional target length optimization that adjusts padding to achieve desired video duration
-- **AI Transcription**: Extracts and transcribes the first 5 minutes of audio using OpenRouter (default model: `google/gemini-3.1-flash-lite-preview`)
+- **AI Transcription**: Builds a silence-removed snippet (capped at `SNIPPET_MAX_DURATION_SEC`, 180s / 3 minutes by default), encodes it as Ogg/Opus, and transcribes via OpenRouter (default model: `google/gemini-3.1-flash-lite-preview`)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
 - **Video encoding**: Uses a centralized resolver that currently tries HEVC Intel Quick Sync (`hevc_qsv`) first, then Apple VideoToolbox (`hevc_videotoolbox`). The resolver design is intentionally extensible for future hardware encoders, and failures are reported directly without codec fallback.
@@ -105,8 +105,8 @@ The tool processes videos sequentially through four main stages:
 
 ### 2. Audio Extraction
 
-- Extracts first 3 minutes of silence-removed, snippet audio for transcription using the same edge policy as final trim.
-- Saves as `.m4a` file in `temp/` directory
+- Extracts up to 3 minutes (`SNIPPET_MAX_DURATION_SEC` = 180s) of silence-removed snippet audio for transcription using the same edge policy as final trim.
+- Saves as `.ogg` (Opus) under `temp/snippet/` (see `get_snippet_path` / `AUDIO_FILE_EXT`)
 - Phase-1 snippet extraction ignores `--noise-threshold`/`--min-duration` overrides and always uses `SNIPPET_NOISE_THRESHOLD_DB` (`-55dB`) and `SNIPPET_MIN_DURATION_SEC` (`0.01s`) via snippet defaults.
 - Reuses existing audio files if already extracted
 
@@ -120,8 +120,8 @@ The tool processes videos sequentially through four main stages:
   - Output is exactly one Arabic title line (no commentary).
   - The title must be a verbatim contiguous span from the transcript.
   - The title is extracted from the opening complete-sentence portion at the start of the transcript (title-intro area), not from later answer/explanatory body text.
-  - The model generates a small pool of candidate titles; each candidate is checked with a verbatim/position verifier, then the best passing candidate is chosen deterministically (earliest transcript match, then length near a practical band). If none pass verification, a deterministic fallback is chosen from the pool and logged.
-  - Verbatim verification and honorific check/apply run after title selection.
+  - The model produces a small pool of candidate titles in **one** generation call (JSON array of distinct titles). Each candidate is then checked with a separate verbatim/position verifier call; the best passing candidate is chosen deterministically (earliest transcript match, then length near a practical band). If none pass verification, a deterministic fallback is chosen from the pool and logged.
+  - After that pool is verified, the selected title is returned directly (no post-selection LLM step).
 
 ### 4. File Renaming
 

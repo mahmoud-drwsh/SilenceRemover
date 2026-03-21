@@ -51,7 +51,7 @@ def build_audio_window_extract_command(
 
 
 def build_first_5min_audio_ogg_command(input_video: Path, output_audio: Path) -> list[str]:
-    """Build Ogg/Opus extraction command for the first five minutes."""
+    """Build Ogg/Opus extraction for an opening window (default duration: `SNIPPET_MAX_DURATION_SEC`)."""
     return build_audio_window_extract_command(
         input_file=input_video,
         output_audio=output_audio,

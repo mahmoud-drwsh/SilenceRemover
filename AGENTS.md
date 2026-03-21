@@ -145,4 +145,22 @@ Entries below are appended by the agent after making code or config changes.
 - `src/llm/client.py`: Added shared OpenRouter request defaults to cap input/context and output token budgets at 10,000 via request payload parameters.
 - `src/llm/prompts.py`: Refined title generation and verbatim-check prompts to enforce beginning-only extraction from opening complete sentences and reject later answer-body text.
 - `src/llm/title.py`: Refactored title step to use a deduplicated candidate pool, per-candidate verbatim verification, deterministic best-title selection (with fallback when none verify), while keeping a shared transcript payload for generation and verifier prompts.
-- `README.md`: Documented title extraction constraints including multi-candidate generation, verification, deterministic selection, fallback behavior, and honorific post-processing.
+- `README.md`: Documented title extraction constraints including multi-candidate generation, verification, deterministic selection, and fallback behavior.
+- `src/llm/title.py`: Removed honorific check/apply pipeline and related helpers so the selected verified (or fallback) title is returned directly after candidate verification and selection.
+- `src/llm/prompts.py`: Deleted honorific prompt templates and removed their `__all__` exports.
+- `src/llm/__init__.py`: Removed `ADD_HONORIFIC_PROMPT_TEMPLATE` from package imports and `__all__`.
+- `README.md`: Clarified that the title path ends after verbatim verification and deterministic selection with no post-selection honorific LLM step.
+- `AGENTS.md`: Logged honorific removal and aligned prior README changelog wording with the updated title flow.
+- `README.md`: Aligned Features and audio-extraction docs with silence-removed OGG snippets under `temp/snippet/` and `SNIPPET_MAX_DURATION_SEC` (180s) instead of 5-minute/m4a wording.
+- `ALGO.md`: Corrected phase-1 snippet duration cap to `SNIPPET_MAX_DURATION_SEC` (180s default) instead of 300s.
+- `src/llm/prompts.py`: Allowed optional trailing punctuation on verbatim verifier YES/NO output to match `_parse_yes_no`.
+- `src/llm/__init__.py`: Re-exported `TITLE_VERBATIM_CHECK_PROMPT_TEMPLATE` alongside existing prompt exports.
+- `src/llm/transcription.py`: Updated extraction docstrings/log to describe the `SNIPPET_MAX_DURATION_SEC` window instead of a fixed five-minute claim.
+- `src/ffmpeg/transcode.py`: Clarified `build_first_5min_audio_ogg_command` docstring to reference the snippet-duration default.
+- `AGENTS.md`: Logged README/ALGO/transcription doc alignment and LLM package prompt export tweak.
+- `src/llm/prompts.py`: Added `TITLE_CANDIDATES_PROMPT_TEMPLATE` for one-shot JSON-array title candidate generation.
+- `src/llm/title.py`: Replaced multi-call candidate loop with a single OpenRouter request plus strict JSON parsing, deduplication, and optional fence stripping.
+- `src/llm/__init__.py`: Exported `TITLE_CANDIDATES_PROMPT_TEMPLATE`.
+- `README.md`: Documented single-call batch candidate generation followed by per-candidate verification.
+- `AGENTS.md`: Logged single-call title batch generation changes.
+- `src/llm/title.py`: Capped batch-parsed candidates to the requested pool size and preserved JSON parse exception chaining for easier debugging.

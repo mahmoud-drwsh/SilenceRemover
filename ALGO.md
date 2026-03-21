@@ -21,7 +21,7 @@ Phase 1 always creates a fixed-rule snippet for transcription:
 - Leading and trailing edge silences are rescanned using the shared `prepare_silence_intervals_with_edges` policy, and only the edge intervals are replaced before trimming.
 - Leading/trailing edges are then reduced to the 200ms keep buffer via shared edge normalization.
 - `pad_sec` is still applied through the shared segment-builder.
-- The resulting audio is capped to 300 seconds (`5 min`) after concatenation.
+- The resulting audio is capped to `SNIPPET_MAX_DURATION_SEC` (180 seconds / 3 minutes by default) after concatenation.
 - This phase is intentionally independent of CLI `--noise-threshold`, `--min-duration`, and `--target-length` settings.
 
 ## Examples (intuition)
