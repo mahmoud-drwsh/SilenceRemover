@@ -98,6 +98,59 @@ def _line_for_pillow(logical_line: str) -> str:
     return get_display(reshaped)
 
 
+def _estimate_font_size_upper_bound(
+    font_path: str,
+    display_lines: list[str],
+    max_width: float,
+    max_height: float,
+) -> int:
+    """Estimate a safe upper bound on font size.
+
+    Measures the widest line at a reference size to derive a per-character width
+    ratio, then computes the font size that fills max_width. For single-line text
+    this is the binding constraint; for multi-line, binary search still checks
+    height naturally. Height is not used in the estimate to avoid wrongly capping
+    single-line narrow titles.
+    """
+    dummy_draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    ref_font = ImageFont.truetype(font_path, 100)
+
+    widest_line = max(display_lines, key=lambda dl: dummy_draw.textlength(dl, font=ref_font))
+    ref_w = dummy_draw.textlength(widest_line, font=ref_font)
+    chars = len(widest_line)
+    char_w_per_pt = ref_w / (chars * 100)
+    size_by_width = max(20, int(max_width / char_w_per_pt / chars))
+
+    return size_by_width
+
+
+def _largest_fitting_font_size(
+    font_path: str,
+    display_lines: list[str],
+    max_width: float,
+    max_height: float,
+    lo: int = 20,
+    hi: int = 5000,
+) -> int:
+    """Binary-search for the largest font size that fits the text within max bounds."""
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        font = ImageFont.truetype(font_path, mid)
+        dummy_draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+        bboxes = [dummy_draw.textbbox((0, 0), dl, font=font) for dl in display_lines]
+        inter_line_gap = max(4, int(mid * 0.1))
+        visual_h = bboxes[-1][3] - bboxes[0][1] + inter_line_gap * max(0, len(display_lines) - 1)
+        fits = (
+            all(dummy_draw.textlength(dl, font=font) <= max_width for dl in display_lines)
+            and visual_h <= max_height
+        )
+        if fits:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
 def build_title_overlay(
     *,
     title: str,
@@ -128,73 +181,51 @@ def build_title_overlay(
     image = Image.new("RGBA", (video_width, banner_height), (0, 0, 0, bg_alpha))
     draw = ImageDraw.Draw(image)
 
-    font_size = max(12, int(banner_height / 12))
-    font = ImageFont.truetype(font_path, font_size)
-    max_line_width = max(1, int(video_width * 0.92))
+    max_width = max(1.0, video_width * 0.95)
+    max_height = banner_height * 0.95
+
+    dummy_draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    max_display = _line_for_pillow(cleaned_title)
+    display_lines = [max_display]
+
+    hi_size = _estimate_font_size_upper_bound(
+        str(font_path), display_lines, max_width, max_height
+    )
+    font_size = _largest_fitting_font_size(
+        str(font_path), display_lines, max_width, max_height, hi=hi_size
+    )
+    if font_size < 20:
+        font_size = 20
 
     words = cleaned_title.split()
-    lines: list[str] = []
+    logical_lines: list[str] = []
     line = ""
+    font = ImageFont.truetype(font_path, font_size)
     for word in words:
         candidate = f"{line} {word}".strip()
         w = draw.textlength(_line_for_pillow(candidate), font=font)
-        if w <= max_line_width:
+        if w <= max_width:
             line = candidate
         else:
             if line:
-                lines.append(line)
+                logical_lines.append(line)
             line = word
     if line:
-        lines.append(line)
+        logical_lines.append(line)
 
-    while True:
-        if not lines:
-            break
-
-        display_lines = [_line_for_pillow(l) for l in lines]
-        bboxes = [draw.textbbox((0, 0), dl, font=font) for dl in display_lines]
-        line_height = max(b[3] - b[1] for b in bboxes)
-        inter_line_gap = 8
-        visual_block_h = bboxes[-1][3] - bboxes[0][1] + inter_line_gap * max(0, len(lines) - 1)
-
-        fits_width = all(draw.textlength(dl, font=font) <= max_line_width for dl in display_lines)
-        fits_height = visual_block_h <= banner_height * 0.9
-
-        if fits_width and fits_height:
-            break
-
-        proposed = font.size - 2
-        if proposed < 20:
-            break
-
-        font = ImageFont.truetype(font_path, proposed)
-        words = cleaned_title.split()
-        lines = []
-        line = ""
-        for word in words:
-            candidate = f"{line} {word}".strip()
-            w = draw.textlength(_line_for_pillow(candidate), font=font)
-            if w <= max_line_width:
-                line = candidate
-            else:
-                if line:
-                    lines.append(line)
-                line = word
-        if line:
-            lines.append(line)
-
-    if not lines:
+    if not logical_lines:
         return output_file
 
-    display_lines = [_line_for_pillow(l) for l in lines]
+    font = ImageFont.truetype(font_path, font_size)
+    display_lines = [_line_for_pillow(l) for l in logical_lines]
     bboxes = [draw.textbbox((0, 0), dl, font=font) for dl in display_lines]
     line_height = max(b[3] - b[1] for b in bboxes)
-    inter_line_gap = 8
-    visual_block_h = bboxes[-1][3] - bboxes[0][1] + inter_line_gap * max(0, len(lines) - 1)
+    inter_line_gap = max(4, int(font_size * 0.1))
+    visual_block_h = bboxes[-1][3] - bboxes[0][1] + inter_line_gap * max(0, len(logical_lines) - 1)
 
     first_anchor_y = banner_center_y - visual_block_h / 2 - bboxes[0][1]
 
-    for i, (line, dl) in enumerate(zip(lines, display_lines)):
+    for i, (line, dl) in enumerate(zip(logical_lines, display_lines)):
         lw = draw.textlength(dl, font=font)
         x = int((video_width - lw) / 2)
         anchor_y = first_anchor_y + i * (line_height + inter_line_gap) + (bboxes[i][1] - bboxes[0][1])
