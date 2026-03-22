@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import urllib.error
 import urllib.request
+from itertools import combinations
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -16,6 +18,8 @@ from PIL import Image, ImageDraw, ImageFont
 from src.core.constants import (
     TITLE_BANNER_BG_ALPHA,
     TITLE_FONT_DEFAULT,
+    TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS,
+    TITLE_OVERLAY_MAX_LINES,
     TITLE_TWO_LINE_MIN_GAIN_PX,
 )
 
@@ -125,55 +129,73 @@ def _stacked_text_block_height(
     return total
 
 
-def _best_two_line_layout(
+def _line_length_variance(logical_lines: list[str]) -> float:
+    """Lower is more balanced line lengths (character counts)."""
+    lens = [len(s) for s in logical_lines]
+    if len(lens) < 2:
+        return 0.0
+    m = sum(lens) / len(lens)
+    return sum((x - m) ** 2 for x in lens)
+
+
+def _best_multi_line_layout(
     font_path: str,
     words: list[str],
     max_width: float,
     max_height: float,
     min_font_size: int = 1,
 ) -> tuple[list[str], int] | None:
-    """Find the best two-line split from words, maximizing fitted font size."""
-    if len(words) < 2:
+    """Find the best word-boundary layout with 2..K lines, maximizing fitted font size."""
+    n = len(words)
+    if n < 2:
         return None
 
     best_lines: list[str] | None = None
     best_font_size = -1
-    best_balance = 10**9
-    best_split = 1
+    best_var = float("inf")
+    best_k = 0
 
-    for split_idx in range(1, len(words)):
-        first = " ".join(words[:split_idx])
-        second = " ".join(words[split_idx:])
-        display_lines = [_line_for_pillow(first), _line_for_pillow(second)]
-
-        hi_size = _estimate_font_size_upper_bound(
-            font_path, display_lines, max_width, max_height
-        )
-        if hi_size < min_font_size:
-            continue
-        candidate_size = _largest_fitting_font_size(
-            font_path,
-            display_lines,
-            max_width,
-            max_height,
-            lo=min_font_size,
-            hi=hi_size,
-        )
-        if candidate_size < min_font_size:
+    max_k = min(TITLE_OVERLAY_MAX_LINES, n)
+    for k in range(2, max_k + 1):
+        num_layouts = math.comb(n - 1, k - 1)
+        if num_layouts > TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS:
             continue
 
-        balance = abs(len(first) - len(second))
-        if (
-            candidate_size > best_font_size
-            or (
-                candidate_size == best_font_size
-                and (balance < best_balance or (balance == best_balance and split_idx < best_split))
+        for cuts in combinations(range(1, n), k - 1):
+            boundaries = (0,) + cuts + (n,)
+            logical = [" ".join(words[boundaries[i] : boundaries[i + 1]]) for i in range(k)]
+            display_lines = [_line_for_pillow(line) for line in logical]
+
+            hi_size = _estimate_font_size_upper_bound(
+                font_path, display_lines, max_width, max_height
             )
-        ):
-            best_lines = [first, second]
-            best_font_size = candidate_size
-            best_balance = balance
-            best_split = split_idx
+            if hi_size < min_font_size:
+                continue
+            candidate_size = _largest_fitting_font_size(
+                font_path,
+                display_lines,
+                max_width,
+                max_height,
+                lo=min_font_size,
+                hi=hi_size,
+            )
+            if candidate_size < min_font_size:
+                continue
+
+            var = _line_length_variance(logical)
+            if candidate_size > best_font_size:
+                best_font_size = candidate_size
+                best_var = var
+                best_k = k
+                best_lines = logical
+            elif candidate_size == best_font_size:
+                if var < best_var:
+                    best_var = var
+                    best_k = k
+                    best_lines = logical
+                elif var == best_var and k > best_k:
+                    best_k = k
+                    best_lines = logical
 
     if best_lines is None:
         return None
@@ -303,15 +325,15 @@ def build_title_overlay(
     logical_lines: list[str] = []
 
     if len(words) >= 2:
-        best_two_line = _best_two_line_layout(
+        best_multi = _best_multi_line_layout(
             str(font_path),
             words,
             max_width,
             max_height,
             min_font_size=1,
         )
-        if best_two_line is not None:
-            split_lines, split_font_size = best_two_line
+        if best_multi is not None:
+            split_lines, split_font_size = best_multi
             if split_font_size >= font_size + TITLE_TWO_LINE_MIN_GAIN_PX:
                 logical_lines = split_lines
                 font_size = split_font_size

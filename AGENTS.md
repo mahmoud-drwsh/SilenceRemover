@@ -67,3 +67,6 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/trim.py`: Use `TITLE_BANNER_START_FRACTION` and `TITLE_BANNER_HEIGHT_FRACTION` for overlay size and y position.
 - `ALGO.md`: Documented sixths-based banner geometry and constant names.
 - `README.md`: Updated Phase 3 overlay band description to H/6 through H/2.
+- `src/core/constants.py`: Banner height set to 1/6 frame; added `TITLE_OVERLAY_MAX_LINES` and `TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS` for multi-line layout search.
+- `src/media/title_overlay.py`: Replaced two-line-only optimizer with `_best_multi_line_layout` (2–K lines, combination cap, variance/more-lines tie-break).
+- `ALGO.md` / `README.md`: Documented 1/6 band [H/6,H/3] and multi-line enumeration behavior.
