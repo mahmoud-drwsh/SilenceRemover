@@ -24,7 +24,12 @@ from src.ffmpeg.filter_graph import (
     build_video_lavfi_audio_concat_filter_graph,
     build_video_lavfi_audio_concat_filter_graph_with_title_overlay,
 )
-from src.ffmpeg.probing import probe_duration, probe_has_audio_stream, probe_video_dimensions
+from src.ffmpeg.probing import (
+    probe_duration,
+    probe_ffmpeg_can_decode_image_frame,
+    probe_has_audio_stream,
+    probe_video_dimensions,
+)
 from src.media.title_overlay import build_title_overlay
 from src.ffmpeg.transcode import build_final_trim_command, build_minimal_video_command
 from src.core.fs_utils import wait_for_file_release
@@ -257,6 +262,7 @@ def trim_single_video(
         if use_logo:
             try:
                 lw, _lh = probe_video_dimensions(DEFAULT_LOGO_PATH)
+                probe_ffmpeg_can_decode_image_frame(DEFAULT_LOGO_PATH)
             except (OSError, RuntimeError, ValueError) as exc:
                 print(f"Warning: Skipping logo overlay ({DEFAULT_LOGO_PATH}): {exc}")
                 use_logo = False
