@@ -1,10 +1,10 @@
-# Review, commit, and push
+# Review and commit
 
-Run a **code review pass**, then **commit and push** only if nothing blocking is found.
+Run a **code review pass**, then **commit** only if nothing blocking is found. **Do not** run `git push`; the user pushes manually.
 
 ## Orchestration rule (strict)
 
-- The **supervising agent does not substitute for subagents**: do not hand-review large diffs, run the full check matrix, or perform git write/network operations yourself when a delegated agent can do it.
+- The **supervising agent does not substitute for subagents**: do not hand-review large diffs, run the full check matrix, or perform **git write** (e.g. commit) yourself when a delegated agent can do it.
 - **Delegate** scoped work to subagents (e.g. explore/shell/general-purpose): one message can launch **parallel** agents when steps are independent.
 - The supervisor **coordinates**, **merges outcomes**, applies **must-fix** decisions, and delivers the **final summary** to the user.
 
@@ -24,18 +24,12 @@ Run a **code review pass**, then **commit and push** only if nothing blocking is
 - **Delegate** a subagent (e.g. shell) to run whatever applies in this repo; skip missing tools gracefully:
   - `uv run python -m compileall -q src packages` — syntax check for packaged code.
   - If `pytest`, `ruff`, or other checks exist in `pyproject.toml` or CI configs, run those too.
-- If any command **fails**, **do not** commit or push; report the failure and stop.
+- If any command **fails**, **do not** commit; report the failure and stop.
 
 ## 4. Commit (agent, only if review + checks are clean)
 
 - **Delegate** a subagent with **git write** permission to: stage intentional paths only (`git add` — **never** secrets or unintended files), write a **clear, conventional** commit message (imperative subject, body if needed), and `git commit`.
 
-## 5. Push (agent, only after a successful commit)
+## 5. Summary for the user
 
-- **Delegate** a subagent with **network + git** permission to `git push` the **current branch**.
-- **Do not** `--force` push to `main` / `master`.
-- If push fails (e.g. non-fast-forward), **do not** force; report and let the user reconcile.
-
-## 6. Summary for the user
-
-- What agents reviewed, check results, commit hash or message, and push outcome—or why the workflow stopped early.
+- What agents reviewed, check results, commit hash or message—or why the workflow stopped early.
