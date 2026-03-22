@@ -11,7 +11,7 @@ from src.core.constants import SCRIPTS_DIR
 from src.core.fs_utils import wait_for_file_release
 from src.ffmpeg.core import print_ffmpeg_cmd
 from src.ffmpeg.filter_graph import write_filter_graph_script
-from src.ffmpeg.runner import run, run_with_progress
+from src.ffmpeg.runner import format_ffmpeg_process_failure, run, run_with_progress
 
 
 def run_minimal_ffmpeg_output(
@@ -26,7 +26,9 @@ def run_minimal_ffmpeg_output(
         wait_for_file_release(output_file)
         return output_file.resolve()
     except subprocess.CalledProcessError as exc:
-        raise RuntimeError(f"{command_label} failed while creating minimal output") from exc
+        raise RuntimeError(
+            format_ffmpeg_process_failure(command_label, exc)
+        ) from exc
 
 
 def run_silence_removed_media(
@@ -69,7 +71,9 @@ def run_silence_removed_media(
         except subprocess.CalledProcessError as exc:
             if command_label is None:
                 raise
-            raise RuntimeError(f"{command_label} failed") from exc
+            raise RuntimeError(
+                format_ffmpeg_process_failure(command_label, exc)
+            ) from exc
         if emitted_progress:
             print()
     else:
@@ -77,7 +81,9 @@ def run_silence_removed_media(
             run(cmd, check=True)
         except subprocess.CalledProcessError as exc:
             if command_label is not None:
-                raise RuntimeError(f"{command_label} failed") from exc
+                raise RuntimeError(
+                    format_ffmpeg_process_failure(command_label, exc)
+                ) from exc
             raise
 
     wait_for_file_release(output_file)

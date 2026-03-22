@@ -27,6 +27,12 @@ class VideoEncoderProfile:
             args.extend(self.container_args)
         return args
 
+    def hw_filter_prelude(self) -> list[str]:
+        """Global FFmpeg flags so complex filtergraphs can feed Quick Sync encoders."""
+        if self.codec == "hevc_qsv":
+            return ["-init_hw_device", "qsv=hw", "-filter_hw_device", "hw"]
+        return []
+
 
 _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
     VideoEncoderProfile(

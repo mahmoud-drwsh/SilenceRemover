@@ -71,6 +71,20 @@ def build_silence_removed_audio_command(
     return cmd
 
 
+def _cmd_with_input(
+    input_file: Path,
+    encoder: "VideoEncoderProfile",
+    *,
+    qsv_hw_filter_prelude: bool,
+) -> list[str]:
+    """Start ``ffmpeg -y``; optionally QSV device init when a graph will use ``hwupload``."""
+    cmd = build_ffmpeg_cmd(overwrite=True)
+    if qsv_hw_filter_prelude:
+        cmd.extend(encoder.hw_filter_prelude())
+    cmd.extend(["-i", str(input_file)])
+    return cmd
+
+
 def build_minimal_video_command(
     input_file: Path,
     output_file: Path,
@@ -86,7 +100,12 @@ def build_minimal_video_command(
     source_metadata_filename: str | None = None,
 ) -> list[str]:
     """Build a minimal fallback encode command when no audio remains."""
-    cmd = _build_input_command(input_file)
+    has_overlay = title_overlay_path is not None or logo_path is not None
+    cmd = _cmd_with_input(
+        input_file,
+        encoder,
+        qsv_hw_filter_prelude=has_overlay and encoder.codec == "hevc_qsv",
+    )
     cmd.extend(["-t", "0.1"])
 
     if title_overlay_path is not None:
@@ -146,9 +165,13 @@ def build_final_trim_command(
 
     ``video_map_pad`` names the video filter output pad (default ``outv``). For
     ``hevc_qsv``, the graph may end at ``outv_qsvsink`` after
-    `finalize_filter_graph_for_hevc_qsv`.
+    `finalize_filter_graph_for_hevc_qsv` (use `encoder.hw_filter_prelude()`).
     """
-    cmd = _build_input_command(input_file)
+    cmd = _cmd_with_input(
+        input_file,
+        encoder,
+        qsv_hw_filter_prelude=encoder.codec == "hevc_qsv",
+    )
     if title_overlay_path is not None:
         cmd.extend(["-stream_loop", "-1", "-i", str(title_overlay_path)])
     if logo_path is not None:

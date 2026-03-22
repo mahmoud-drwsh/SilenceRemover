@@ -5,8 +5,26 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 import subprocess
+import threading
 
 ProgressCallback = Callable[[int], None]
+
+
+def format_ffmpeg_process_failure(
+    label: str,
+    exc: subprocess.CalledProcessError,
+    *,
+    stderr_max_chars: int = 12_000,
+) -> str:
+    """Human-readable message including FFmpeg stderr when present."""
+    msg = f"{label} failed (exit {exc.returncode})"
+    err = (exc.stderr or "").strip()
+    if not err:
+        return msg
+    if len(err) > stderr_max_chars:
+        err = f"...[truncated]\n{err[-stderr_max_chars:]}"
+    return f"{msg}\nffmpeg stderr:\n{err}"
+
 
 def run(
     cmd: list[str],
@@ -63,8 +81,15 @@ def run_with_progress(
             text=text,
         )
         output_lines: list[str] = []
-        stderr_lines: list[str] = []
+        stderr_holder: list[str] = []
         current_percent = -1
+
+        def _drain_stderr() -> None:
+            if proc.stderr is not None:
+                stderr_holder.append(proc.stderr.read())
+
+        stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_thread.start()
         try:
             if proc.stdout is None:
                 raise RuntimeError("ffmpeg progress read failed: stdout pipe unavailable")
@@ -84,10 +109,9 @@ def run_with_progress(
                             on_progress(percent)
         finally:
             return_code = proc.wait()
-            if proc.stderr is not None:
-                stderr_lines.append(proc.stderr.read())
+            stderr_thread.join(timeout=120.0)
         stdout_text = "".join(output_lines)
-        stderr_text = "".join(stderr_lines)
+        stderr_text = stderr_holder[0] if stderr_holder else ""
         return subprocess.CompletedProcess(cmd_input, return_code, stdout_text, stderr_text)
 
     result = _run(cmd)

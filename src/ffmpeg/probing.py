@@ -48,16 +48,22 @@ def build_encoder_probe_command(codec: str, codec_args: Sequence[str] = ()) -> l
         False,
         "-v",
         "error",
-        "-f",
-        "lavfi",
-        "-i",
-        "color=black:s=64x64:d=0.4",
-        "-frames:v",
-        "4",
-        "-c:v",
-        codec,
-        "-pix_fmt",
-        "nv12",
+    )
+    if codec == "hevc_qsv":
+        cmd.extend(["-init_hw_device", "qsv=hw"])
+    cmd.extend(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "color=black:s=64x64:d=0.4",
+            "-frames:v",
+            "4",
+            "-c:v",
+            codec,
+            "-pix_fmt",
+            "nv12",
+        ]
     )
     if codec == "hevc_qsv":
         cmd.extend(["-g", "1", "-bf", "0"])

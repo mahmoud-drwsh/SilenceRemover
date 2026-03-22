@@ -216,15 +216,16 @@ HEVC_QSV_FINAL_VIDEO_PAD = "outv_qsvsink"
 
 
 def finalize_filter_graph_for_hevc_qsv(filter_graph: str) -> str:
-    """Append NV12 + even width/height after ``[outv]`` for ``hevc_qsv``.
+    """Append NV12, even dimensions, and QSV ``hwupload`` after ``[outv]``.
 
-    Title/logo overlays use RGBA chains; Intel QSV can fail on the blended
-    output even when the startup encoder probe (small NV12 lavfi clip) passes.
-    This aligns the final frames with that probe and typical NV12 alignment.
+    Overlays emit software frames; ``hevc_qsv`` after a complex graph typically
+    needs frames uploaded to the QSV device (pair with
+    ``VideoEncoderProfile.hw_filter_prelude()`` on the FFmpeg command).
     """
     return (
         f"{filter_graph};[outv]format=nv12,"
-        f"scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=bicubic[{HEVC_QSV_FINAL_VIDEO_PAD}]"
+        f"scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=bicubic,"
+        f"hwupload=derive_device=qsv[{HEVC_QSV_FINAL_VIDEO_PAD}]"
     )
 
 
