@@ -62,7 +62,6 @@ python main.py /path/to/video/directory
 - `--target-length FLOAT`: Optimize padding to achieve a target video length (in seconds).
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Defaults are `TARGET_NOISE_THRESHOLD_DB` (`-55.0`) when `--target-length` is set, otherwise `NON_TARGET_NOISE_THRESHOLD_DB` (`-50.0`).
 - `--min-duration FLOAT`: Override minimum silence duration in seconds (applies in both modes). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with `--target-length` and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
-- `--llm-only`: Run **phases 1–2 only** (silence-removed snippet, transcription, title). Skips hardware encoder probing and **Phase 3** (no final MP4). After processing, prints each video’s transcript and title to the console. Also maintains an append-only log at `output/temp/titles.txt`: after Phase 1 finishes for all videos, each run appends a `======` / timestamp / `======` header (with blank lines before it if the file already has content), then Phase 2 appends one tab-separated line per video (`stem<TAB>title`) as soon as that video’s title step completes (including when the title phase is skipped as already done).
 - `--title-font`: Google Font family name used to render the title overlay. The font is auto-downloaded from Google Fonts on first use and cached under `output/temp/fonts/`.
 
 ### Suggested Arabic-friendly Google Fonts
@@ -133,9 +132,9 @@ The tool processes videos sequentially through four main stages:
 
 ### 3. Transcription & Title Generation
 
-- **Transcription** (`src/llm/transcription.py`): Extracts and transcribes audio using OpenRouter API (default model: `google/gemini-3.1-flash-lite-preview`). Optimized for Arabic verbatim transcription.
+- **Transcription** (`sr_transcription/` root package): Transcribes audio using OpenRouter API (default model: `google/gemini-3.1-flash-lite-preview`). Optimized for Arabic verbatim transcription.
 - **Title** (`src/llm/title.py`): Generates a YouTube-style title from transcript text.
-- Both use a shared OpenRouter client (`src/llm/client.py`). Pipeline orchestration is in `src/app/pipeline.py`.
+- Both use a shared OpenRouter transport (`openrouter_transport/` root package). Pipeline orchestration is in `src/app/pipeline.py`.
 - **Two-step process**: Separate API calls for transcription and title generation (better quality and control). Transcript and title are stored in `temp/transcript/{basename}.txt` and `temp/title/{basename}.txt`.
 - **Title extraction constraints**:
   - Output is exactly one Arabic title line (no commentary).
@@ -199,7 +198,7 @@ The tool maintains state in files inside `temp/` to avoid reprocessing videos:
 
 The tool includes built-in retry logic for rate limit errors (exponential backoff) and processes videos sequentially to respect API quotas.
 
-- **Defaults**: Both transcription and title generation default to `google/gemini-3.1-flash-lite-preview` (see the helper modules under `src/llm/transcription.py` and `src/llm/title.py`).
+- **Defaults**: Both transcription and title generation default to `google/gemini-3.1-flash-lite-preview` (see `sr_transcription/` and `src/llm/title.py`).
 
 ## Domain Package Layout
 
@@ -207,7 +206,9 @@ The project is organized into six packages:
 
 - `src/core`: shared constants, config loading, path utilities, and CLI utilities.
 - `src/media`: silence detection and trimming algorithms.
-- `src/llm`: OpenRouter client, prompt templates, transcription, and title flows.
+- `src/llm`: prompt templates, title flows, and FFmpeg audio extraction for LLM.
+- `sr_transcription/` (root): audio transcription API using OpenRouter.
+- `openrouter_transport/` (root): shared OpenRouter transport layer.
 - `src/app`: high-level pipeline orchestration (`run` entrypoint).
 - `src/ffmpeg`: centralized FFmpeg command construction, probing, execution, and filter-graph helpers.
 - `src/startup`: startup bootstrap and runtime context assembly.

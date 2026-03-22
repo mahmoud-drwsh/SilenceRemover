@@ -1,18 +1,10 @@
-"""LLM prompt templates for transcription and title generation."""
+"""LLM prompt templates for title generation."""
 
 __all__ = [
-    "TRANSCRIBE_PROMPT",
     "TITLE_PROMPT_TEMPLATE",
     "TITLE_CANDIDATES_PROMPT_TEMPLATE",
     "TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE",
 ]
-
-TRANSCRIBE_PROMPT = """Transcribe the Arabic audio as clean verbatim text in Arabic.
-- No timestamps
-- No speaker labels
-- Preserve the original wording as much as possible (do not paraphrase, summarize, or correct phrasing).
-- Keep punctuation as in the audio where possible.
-- If a word is unclear, choose the most likely wording, but do not invent new content."""
 
 TITLE_PROMPT_TEMPLATE = """\
 Generate one YouTube video title in Arabic from the transcript below. The title must be in Arabic. Output only the title text on one line—no commentary, no explanation, no quotes around it, and nothing else.

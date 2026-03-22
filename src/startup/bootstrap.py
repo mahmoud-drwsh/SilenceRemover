@@ -26,9 +26,8 @@ class StartupContext:
     pad_sec: float
     target_length: float | None
     api_key: str
-    llm_only: bool
     title_font: str
-    encoder: VideoEncoderProfile | None
+    encoder: VideoEncoderProfile
 
 
 def build_startup_context(args: Namespace) -> StartupContext:
@@ -43,14 +42,10 @@ def build_startup_context(args: Namespace) -> StartupContext:
     except ValueError as exc:
         fail(str(exc))
 
-    llm_only = bool(getattr(args, "llm_only", False))
-    if llm_only:
-        selected_encoder: VideoEncoderProfile | None = None
-    else:
-        try:
-            selected_encoder = resolve_video_encoder()
-        except RuntimeError as exc:
-            fail(str(exc))
+    try:
+        selected_encoder = resolve_video_encoder()
+    except RuntimeError as exc:
+        fail(str(exc))
 
     output_dir = sibling_dir(input_dir, "output")
     temp_dir = output_dir / "temp"
@@ -78,7 +73,6 @@ def build_startup_context(args: Namespace) -> StartupContext:
         pad_sec=pad_sec,
         target_length=args.target_length,
         api_key=api_key,
-        llm_only=llm_only,
         title_font=(args.title_font or "").strip() or TITLE_FONT_DEFAULT,
         encoder=selected_encoder,
     )

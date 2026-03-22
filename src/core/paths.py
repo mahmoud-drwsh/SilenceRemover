@@ -85,8 +85,14 @@ def get_completed_path(temp_dir: Path, basename: str) -> Path:
 
 
 def is_transcript_done(temp_dir: Path, basename: str) -> bool:
-    """Check if transcription is already done."""
-    return get_transcript_path(temp_dir, basename).exists()
+    """True when transcript file exists and has non-whitespace content."""
+    path = get_transcript_path(temp_dir, basename)
+    if not path.exists():
+        return False
+    try:
+        return bool(path.read_text(encoding="utf-8").strip())
+    except OSError:
+        return False
 
 
 def is_title_done(temp_dir: Path, basename: str) -> bool:

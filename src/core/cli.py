@@ -100,15 +100,6 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--llm-only",
-        action="store_true",
-        help=(
-            "Transcription and title generation only (phases 1–2): no final video output, "
-            "results printed to the console; hardware encoder probe is skipped. "
-            "Appends per-video titles to output/temp/titles.txt as each title is ready."
-        ),
-    )
-    parser.add_argument(
         "--title-font",
         type=str,
         default=TITLE_FONT_DEFAULT,

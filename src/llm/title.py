@@ -8,7 +8,7 @@ from src.llm.prompts import (
     TITLE_CANDIDATES_PROMPT_TEMPLATE,
     TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE,
 )
-from src.llm.client import request as openrouter_request
+from openrouter_transport import request as openrouter_request
 
 
 # Title candidate pool: generation count and practical length band for ranking.
@@ -253,7 +253,7 @@ def generate_title_with_openrouter(
     Args:
         api_key: OpenRouter API key
         transcript: Transcript text
-        log_dir: If set, log request/response to log_dir/openrouter_requests.log
+        log_dir: If set, pass through to openrouter_transport (files under log_dir/logs/).
 
     Returns:
         Selected title text (single line)
@@ -324,7 +324,7 @@ def generate_title_from_transcript(
         api_key: OpenRouter API key
         transcript_path: Path to transcript text file
         output_path: Path to save title text file
-        log_dir: If set, log request/response to log_dir/openrouter_requests.log
+        log_dir: If set, pass through to openrouter_transport (files under log_dir/logs/).
     """
     print(f"Reading transcript from: {transcript_path}")
     transcript = transcript_path.read_text(encoding="utf-8").strip()

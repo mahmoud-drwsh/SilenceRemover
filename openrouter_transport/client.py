@@ -4,13 +4,10 @@ import random
 import re
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from openrouter import OpenRouter
-
-OPENROUTER_LOG_FILENAME = "openrouter_requests.log"
 
 
 def _parse_retry_seconds_from_error(err: Exception) -> float:
@@ -89,7 +86,6 @@ def _append_openrouter_log(log_dir: Path, model: str, input_text: str, output_te
         request_path.write_text(request_body, encoding="utf-8")
         response_path.write_text(response_body, encoding="utf-8")
     except OSError:
-        # Do not fail the request if logging fails
         pass
 
 
@@ -147,8 +143,8 @@ def request(
     Shared by transcribe and title modules. App attribution (http_referer, x_title)
     is set so usage appears as SilenceRemover in OpenRouter rankings/analytics.
 
-    When log_dir is set, appends request/response input and output text to
-    log_dir/openrouter_requests.log (sibling temp folder).
+    When log_dir is set, writes timestamped request/response text files under
+    log_dir/logs/ (and failed attempts under log_dir/logs/errors/).
 
     Args:
         api_key: OpenRouter API key
@@ -161,7 +157,8 @@ def request(
         max_backoff_sec: Maximum backoff delay in seconds
         multiplier: Exponential backoff multiplier
         jitter_ratio: Jitter ratio for backoff
-        log_dir: If set, append input/output text to log_dir/openrouter_requests.log
+        log_dir: If set, write request/response logs under log_dir/logs/ (errors under
+            log_dir/logs/errors/)
 
     Returns:
         Response text content
@@ -190,7 +187,6 @@ def request(
                 try:
                     response = client.chat.send(**request_payload)
                 except Exception as err:
-                    # Some providers/SDK versions may not accept max_input_tokens.
                     if max_input_tokens is not None and "max_input_tokens" in request_payload:
                         if "max_input_tokens" in str(err):
                             request_payload.pop("max_input_tokens", None)
@@ -201,8 +197,6 @@ def request(
                         raise
             if response.choices and len(response.choices) > 0:
                 content = response.choices[0].message.content or ""
-                # The SDK may return either a plain string or a list of
-                # content blocks. Normalize to a single text string.
                 if isinstance(content, list):
                     text_parts: list[str] = []
                     for block in content:
@@ -212,19 +206,16 @@ def request(
                             text_parts.append(block.get("text", ""))
                     content = "".join(text_parts)
 
-                # Ensure we are working with a string and trim whitespace.
                 if isinstance(content, str):
                     normalized = content.strip()
                 else:
                     normalized = str(content).strip()
 
-                # When the model returns an empty response, explicitly log the
-                # input that produced it so it's easier to debug.
                 if not normalized:
                     preview = input_log_text[:400] if input_log_text else "<no input captured>"
                     print(
                         f"OpenRouter returned empty response for model {model}. "
-                        f"Input preview:\\n{preview}",
+                        f"Input preview:\n{preview}",
                         file=sys.stderr,
                     )
                     if log_dir:
@@ -266,7 +257,6 @@ def request(
                 elif status >= 500:
                     suggested_delay = 5.0
                 else:
-                    # Client error (4xx other than 429) - don't retry
                     raise
             else:
                 suggested_delay = _parse_retry_seconds_from_error(e)
@@ -279,4 +269,4 @@ def request(
         time.sleep(delay)
         attempt += 1
 
-    raise last_err  # type: ignore[misc]
+    raise last_err
