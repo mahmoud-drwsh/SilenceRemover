@@ -17,6 +17,7 @@ When the environment supports delegated agents (subagents), **prefer routing sim
 - **Transcription snippet**: Phase 1 uses `create_silence_removed_snippet` with fixed snippet constants (ignores `--noise-threshold` / `--min-duration`); max length `SNIPPET_MAX_DURATION_SEC` (180s). Snippet path reuses the same edge policy as final trim.
 - **Transcription audio**: Extraction pipeline favors OGG for the audio sent to the transcription model.
 - **Pipeline run**: Always executes phases 1–3 (transcription, title, final MP4); hardware encoder is resolved at startup. The former `--llm-only` mode, `temp/titles.txt` run log, and `pwsh/Start-VerticalLlmDryRun.ps1` were removed.
+- **Transcript gating**: `transcribe_and_save` does not write a file when the model returns empty/whitespace-only text (`RuntimeError`). `is_transcript_done` requires a transcript file with non-whitespace UTF-8 content (invalid UTF-8 is treated as not done). Phases 2–3 require a usable transcript before title/output.
 - **LLM client**: OpenRouter requests default to capping input/context and output size (10k tokens each), with compatibility handling if the API rejects some fields.
 - **Default models**: Transcription and title flows default to `google/gemini-3.1-flash-lite-preview` on OpenRouter unless callers override.
 - **Title generation**: Prompts require verbatim, beginning-only title spans from the full transcript. One model call emits a small JSON array of candidates; one call returns per-candidate `verbatim_score` and `correctness_score`; highest combined score wins with deterministic tie-breaks. **No** separate honorific add/check LLM step after selection.
@@ -31,7 +32,7 @@ When the environment supports delegated agents (subagents), **prefer routing sim
 - `src/llm/__init__.py` / `sr_transcription/__init__.py`: Added trailing newline at EOF after agent commit review.
 - `src/core/cli.py`: Removed `--llm-only`.
 - `src/startup/bootstrap.py`: Removed `llm_only` from `StartupContext`; encoder is always resolved via `resolve_video_encoder()`.
-- `src/app/pipeline.py`: Single three-phase `run()` path; removed titles.txt helpers, console LLM dump, and `llm_only` on `run_title_phase`; `run_output_phase` requires `encoder`.
+- `src/app/pipeline.py`: Single three-phase `run()` path; removed titles.txt helpers, console LLM dump, `llm_only` on `run_title_phase`, and unused `transcribe_single_video`; `run_output_phase` requires `encoder`; Phase 2/3 preconditions require transcript before title/output.
 - `README.md` / `PLAN.md` / `AGENTS.md`: Removed LLM-only / `titles.txt` documentation.
 - `pwsh/Start-VerticalLlmDryRun.ps1`: Deleted (was only for `--llm-only`).
 - `src/llm/client.py`: Deleted duplicate OpenRouter client; `openrouter_transport/` is the only implementation.
@@ -40,8 +41,8 @@ When the environment supports delegated agents (subagents), **prefer routing sim
 - `src/llm/title.py`: `log_dir` Args documented to match transport logging.
 - `pyproject.toml`: Project name set to `silence-remover` (replacing `hucck`).
 - `uv.lock`: Refreshed for renamed workspace package.
-- `src/app/pipeline.py`: Removed unused `transcribe_single_video` helper (phases use `transcribe_media` / `generate_title` separately).
-- `PLAN.md`: Marked encapsulation work complete—status section, checked scope list, current paths (`audio_for_llm`, no `src/llm/client.py`), and revised historical sections to match the tree.
+- `PLAN.md`: Marked encapsulation work complete—status section, checked scope list, current paths (`audio_for_llm`, no `src/llm/client.py`), and revised historical sections to match the tree; mermaid/layout labels use `sr_transcription`.
 - `sr_transcription/api.py`: `transcribe_and_save` raises `RuntimeError` and does not write when the model returns empty/whitespace-only text.
-- `src/core/paths.py`: `is_transcript_done` requires non-empty transcript content (not only file existence).
-- `src/app/pipeline.py`: Phase 2/3 use structured precondition failure when transcript is missing; Phase 3 checks transcript before title.
+- `src/core/paths.py`: `is_transcript_done` requires non-empty transcript content; catches `UnicodeDecodeError` as well as `OSError`.
+- `README.md`: Five-stage “How it works”; merged Phase 3 overlay + renaming section; video-only and process-tracking text aligned with transcript gating.
+- `temp/test_openrouter.py`: Uses `transcribe_with_openrouter` from `sr_transcription` instead of raw `requests`.

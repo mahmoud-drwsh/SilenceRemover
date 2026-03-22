@@ -91,7 +91,7 @@ def is_transcript_done(temp_dir: Path, basename: str) -> bool:
         return False
     try:
         return bool(path.read_text(encoding="utf-8").strip())
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return False
 
 

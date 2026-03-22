@@ -75,7 +75,7 @@ python main.py /path/to/video/directory
 
 The first run for each font downloads the family from Google Fonts into `output/temp/fonts/` and reuses that file on subsequent runs.
 
-**Video-only files (no audio stream):** Some exports are silent (video track only). The pipeline detects missing audio with ffprobe, skips `silencedetect` (which would otherwise fail on `-map 0:a:0`), generates a **silent** transcription snippet from the video duration, and muxes **silent stereo** from `anullsrc` during the final trim/encode so Phase 3 still produces a valid MP4 with a title overlay. Transcripts will be empty or minimal for those inputs.
+**Video-only files (no audio stream):** Some exports are silent (video track only). The pipeline detects missing audio with ffprobe, skips `silencedetect` (which would otherwise fail on `-map 0:a:0`), generates a **silent** transcription snippet from the video duration, and muxes **silent stereo** from `anullsrc` during the final trim/encode when a full encode runs. **Transcription** still calls OpenRouter on that snippet; if the model returns **empty or whitespace-only** text, **no** `temp/transcript/{basename}.txt` is written, Phase 1 fails for that video, and **Phase 2 / Phase 3 are skipped** until a non-empty transcript exists (fix the model/audio or delete partial temp files and re-run).
 
 Trimming precision controls (advanced):
 
@@ -110,7 +110,7 @@ FFmpeg responsibilities are now organized in the `src/ffmpeg` package:
 
 ## How It Works
 
-The tool processes videos sequentially through four main stages:
+The tool processes videos sequentially through **five** main stages:
 
 ### 1. Silence Detection & Trimming
 
@@ -143,9 +143,7 @@ The tool processes videos sequentially through four main stages:
   - The model produces a small pool of candidate titles in **one** generation call (JSON array of distinct titles). A **second** call scores every candidate in one shot (`verbatim_score` and `correctness_score`, each 0–10); the implementation picks the highest **combined** score (sum). Ties break deterministically (earliest transcript substring match, then length near a practical band, then candidate order).
   - The final title is returned after that scoring step (no further LLM calls).
 
-### 4. File Renaming
-
-### 5. Title Overlay Rendering (Phase 3)
+### 4. Title overlay & file renaming (Phase 3)
 
 - The title text from `temp/title/{basename}.txt` is loaded right before output encoding.
 - `ffprobe` reads the source **video width and height**. A **banner-sized** RGBA PNG (`video_width` × `banner_height`, with `banner_height = (1/6) × frame height`) is written to `temp/title_overlays/{basename}.png`. FFmpeg composites it at `x=0`, `y=(1/6) × frame height` (`overlay=0:{y}`), so the strip covers **`y` from H/6 to H/3** (the second sixth of the frame). Values come from `TITLE_BANNER_START_FRACTION` and `TITLE_BANNER_HEIGHT_FRACTION` in `src/core/constants.py`.
@@ -187,7 +185,7 @@ temp/                      # Sibling to input-directory (intermediate audio/snip
 The tool maintains state in files inside `temp/` to avoid reprocessing videos:
 
 - **Per-video markers**: `transcript/{basename}.txt`, `title/{basename}.txt`, and `completed/{basename}.txt`
-- **Automatic Skip**: Phase 1 is skipped if transcript exists; Phase 2 is skipped if title exists; Phase 3 is skipped when completed marker exists
+- **Automatic Skip**: Phase 1 is skipped if `temp/transcript/{basename}.txt` exists **and** contains non-whitespace text; Phase 2 is skipped if title exists; Phase 3 is skipped when the completed marker exists. (Whitespace-only or unreadable transcript files are treated as **not** done for Phase 1.)
 - **Manual Reset**: Delete corresponding files under `temp/transcript`, `temp/title`, and `temp/completed` to reprocess specific videos.
 
 ## Supported Formats

@@ -131,7 +131,7 @@ openrouter_transport/
   __init__.py            # export request()
   client.py              # sole OpenRouter transport implementation
 
-sr_transcription/        # or transcription/ if FFmpeg module renamed; see open decisions
+sr_transcription/
   __init__.py            # public API
   api.py                 # transcribe_with_openrouter, transcribe_and_save
   prompt.py              # TRANSCRIBE_PROMPT (if co-located)
@@ -150,7 +150,7 @@ sr_transcription/        # or transcription/ if FFmpeg module renamed; see open 
 | `src/llm/title.py` | Import `request` from `openrouter_transport` (not `src.llm.client`). |
 | `src/llm/prompts.py` | Remove `TRANSCRIBE_PROMPT` if moved to root package; keep title prompts. |
 | `src/llm/audio_for_llm.py` | FFmpeg-only: `extract_first_5min_audio`, `get_audio_path_for_media`. No `transcribe_*`, no OpenRouter. |
-| `src/llm/__init__.py` | Re-export `TRANSCRIBE_PROMPT` / `transcribe_*` from root package if backward compatibility desired; keep `__all__` consistent. |
+| `src/llm/__init__.py` | Re-export `TRANSCRIBE_PROMPT` / `transcribe_*` from `sr_transcription`; keep `__all__` consistent. |
 | `src/app/pipeline.py` | `transcribe_media`: resolve audio via FFmpeg helper module; call `transcribe_and_save` from root transcription package. |
 
 Phase 1 skip logic uses `is_transcript_done` in `src/core/paths.py` (file exists **and** non-empty after strip); transcript paths are unchanged.
@@ -196,7 +196,7 @@ flowchart LR
     paths[get_transcript_path]
   end
   subgraph rootPkgs [root packages]
-    tr[transcription.api]
+    tr[sr_transcription.api]
     orm[openrouter_transport.request]
   end
   video --> trim
