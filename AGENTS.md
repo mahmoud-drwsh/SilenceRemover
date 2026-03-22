@@ -87,3 +87,4 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/core/constants.py`: Source provenance uses standard MP4 `comment` metadata (value = original filename); legacy `SILENCE_REMOVER_SOURCE` still matched when deleting old outputs.
 - `src/ffmpeg/probing.py`: `_tag_matches_source` uses Unicode NFC normalization and case-insensitive `comment` keys so editor deletes match ffprobe/metadata vs macOS filenames.
 - `src/ffmpeg/probing.py` / `src/app/title_editor_server.py`: Removed debug-session NDJSON instrumentation.
+- `src/app/title_editor_server.py`: Full-width table layout; capped video column with ellipsis; title column and inputs use remaining width (`table-layout: fixed`, `width: 100%` inputs).

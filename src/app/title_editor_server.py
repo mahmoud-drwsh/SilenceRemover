@@ -61,8 +61,8 @@ def _render_page(layout: TitleEditorLayout) -> str:
         safe_name = escape(v.name)
         safe_val_attr = escape(title, quote=True)
         rows.append(
-            f"<tr><td>{safe_name}</td>"
-            f'<td><input type="text" style="width:100%;min-width:240px" '
+            f'<tr><td class="col-video">{safe_name}</td>'
+            f'<td class="col-title"><input type="text" '
             f'data-stem="{safe_stem}" value="{safe_val_attr}" /></td></tr>'
         )
     body_rows = "\n".join(rows) if rows else "<tr><td colspan=2>(no videos)</td></tr>"
@@ -70,7 +70,42 @@ def _render_page(layout: TitleEditorLayout) -> str:
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Title editor</title>
+<style>
+*, *::before, *::after {{ box-sizing: border-box; }}
+body {{ margin: 1rem; font-family: system-ui, sans-serif; }}
+table.editor {{
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}}
+table.editor th, table.editor td {{
+  padding: 6px 8px;
+  border: 1px solid #333;
+  text-align: start;
+  vertical-align: middle;
+}}
+table.editor .col-video {{
+  white-space: nowrap;
+  width: 22%;
+  max-width: min(28rem, 38vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}}
+table.editor .col-title {{
+  width: auto;
+  min-width: 0;
+}}
+table.editor .col-title input {{
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  font: inherit;
+}}
+</style>
 </head>
 <body>
 <h1>Edit titles</h1>
@@ -79,8 +114,8 @@ def _render_page(layout: TitleEditorLayout) -> str:
   <a href="/status">/status</a>
   — Input: <code>{escape(str(layout.input_dir))}</code>
 </p>
-<table border="1" cellpadding="6" cellspacing="0">
-<thead><tr><th>Video</th><th>Title</th></tr></thead>
+<table class="editor">
+<thead><tr><th class="col-video">Video</th><th class="col-title">Title</th></tr></thead>
 <tbody>
 {body_rows}
 </tbody>
