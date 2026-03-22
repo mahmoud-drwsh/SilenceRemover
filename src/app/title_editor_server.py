@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from html import escape
@@ -21,6 +23,39 @@ from src.startup.title_editor_layout import TitleEditorLayout
 SERVICE_ID = "silence-remover-title-editor"
 DEFAULT_PORT = 8765
 PROBE_TIMEOUT_SEC = 0.75
+
+
+def _is_file_lock_error(exc: BaseException) -> bool:
+    if isinstance(exc, PermissionError):
+        return True
+    if isinstance(exc, OSError):
+        return exc.errno in (errno.EACCES, errno.EPERM)
+    return False
+
+
+def _write_title_file_with_retry(path: Path, text: str, *, max_attempts: int = 10) -> None:
+    """Write title text; retry on Windows transient locks (antivirus, pipeline, other handles)."""
+    last: BaseException | None = None
+    for attempt in range(max_attempts):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+            return
+        except OSError as e:
+            last = e
+            if not _is_file_lock_error(e):
+                raise
+            if attempt == max_attempts - 1:
+                break
+            time.sleep(0.05 * (2**min(attempt, 6)))
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            f"Could not write {path.name} (file locked or permission denied). "
+            "Stop the SilenceRemover pipeline if it is running, close any program "
+            f"that has this file open, then retry. Path: {path}"
+        ),
+    ) from last
 
 
 def get_port() -> int:
@@ -189,7 +224,7 @@ def build_app(layout: TitleEditorLayout) -> FastAPI:
                 continue
             source_name = stem_to_video[stem].name
             delete_final_videos_matching_source(layout.output_dir, source_name)
-            title_path.write_text(new, encoding="utf-8")
+            _write_title_file_with_retry(title_path, new)
             get_completed_path(temp_dir, stem).unlink(missing_ok=True)
         return JSONResponse({"ok": True})
 

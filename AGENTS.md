@@ -88,3 +88,4 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/ffmpeg/probing.py`: `_tag_matches_source` uses Unicode NFC normalization and case-insensitive `comment` keys so editor deletes match ffprobe/metadata vs macOS filenames.
 - `src/ffmpeg/probing.py` / `src/app/title_editor_server.py`: Removed debug-session NDJSON instrumentation.
 - `src/app/title_editor_server.py`: Full-width table layout; capped video column with ellipsis; title column uses remaining width; title fields are `textarea` with wrap/overflow so long text does not scroll horizontally.
+- `src/app/title_editor_server.py`: Retry title `Path.write_text` on Windows file locks (`PermissionError` / `EACCES`); clear HTTP 503 if still locked.
