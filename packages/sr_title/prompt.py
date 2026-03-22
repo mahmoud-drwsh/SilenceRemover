@@ -21,7 +21,7 @@ Transcript:
 {transcript}
 """
 
-# Used by `src/llm/title.py` for one-shot candidate pool generation (JSON array output).
+# Used by `sr_title.api` for one-shot candidate pool generation (JSON array output).
 TITLE_CANDIDATES_PROMPT_TEMPLATE = """\
 Generate exactly {candidate_count} distinct YouTube video titles in Arabic from the transcript below. Each title must be in Arabic.
 
@@ -44,7 +44,7 @@ Transcript:
 {transcript}
 """
 
-# Used by `src/llm/title.py` for one-shot scoring of all candidates (JSON object output).
+# Used by `sr_title.api` for one-shot scoring of all candidates (JSON object output).
 TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE = """\
 You evaluate Arabic video title candidates against a transcript. Score every candidate in order.
 

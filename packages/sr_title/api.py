@@ -4,12 +4,14 @@ import json
 import sys
 from pathlib import Path
 
-from src.llm.prompts import (
+from openrouter_transport import request as openrouter_request
+from src.core.constants import OPENROUTER_DEFAULT_MODEL
+from sr_title.prompt import (
     TITLE_CANDIDATES_PROMPT_TEMPLATE,
     TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE,
 )
-from openrouter_transport import request as openrouter_request
 
+DEFAULT_MODEL = OPENROUTER_DEFAULT_MODEL
 
 # Title candidate pool: generation count and practical length band for ranking.
 _TITLE_CANDIDATE_TARGET_COUNT = 3
@@ -246,22 +248,29 @@ def _selection_sort_key(
 
 
 def generate_title_with_openrouter(
-    api_key: str, transcript: str, log_dir: Path | None = None
+    api_key: str,
+    transcript: str,
+    model: str = DEFAULT_MODEL,
+    log_dir: Path | None = None,
 ) -> str:
     """Generate title from transcript using OpenRouter (batch candidates, batch score, select).
 
     Args:
         api_key: OpenRouter API key
         transcript: Transcript text
+        model: OpenRouter model name for generation and scoring calls
         log_dir: If set, pass through to openrouter_transport (files under log_dir/logs/).
 
     Returns:
         Selected title text (single line)
+
+    Raises:
+        RuntimeError: If the transcript is empty/whitespace-only or title generation fails.
     """
     # Shared transcript for generation and scoring prompts (opening-span rules).
     title_source_transcript = transcript.strip()
-
-    model = "google/gemini-3.1-flash-lite-preview"
+    if not title_source_transcript:
+        raise RuntimeError("Transcript is empty; cannot generate title.")
 
     # Phase 1: one generation call for the candidate pool.
     try:
@@ -316,6 +325,7 @@ def generate_title_from_transcript(
     api_key: str,
     transcript_path: Path,
     output_path: Path,
+    model: str = DEFAULT_MODEL,
     log_dir: Path | None = None,
 ) -> None:
     """Generate title from transcript file and save to output file.
@@ -324,13 +334,25 @@ def generate_title_from_transcript(
         api_key: OpenRouter API key
         transcript_path: Path to transcript text file
         output_path: Path to save title text file
+        model: OpenRouter model name for generation and scoring calls
         log_dir: If set, pass through to openrouter_transport (files under log_dir/logs/).
+
+    Raises:
+        RuntimeError: If the transcript file is empty/whitespace-only (no title file written)
+            or title generation fails.
     """
     print(f"Reading transcript from: {transcript_path}")
     transcript = transcript_path.read_text(encoding="utf-8").strip()
+    if not transcript:
+        raise RuntimeError(
+            f"Transcript file is empty or whitespace-only ({transcript_path.name}); "
+            "title file not written."
+        )
     # Use the full transcript for the title step; the prompt instructs the model
     # to extract from the early speech portion of the transcript.
-    title_text = generate_title_with_openrouter(api_key, transcript, log_dir)
+    title_text = generate_title_with_openrouter(
+        api_key, transcript, model=model, log_dir=log_dir
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(title_text, encoding="utf-8")
@@ -338,6 +360,7 @@ def generate_title_from_transcript(
 
 
 __all__ = [
+    "DEFAULT_MODEL",
     "generate_title_with_openrouter",
     "generate_title_from_transcript",
 ]

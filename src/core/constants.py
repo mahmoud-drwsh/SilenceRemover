@@ -70,6 +70,9 @@ SNIPPET_NOISE_THRESHOLD_DB = TARGET_NOISE_THRESHOLD_DB
 SNIPPET_MIN_DURATION_SEC = TARGET_MIN_DURATION_SEC
 SNIPPET_MAX_DURATION_SEC = 180.0
 
+# --- OpenRouter LLM defaults (transcription + title packages) ---
+OPENROUTER_DEFAULT_MODEL = "google/gemini-3.1-flash-lite-preview"
+
 # --- Shared runtime defaults ---
 
 @dataclass(frozen=True)
@@ -206,6 +209,7 @@ __all__ = [
     "SNIPPET_NOISE_THRESHOLD_DB",
     "SNIPPET_MIN_DURATION_SEC",
     "SNIPPET_MAX_DURATION_SEC",
+    "OPENROUTER_DEFAULT_MODEL",
     "TARGET_MIN_DURATION",
     "TARGET_NOISE_THRESHOLDS_DB",
     "VIDEO_EXTENSIONS",

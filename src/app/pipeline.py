@@ -26,8 +26,8 @@ from src.core.paths import (
 )
 from src.startup import StartupContext, build_startup_context
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile
-from src.llm.title import generate_title_from_transcript
 from src.llm.audio_for_llm import get_audio_path_for_media
+from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
 from src.media.trim import create_silence_removed_snippet, trim_single_video
 

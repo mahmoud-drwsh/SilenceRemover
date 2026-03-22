@@ -5,10 +5,11 @@ from pathlib import Path
 from typing import Optional
 
 from openrouter_transport import request as _openrouter_request
+from src.core.constants import OPENROUTER_DEFAULT_MODEL
 from sr_transcription.formats import AUDIO_FORMATS
 from sr_transcription.prompt import TRANSCRIBE_PROMPT
 
-DEFAULT_MODEL = "google/gemini-3.1-flash-lite-preview"
+DEFAULT_MODEL = OPENROUTER_DEFAULT_MODEL
 
 
 def transcribe_with_openrouter(
@@ -83,4 +84,4 @@ def transcribe_and_save(
     print(f"Transcript saved to: {output_path}")
 
 
-__all__ = ["transcribe_with_openrouter", "transcribe_and_save"]
+__all__ = ["DEFAULT_MODEL", "transcribe_with_openrouter", "transcribe_and_save"]
