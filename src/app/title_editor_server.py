@@ -59,11 +59,11 @@ def _render_page(layout: TitleEditorLayout) -> str:
         title = _read_title(layout.temp_dir, stem)
         safe_stem = escape(stem)
         safe_name = escape(v.name)
-        safe_val_attr = escape(title, quote=True)
+        safe_title_body = escape(title)
         rows.append(
             f'<tr><td class="col-video">{safe_name}</td>'
-            f'<td class="col-title"><input type="text" '
-            f'data-stem="{safe_stem}" value="{safe_val_attr}" /></td></tr>'
+            f'<td class="col-title"><textarea data-stem="{safe_stem}" rows="2" '
+            f'class="title-field" spellcheck="true">{safe_title_body}</textarea></td></tr>'
         )
     body_rows = "\n".join(rows) if rows else "<tr><td colspan=2>(no videos)</td></tr>"
     return f"""<!DOCTYPE html>
@@ -97,13 +97,23 @@ table.editor .col-video {{
 table.editor .col-title {{
   width: auto;
   min-width: 0;
+  vertical-align: top;
 }}
-table.editor .col-title input {{
+table.editor .col-title textarea.title-field {{
   display: block;
   width: 100%;
   min-width: 0;
+  min-height: 2.75rem;
+  max-height: 14rem;
   padding: 4px 6px;
   font: inherit;
+  line-height: 1.35;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  resize: vertical;
 }}
 </style>
 </head>
@@ -125,9 +135,9 @@ table.editor .col-title input {{
 async function saveAll() {{
   const msg = document.getElementById("msg");
   msg.textContent = "";
-  const inputs = document.querySelectorAll("input[data-stem]");
+  const fields = document.querySelectorAll("textarea[data-stem]");
   const titles = {{}};
-  inputs.forEach((el) => {{ titles[el.dataset.stem] = el.value; }});
+  fields.forEach((el) => {{ titles[el.dataset.stem] = el.value; }});
   const res = await fetch("/save", {{
     method: "POST",
     headers: {{ "Content-Type": "application/json" }},
