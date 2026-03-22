@@ -149,13 +149,11 @@ The tool processes videos sequentially through four main stages:
 ### 5. Title Overlay Rendering (Phase 3)
 
 - The title text from `temp/title/{basename}.txt` is loaded right before output encoding.
-- `ffprobe` extracts the source video width and height, and a full-screen RGBA PNG is generated for each title in `temp/title_overlays/`.
-- The overlay PNG contains:
-  - A full-width black banner from `y = 1/5 * height` to `y = 2/5 * height`.
-  - 50% banner opacity (`alpha=0.5`).
-  - Centered white title text rendered with the selected `--title-font`.
-  - **Arabic / RTL titles**: Pillow draws left-to-right only, so the overlay path runs text through `arabic-reshaper` (joining/presentation forms) and `python-bidi` (`get_display`) before measuring and drawing. Mixed Arabic + Latin/numbers should follow Unicode bidirectional rules.
-- FFmpeg then applies the overlay with the existing trim/concat graph via `overlay=0:0`, so the banner is raster-dimension exact and no longer depends on `drawtext` availability.
+- `ffprobe` reads the source **video width and height**. A **banner-sized** RGBA PNG (`video_width` × `banner_height`, where `banner_height = 20%` of frame height) is written to `temp/title_overlays/{basename}.png`. FFmpeg composites it at `x=0`, `y=20%` of frame height (`overlay=0:{y}`), so it occupies the band from **frame y = 1/5** to **2/5** (same geometry as the old drawbox region).
+- The PNG is a semi-transparent black strip (`TITLE_BANNER_BG_ALPHA`, default 0.5) with **white** title text rendered in Pillow using the selected `--title-font` (Google Font, cached under `temp/fonts/`).
+- **Layout algorithm** (largest font that fits, optional two-line word splits, bbox-based metrics, vertical stacking): see **`ALGO.md` → “Title overlay PNG”**.
+- **Arabic / RTL titles**: Pillow draws in visual order only; text is shaped with `arabic-reshaper` and reordered with `python-bidi` (`get_display`) before measuring and drawing. Mixed Arabic + Latin/numbers follow Unicode bidirectional rules.
+- FFmpeg applies this PNG in the trim/concat filter graph; no `drawtext` dependency for the final overlay.
 
 - Reads generated title from `temp/title/{basename}.txt`
 - Sanitizes filename (removes invalid characters)

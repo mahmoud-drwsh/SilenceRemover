@@ -131,3 +131,56 @@ Final settings used for segment building: `noise_threshold=-50dB`, `min_duration
   - Target mode: threshold sweep + padding tuning, with `min_duration=TARGET_MIN_DURATION_SEC`, and the shared edge helper applied before each candidate length evaluation.
 
 Implementation: `choose_threshold_and_padding_for_target` and `find_optimal_padding` in `src/media/silence_detector.py`; target-length path in `trim_single_video` in `src/media/trim.py`.
+
+## Title overlay PNG (`src/media/title_overlay.py`)
+
+Phase 3 burns in a **pre-rendered RGBA PNG** (not FFmpeg `drawtext`). The pipeline probes the source with `ffprobe`, then builds a strip image of size **`video_width × banner_height`**, where `banner_height = max(1, int(video_height * 0.2))` (20% of frame height). That PNG is composited at **`overlay_x=0`, `overlay_y=int(video_height * 0.2)`** so it sits in the second fifth of the frame (same band the older drawbox/drawtext path targeted). Implementation: `trim.py` → `build_title_overlay` → FFmpeg `overlay=0:{overlay_y}` in `src/ffmpeg/filter_graph.py`.
+
+### Text normalization (Arabic / RTL)
+
+- Input is whitespace-collapsed (`" ".join(title.split())`).
+- Pillow draws in visual order only, so each **logical** line is passed through `arabic-reshaper` then `python-bidi` `get_display` (`_line_for_pillow`) before measurement and drawing.
+
+### Layout box (inner margin)
+
+Inside the PNG, text must fit in:
+
+- **max_width** = `max(1, video_width × 0.95)`
+- **max_height** = `banner_height × 0.95`
+
+The strip is filled with a semi-transparent black (`TITLE_BANNER_BG_ALPHA`, default 0.5).
+
+### Font
+
+- `--title-font` selects a Google Font family; the TTF is downloaded once and cached under `temp/fonts/` (see `get_font_cache_path`).
+
+### Font size: largest fit (binary search)
+
+1. **Single-line reference:** After shaping, the whole title is one display string. `_estimate_font_size_upper_bound` derives a coarse upper bound from pixel width at a reference size; `_largest_fitting_font_size` binary-searches the largest integer size such that `_lines_fit` returns true.
+2. **`_lines_fit`:** For a candidate size, every display line’s **ink width** must be ≤ `max_width`, and the **stacked block height** must be ≤ `max_height`. Width uses `textbbox(..., anchor="lt")` width (not `textlength`), so Arabic glyph bounds match what is drawn. Height is the sum of each line’s bbox height plus an inter-line gap `max(4, int(font_size * 0.1))` between lines—matching the draw loop.
+
+`_largest_fitting_font_size` returns **0** if nothing fits; the builder may skip writing a visible overlay in that edge case.
+
+### Optional two-line upgrade (multi-word titles)
+
+If there are at least two words, the code evaluates **every word-boundary split** into two logical lines, shapes each line, and runs the same binary search for that pair. The split with the **largest** fitted font size wins (ties: more balanced character counts, then earlier split). It replaces the single-line layout **only if** `two_line_size >= single_line_size + TITLE_TWO_LINE_MIN_GAIN_PX` (default **1**). This avoids staying on one narrow line when two lines allow a larger font on wide frames.
+
+### Greedy wrap (when still single-line)
+
+If no two-line upgrade applies, words are wrapped greedily at the chosen `font_size` using the same pixel-width rule until each line fits `max_width`.
+
+### Final safety pass
+
+If the wrapped lines no longer fit at the current size (e.g. after wrapping), `_largest_fitting_font_size` is run again on the **final** line list with `hi` capped to the current size; if the result is 0, the overlay is skipped.
+
+### Drawing
+
+- Lines are drawn with **`anchor="lt"`** so `textbbox` metrics match the draw positions.
+- **Horizontal:** Each line is centered using `x = (video_width - ink_w) / 2 - bb[0]` so the ink box is centered (not advance-width centering).
+- **Vertical:** Lines are stacked top-to-bottom with the same gap as in `_stacked_text_block_height`, starting at `y` so the block is vertically centered in the banner.
+
+### Tunables (`src/core/constants.py`)
+
+- `TITLE_BANNER_BG_ALPHA` — banner opacity.
+- `TITLE_TWO_LINE_MIN_GAIN_PX` — minimum px improvement required to adopt a two-line split over single-line.
+- `TITLE_MIN_READABLE_FONT_PX` / `TITLE_MIN_READABLE_FONT_BANNER_FRACTION` — defined for potential future readability heuristics; the current overlay sizing logic uses the two-line gain rule and `_lines_fit` only.

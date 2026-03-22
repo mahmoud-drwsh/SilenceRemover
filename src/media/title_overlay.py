@@ -16,6 +16,7 @@ from PIL import Image, ImageDraw, ImageFont
 from src.core.constants import (
     TITLE_BANNER_BG_ALPHA,
     TITLE_FONT_DEFAULT,
+    TITLE_TWO_LINE_MIN_GAIN_PX,
 )
 
 
@@ -98,6 +99,108 @@ def _line_for_pillow(logical_line: str) -> str:
     return get_display(reshaped)
 
 
+def _text_pixel_width(draw: ImageDraw.ImageDraw, text: str, *, font: ImageFont.FreeTypeFont) -> float:
+    """Ink width for layout; use instead of textlength so Arabic/RTL matches draw.textbbox."""
+    bbox = draw.textbbox((0, 0), text, font=font, anchor="lt")
+    return float(bbox[2] - bbox[0])
+
+
+def _stacked_text_block_height(
+    draw: ImageDraw.ImageDraw,
+    display_lines: list[str],
+    *,
+    font: ImageFont.FreeTypeFont,
+    font_size: int,
+) -> float:
+    """Total vertical ink height when lines are stacked with the same gap as draw."""
+    if not display_lines:
+        return 0.0
+    inter_line_gap = max(4, int(font_size * 0.1))
+    total = 0.0
+    for i, dl in enumerate(display_lines):
+        bb = draw.textbbox((0, 0), dl, font=font, anchor="lt")
+        total += float(bb[3] - bb[1])
+        if i < len(display_lines) - 1:
+            total += inter_line_gap
+    return total
+
+
+def _best_two_line_layout(
+    font_path: str,
+    words: list[str],
+    max_width: float,
+    max_height: float,
+    min_font_size: int = 1,
+) -> tuple[list[str], int] | None:
+    """Find the best two-line split from words, maximizing fitted font size."""
+    if len(words) < 2:
+        return None
+
+    best_lines: list[str] | None = None
+    best_font_size = -1
+    best_balance = 10**9
+    best_split = 1
+
+    for split_idx in range(1, len(words)):
+        first = " ".join(words[:split_idx])
+        second = " ".join(words[split_idx:])
+        display_lines = [_line_for_pillow(first), _line_for_pillow(second)]
+
+        hi_size = _estimate_font_size_upper_bound(
+            font_path, display_lines, max_width, max_height
+        )
+        if hi_size < min_font_size:
+            continue
+        candidate_size = _largest_fitting_font_size(
+            font_path,
+            display_lines,
+            max_width,
+            max_height,
+            lo=min_font_size,
+            hi=hi_size,
+        )
+        if candidate_size < min_font_size:
+            continue
+
+        balance = abs(len(first) - len(second))
+        if (
+            candidate_size > best_font_size
+            or (
+                candidate_size == best_font_size
+                and (balance < best_balance or (balance == best_balance and split_idx < best_split))
+            )
+        ):
+            best_lines = [first, second]
+            best_font_size = candidate_size
+            best_balance = balance
+            best_split = split_idx
+
+    if best_lines is None:
+        return None
+    return best_lines, best_font_size
+
+
+def _lines_fit(
+    font_path: str,
+    display_lines: list[str],
+    max_width: float,
+    max_height: float,
+    font_size: int,
+) -> bool:
+    """Check if rendered display lines fit within width and height bounds."""
+    if font_size <= 0:
+        return False
+    font = ImageFont.truetype(font_path, font_size)
+    dummy_draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    visual_h = _stacked_text_block_height(
+        dummy_draw, display_lines, font=font, font_size=font_size
+    )
+    return (
+        all(_text_pixel_width(dummy_draw, dl, font=font) <= max_width for dl in display_lines)
+        and visual_h <= max_height
+    )
+
+
 def _estimate_font_size_upper_bound(
     font_path: str,
     display_lines: list[str],
@@ -115,8 +218,8 @@ def _estimate_font_size_upper_bound(
     dummy_draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     ref_font = ImageFont.truetype(font_path, 100)
 
-    widest_line = max(display_lines, key=lambda dl: dummy_draw.textlength(dl, font=ref_font))
-    ref_w = dummy_draw.textlength(widest_line, font=ref_font)
+    widest_line = max(display_lines, key=lambda dl: _text_pixel_width(dummy_draw, dl, font=ref_font))
+    ref_w = _text_pixel_width(dummy_draw, widest_line, font=ref_font)
     chars = len(widest_line)
     char_w_per_pt = ref_w / (chars * 100)
     size_by_width = max(20, int(max_width / char_w_per_pt / chars))
@@ -129,25 +232,25 @@ def _largest_fitting_font_size(
     display_lines: list[str],
     max_width: float,
     max_height: float,
-    lo: int = 20,
+    lo: int = 1,
     hi: int = 5000,
 ) -> int:
-    """Binary-search for the largest font size that fits the text within max bounds."""
+    """Binary-search for the largest font size that fits the text within max bounds.
+
+    Returns 0 when no tested size fits (for callers to handle explicitly).
+    """
+    lo = max(1, lo)
+    if hi < lo:
+        return 0
     while lo < hi:
         mid = (lo + hi + 1) // 2
-        font = ImageFont.truetype(font_path, mid)
-        dummy_draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-        bboxes = [dummy_draw.textbbox((0, 0), dl, font=font) for dl in display_lines]
-        inter_line_gap = max(4, int(mid * 0.1))
-        visual_h = bboxes[-1][3] - bboxes[0][1] + inter_line_gap * max(0, len(display_lines) - 1)
-        fits = (
-            all(dummy_draw.textlength(dl, font=font) <= max_width for dl in display_lines)
-            and visual_h <= max_height
-        )
+        fits = _lines_fit(font_path, display_lines, max_width, max_height, mid)
         if fits:
             lo = mid
         else:
             hi = mid - 1
+    if not _lines_fit(font_path, display_lines, max_width, max_height, lo):
+        return 0
     return lo
 
 
@@ -184,52 +287,77 @@ def build_title_overlay(
     max_width = max(1.0, video_width * 0.95)
     max_height = banner_height * 0.95
 
-    dummy_draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     max_display = _line_for_pillow(cleaned_title)
-    display_lines = [max_display]
+    single_line_display = [max_display]
 
     hi_size = _estimate_font_size_upper_bound(
-        str(font_path), display_lines, max_width, max_height
+        str(font_path), single_line_display, max_width, max_height
     )
     font_size = _largest_fitting_font_size(
-        str(font_path), display_lines, max_width, max_height, hi=hi_size
+        str(font_path), single_line_display, max_width, max_height, hi=hi_size
     )
-    if font_size < 20:
-        font_size = 20
+    if font_size < 1:
+        return output_file
 
     words = cleaned_title.split()
     logical_lines: list[str] = []
-    line = ""
-    font = ImageFont.truetype(font_path, font_size)
-    for word in words:
-        candidate = f"{line} {word}".strip()
-        w = draw.textlength(_line_for_pillow(candidate), font=font)
-        if w <= max_width:
-            line = candidate
-        else:
-            if line:
-                logical_lines.append(line)
-            line = word
-    if line:
-        logical_lines.append(line)
+
+    if len(words) >= 2:
+        best_two_line = _best_two_line_layout(
+            str(font_path),
+            words,
+            max_width,
+            max_height,
+            min_font_size=1,
+        )
+        if best_two_line is not None:
+            split_lines, split_font_size = best_two_line
+            if split_font_size >= font_size + TITLE_TWO_LINE_MIN_GAIN_PX:
+                logical_lines = split_lines
+                font_size = split_font_size
+
+    if not logical_lines:
+        line = ""
+        font = ImageFont.truetype(font_path, font_size)
+        for word in words:
+            candidate = f"{line} {word}".strip()
+            w = _text_pixel_width(draw, _line_for_pillow(candidate), font=font)
+            if w <= max_width:
+                line = candidate
+            else:
+                if line:
+                    logical_lines.append(line)
+                line = word
+        if line:
+            logical_lines.append(line)
 
     if not logical_lines:
         return output_file
 
-    font = ImageFont.truetype(font_path, font_size)
     display_lines = [_line_for_pillow(l) for l in logical_lines]
-    bboxes = [draw.textbbox((0, 0), dl, font=font) for dl in display_lines]
-    line_height = max(b[3] - b[1] for b in bboxes)
-    inter_line_gap = max(4, int(font_size * 0.1))
-    visual_block_h = bboxes[-1][3] - bboxes[0][1] + inter_line_gap * max(0, len(logical_lines) - 1)
+    if not _lines_fit(str(font_path), display_lines, max_width, max_height, font_size):
+        fallback_font_size = _largest_fitting_font_size(
+            str(font_path), display_lines, max_width, max_height, lo=1, hi=font_size
+        )
+        if fallback_font_size == 0:
+            return output_file
+        font_size = fallback_font_size
+        display_lines = [_line_for_pillow(l) for l in logical_lines]
 
-    first_anchor_y = banner_center_y - visual_block_h / 2 - bboxes[0][1]
+    font = ImageFont.truetype(font_path, font_size)
+    inter_line_gap = max(4, int(font_size * 0.1))
+    visual_block_h = _stacked_text_block_height(draw, display_lines, font=font, font_size=font_size)
+    y_cursor = banner_center_y - visual_block_h / 2
 
     for i, (line, dl) in enumerate(zip(logical_lines, display_lines)):
-        lw = draw.textlength(dl, font=font)
-        x = int((video_width - lw) / 2)
-        anchor_y = first_anchor_y + i * (line_height + inter_line_gap) + (bboxes[i][1] - bboxes[0][1])
-        draw.text((x, anchor_y), dl, fill=(255, 255, 255, 255), font=font)
+        bb = draw.textbbox((0, 0), dl, font=font, anchor="lt")
+        ink_w = bb[2] - bb[0]
+        x = int((video_width - ink_w) / 2 - bb[0])
+        draw.text((x, y_cursor), dl, fill=(255, 255, 255, 255), font=font, anchor="lt")
+        line_h = bb[3] - bb[1]
+        y_cursor += line_h
+        if i < len(logical_lines) - 1:
+            y_cursor += inter_line_gap
 
     image.save(output_file, format="PNG")
     return output_file

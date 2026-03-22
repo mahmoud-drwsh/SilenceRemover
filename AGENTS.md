@@ -51,3 +51,15 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/ffmpeg/filter_graph.py`: Updated PNG title overlay filters to `shortest=1` so looped image input cannot extend output video duration.
 - `src/ffmpeg/transcode.py`: Updated minimal overlay fallback filter to `shortest=1` for consistent bounded duration behavior.
 - `src/media/trim.py`: Removed leftover `[DEBUG]` progress-script instrumentation prints from silence-removed media execution.
+
+- `src/core/constants.py`: Added title readability threshold constants for minimum readable font sizing and two-line fallback control.
+- `src/media/title_overlay.py`: Added two-line split candidate search and a threshold-based fallback path that reruns sizing when single-line text would become too small.
+
+- `src/media/title_overlay.py`: Hardened font fitting by adding a no-fit sentinel path, enforcing min-readable threshold for two-line selection, and adding final width/height-safe fallback sizing before render.
+- `src/media/title_overlay.py`: When single-line text is below readability threshold, fall back to unconstrained two-line sizing when no split reaches the floor so two-line layout still wins over one tiny line.
+- `src/core/constants.py`: Raised default min readable title font px and banner fraction so overlay text targets larger type.
+- `src/media/title_overlay.py`: Always compare best two-line max font size to single-line when there are multiple words; adopt two-line when gain meets `TITLE_TWO_LINE_MIN_GAIN_PX`; removed readability-threshold-only gate.
+- `src/core/constants.py`: Added `TITLE_TWO_LINE_MIN_GAIN_PX` for two-line vs single-line switching.
+- `src/media/title_overlay.py`: Fixed edge bleed by sizing/centering with `textbbox` ink width (not `textlength`), using `anchor="lt"` for consistent metrics, and stacking multi-line height as summed line bboxes plus gaps.
+- `ALGO.md`: Documented the title overlay PNG pipeline (dimensions, shaping, binary-search fit, two-line splits, bbox-based draw, tunables).
+- `README.md`: Corrected Phase 3 overlay description (banner-sized PNG, overlay position) and linked to ALGO.md for layout details.
