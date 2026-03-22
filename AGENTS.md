@@ -67,6 +67,7 @@ After code or config changes, agents append short notes here. When this file gro
 - `pwsh/Start-VerticalTitleEditor.ps1`: Invokes `main.py … --title-editor`.
 - `README.md`: Title editor usage, `--title-editor`, domain layout lists `src/title_editor`; intro line avoids a fixed package count.
 - `AGENTS.md`: Title editor paths updated for `src/title_editor` package.
+- `.cursor/commands/review-commit-push.md`: Slash command now requires delegated agents for scope, review, automated checks, commit, and push; supervisor only coordinates and synthesizes.
 
 ## Agent workflow
 
