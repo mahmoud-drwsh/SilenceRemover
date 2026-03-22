@@ -1,0 +1,8 @@
+---
+description: Prefer subagents for simple, bounded work to keep supervisor context lean
+alwaysApply: true
+---
+
+# Agent workflow
+
+When the environment supports delegated agents (subagents), **prefer routing simple, well-bounded work** to them—e.g. targeted repo search, a single-file change, a one-off shell or git task, or a narrow “find and report” exploration—so the **supervising agent** keeps a smaller context: it synthesizes outcomes instead of loading every tool trace and file dump into its own window.

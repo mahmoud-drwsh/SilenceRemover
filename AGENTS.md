@@ -30,7 +30,7 @@ After code or config changes, agents append short notes here. When this file gro
 - `README.md`: Logo FFmpeg input order (title at `1`, logo at `2` in Phase 3), resilient logo skip, `output/temp/…` paths and directory tree aligned with bootstrap.
 - `.gitignore`: Ignore repo-root `logo/` so optional branding assets stay local.
 - `AGENTS.md`: Condensed changelog logo note and this session block.
-- `AGENTS.md`: Added **Agent workflow** guidance to prefer subagents for simple, contained tasks so the supervising agent’s context stays lean.
+- `AGENTS.md`: **Agent workflow** guidance was added here, then moved to `.cursor/rules/agent-workflow.mdc` (always-applied).
 - `AGENTS.md`: Re-condensed per-file history into the thematic bullets above (file exceeded ~50 lines).
 - `src/llm/__init__.py` / `sr_transcription/__init__.py`: Added trailing newline at EOF after agent commit review.
 - `src/core/cli.py`: Removed `--llm-only`.
@@ -68,7 +68,5 @@ After code or config changes, agents append short notes here. When this file gro
 - `README.md`: Title editor usage, `--title-editor`, domain layout lists `src/title_editor`; intro line avoids a fixed package count.
 - `AGENTS.md`: Title editor paths updated for `src/title_editor` package.
 - `.cursor/commands/review-commit-push.md`: Review-and-commit slash command delegates scope, review, checks, and commit; no `git push` (user pushes manually); supervisor coordinates and synthesizes.
-
-## Agent workflow
-
-When the environment supports delegated agents (subagents), **prefer routing simple, well-bounded work** to them—e.g. targeted repo search, a single-file change, a one-off shell or git task, or a narrow “find and report” exploration—so the **supervising agent** keeps a smaller context: it synthesizes outcomes instead of loading every tool trace and file dump into its own window.
+- `.cursor/rules/agent-workflow.mdc`: Always-applied rule—prefer subagents for simple, well-bounded work so the supervising agent keeps lean context (moved from `AGENTS.md`).
+- `AGENTS.md`: Removed **Agent workflow** section; guidance lives in `.cursor/rules/agent-workflow.mdc`.
