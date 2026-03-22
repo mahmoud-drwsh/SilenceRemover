@@ -70,3 +70,4 @@ After code or config changes, agents append short notes here. When this file gro
 - `.cursor/commands/review-commit-push.md`: Review-and-commit slash command delegates scope, review, checks, and commit; no `git push` (user pushes manually); supervisor coordinates and synthesizes.
 - `.cursor/rules/agent-workflow.mdc`: Always-applied rule—prefer subagents for simple, well-bounded work so the supervising agent keeps lean context (moved from `AGENTS.md`).
 - `AGENTS.md`: Removed **Agent workflow** section; guidance lives in `.cursor/rules/agent-workflow.mdc`.
+- `src/ffmpeg/encoding_resolver.py`: VideoToolbox HEVC profile uses default encoder args (removed explicit `-q:v`).
