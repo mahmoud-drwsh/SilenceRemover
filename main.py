@@ -12,8 +12,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.app.pipeline import run
+from src.core.cli import parse_args
 
 
 if __name__ == "__main__":
-    run()
+    args = parse_args()
+    if args.title_editor:
+        from src.title_editor.standalone import run_title_editor_server
+
+        run_title_editor_server(Path(args.input_dir))
+    else:
+        from src.app.pipeline import run
+
+        run(args)

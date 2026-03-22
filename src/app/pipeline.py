@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
 import traceback
 from dataclasses import dataclass
@@ -256,9 +257,10 @@ def run_output_phase(
     )
 
 
-def run() -> StartupContext:
+def run(args: argparse.Namespace | None = None) -> StartupContext:
     """Run the full three-phase media processing pipeline."""
-    args = parse_args()
+    if args is None:
+        args = parse_args()
     startup = build_startup_context(args)
     api_key = startup.api_key
     temp_dir = startup.temp_dir

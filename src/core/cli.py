@@ -77,6 +77,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("input_dir", type=str, help="Input directory (raw videos)")
     parser.add_argument(
+        "--title-editor",
+        action="store_true",
+        help="Run only the local title editor server (no transcription or pipeline).",
+    )
+    parser.add_argument(
         "--target-length",
         type=_positive_float,
         help="Target length in seconds for final output (Phase 3)",

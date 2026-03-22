@@ -18,7 +18,7 @@ After code or config changes, agents append short notes here. When this file gro
 - **Default models**: Transcription and title flows default to `google/gemini-3.1-flash-lite-preview` on OpenRouter unless callers override.
 - **Title generation**: Prompts require verbatim, beginning-only title spans from the full transcript. One model call emits a small JSON array of candidates; one call returns per-candidate `verbatim_score` and `correctness_score`; highest combined score wins with deterministic tie-breaks. **No** separate honorific add/check LLM step after selection.
 - **Phase 3 title overlay**: Pipeline passes `title_path` / `title_font` into trim; forces encode (no stream copy) when overlay is used. **PNG overlay** (`src/media/title_overlay.py`): Google Fonts CSS2 + TTF cache; Pillow render; Arabic via `arabic-reshaper` + `python-bidi`; filter graph uses PNG concat with `shortest=1`. **Layout**: sixths-based band (e.g. H/6–H/3), multi-line `_best_multi_line_layout` (max lines + combination cap), readability thresholds, `TITLE_TWO_LINE_MIN_GAIN_PX`, bbox-based metrics (`textbbox`, `anchor="lt"`) to avoid edge bleed. **Optional logo**: repo `logo/logo.png`, `colorchannelmixer` alpha, uniform `scale` to `video_w * LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO` vs intrinsic width, top-right margin; bad logo probe skips overlay with a warning. **Metadata**: final MP4 `comment` = source filename for editor-driven cleanup; legacy `SILENCE_REMOVER_SOURCE` still matched. **CLI**: `--title-font`.
-- **Title editor**: FastAPI app (`src/app/title_editor_server.py`) with `TitleEditorLayout` (`src/startup/title_editor_layout.py`); `serve_titles.py` + `pwsh/Start-VerticalTitleEditor.ps1`; probe duplicate server, save JSON, full-width table UI, `textarea` titles, retry writes on Windows locks. On title change, delete final MP4s whose tags match source (`read_format_tags`, NFC + case-insensitive `comment` matching). Pipeline starts editor after bootstrap or skips if `/status` matches; no embedded uvicorn in pipeline. Dependencies: `fastapi`, `uvicorn`, Pillow, arabic reshaper/bidi.
+- **Title editor**: FastAPI app in `src/title_editor/server.py` with `TitleEditorLayout` (`src/startup/title_editor_layout.py`); standalone runner `src/title_editor/standalone.py` (`run_title_editor_server`). Entry: `python main.py <input_dir> --title-editor` (pipeline unchanged otherwise); thin `serve_titles.py` shim + `pwsh/Start-VerticalTitleEditor.ps1`. Probe duplicate server, save JSON, full-width table UI, `textarea` titles, retry writes on Windows locks. On title change, delete final MP4s whose tags match source (`read_format_tags`, NFC + case-insensitive `comment` matching). Dependencies: `fastapi`, `uvicorn`, Pillow, arabic reshaper/bidi.
 - **Documentation**: `README.md` and `ALGO.md` cover architecture, CLI, snippet/edges, encoding, title rules, overlay geometry, and video-only behavior.
 
 ## Latest session edits
@@ -57,6 +57,16 @@ After code or config changes, agents append short notes here. When this file gro
 - `README.md`: Transcription / domain-layout docs updated to `packages/…` paths.
 - `AGENTS.md`: Condensed changelog updated for the `packages/` transcription layout.
 - `.cursor/commands/review-commit-push.md`: Cursor slash command to run agent-assisted review, then commit and push only if checks pass.
+- `src/title_editor/server.py`: FastAPI title editor UI (moved from deleted `src/app/title_editor_server.py`).
+- `src/title_editor/standalone.py`: `run_title_editor_server` uvicorn entry (no pipeline).
+- `src/title_editor/__init__.py`: Re-exports server helpers and standalone runner.
+- `main.py`: Parses CLI; `--title-editor` runs only the title server, else runs pipeline with the same namespace.
+- `src/core/cli.py`: Added `--title-editor` flag.
+- `src/app/pipeline.py`: `run(args=None)` accepts a pre-parsed namespace from `main.py`.
+- `serve_titles.py`: Compatibility wrapper calling `run_title_editor_server`.
+- `pwsh/Start-VerticalTitleEditor.ps1`: Invokes `main.py … --title-editor`.
+- `README.md`: Title editor usage, `--title-editor`, domain layout lists `src/title_editor`; intro line avoids a fixed package count.
+- `AGENTS.md`: Title editor paths updated for `src/title_editor` package.
 
 ## Agent workflow
 

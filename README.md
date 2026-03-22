@@ -57,12 +57,23 @@ Process all videos in a directory:
 python main.py /path/to/video/directory
 ```
 
+### Title editor only
+
+Run the local FastAPI UI to edit titles (no transcription or encoding):
+
+```bash
+python main.py /path/to/video/directory --title-editor
+```
+
+Requires FFmpeg/ffprobe on PATH (same as the layout helper). Optional: set `TITLE_EDITOR_PORT` (default `8765`).
+
 ### Options
 
 - `--target-length FLOAT`: Optimize padding to achieve a target video length (in seconds).
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Defaults are `TARGET_NOISE_THRESHOLD_DB` (`-55.0`) when `--target-length` is set, otherwise `NON_TARGET_NOISE_THRESHOLD_DB` (`-50.0`).
 - `--min-duration FLOAT`: Override minimum silence duration in seconds (applies in both modes). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with `--target-length` and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
 - `--title-font`: Google Font family name used to render the title overlay. The font is auto-downloaded from Google Fonts on first use and cached under `output/temp/fonts/`.
+- `--title-editor`: Start only the title editor web server for `input_dir`; ignores pipeline flags.
 
 ### Suggested Arabic-friendly Google Fonts
 - `Noto Naskh Arabic`
@@ -202,7 +213,7 @@ The tool includes built-in retry logic for rate limit errors (exponential backof
 
 ## Domain Package Layout
 
-The project is organized into six importable packages (plus `packages/` for standalone library-style modules):
+The main code lives under `src/` and `packages/`:
 
 - `src/core`: shared constants, config loading, path utilities, and CLI utilities.
 - `src/media`: silence detection and trimming algorithms.
@@ -210,6 +221,7 @@ The project is organized into six importable packages (plus `packages/` for stan
 - `packages/sr_transcription/`: audio transcription API using OpenRouter (import as `sr_transcription`).
 - `packages/openrouter_transport/`: shared OpenRouter transport layer (import as `openrouter_transport`).
 - `src/app`: high-level pipeline orchestration (`run` entrypoint).
+- `src/title_editor`: FastAPI title editor UI and standalone server runner.
 - `src/ffmpeg`: centralized FFmpeg command construction, probing, execution, and filter-graph helpers.
 - `src/startup`: startup bootstrap and runtime context assembly.
 
