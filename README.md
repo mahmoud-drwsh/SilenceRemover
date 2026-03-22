@@ -132,9 +132,9 @@ The tool processes videos sequentially through **four** main stages:
 
 ### 3. Transcription & Title Generation
 
-- **Transcription** (`sr_transcription/` root package): Transcribes audio using OpenRouter API (default model: `google/gemini-3.1-flash-lite-preview`). Optimized for Arabic verbatim transcription.
+- **Transcription** (`packages/sr_transcription/`): Transcribes audio using OpenRouter API (default model: `google/gemini-3.1-flash-lite-preview`). Optimized for Arabic verbatim transcription.
 - **Title** (`src/llm/title.py`): Generates a YouTube-style title from transcript text.
-- Both use a shared OpenRouter transport (`openrouter_transport/` root package). Pipeline orchestration is in `src/app/pipeline.py`.
+- Both use a shared OpenRouter transport (`packages/openrouter_transport/`). Pipeline orchestration is in `src/app/pipeline.py`.
 - **Two-step process**: Separate API calls for transcription and title generation (better quality and control). Transcript and title are stored in `output/temp/transcript/{basename}.txt` and `output/temp/title/{basename}.txt`.
 - **Title extraction constraints**:
   - Output is exactly one Arabic title line (no commentary).
@@ -198,17 +198,17 @@ The tool maintains state in files under **`output/temp/`** to avoid reprocessing
 
 The tool includes built-in retry logic for rate limit errors (exponential backoff) and processes videos sequentially to respect API quotas.
 
-- **Defaults**: Both transcription and title generation default to `google/gemini-3.1-flash-lite-preview` (see `sr_transcription/` and `src/llm/title.py`).
+- **Defaults**: Both transcription and title generation default to `google/gemini-3.1-flash-lite-preview` (see `packages/sr_transcription/` and `src/llm/title.py`).
 
 ## Domain Package Layout
 
-The project is organized into six packages:
+The project is organized into six importable packages (plus `packages/` for standalone library-style modules):
 
 - `src/core`: shared constants, config loading, path utilities, and CLI utilities.
 - `src/media`: silence detection and trimming algorithms.
 - `src/llm`: prompt templates, title flows, and FFmpeg audio extraction for LLM.
-- `sr_transcription/` (root): audio transcription API using OpenRouter.
-- `openrouter_transport/` (root): shared OpenRouter transport layer.
+- `packages/sr_transcription/`: audio transcription API using OpenRouter (import as `sr_transcription`).
+- `packages/openrouter_transport/`: shared OpenRouter transport layer (import as `openrouter_transport`).
 - `src/app`: high-level pipeline orchestration (`run` entrypoint).
 - `src/ffmpeg`: centralized FFmpeg command construction, probing, execution, and filter-graph helpers.
 - `src/startup`: startup bootstrap and runtime context assembly.

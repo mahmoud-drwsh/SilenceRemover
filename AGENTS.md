@@ -5,8 +5,8 @@ After code or config changes, agents append short notes here. When this file gro
 ## Condensed changelog
 
 - **Config & layout**: `.env` holds secrets (e.g. `OPENROUTER_API_KEY`); shared defaults live in `src/core/constants.py`. Packages: `src/core`, `src/media`, `src/llm`, `src/ffmpeg`, `src/startup`; orchestration in `src/app/pipeline.py`. Legacy top-level shim modules were removed.
-- **Root-level transcription**: `openrouter_transport/` (root) — moved from `src/llm/client.py`, shared transport for chat requests. `sr_transcription/` (root) — `transcribe_and_save` API, prompt, format validation; imports from `openrouter_transport` and `src.core.constants` for AUDIO_FORMATS. `src/llm/audio_for_llm.py` — FFmpeg-only audio extraction (no OpenRouter calls). Backward-compatible re-exports via `src/llm/__init__.py`. `pyproject.toml` now has Hatchling build system with explicit `packages = ["src", "sr_transcription", "openrouter_transport"]`.
-- **Planning doc**: `PLAN.md` holds the full plan for root-level transcription encapsulation (`openrouter_transport`, transcription package, wiring, Hatchling, scope, manual verification).
+- **Transcription packages** (`packages/`): `packages/openrouter_transport/` — shared transport for chat requests (was `src/llm/client.py`). `packages/sr_transcription/` — `transcribe_and_save` API, prompt, format validation; imports from `openrouter_transport` and `src.core.constants` for AUDIO_FORMATS. `src/llm/audio_for_llm.py` — FFmpeg-only audio extraction (no OpenRouter calls). Backward-compatible re-exports via `src/llm/__init__.py`. `pyproject.toml` Hatchling `packages` includes `src`, `packages/sr_transcription`, `packages/openrouter_transport` (wheel still exposes top-level `sr_transcription` / `openrouter_transport` imports).
+- **Planning doc**: Historical encapsulation notes referred to `openrouter_transport` + `sr_transcription`; both modules now live under `packages/` with the same import names.
 - **FFmpeg layer**: Central builders, runners (including progress parsing), probing, silencedetect helpers, filter-graph utilities, and transcode command assembly. Scripted graphs use `-/filter_complex`; legacy `-filter_complex_script` fallback was dropped (FFmpeg 8+ assumed). **Silencedetect**: chained primary+edge in one decode when stderr exposes two filter labels (`detect_primary_and_edge_silence_points`); fallback to two passes; **skip** silencedetect when there is no audio stream; silence parse uses `run(..., capture_output=True)` (fixes subprocess usage on audio-only paths). **Video-only inputs**: lavfi-backed concat graphs, silent-audio generation, and related transcode helpers.
 - **Encoding**: `src/ffmpeg/encoding_resolver.py` picks a runnable hardware HEVC profile (e.g. QSV, VideoToolbox) via probes/smoke tests; startup fails fast if none work; the resolved profile is passed into trim to avoid resolving again.
 - **Silence & trim**: `TrimPlan` / `build_trim_plan` unify target vs non-target policies. `prepare_silence_intervals_with_edges` uses the combined silencedetect pass and shares edge normalization across snippet, target, and non-target paths; target-threshold sweep reuses the last sweep result instead of re-running `prepare_*` in the `for`/`else` branch. Edge re-scan uses a relaxed threshold and a short keep buffer at file ends. Constants: `TARGET_*`, `NON_TARGET_*`, `SNIPPET_*`. CLI requires positive `--target-length` and `--min-duration`; target mode supports threshold overrides and truncation when a target duration cannot be met.
@@ -51,6 +51,12 @@ After code or config changes, agents append short notes here. When this file gro
 - `temp/test_openrouter.py`: Removed ad-hoc OpenRouter transcription smoke test.
 - `temp/list_audio_models.py`: Removed ad-hoc OpenRouter models listing script.
 - `README.md`: “How it works” intro set to **four** stages to match four `###` sections (post-review fix).
+- `packages/sr_transcription/`: Relocated from repo root into `packages/`; import name unchanged (`sr_transcription`).
+- `packages/openrouter_transport/`: Relocated from repo root into `packages/`; import name unchanged (`openrouter_transport`).
+- `pyproject.toml`: Wheel `packages` list now points at `packages/sr_transcription` and `packages/openrouter_transport`.
+- `README.md`: Transcription / domain-layout docs updated to `packages/…` paths.
+- `AGENTS.md`: Condensed changelog updated for the `packages/` transcription layout.
+- `.cursor/commands/review-commit-push.md`: Cursor slash command to run agent-assisted review, then commit and push only if checks pass.
 
 ## Agent workflow
 
