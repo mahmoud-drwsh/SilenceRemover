@@ -9,13 +9,13 @@ An automated video processing tool that removes silence segments, transcribes au
 - **AI Transcription**: Builds a silence-removed snippet (capped at `SNIPPET_MAX_DURATION_SEC`, 180s / 3 minutes by default), encodes it as Ogg/Opus, and transcribes via OpenRouter (default model: `google/gemini-3.1-flash-lite-preview`)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
-- **Video encoding**: Uses a centralized resolver that currently tries HEVC Intel Quick Sync (`hevc_qsv`) first, then Apple VideoToolbox (`hevc_videotoolbox`). The resolver design is intentionally extensible for future hardware encoders, and failures are reported directly without codec fallback.
+- **Video encoding**: Final MP4 video is always encoded with **libx265** (software HEVC). Startup probes FFmpeg for a working `libx265` encoder; there is no hardware path and no codec fallback. Use a **full FFmpeg build that includes libx265** (often GPL-licensed); verify with `ffmpeg -hide_banner -encoders` and look for `libx265`.
 - **FFmpeg Centralization**: Consolidates command building, execution, probing, and filter graph generation under the new `src/ffmpeg` package.
 
 ## Requirements
 
 - **Python**: 3.11 or higher
-- **FFmpeg & FFprobe**: Must be available on your system PATH
+- **FFmpeg & FFprobe**: Must be on your PATH; the build must include **encoder `libx265`** (many minimal or LGPL-only builds omit it—use a full/GNU build if startup fails with a libx265 message).
 - **OpenRouter API Key**: Required for transcription and title generation (get one at [openrouter.ai](https://openrouter.ai))
 - **Dependencies**: Managed via `pyproject.toml` (installed automatically). Transcription and title generation use the official [OpenRouter Python SDK](https://openrouter.ai/docs/sdks/python).
 

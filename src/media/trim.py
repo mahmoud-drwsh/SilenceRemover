@@ -19,12 +19,10 @@ from src.core.constants import (
 )
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
 from src.ffmpeg.filter_graph import (
-    HEVC_QSV_FINAL_VIDEO_PAD,
     build_video_audio_concat_filter_graph,
     build_video_audio_concat_filter_graph_with_title_overlay,
     build_video_lavfi_audio_concat_filter_graph,
     build_video_lavfi_audio_concat_filter_graph_with_title_overlay,
-    finalize_filter_graph_for_hevc_qsv,
 )
 from src.ffmpeg.probing import probe_duration, probe_has_audio_stream, probe_video_dimensions
 from src.media.title_overlay import build_title_overlay
@@ -333,18 +331,12 @@ def trim_single_video(
         )
         use_lavfi_silent_audio = not input_has_audio
 
-    def _graph_for_final_encode(segs: list[tuple[float, float]], oy: int | None) -> str:
-        g = filter_builder(segs, oy)
-        if encoder.codec == "hevc_qsv":
-            return finalize_filter_graph_for_hevc_qsv(g)
-        return g
-
     return run_silence_removed_media(
         input_file=input_file,
         output_file=output_file,
         temp_dir=output_dir / "temp",
         segments_to_keep=segments_to_keep,
-        build_filter_graph=_graph_for_final_encode,
+        build_filter_graph=filter_builder,
         build_command=lambda in_file, out_file, filter_script: build_final_trim_command(
             input_file=in_file,
             output_file=out_file,
@@ -357,7 +349,6 @@ def trim_single_video(
             source_metadata_filename=(
                 in_file.name if (title_overlay_path is not None or use_logo) else None
             ),
-            video_map_pad=HEVC_QSV_FINAL_VIDEO_PAD if encoder.codec == "hevc_qsv" else "outv",
         ),
         expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
         on_progress=lambda percent: print(f"\rProgress: {percent}%", end="", flush=True),

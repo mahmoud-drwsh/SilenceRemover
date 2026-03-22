@@ -27,33 +27,25 @@ class VideoEncoderProfile:
             args.extend(self.container_args)
         return args
 
-    def hw_filter_prelude(self) -> list[str]:
-        """Global FFmpeg flags so complex filtergraphs can feed Quick Sync encoders."""
-        if self.codec == "hevc_qsv":
-            return ["-init_hw_device", "qsv=hw", "-filter_hw_device", "hw"]
-        return []
-
 
 _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
     VideoEncoderProfile(
-        name="intel_quick_sync_hevc",
-        codec="hevc_qsv",
+        name="libx265_software_hevc",
+        codec="libx265",
         codec_args=(
-            "-preset", "3",
-            "-q:v", "19",
-            "-look_ahead_depth", "23",
-            "-mbbrc", "1",
-            "-extbrc", "1",
-            "-scenario", "archive",
+            "-crf",
+            "27",
+            "-preset",
+            "medium",
         ),
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
     ),
-    VideoEncoderProfile(
-        name="apple_videotoolbox_hevc",
-        codec="hevc_videotoolbox",
-        codec_args=(),
-        container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
-    ),
+)
+
+
+_LIBX265_VERIFY_HINT = (
+    "Install a full FFmpeg build that includes encoder libx265 (often GPL-licensed). "
+    "Check: ffmpeg -hide_banner -encoders (look for libx265)."
 )
 
 
@@ -74,34 +66,26 @@ def _probe_encoder_profile(profile: VideoEncoderProfile) -> VideoEncoderProfile:
 
 
 def resolve_video_encoder() -> VideoEncoderProfile:
-    """Resolve the first supported video encoder from the internal priority list."""
+    """Resolve the libx265 software encoder; fail fast if FFmpeg cannot run it."""
     global _RESOLVED_ENCODER
     if _RESOLVED_ENCODER is not None:
         return _RESOLVED_ENCODER
 
+    profile = _ENCODER_PROFILES[0]
     available = _get_available_encoders()
-    probe_failures: list[str] = []
-    for profile in _ENCODER_PROFILES:
-        if profile.codec not in available:
-            continue
-        try:
-            probe_result = _probe_encoder_profile(profile)
-            _RESOLVED_ENCODER = probe_result
-            return probe_result
-        except RuntimeError as exc:
-            probe_failures.append(f"{profile.name}: {exc}")
-            continue
-
-    supported = ", ".join(sorted(profile.codec for profile in _ENCODER_PROFILES))
-    if probe_failures:
+    if profile.codec not in available:
         raise RuntimeError(
-            f"Configured encoder profiles are not runnable. Tried in order: {supported}. "
-            f"Probe failures: {'; '.join(probe_failures)}"
+            f"FFmpeg does not list encoder '{profile.codec}'. {_LIBX265_VERIFY_HINT}"
         )
-    raise RuntimeError(
-        f"No runnable hardware encoder found. Tried in order: {supported}. "
-        "Install/configure one of these encoders in your ffmpeg build."
-    )
+
+    try:
+        _RESOLVED_ENCODER = _probe_encoder_profile(profile)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"Encoder '{profile.codec}' is listed but a probe encode failed. {_LIBX265_VERIFY_HINT}"
+        ) from exc
+
+    return _RESOLVED_ENCODER
 
 
 __all__ = ["VideoEncoderProfile", "resolve_video_encoder"]
