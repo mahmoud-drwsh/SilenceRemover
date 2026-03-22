@@ -113,3 +113,4 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/trim.py`: Logo overlay skipped if decode probe fails (after dimension probe).
 - `src/ffmpeg/__init__.py`: Export `probe_ffmpeg_can_decode_image_frame`.
 - `README.md`: Logo bullet documents ffprobe + FFmpeg decode preflight.
+- `docs/libx265.txt`: Refreshed from `ffmpeg -h encoder=libx265` (FFmpeg 8.1) with capabilities, pixel formats, AVOptions including `-x265-stats`, and regenerate instructions.
