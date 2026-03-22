@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 import subprocess
-import threading
 
 ProgressCallback = Callable[[int], None]
 
@@ -13,17 +12,9 @@ ProgressCallback = Callable[[int], None]
 def format_ffmpeg_process_failure(
     label: str,
     exc: subprocess.CalledProcessError,
-    *,
-    stderr_max_chars: int = 12_000,
 ) -> str:
-    """Human-readable message including FFmpeg stderr when present."""
-    msg = f"{label} failed (exit {exc.returncode})"
-    err = (exc.stderr or "").strip()
-    if not err:
-        return msg
-    if len(err) > stderr_max_chars:
-        err = f"...[truncated]\n{err[-stderr_max_chars:]}"
-    return f"{msg}\nffmpeg stderr:\n{err}"
+    """Short failure label; FFmpeg details are expected on the process stderr stream (terminal)."""
+    return f"{label} failed (exit {exc.returncode}). See FFmpeg output above on stderr."
 
 
 def run(
@@ -72,56 +63,41 @@ def run_with_progress(
     check: bool = True,
     text: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    """Run FFmpeg and forward progress updates using -progress output."""
-    def _run(cmd_input: list[str]) -> subprocess.CompletedProcess[str]:
-        proc = subprocess.Popen(
-            cmd_input,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=text,
-        )
-        output_lines: list[str] = []
-        stderr_holder: list[str] = []
-        current_percent = -1
+    """Run FFmpeg and forward progress updates using -progress on stdout.
 
-        def _drain_stderr() -> None:
-            if proc.stderr is not None:
-                stderr_holder.append(proc.stderr.read())
-
-        stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
-        stderr_thread.start()
-        try:
-            if proc.stdout is None:
-                raise RuntimeError("ffmpeg progress read failed: stdout pipe unavailable")
-            for raw_line in proc.stdout:
-                output_lines.append(raw_line)
-                line = raw_line.strip()
-                if not line:
-                    continue
-                seconds = parse_progress_seconds(line)
-                if seconds is None:
-                    continue
-                if expected_total_seconds > 0:
-                    percent = int(min(100.0, max(0.0, (seconds / expected_total_seconds) * 100.0)))
-                    if percent != current_percent:
-                        current_percent = percent
-                        if on_progress is not None:
-                            on_progress(percent)
-        finally:
-            return_code = proc.wait()
-            stderr_thread.join(timeout=120.0)
-        stdout_text = "".join(output_lines)
-        stderr_text = stderr_holder[0] if stderr_holder else ""
-        return subprocess.CompletedProcess(cmd_input, return_code, stdout_text, stderr_text)
-
-    result = _run(cmd)
-    if check and result.returncode != 0:
-        raise subprocess.CalledProcessError(
-            result.returncode,
-            cmd,
-            output=result.stdout,
-            stderr=result.stderr,
-        )
+    Stderr is inherited so FFmpeg logs and errors go straight to the terminal.
+    """
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=None,
+        text=text,
+    )
+    output_lines: list[str] = []
+    current_percent = -1
+    try:
+        if proc.stdout is None:
+            raise RuntimeError("ffmpeg progress read failed: stdout pipe unavailable")
+        for raw_line in proc.stdout:
+            output_lines.append(raw_line)
+            line = raw_line.strip()
+            if not line:
+                continue
+            seconds = parse_progress_seconds(line)
+            if seconds is None:
+                continue
+            if expected_total_seconds > 0:
+                percent = int(min(100.0, max(0.0, (seconds / expected_total_seconds) * 100.0)))
+                if percent != current_percent:
+                    current_percent = percent
+                    if on_progress is not None:
+                        on_progress(percent)
+    finally:
+        return_code = proc.wait()
+    stdout_text = "".join(output_lines)
+    result = subprocess.CompletedProcess(cmd, return_code, stdout_text, None)
+    if check and return_code != 0:
+        raise subprocess.CalledProcessError(return_code, cmd, output=stdout_text, stderr=None)
     return result
 
 
