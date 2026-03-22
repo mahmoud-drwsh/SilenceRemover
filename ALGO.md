@@ -134,7 +134,7 @@ Implementation: `choose_threshold_and_padding_for_target` and `find_optimal_padd
 
 ## Title overlay PNG (`src/media/title_overlay.py`)
 
-Phase 3 burns in a **pre-rendered RGBA PNG** (not FFmpeg `drawtext`). The pipeline probes the source with `ffprobe`, then builds a strip image of size **`video_width × banner_height`**, where `banner_height = max(1, int(video_height * 0.2))` (20% of frame height). That PNG is composited at **`overlay_x=0`, `overlay_y=int(video_height * 0.2)`** so it sits in the second fifth of the frame (same band the older drawbox/drawtext path targeted). Implementation: `trim.py` → `build_title_overlay` → FFmpeg `overlay=0:{overlay_y}` in `src/ffmpeg/filter_graph.py`.
+Phase 3 burns in a **pre-rendered RGBA PNG** (not FFmpeg `drawtext`). The pipeline probes the source with `ffprobe`, then builds a strip image of size **`video_width × banner_height`**, where `banner_height = max(1, int(video_height * TITLE_BANNER_HEIGHT_FRACTION))` with **`TITLE_BANNER_HEIGHT_FRACTION = 2/6`** (two sixths of frame height). That PNG is composited at **`overlay_x=0`, `overlay_y=int(video_height * TITLE_BANNER_START_FRACTION)`** with **`TITLE_BANNER_START_FRACTION = 1/6`** (top of the second sixth), so the covered band is **`y ∈ [H/6, H/2]`** on the full frame. Implementation: `trim.py` → `build_title_overlay` → FFmpeg `overlay=0:{overlay_y}` in `src/ffmpeg/filter_graph.py`.
 
 ### Text normalization (Arabic / RTL)
 

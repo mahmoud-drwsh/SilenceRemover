@@ -63,3 +63,7 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/title_overlay.py`: Fixed edge bleed by sizing/centering with `textbbox` ink width (not `textlength`), using `anchor="lt"` for consistent metrics, and stacking multi-line height as summed line bboxes plus gaps.
 - `ALGO.md`: Documented the title overlay PNG pipeline (dimensions, shaping, binary-search fit, two-line splits, bbox-based draw, tunables).
 - `README.md`: Corrected Phase 3 overlay description (banner-sized PNG, overlay position) and linked to ALGO.md for layout details.
+- `src/core/constants.py`: Set title banner to start at 1/6 frame height and span 2/6 of height (sixths model).
+- `src/media/trim.py`: Use `TITLE_BANNER_START_FRACTION` and `TITLE_BANNER_HEIGHT_FRACTION` for overlay size and y position.
+- `ALGO.md`: Documented sixths-based banner geometry and constant names.
+- `README.md`: Updated Phase 3 overlay band description to H/6 through H/2.

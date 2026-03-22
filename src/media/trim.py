@@ -12,6 +12,8 @@ from src.core.constants import (
     SNIPPET_MAX_DURATION_SEC,
     SNIPPET_MIN_DURATION_SEC,
     SNIPPET_NOISE_THRESHOLD_DB,
+    TITLE_BANNER_HEIGHT_FRACTION,
+    TITLE_BANNER_START_FRACTION,
     TITLE_FONT_DEFAULT,
     TRIM_TIMESTAMP_EPSILON_SEC,
     TrimDefaults,
@@ -463,8 +465,8 @@ def trim_single_video(
         if not title_text:
             raise RuntimeError(f"Empty title at {title_path}")
         video_width, video_height = probe_video_dimensions(input_file)
-        banner_height = max(1, int(video_height * 0.2))
-        banner_top = int(video_height * 0.2)
+        banner_height = max(1, int(video_height * TITLE_BANNER_HEIGHT_FRACTION))
+        banner_top = int(video_height * TITLE_BANNER_START_FRACTION)
         title_overlay_path = build_title_overlay(
             title=title_text,
             video_width=video_width,

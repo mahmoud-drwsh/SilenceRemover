@@ -149,7 +149,7 @@ The tool processes videos sequentially through four main stages:
 ### 5. Title Overlay Rendering (Phase 3)
 
 - The title text from `temp/title/{basename}.txt` is loaded right before output encoding.
-- `ffprobe` reads the source **video width and height**. A **banner-sized** RGBA PNG (`video_width` × `banner_height`, where `banner_height = 20%` of frame height) is written to `temp/title_overlays/{basename}.png`. FFmpeg composites it at `x=0`, `y=20%` of frame height (`overlay=0:{y}`), so it occupies the band from **frame y = 1/5** to **2/5** (same geometry as the old drawbox region).
+- `ffprobe` reads the source **video width and height**. A **banner-sized** RGBA PNG (`video_width` × `banner_height`, with `banner_height = (2/6) × frame height`) is written to `temp/title_overlays/{basename}.png`. FFmpeg composites it at `x=0`, `y=(1/6) × frame height` (`overlay=0:{y}`), so the strip covers **`y` from H/6 to H/2** (second and third sixths of the frame). Values come from `TITLE_BANNER_START_FRACTION` and `TITLE_BANNER_HEIGHT_FRACTION` in `src/core/constants.py`.
 - The PNG is a semi-transparent black strip (`TITLE_BANNER_BG_ALPHA`, default 0.5) with **white** title text rendered in Pillow using the selected `--title-font` (Google Font, cached under `temp/fonts/`).
 - **Layout algorithm** (largest font that fits, optional two-line word splits, bbox-based metrics, vertical stacking): see **`ALGO.md` → “Title overlay PNG”**.
 - **Arabic / RTL titles**: Pillow draws in visual order only; text is shaped with `arabic-reshaper` and reordered with `python-bidi` (`get_display`) before measuring and drawing. Mixed Arabic + Latin/numbers follow Unicode bidirectional rules.

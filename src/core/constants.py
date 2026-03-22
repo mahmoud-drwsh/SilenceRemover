@@ -151,8 +151,9 @@ AUDIO_FORMATS: frozenset[str] = frozenset(ext.lstrip(".") for ext in AUDIO_EXTEN
 AUDIO_FILE_EXT = ".ogg"
 TEXT_FILE_EXT = ".txt"
 
-TITLE_BANNER_START_FRACTION = 0.2
-TITLE_BANNER_HEIGHT_FRACTION = 0.2
+# Vertical sixths: overlay starts at top of 2nd sixth; band height is 2/6 of frame (y in [H/6, H/2]).
+TITLE_BANNER_START_FRACTION = 1 / 6
+TITLE_BANNER_HEIGHT_FRACTION = 2 / 6
 TITLE_BANNER_BG_ALPHA = 0.5
 TITLE_FONT_DEFAULT = "Noto Naskh Arabic"
 TITLE_MIN_READABLE_FONT_PX = 26
