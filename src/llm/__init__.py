@@ -1,7 +1,6 @@
 """LLM domain package for transcription and title generation."""
 
 from openrouter_transport import request
-from src.llm.audio_for_llm import extract_first_5min_audio, get_audio_path_for_media
 from sr_title import (
     DEFAULT_MODEL,
     TITLE_CANDIDATES_PROMPT_TEMPLATE,
@@ -21,8 +20,6 @@ __all__ = [
     "TRANSCRIBE_PROMPT",
     "generate_title_from_transcript",
     "generate_title_with_openrouter",
-    "extract_first_5min_audio",
-    "get_audio_path_for_media",
     "transcribe_and_save",
     "transcribe_with_openrouter",
 ]

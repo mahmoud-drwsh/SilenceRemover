@@ -1,7 +1,5 @@
 """Video trimming functionality."""
 
-import subprocess
-import time
 import shutil
 from pathlib import Path
 from dataclasses import dataclass
@@ -12,10 +10,6 @@ from src.core.constants import (
     LOGO_OVERLAY_ALPHA,
     LOGO_OVERLAY_MARGIN_PX,
     LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO,
-    SCRIPTS_DIR,
-    SNIPPET_MAX_DURATION_SEC,
-    SNIPPET_MIN_DURATION_SEC,
-    SNIPPET_NOISE_THRESHOLD_DB,
     TITLE_BANNER_HEIGHT_FRACTION,
     TITLE_BANNER_START_FRACTION,
     TITLE_FONT_DEFAULT,
@@ -24,26 +18,22 @@ from src.core.constants import (
     resolve_trim_defaults,
 )
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
-from src.ffmpeg.core import print_ffmpeg_cmd
 from src.ffmpeg.filter_graph import (
-    build_audio_concat_filter_graph,
+    HEVC_QSV_FINAL_VIDEO_PAD,
     build_video_audio_concat_filter_graph,
     build_video_audio_concat_filter_graph_with_title_overlay,
     build_video_lavfi_audio_concat_filter_graph,
     build_video_lavfi_audio_concat_filter_graph_with_title_overlay,
-    write_filter_graph_script,
+    finalize_filter_graph_for_hevc_qsv,
 )
 from src.ffmpeg.probing import probe_duration, probe_has_audio_stream, probe_video_dimensions
 from src.media.title_overlay import build_title_overlay
-from src.ffmpeg.runner import run, run_with_progress
-from src.ffmpeg.transcode import (
-    build_final_trim_command,
-    build_minimal_audio_command,
-    build_minimal_video_command,
-    build_silent_audio_file_command,
-    build_silence_removed_audio_command,
-)
+from src.ffmpeg.transcode import build_final_trim_command, build_minimal_video_command
 from src.core.fs_utils import wait_for_file_release
+from src.ffmpeg.silence_removed_runner import (
+    run_minimal_ffmpeg_output,
+    run_silence_removed_media,
+)
 from src.core.paths import get_font_cache_path, get_title_overlay_path
 from src.media.silence_detector import (
     choose_threshold_and_padding_for_target,
@@ -195,34 +185,6 @@ def _build_target_trim_plan(
     )
 
 
-def _build_segments_to_keep(
-    input_file: Path,
-    noise_threshold: float,
-    min_duration: float,
-    pad_sec: float,
-    target_length: Optional[float],
-) -> tuple[list[tuple[float, float]], float, float, float, float]:
-    """Build segments_to_keep list using same algorithm as full trim.
-
-    Returns:
-        (segments_to_keep, duration_sec, resolved_noise_threshold, resolved_min_duration, resolved_pad_sec)
-    """
-    plan = build_trim_plan(
-        input_file,
-        target_length,
-        noise_threshold,
-        min_duration,
-        pad_sec,
-    )
-    return (
-        plan.segments_to_keep,
-        plan.input_duration_sec,
-        plan.resolved_noise_threshold,
-        plan.resolved_min_duration,
-        plan.resolved_pad_sec,
-    )
-
-
 def _copy_input_video(input_file: Path, output_file: Path) -> Path:
     print(
         f"Target length >= original duration, copying original file "
@@ -233,183 +195,6 @@ def _copy_input_video(input_file: Path, output_file: Path) -> Path:
         return output_file.resolve()
     except Exception as exc:
         raise RuntimeError(f"Failed to copy original file from {input_file} to {output_file}") from exc
-
-
-def _run_minimal_output(
-    *,
-    output_file: Path,
-    cmd: list[str],
-    command_label: str,
-) -> Path:
-    print_ffmpeg_cmd(cmd)
-    try:
-        run(cmd, check=True)
-        wait_for_file_release(output_file)
-        return output_file.resolve()
-    except subprocess.CalledProcessError as exc:
-        raise RuntimeError(f"{command_label} failed while creating minimal output") from exc
-
-
-def _run_silence_removed_media(
-    *,
-    input_file: Path,
-    output_file: Path,
-    temp_dir: Path,
-    segments_to_keep: list[tuple[float, float]],
-    build_filter_graph: Callable[[list[tuple[float, float]], int | None], str],
-    build_command: Callable[[Path, Path, Path], list[str]],
-    expected_total_seconds: Optional[float] = None,
-    on_progress: Optional[Callable[[int], None]] = None,
-    command_label: Optional[str] = None,
-    overlay_y: int | None = None,
-) -> Path:
-    filter_complex = build_filter_graph(segments_to_keep, overlay_y)
-
-    scripts_dir = temp_dir / SCRIPTS_DIR
-    scripts_dir.mkdir(parents=True, exist_ok=True)
-    filter_script_path = scripts_dir / f"{output_file.stem}_{int(time.time())}.ffscript"
-    write_filter_graph_script(filter_script_path, filter_complex)
-
-    cmd = build_command(input_file, output_file, filter_script_path)
-    print_ffmpeg_cmd(cmd)
-    if expected_total_seconds is not None:
-        emitted_progress = False
-
-        def _on_progress(percent: int) -> None:
-            nonlocal emitted_progress
-            emitted_progress = True
-            if on_progress is not None:
-                on_progress(percent)
-        try:
-            run_with_progress(
-                cmd,
-                expected_total_seconds=expected_total_seconds,
-                on_progress=_on_progress,
-            )
-        except subprocess.CalledProcessError as exc:
-            if command_label is None:
-                raise
-            raise RuntimeError(f"{command_label} failed") from exc
-        if emitted_progress:
-            print()
-    else:
-        try:
-            run(cmd, check=True)
-        except subprocess.CalledProcessError as exc:
-            if command_label is not None:
-                raise RuntimeError(f"{command_label} failed") from exc
-            raise
-
-    wait_for_file_release(output_file)
-    print(f"Done! Output saved to: {output_file}")
-    return output_file.resolve()
-
-
-def create_silence_removed_snippet(
-    input_file: Path,
-    output_audio_path: Path,
-    temp_dir: Path,
-    pad_sec: float,
-    max_duration: Optional[float] = SNIPPET_MAX_DURATION_SEC,
-) -> Path:
-    """Create the fixed-parameter transcription snippet.
-
-    Snippet creation uses `prepare_silence_intervals_with_edges` through the shared trim
-    path in `_build_segments_to_keep` to keep edge handling aligned with final output.
-    """
-    return create_silence_removed_audio(
-        input_file=input_file,
-        output_audio_path=output_audio_path,
-        temp_dir=temp_dir,
-        noise_threshold=SNIPPET_NOISE_THRESHOLD_DB,
-        min_duration=SNIPPET_MIN_DURATION_SEC,
-        pad_sec=pad_sec,
-        target_length=None,
-        max_duration=max_duration,
-    )
-
-
-def create_silence_removed_audio(
-    input_file: Path,
-    output_audio_path: Path,
-    temp_dir: Path,
-    noise_threshold: float,
-    min_duration: float,
-    pad_sec: float,
-    target_length: Optional[float] = None,
-    max_duration: Optional[float] = None,
-) -> Path:
-    """Create silence-removed audio (same algorithm as video trim), audio only (-vn).
-    If max_duration is set (e.g. 180), limit output to that many seconds (e.g. first 3 min)."""
-    output_audio_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # OGG/Opus for smaller payload when path is .ogg; else WAV
-    is_ogg = output_audio_path.suffix.lower() == ".ogg"
-    if is_ogg:
-        acodec = ["-c:a", "libopus", "-ar", "16000", "-ac", "1", "-b:a", "32k"]
-    else:
-        acodec = ["-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1"]
-
-    if not probe_has_audio_stream(input_file):
-        duration_sec = probe_duration(input_file)
-        if max_duration is not None:
-            duration_sec = min(duration_sec, max_duration)
-        duration_sec = max(0.1, float(duration_sec))
-        print("Warning: Input has no audio stream; writing silent audio for transcription/snippet.")
-        return _run_minimal_output(
-            output_file=output_audio_path,
-            cmd=build_silent_audio_file_command(
-                output_audio=output_audio_path,
-                duration_sec=duration_sec,
-                codec_args=acodec,
-            ),
-            command_label="Silent audio (no input audio)",
-        )
-
-    segments_to_keep, _, _, _, _ = _build_segments_to_keep(
-        input_file, noise_threshold, min_duration, pad_sec, target_length
-    )
-
-    if len(segments_to_keep) == 0:
-        print("Warning: All audio detected as silence. Creating minimal audio.")
-        if not probe_has_audio_stream(input_file):
-            duration_sec = max(0.1, float(probe_duration(input_file)))
-            if max_duration is not None:
-                duration_sec = min(duration_sec, max_duration)
-            return _run_minimal_output(
-                output_file=output_audio_path,
-                cmd=build_silent_audio_file_command(
-                    output_audio=output_audio_path,
-                    duration_sec=duration_sec,
-                    codec_args=acodec,
-                ),
-                command_label="Silent audio (no input audio)",
-            )
-        return _run_minimal_output(
-            output_file=output_audio_path,
-            cmd=build_minimal_audio_command(
-                input_file=input_file,
-                output_audio=output_audio_path,
-                codec_args=acodec,
-            ),
-            command_label="Audio",
-        )
-
-    return _run_silence_removed_media(
-        input_file=input_file,
-        output_file=output_audio_path,
-        temp_dir=temp_dir,
-        segments_to_keep=segments_to_keep,
-        build_filter_graph=build_audio_concat_filter_graph,
-        build_command=lambda in_file, out_file, filter_script_path: build_silence_removed_audio_command(
-            input_file=in_file,
-            output_audio_path=out_file,
-            filter_script_path=filter_script_path,
-            acodec=acodec,
-            max_duration=max_duration,
-        ),
-        command_label="Silence-removed audio",
-    )
 
 
 def trim_single_video(
@@ -501,7 +286,7 @@ def trim_single_video(
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal video (first frame only).")
         # Create minimal video with first frame and silence using the resolved encoder profile.
-        return _run_minimal_output(
+        return run_minimal_ffmpeg_output(
             output_file=output_file,
             cmd=build_minimal_video_command(
                 input_file=input_file,
@@ -547,12 +332,19 @@ def trim_single_video(
             else build_video_lavfi_audio_concat_filter_graph
         )
         use_lavfi_silent_audio = not input_has_audio
-    return _run_silence_removed_media(
+
+    def _graph_for_final_encode(segs: list[tuple[float, float]], oy: int | None) -> str:
+        g = filter_builder(segs, oy)
+        if encoder.codec == "hevc_qsv":
+            return finalize_filter_graph_for_hevc_qsv(g)
+        return g
+
+    return run_silence_removed_media(
         input_file=input_file,
         output_file=output_file,
         temp_dir=output_dir / "temp",
         segments_to_keep=segments_to_keep,
-        build_filter_graph=filter_builder,
+        build_filter_graph=_graph_for_final_encode,
         build_command=lambda in_file, out_file, filter_script: build_final_trim_command(
             input_file=in_file,
             output_file=out_file,
@@ -565,6 +357,7 @@ def trim_single_video(
             source_metadata_filename=(
                 in_file.name if (title_overlay_path is not None or use_logo) else None
             ),
+            video_map_pad=HEVC_QSV_FINAL_VIDEO_PAD if encoder.codec == "hevc_qsv" else "outv",
         ),
         expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
         on_progress=lambda percent: print(f"\rProgress: {percent}%", end="", flush=True),

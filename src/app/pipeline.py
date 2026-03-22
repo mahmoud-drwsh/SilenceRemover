@@ -11,6 +11,7 @@ from typing import Callable, Optional
 
 from src.core.cli import parse_args
 from src.core.constants import (
+    AUDIO_EXTENSIONS,
     COMPLETED_DIR,
     SNIPPET_MAX_DURATION_SEC,
 )
@@ -26,10 +27,10 @@ from src.core.paths import (
 )
 from src.startup import StartupContext, build_startup_context
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile
-from src.llm.audio_for_llm import get_audio_path_for_media
+from sr_snippet import create_silence_removed_snippet
 from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
-from src.media.trim import create_silence_removed_snippet, trim_single_video
+from src.media.trim import trim_single_video
 
 
 @dataclass(frozen=True)
@@ -79,15 +80,26 @@ def _run_phase_step(
         return False
 
 
-def transcribe_media(media_path: Path, temp_dir: Path, api_key: str, basename: str) -> None:
-    """Transcribe from a video or audio file and save transcript to file."""
-    audio_path = get_audio_path_for_media(media_path, temp_dir, basename)
+def transcribe_media(audio_path: Path, temp_dir: Path, api_key: str, basename: str) -> None:
+    """Transcribe from an audio file and save transcript to file.
+
+    ``audio_path`` must be a supported audio extension (see ``AUDIO_EXTENSIONS``);
+    video inputs are not accepted here—produce a snippet or extract audio first.
+    """
+    ext = audio_path.suffix.lower()
+    if ext not in AUDIO_EXTENSIONS:
+        allowed = ", ".join(sorted(AUDIO_EXTENSIONS))
+        raise ValueError(
+            f"transcribe_media requires an audio file; got suffix {ext!r} for {audio_path.name}. "
+            f"Allowed extensions: {allowed}"
+        )
+    resolved = audio_path.resolve()
     transcript_path = get_transcript_path(temp_dir, basename)
 
     print("Transcribing with OpenRouter...")
     transcribe_and_save(
         api_key=api_key,
-        audio_path=audio_path,
+        audio_path=resolved,
         output_path=transcript_path,
         log_dir=temp_dir,
     )
@@ -132,7 +144,7 @@ def run_transcription_phase(
         )
 
         print(f"\n[1/{total_phases}] Transcribing: {snippet_path.name}")
-        transcribe_media(media_path=snippet_path, temp_dir=temp_dir, api_key=api_key, basename=basename)
+        transcribe_media(audio_path=snippet_path, temp_dir=temp_dir, api_key=api_key, basename=basename)
 
     return _run_phase_step(
         video_path=video_path,

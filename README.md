@@ -136,14 +136,14 @@ The tool processes videos sequentially through **four** main stages:
 
 ### 2. Audio Extraction
 
-- Extracts up to 3 minutes (`SNIPPET_MAX_DURATION_SEC` = 180s) of silence-removed snippet audio for transcription using the same edge policy as final trim.
+- **Snippet** (`packages/sr_snippet/`): extracts up to 3 minutes (`SNIPPET_MAX_DURATION_SEC` = 180s) of silence-removed snippet audio for transcription using the same edge policy as final trim (`build_trim_plan` in `src/media/trim.py`).
 - Saves as `.ogg` (Opus) under `output/temp/snippet/` (see `get_snippet_path` / `AUDIO_FILE_EXT`)
 - Phase-1 snippet extraction ignores `--noise-threshold`/`--min-duration` overrides and always uses `SNIPPET_NOISE_THRESHOLD_DB` (`-55dB`) and `SNIPPET_MIN_DURATION_SEC` (`0.01s`) via snippet defaults.
 - Reuses existing audio files if already extracted
 
 ### 3. Transcription & Title Generation
 
-- **Transcription** (`packages/sr_transcription/`): Transcribes audio using OpenRouter API (default model: `google/gemini-3.1-flash-lite-preview`). Optimized for Arabic verbatim transcription.
+- **Transcription** (`packages/sr_transcription/`): Transcribes **audio files only** (Phase 1 passes the snippet `.ogg`; `transcribe_media` rejects non-audio extensions). OpenRouter API (default model: `google/gemini-3.1-flash-lite-preview`). Optimized for Arabic verbatim transcription.
 - **Title** (`packages/sr_title/`): Generates a YouTube-style title from transcript text.
 - Both use a shared OpenRouter transport (`packages/openrouter_transport/`). Pipeline orchestration is in `src/app/pipeline.py`.
 - **Two-step process**: Separate API calls for transcription and title generation (better quality and control). Transcript and title are stored in `output/temp/transcript/{basename}.txt` and `output/temp/title/{basename}.txt`.
@@ -209,21 +209,22 @@ The tool maintains state in files under **`output/temp/`** to avoid reprocessing
 
 The tool includes built-in retry logic for rate limit errors (exponential backoff) and processes videos sequentially to respect API quotas.
 
-- **Defaults**: Both transcription and title generation default to `OPENROUTER_DEFAULT_MODEL` in `src/core/constants.py` (`google/gemini-3.1-flash-lite-preview`; see `packages/sr_transcription/` and `packages/sr_title/`).
+- **Defaults**: Transcription, title, and snippet constants default via `src/core/constants.py` (e.g. `OPENROUTER_DEFAULT_MODEL`, `SNIPPET_*`; see `packages/sr_transcription/`, `packages/sr_title/`, `packages/sr_snippet/`).
 
 ## Domain Package Layout
 
 The main code lives under `src/` and `packages/`:
 
 - `src/core`: shared constants, config loading, path utilities, and CLI utilities.
-- `src/media`: silence detection and trimming algorithms.
-- `src/llm`: FFmpeg audio extraction for LLM; re-exports `sr_transcription` and `sr_title` entrypoints and prompts.
+- `src/media`: silence detection, `build_trim_plan` / `trim_single_video`, and related algorithms.
+- `src/llm`: re-exports `sr_transcription` and `sr_title` entrypoints and prompts (no separate FFmpeg extraction module).
+- `packages/sr_snippet/`: silence-removed transcription snippet audio (`create_silence_removed_snippet`; import as `sr_snippet`).
 - `packages/sr_transcription/`: audio transcription API using OpenRouter (import as `sr_transcription`).
 - `packages/sr_title/`: transcript-to-title generation using OpenRouter (import as `sr_title`).
 - `packages/openrouter_transport/`: shared OpenRouter transport layer (import as `openrouter_transport`).
 - `src/app`: high-level pipeline orchestration (`run` entrypoint).
 - `src/title_editor`: FastAPI title editor UI and standalone server runner.
-- `src/ffmpeg`: centralized FFmpeg command construction, probing, execution, and filter-graph helpers.
+- `src/ffmpeg`: centralized FFmpeg command construction, probing, execution, filter-graph helpers, and `silence_removed_runner` (shared encode orchestration for silence-removed audio/video paths).
 - `src/startup`: startup bootstrap and runtime context assembly.
 
 ## Error Handling

@@ -10,10 +10,13 @@ from src.core.constants import (
     FINAL_VIDEO_SOURCE_METADATA_KEY,
     LOGO_OVERLAY_ALPHA,
     LOGO_OVERLAY_MARGIN_PX,
-    SNIPPET_MAX_DURATION_SEC,
 )
 from src.ffmpeg.core import add_filter_complex_script, build_ffmpeg_cmd
-from src.ffmpeg.filter_graph import build_minimal_encode_overlay_filter_complex
+from src.ffmpeg.filter_graph import (
+    HEVC_QSV_FINAL_VIDEO_PAD,
+    build_minimal_encode_overlay_filter_complex,
+    finalize_filter_graph_for_hevc_qsv,
+)
 
 if TYPE_CHECKING:
     from src.ffmpeg.encoding_resolver import VideoEncoderProfile
@@ -24,73 +27,6 @@ def _build_input_command(input_file: Path) -> list[str]:
     cmd = build_ffmpeg_cmd(overwrite=True)
     cmd.extend(["-i", str(input_file)])
     return cmd
-
-
-def _build_input_command_with_options(input_file: Path, *ffmpeg_options: str) -> list[str]:
-    """Build an ffmpeg command with options that must appear before the input."""
-    cmd = build_ffmpeg_cmd(overwrite=True)
-    cmd.extend(ffmpeg_options)
-    cmd.extend(["-i", str(input_file)])
-    return cmd
-
-
-def build_audio_window_extract_command(
-    input_file: Path,
-    output_audio: Path,
-    *,
-    start_seconds: float = 0.0,
-    duration_seconds: float = SNIPPET_MAX_DURATION_SEC,
-    codec_args: Sequence[str] | None = None,
-) -> list[str]:
-    """Build a fixed-window audio extraction command."""
-    cmd = _build_input_command_with_options(
-        input_file,
-        "-ss",
-        str(start_seconds),
-        "-t",
-        str(duration_seconds),
-    )
-    cmd.extend(["-map", "0:a:0"])
-    if codec_args:
-        cmd.extend(codec_args)
-    cmd.extend(["-vn", str(output_audio)])
-    return cmd
-
-
-def build_first_5min_audio_ogg_command(input_video: Path, output_audio: Path) -> list[str]:
-    """Build Ogg/Opus extraction for an opening window (default duration: `SNIPPET_MAX_DURATION_SEC`)."""
-    return build_audio_window_extract_command(
-        input_file=input_video,
-        output_audio=output_audio,
-        codec_args=[
-            "-c:a",
-            "libopus",
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
-            "-b:a",
-            "32k",
-        ],
-    )
-
-
-def build_first_5min_audio_copy_command(input_video: Path, output_audio: Path) -> list[str]:
-    """Build copy-first extraction command."""
-    return build_audio_window_extract_command(
-        input_file=input_video,
-        output_audio=output_audio,
-        codec_args=["-c:a", "copy"],
-    )
-
-
-def build_first_5min_audio_aac_command(input_video: Path, output_audio: Path) -> list[str]:
-    """Build AAC fallback extraction command."""
-    return build_audio_window_extract_command(
-        input_file=input_video,
-        output_audio=output_audio,
-        codec_args=["-c:a", "aac", "-b:a", AUDIO_BITRATE],
-    )
 
 
 def build_silent_audio_file_command(
@@ -166,12 +102,16 @@ def build_minimal_video_command(
             logo_margin_px=logo_margin_px,
             logo_alpha=logo_alpha,
         )
+        vmap = "outv"
+        if encoder.codec == "hevc_qsv":
+            fc = finalize_filter_graph_for_hevc_qsv(fc)
+            vmap = HEVC_QSV_FINAL_VIDEO_PAD
         cmd.extend(
             [
                 "-filter_complex",
                 fc,
                 "-map",
-                "[outv]",
+                f"[{vmap}]",
                 "-map",
                 "0:a?",
             ]
@@ -196,12 +136,17 @@ def build_final_trim_command(
     logo_path: Path | None = None,
     extra_silent_audio_lavfi: bool = False,
     source_metadata_filename: str | None = None,
+    video_map_pad: str = "outv",
 ) -> list[str]:
     """Build final video trim + encode command.
 
     When ``extra_silent_audio_lavfi`` is True, append a stereo `anullsrc` so the
     filter graph can use ``[1:a]`` (no overlay), ``[2:a]`` (one PNG), or ``[3:a]``
     (title + logo) for silent-audio segment lengths.
+
+    ``video_map_pad`` names the video filter output pad (default ``outv``). For
+    ``hevc_qsv``, the graph may end at ``outv_qsvsink`` after
+    `finalize_filter_graph_for_hevc_qsv`.
     """
     cmd = _build_input_command(input_file)
     if title_overlay_path is not None:
@@ -211,7 +156,7 @@ def build_final_trim_command(
     if extra_silent_audio_lavfi:
         cmd.extend(["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"])
     add_filter_complex_script(cmd, filter_script_path)
-    cmd.extend(["-map", "[outv]", "-map", "[outa]"])
+    cmd.extend(["-map", f"[{video_map_pad}]", "-map", "[outa]"])
     cmd.extend(encoder.video_args(include_container_args=True))
     cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, "-progress", "pipe:1", "-nostats", "-loglevel", "error"])
     if source_metadata_filename is not None:
