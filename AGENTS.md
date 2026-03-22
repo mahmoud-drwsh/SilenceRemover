@@ -89,3 +89,5 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/ffmpeg/probing.py` / `src/app/title_editor_server.py`: Removed debug-session NDJSON instrumentation.
 - `src/app/title_editor_server.py`: Full-width table layout; capped video column with ellipsis; title column uses remaining width; title fields are `textarea` with wrap/overflow so long text does not scroll horizontally.
 - `src/app/title_editor_server.py`: Retry title `Path.write_text` on Windows file locks (`PermissionError` / `EACCES`); clear HTTP 503 if still locked.
+- `src/ffmpeg/detection.py`: Chained primary+edge `silencedetect` in one FFmpeg decode (`detect_primary_and_edge_silence_points` + pointer-bucket stderr parse; fallback to two passes if logs lack two filter pointers).
+- `src/media/silence_detector.py`: `prepare_silence_intervals_with_edges` uses the combined pass; target-threshold sweep reuses last sweep result instead of re-running `prepare_*` in the `for`/`else` branch.
