@@ -188,3 +188,26 @@ If the wrapped lines no longer fit at the current size (e.g. after wrapping), `_
 - `TITLE_OVERLAY_MAX_LINES` — maximum line count considered in the exhaustive layout search.
 - `TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS` — skip enumerating a given `k` when `C(n-1,k-1)` exceeds this.
 - `TITLE_MIN_READABLE_FONT_PX` / `TITLE_MIN_READABLE_FONT_BANNER_FRACTION` — defined for potential future readability heuristics; the current overlay sizing logic uses the multi-line gain rule and `_lines_fit` only.
+
+## Phase 3 video compositing: title + optional logo (`src/ffmpeg/filter_graph.py`)
+
+After trim/concat, the video stream may receive one or two PNG overlays. Builders: `_overlay_suffix_after_concat` (normal path) and `build_minimal_encode_overlay_filter_complex` (minimal encode when all audio is silence).
+
+### Demuxer input indices (FFmpeg `-i` order)
+
+- **`0`:** Source video (after concat, this is `[outv]` from `concat` in the main graph; in the minimal graph it is `[0:v]`).
+- **`1`:** Title overlay PNG when a title is rendered (always present in the pipeline’s Phase 3 when overlays run).
+- **`2`:** Logo PNG only when **both** title and logo are used. If `trim_single_video` runs with a logo but **no** title PNG, the logo is **`1`** instead.
+
+### Stacking order (z-order)
+
+**Logo is composited first, then the title strip**—the title remains visually on top. This matches the filter chain: logo `overlay` runs on the base video, then title `overlay` runs on that result.
+
+### Logo scaling and alpha
+
+- `ffprobe` reads the logo’s intrinsic width (failure skips the logo with a warning).
+- Uniform scale targets display width **`video_width × LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO`** vs intrinsic width (`scale=w=iw*tw/lw:h=ih*tw/lw` in the graph).
+- After `format=rgba`, **`colorchannelmixer=aa=LOGO_OVERLAY_ALPHA`** scales alpha before compositing.
+- Position uses **`overlay=W-w-{m}:{m}`** with **`m = LOGO_OVERLAY_MARGIN_PX`** (top-aligned; with full frame width and `m=0`, `x` is `0`).
+
+Constants: `DEFAULT_LOGO_PATH`, `LOGO_OVERLAY_*` in `src/core/constants.py`. Wiring: `src/media/trim.py` → `build_final_trim_command` / `build_minimal_video_command` in `src/ffmpeg/transcode.py`.

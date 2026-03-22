@@ -121,16 +121,13 @@ def _overlay_suffix_after_concat(
     logo_margin_px: int,
     logo_alpha: float = LOGO_OVERLAY_ALPHA,
 ) -> str:
-    """Video burn-ins after concat `[outv][outa]`: title PNG at y, then logo PNG scaled and top-right."""
+    """Video burn-ins after concat `[outv][outa]`: logo on base first, then title PNG at y on top."""
     has_title = title_overlay_y is not None
     has_logo = _has_logo_overlay(logo_target_width_px, logo_intrinsic_width_px)
     if not has_title and not has_logo:
         return ""
     parts: list[str] = []
     logo_stream_idx = 2 if has_title else 1
-    if has_title:
-        oy = int(title_overlay_y)  # type: ignore[arg-type]
-        parts.append(f"[1:v]format=rgba[ov_title];[outv][ov_title]overlay=0:{oy}:shortest=1[outv]")
     if has_logo:
         tw = int(logo_target_width_px)  # type: ignore[arg-type]
         lw = int(logo_intrinsic_width_px)  # type: ignore[arg-type]
@@ -141,6 +138,9 @@ def _overlay_suffix_after_concat(
             f"scale=w=iw*{tw}/{lw}:h=ih*{tw}/{lw}[ov_logo];"
             f"[outv][ov_logo]overlay=W-w-{m}:{m}:shortest=1[outv]"
         )
+    if has_title:
+        oy = int(title_overlay_y)  # type: ignore[arg-type]
+        parts.append(f"[1:v]format=rgba[ov_title];[outv][ov_title]overlay=0:{oy}:shortest=1[outv]")
     return ";" + ";".join(parts)
 
 
@@ -189,20 +189,22 @@ def build_minimal_encode_overlay_filter_complex(
     if not has_title and not has_logo:
         raise ValueError("minimal overlay graph requires at least title or logo")
     parts: list[str] = []
-    if has_title:
-        oy = int(title_overlay_y)  # type: ignore[arg-type]
-        parts.append(f"[1:v]format=rgba[ov_title];[0:v][ov_title]overlay=0:{oy}:shortest=1[outv]")
     if has_logo:
         tw = int(logo_target_width_px)  # type: ignore[arg-type]
         lw = int(logo_intrinsic_width_px)  # type: ignore[arg-type]
         m = int(logo_margin_px)
         logo_i = 2 if has_title else 1
-        base = "[outv]" if has_title else "[0:v]"
         aa = float(logo_alpha)
         parts.append(
             f"[{logo_i}:v]format=rgba,colorchannelmixer=aa={aa},"
             f"scale=w=iw*{tw}/{lw}:h=ih*{tw}/{lw}[lg];"
-            f"{base}[lg]overlay=W-w-{m}:{m}:shortest=1[outv]"
+            f"[0:v][lg]overlay=W-w-{m}:{m}:shortest=1[outv]"
+        )
+    if has_title:
+        oy = int(title_overlay_y)  # type: ignore[arg-type]
+        base = "[outv]" if has_logo else "[0:v]"
+        parts.append(
+            f"[1:v]format=rgba[ov_title];{base}[ov_title]overlay=0:{oy}:shortest=1[outv]"
         )
     if len(parts) == 1:
         return parts[0]
