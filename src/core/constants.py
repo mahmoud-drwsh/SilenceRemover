@@ -177,10 +177,10 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # Final encode: optional logo overlay (`logo/` is often gitignored).
 DEFAULT_LOGO_PATH = _REPO_ROOT / "logo" / "logo.png"
 # Target logo display width = video_width * this fraction (uniform scale vs intrinsic PNG width).
-LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO = 0.5
-LOGO_OVERLAY_MARGIN_PX = 10
+LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO = 1.0
+LOGO_OVERLAY_MARGIN_PX = 0
 # Alpha gain on the logo RGBA stream (`colorchannelmixer=aa=…`) before scale/overlay; typical range 0–1.
-LOGO_OVERLAY_ALPHA = 0.82
+LOGO_OVERLAY_ALPHA = 1.0
 
 __all__ = [
     "TrimDefaults",
