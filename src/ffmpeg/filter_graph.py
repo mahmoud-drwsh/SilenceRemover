@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.core.constants import LOGO_OVERLAY_ALPHA, LOGO_OVERLAY_MARGIN_PX
+
 def build_filter_graph_script(segment_count: int, filter_chains: str, concat_inputs: str, *, include_video: bool) -> str:
     """Build a complete ffmpeg concat filter graph."""
     if include_video:
@@ -94,11 +96,64 @@ def _escape_ffmpeg_single_quoted_path(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
+def _has_logo_overlay(
+    logo_target_width_px: int | None,
+    logo_intrinsic_width_px: int | None,
+) -> bool:
+    return (
+        logo_target_width_px is not None
+        and logo_intrinsic_width_px is not None
+        and logo_target_width_px > 0
+        and logo_intrinsic_width_px > 0
+    )
+
+
+def _lavfi_input_index(*, has_title: bool, has_logo: bool) -> int:
+    """Input index of `anullsrc` when optional title and/or logo PNGs are appended before it."""
+    return 1 + (1 if has_title else 0) + (1 if has_logo else 0)
+
+
+def _overlay_suffix_after_concat(
+    *,
+    title_overlay_y: int | None,
+    logo_target_width_px: int | None,
+    logo_intrinsic_width_px: int | None,
+    logo_margin_px: int,
+    logo_alpha: float = LOGO_OVERLAY_ALPHA,
+) -> str:
+    """Video burn-ins after concat `[outv][outa]`: title PNG at y, then logo PNG scaled and top-right."""
+    has_title = title_overlay_y is not None
+    has_logo = _has_logo_overlay(logo_target_width_px, logo_intrinsic_width_px)
+    if not has_title and not has_logo:
+        return ""
+    parts: list[str] = []
+    logo_stream_idx = 2 if has_title else 1
+    if has_title:
+        oy = int(title_overlay_y)  # type: ignore[arg-type]
+        parts.append(f"[1:v]format=rgba[ov_title];[outv][ov_title]overlay=0:{oy}:shortest=1[outv]")
+    if has_logo:
+        tw = int(logo_target_width_px)  # type: ignore[arg-type]
+        lw = int(logo_intrinsic_width_px)  # type: ignore[arg-type]
+        m = int(logo_margin_px)
+        aa = float(logo_alpha)
+        parts.append(
+            f"[{logo_stream_idx}:v]format=rgba,colorchannelmixer=aa={aa},"
+            f"scale=w=iw*{tw}/{lw}:h=ih*{tw}/{lw}[ov_logo];"
+            f"[outv][ov_logo]overlay=W-w-{m}:{m}:shortest=1[outv]"
+        )
+    return ";" + ";".join(parts)
+
+
 def build_video_audio_concat_filter_graph_with_title_overlay(
     segments_to_keep: list[tuple[float, float]],
     overlay_y: int | None = None,
+    *,
+    logo_target_width_px: int | None = None,
+    logo_intrinsic_width_px: int | None = None,
+    logo_margin_px: int = LOGO_OVERLAY_MARGIN_PX,
+    logo_alpha: float = LOGO_OVERLAY_ALPHA,
 ) -> str:
-    """Build trim/concat graph and overlay a pre-rendered title PNG banner at y=overlay_y."""
+    """Trim/concat from input 0; optional title PNG at [1:v]; optional logo at [2:v] if title else [1:v]."""
     segment_count = len(segments_to_keep)
     filter_chains = "".join(
         (
@@ -108,32 +163,82 @@ def build_video_audio_concat_filter_graph_with_title_overlay(
         for i, (segment_start, segment_end) in enumerate(segments_to_keep)
     )
     concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(segment_count))
-    ov_y = overlay_y if overlay_y is not None else 0
-    return (
-        f"{filter_chains}{concat_inputs}concat=n={segment_count}:v=1:a=1[outv][outa];"
-        "[1:v]format=rgba[overlay];"
-        f"[outv][overlay]overlay=0:{ov_y}:shortest=1[outv]"
+    suffix = _overlay_suffix_after_concat(
+        title_overlay_y=overlay_y,
+        logo_target_width_px=logo_target_width_px,
+        logo_intrinsic_width_px=logo_intrinsic_width_px,
+        logo_margin_px=logo_margin_px,
+        logo_alpha=logo_alpha,
     )
+    if not suffix:
+        raise ValueError("title overlay and logo overlay cannot both be disabled for this graph builder")
+    return f"{filter_chains}{concat_inputs}concat=n={segment_count}:v=1:a=1[outv][outa]{suffix}"
+
+
+def build_minimal_encode_overlay_filter_complex(
+    *,
+    title_overlay_y: int | None,
+    logo_target_width_px: int | None,
+    logo_intrinsic_width_px: int | None,
+    logo_margin_px: int = LOGO_OVERLAY_MARGIN_PX,
+    logo_alpha: float = LOGO_OVERLAY_ALPHA,
+) -> str:
+    """Filter graph for short fallback encode: [0:v] main, optional [1:v]/[2:v] PNGs, output [outv]."""
+    has_title = title_overlay_y is not None
+    has_logo = _has_logo_overlay(logo_target_width_px, logo_intrinsic_width_px)
+    if not has_title and not has_logo:
+        raise ValueError("minimal overlay graph requires at least title or logo")
+    parts: list[str] = []
+    if has_title:
+        oy = int(title_overlay_y)  # type: ignore[arg-type]
+        parts.append(f"[1:v]format=rgba[ov_title];[0:v][ov_title]overlay=0:{oy}:shortest=1[outv]")
+    if has_logo:
+        tw = int(logo_target_width_px)  # type: ignore[arg-type]
+        lw = int(logo_intrinsic_width_px)  # type: ignore[arg-type]
+        m = int(logo_margin_px)
+        logo_i = 2 if has_title else 1
+        base = "[outv]" if has_title else "[0:v]"
+        aa = float(logo_alpha)
+        parts.append(
+            f"[{logo_i}:v]format=rgba,colorchannelmixer=aa={aa},"
+            f"scale=w=iw*{tw}/{lw}:h=ih*{tw}/{lw}[lg];"
+            f"{base}[lg]overlay=W-w-{m}:{m}:shortest=1[outv]"
+        )
+    if len(parts) == 1:
+        return parts[0]
+    return f"{parts[0]};{parts[1]}"
 
 
 def build_video_lavfi_audio_concat_filter_graph_with_title_overlay(
     segments_to_keep: list[tuple[float, float]],
     overlay_y: int | None = None,
+    *,
+    logo_target_width_px: int | None = None,
+    logo_intrinsic_width_px: int | None = None,
+    logo_margin_px: int = LOGO_OVERLAY_MARGIN_PX,
+    logo_alpha: float = LOGO_OVERLAY_ALPHA,
 ) -> str:
-    """Like `build_video_audio_concat_filter_graph_with_title_overlay` but audio from lavfi input 2."""
+    """Like `build_video_audio_concat_filter_graph_with_title_overlay` but silent audio from lavfi (last input)."""
     segment_count = len(segments_to_keep)
+    has_title = overlay_y is not None
+    has_logo = _has_logo_overlay(logo_target_width_px, logo_intrinsic_width_px)
+    lavfi_a = _lavfi_input_index(has_title=has_title, has_logo=has_logo)
     filter_chains = "".join(
         (
             f"[0:v]trim=start={segment_start}:end={segment_end},setpts=PTS-STARTPTS[v{i}];"
-            f"[2:a]atrim=start=0:end={_segment_audio_duration_sec(segment_start, segment_end)},"
+            f"[{lavfi_a}:a]atrim=start=0:end={_segment_audio_duration_sec(segment_start, segment_end)},"
             f"asetpts=PTS-STARTPTS[a{i}];"
         )
         for i, (segment_start, segment_end) in enumerate(segments_to_keep)
     )
     concat_inputs = "".join(f"[v{i}][a{i}]" for i in range(segment_count))
-    ov_y = overlay_y if overlay_y is not None else 0
-    return (
-        f"{filter_chains}{concat_inputs}concat=n={segment_count}:v=1:a=1[outv][outa];"
-        "[1:v]format=rgba[overlay];"
-        f"[outv][overlay]overlay=0:{ov_y}:shortest=1[outv]"
+    suffix = _overlay_suffix_after_concat(
+        title_overlay_y=overlay_y,
+        logo_target_width_px=logo_target_width_px,
+        logo_intrinsic_width_px=logo_intrinsic_width_px,
+        logo_margin_px=logo_margin_px,
+        logo_alpha=logo_alpha,
     )
+    if not suffix:
+        raise ValueError("title overlay and logo overlay cannot both be disabled for this graph builder")
+    return f"{filter_chains}{concat_inputs}concat=n={segment_count}:v=1:a=1[outv][outa]{suffix}"

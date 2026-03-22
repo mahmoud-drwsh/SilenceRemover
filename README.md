@@ -75,7 +75,7 @@ python main.py /path/to/video/directory
 
 The first run for each font downloads the family from Google Fonts into `output/temp/fonts/` and reuses that file on subsequent runs.
 
-**Video-only files (no audio stream):** Some exports are silent (video track only). The pipeline detects missing audio with ffprobe, skips `silencedetect` (which would otherwise fail on `-map 0:a:0`), generates a **silent** transcription snippet from the video duration, and muxes **silent stereo** from `anullsrc` during the final trim/encode when a full encode runs. **Transcription** still calls OpenRouter on that snippet; if the model returns **empty or whitespace-only** text, **no** `temp/transcript/{basename}.txt` is written, Phase 1 fails for that video, and **Phase 2 / Phase 3 are skipped** until a non-empty transcript exists (fix the model/audio or delete partial temp files and re-run).
+**Video-only files (no audio stream):** Some exports are silent (video track only). The pipeline detects missing audio with ffprobe, skips `silencedetect` (which would otherwise fail on `-map 0:a:0`), generates a **silent** transcription snippet from the video duration, and muxes **silent stereo** from `anullsrc` during the final trim/encode when a full encode runs. **Transcription** still calls OpenRouter on that snippet; if the model returns **empty or whitespace-only** text, **no** `output/temp/transcript/{basename}.txt` is written, Phase 1 fails for that video, and **Phase 2 / Phase 3 are skipped** until a non-empty transcript exists (fix the model/audio or delete partial temp files and re-run).
 
 Trimming precision controls (advanced):
 
@@ -119,14 +119,14 @@ The tool processes videos sequentially through **four** main stages:
 - Removes silence while preserving padding around segments
 - For phase 1 transcription snippets, a fixed single sweep is used: `SNIPPET_NOISE_THRESHOLD_DB` (`-55dB`) and `SNIPPET_MIN_DURATION_SEC` (`0.01s`), and the same shared edge normalization helper as final trim.
 - Leading and trailing edge silences are re-scanned at `EDGE_RESCAN_THRESHOLD_DB` (`-55dB`) for both target and non-target final trim runs, then only the edge windows are replaced and reduced to a `EDGE_SILENCE_KEEP_SEC` (200ms) buffer before pad calculations.
-- Outputs trimmed video to `temp/` directory (sibling to input directory)
+- Final encoded MP4s are written under **`output/`** (sibling to the input directory). Intermediate artifacts (snippets, transcripts, titles, FFmpeg scripts, title PNGs, fonts cache) live under **`output/temp/`** — see **Directory Structure** below.
 
 **Target Length Mode**: When `--target-length` is specified, the tool automatically calculates optimal padding to get as close as possible to the target duration.
 
 ### 2. Audio Extraction
 
 - Extracts up to 3 minutes (`SNIPPET_MAX_DURATION_SEC` = 180s) of silence-removed snippet audio for transcription using the same edge policy as final trim.
-- Saves as `.ogg` (Opus) under `temp/snippet/` (see `get_snippet_path` / `AUDIO_FILE_EXT`)
+- Saves as `.ogg` (Opus) under `output/temp/snippet/` (see `get_snippet_path` / `AUDIO_FILE_EXT`)
 - Phase-1 snippet extraction ignores `--noise-threshold`/`--min-duration` overrides and always uses `SNIPPET_NOISE_THRESHOLD_DB` (`-55dB`) and `SNIPPET_MIN_DURATION_SEC` (`0.01s`) via snippet defaults.
 - Reuses existing audio files if already extracted
 
@@ -135,7 +135,7 @@ The tool processes videos sequentially through **four** main stages:
 - **Transcription** (`sr_transcription/` root package): Transcribes audio using OpenRouter API (default model: `google/gemini-3.1-flash-lite-preview`). Optimized for Arabic verbatim transcription.
 - **Title** (`src/llm/title.py`): Generates a YouTube-style title from transcript text.
 - Both use a shared OpenRouter transport (`openrouter_transport/` root package). Pipeline orchestration is in `src/app/pipeline.py`.
-- **Two-step process**: Separate API calls for transcription and title generation (better quality and control). Transcript and title are stored in `temp/transcript/{basename}.txt` and `temp/title/{basename}.txt`.
+- **Two-step process**: Separate API calls for transcription and title generation (better quality and control). Transcript and title are stored in `output/temp/transcript/{basename}.txt` and `output/temp/title/{basename}.txt`.
 - **Title extraction constraints**:
   - Output is exactly one Arabic title line (no commentary).
   - The title must be a verbatim contiguous span from the transcript.
@@ -145,17 +145,18 @@ The tool processes videos sequentially through **four** main stages:
 
 ### 4. Title overlay & file renaming (Phase 3)
 
-- The title text from `temp/title/{basename}.txt` is loaded right before output encoding.
-- `ffprobe` reads the source **video width and height**. A **banner-sized** RGBA PNG (`video_width` × `banner_height`, with `banner_height = (1/6) × frame height`) is written to `temp/title_overlays/{basename}.png`. FFmpeg composites it at `x=0`, `y=(1/6) × frame height` (`overlay=0:{y}`), so the strip covers **`y` from H/6 to H/3** (the second sixth of the frame). Values come from `TITLE_BANNER_START_FRACTION` and `TITLE_BANNER_HEIGHT_FRACTION` in `src/core/constants.py`.
-- The PNG is a semi-transparent black strip (`TITLE_BANNER_BG_ALPHA`, default 0.5) with **white** title text rendered in Pillow using the selected `--title-font` (Google Font, cached under `temp/fonts/`).
+- The title text from `output/temp/title/{basename}.txt` is loaded right before output encoding.
+- `ffprobe` reads the source **video width and height**. A **banner-sized** RGBA PNG (`video_width` × `banner_height`, with `banner_height = (1/6) × frame height`) is written to `output/temp/title_overlays/{basename}.png`. FFmpeg composites it at `x=0`, `y=(1/6) × frame height` (`overlay=0:{y}`), so the strip covers **`y` from H/6 to H/3** (the second sixth of the frame). Values come from `TITLE_BANNER_START_FRACTION` and `TITLE_BANNER_HEIGHT_FRACTION` in `src/core/constants.py`.
+- The PNG is a semi-transparent black strip (`TITLE_BANNER_BG_ALPHA`, default 0.5) with **white** title text rendered in Pillow using the selected `--title-font` (Google Font, cached under `output/temp/fonts/`).
 - **Layout algorithm** (largest font that fits, optional multi-line word-boundary splits up to `TITLE_OVERLAY_MAX_LINES`, bbox-based metrics, vertical stacking): see **`ALGO.md` → “Title overlay PNG”**.
 - **Arabic / RTL titles**: Pillow draws in visual order only; text is shaped with `arabic-reshaper` and reordered with `python-bidi` (`get_display`) before measuring and drawing. Mixed Arabic + Latin/numbers follow Unicode bidirectional rules.
 - FFmpeg applies this PNG in the trim/concat filter graph; no `drawtext` dependency for the final overlay.
+- **Logo (optional):** If `logo/logo.png` exists at the **repository root** (that folder is often gitignored), Phase 3 adds another looping PNG input to FFmpeg. **Input order** (0-based): **`0`** = source video, **`1`** = title overlay PNG (when a title is rendered), **`2`** = logo PNG when **both** title and logo are used (the logo is the **third** demuxer input in that case). If `trim_single_video` is called **without** a title but with a logo file, the logo is **`1`**. The pipeline’s Phase 3 always supplies a title, so production runs use **title at `1`, logo at `2`**. `ffprobe` reads the logo width; if probing fails, the logo overlay is skipped with a console warning and the rest of the encode continues. The logo is scaled uniformly with `scale=w=iw*{target}/logo_w:h=ih*{target}/logo_w` where **`target = video_width × LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO`** (default **0.5**, so half the frame width). After `format=rgba`, **`colorchannelmixer=aa=LOGO_OVERLAY_ALPHA`** (default **0.82**) reduces opacity slightly before compositing **top-right** with **`LOGO_OVERLAY_MARGIN_PX`** inset. Constants live in `src/core/constants.py` (`DEFAULT_LOGO_PATH`, `LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO`, `LOGO_OVERLAY_MARGIN_PX`, `LOGO_OVERLAY_ALPHA`). Stream-copy skips when a logo file is present (same as title overlay).
 
-- Reads generated title from `temp/title/{basename}.txt`
+- Reads generated title from `output/temp/title/{basename}.txt`
 - Sanitizes filename (removes invalid characters)
 - Handles duplicate names by appending `_N` suffix
-- Writes trimmed video from `output/temp/` to `output/` directory with the new title-based filename
+- Writes the final trimmed MP4 into **`output/`** (alongside `output/temp/`) with the new title-based filename
 
 ## Directory Structure
 
@@ -169,24 +170,25 @@ input-directory/
 
 output/                    # Sibling to input-directory
   ├── generated-title-1.mp4
-  └── generated-title-2.mkv
-
-temp/                      # Sibling to input-directory (intermediate audio/snippets only)
-  ├── snippet/             # Silence-removed snippets for transcription
-  ├── transcript/          # Transcript text files
-  ├── title/               # Title text files
-  ├── completed/           # Completion markers
-  ├── scripts/             # Temporary ffmpeg filter_complex scripts (cleaned up automatically)
-  └── ...
+  ├── generated-title-2.mkv
+  └── temp/                # All pipeline intermediates (see bootstrap: temp_dir = output / "temp")
+      ├── snippet/         # Silence-removed snippets for transcription
+      ├── transcript/      # Transcript text files
+      ├── title/           # Title text files
+      ├── completed/       # Completion markers
+      ├── title_overlays/  # Rendered title PNGs for FFmpeg
+      ├── fonts/           # Cached Google Fonts for title rendering
+      ├── scripts/         # Temporary ffmpeg filter_complex scripts (cleaned up automatically)
+      └── ...
 ```
 
 ## Process Tracking
 
-The tool maintains state in files inside `temp/` to avoid reprocessing videos:
+The tool maintains state in files under **`output/temp/`** to avoid reprocessing videos:
 
-- **Per-video markers**: `transcript/{basename}.txt`, `title/{basename}.txt`, and `completed/{basename}.txt`
-- **Automatic Skip**: Phase 1 is skipped if `temp/transcript/{basename}.txt` exists **and** contains non-whitespace text; Phase 2 is skipped if title exists; Phase 3 is skipped when the completed marker exists. (Whitespace-only or unreadable transcript files are treated as **not** done for Phase 1.)
-- **Manual Reset**: Delete corresponding files under `temp/transcript`, `temp/title`, and `temp/completed` to reprocess specific videos.
+- **Per-video markers**: `output/temp/transcript/{basename}.txt`, `output/temp/title/{basename}.txt`, and `output/temp/completed/{basename}.txt`
+- **Automatic Skip**: Phase 1 is skipped if `output/temp/transcript/{basename}.txt` exists **and** contains non-whitespace text; Phase 2 is skipped if title exists; Phase 3 is skipped when the completed marker exists. (Whitespace-only or unreadable transcript files are treated as **not** done for Phase 1.)
+- **Manual Reset**: Delete corresponding files under `output/temp/transcript`, `output/temp/title`, and `output/temp/completed` to reprocess specific videos.
 
 ## Supported Formats
 

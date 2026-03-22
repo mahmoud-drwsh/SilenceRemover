@@ -2,10 +2,6 @@
 
 After code or config changes, agents append short notes here. When this file grows past ~50 lines, **replace** the changelog with an updated condensed section instead of keeping one bullet per file forever.
 
-## Agent workflow
-
-When the environment supports delegated agents (subagents), **prefer routing simple, well-bounded work** to them—e.g. targeted repo search, a single-file change, a one-off shell or git task, or a narrow “find and report” exploration—so the **supervising agent** keeps a smaller context: it synthesizes outcomes instead of loading every tool trace and file dump into its own window.
-
 ## Condensed changelog
 
 - **Config & layout**: `.env` holds secrets (e.g. `OPENROUTER_API_KEY`); shared defaults live in `src/core/constants.py`. Packages: `src/core`, `src/media`, `src/llm`, `src/ffmpeg`, `src/startup`; orchestration in `src/app/pipeline.py`. Legacy top-level shim modules were removed.
@@ -21,12 +17,19 @@ When the environment supports delegated agents (subagents), **prefer routing sim
 - **LLM client**: OpenRouter requests default to capping input/context and output size (10k tokens each), with compatibility handling if the API rejects some fields.
 - **Default models**: Transcription and title flows default to `google/gemini-3.1-flash-lite-preview` on OpenRouter unless callers override.
 - **Title generation**: Prompts require verbatim, beginning-only title spans from the full transcript. One model call emits a small JSON array of candidates; one call returns per-candidate `verbatim_score` and `correctness_score`; highest combined score wins with deterministic tie-breaks. **No** separate honorific add/check LLM step after selection.
-- **Phase 3 title overlay**: Pipeline passes `title_path` / `title_font` into trim; forces encode (no stream copy) when overlay is used. **PNG overlay** (`src/media/title_overlay.py`): Google Fonts CSS2 + TTF cache; Pillow render; Arabic via `arabic-reshaper` + `python-bidi`; filter graph uses PNG concat with `shortest=1`. **Layout**: sixths-based band (e.g. H/6–H/3), multi-line `_best_multi_line_layout` (max lines + combination cap), readability thresholds, `TITLE_TWO_LINE_MIN_GAIN_PX`, bbox-based metrics (`textbbox`, `anchor="lt"`) to avoid edge bleed. **Metadata**: final MP4 `comment` = source filename for editor-driven cleanup; legacy `SILENCE_REMOVER_SOURCE` still matched. **CLI**: `--title-font`.
+- **Phase 3 title overlay**: Pipeline passes `title_path` / `title_font` into trim; forces encode (no stream copy) when overlay is used. **PNG overlay** (`src/media/title_overlay.py`): Google Fonts CSS2 + TTF cache; Pillow render; Arabic via `arabic-reshaper` + `python-bidi`; filter graph uses PNG concat with `shortest=1`. **Layout**: sixths-based band (e.g. H/6–H/3), multi-line `_best_multi_line_layout` (max lines + combination cap), readability thresholds, `TITLE_TWO_LINE_MIN_GAIN_PX`, bbox-based metrics (`textbbox`, `anchor="lt"`) to avoid edge bleed. **Optional logo**: repo `logo/logo.png`, `colorchannelmixer` alpha, uniform `scale` to `video_w * LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO` vs intrinsic width, top-right margin; bad logo probe skips overlay with a warning. **Metadata**: final MP4 `comment` = source filename for editor-driven cleanup; legacy `SILENCE_REMOVER_SOURCE` still matched. **CLI**: `--title-font`.
 - **Title editor**: FastAPI app (`src/app/title_editor_server.py`) with `TitleEditorLayout` (`src/startup/title_editor_layout.py`); `serve_titles.py` + `pwsh/Start-VerticalTitleEditor.ps1`; probe duplicate server, save JSON, full-width table UI, `textarea` titles, retry writes on Windows locks. On title change, delete final MP4s whose tags match source (`read_format_tags`, NFC + case-insensitive `comment` matching). Pipeline starts editor after bootstrap or skips if `/status` matches; no embedded uvicorn in pipeline. Dependencies: `fastapi`, `uvicorn`, Pillow, arabic reshaper/bidi.
 - **Documentation**: `README.md` and `ALGO.md` cover architecture, CLI, snippet/edges, encoding, title rules, overlay geometry, and video-only behavior.
 
 ## Latest session edits
 
+- `src/core/constants.py`: Repo-root `DEFAULT_LOGO_PATH`, `LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO`, `LOGO_OVERLAY_MARGIN_PX`, `LOGO_OVERLAY_ALPHA`.
+- `src/ffmpeg/filter_graph.py`: Title burn-in uses `format=rgba` (concat + minimal); optional logo chain (`colorchannelmixer`, uniform scale, top-right overlay); dynamic lavfi input index; `build_minimal_encode_overlay_filter_complex`.
+- `src/ffmpeg/transcode.py`: Optional looping `logo_path` and alpha on `build_final_trim_command` / `build_minimal_video_command`.
+- `src/media/trim.py`: Logo overlay when `logo/logo.png` exists; on logo probe failure warn and skip; copy shortcut unless title or logo; threads sizes/alpha into graphs.
+- `README.md`: Logo FFmpeg input order (title at `1`, logo at `2` in Phase 3), resilient logo skip, `output/temp/…` paths and directory tree aligned with bootstrap.
+- `.gitignore`: Ignore repo-root `logo/` so optional branding assets stay local.
+- `AGENTS.md`: Condensed changelog logo note and this session block.
 - `AGENTS.md`: Added **Agent workflow** guidance to prefer subagents for simple, contained tasks so the supervising agent’s context stays lean.
 - `AGENTS.md`: Re-condensed per-file history into the thematic bullets above (file exceeded ~50 lines).
 - `src/llm/__init__.py` / `sr_transcription/__init__.py`: Added trailing newline at EOF after agent commit review.
@@ -47,3 +50,7 @@ When the environment supports delegated agents (subagents), **prefer routing sim
 - `README.md`: Five-stage “How it works”; merged Phase 3 overlay + renaming section; video-only and process-tracking text aligned with transcript gating.
 - `temp/test_openrouter.py`: Uses `transcribe_with_openrouter` from `sr_transcription` instead of raw `requests`; `extract_first_minute_audio` docstring/`fmt` param aligned with ogg+m4a only.
 - `README.md`: “How it works” intro set to **four** stages to match four `###` sections (post-review fix).
+
+## Agent workflow
+
+When the environment supports delegated agents (subagents), **prefer routing simple, well-bounded work** to them—e.g. targeted repo search, a single-file change, a one-off shell or git task, or a narrow “find and report” exploration—so the **supervising agent** keeps a smaller context: it synthesizes outcomes instead of loading every tool trace and file dump into its own window.

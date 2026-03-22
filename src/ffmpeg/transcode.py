@@ -8,9 +8,12 @@ from typing import Sequence, TYPE_CHECKING
 from src.core.constants import (
     AUDIO_BITRATE,
     FINAL_VIDEO_SOURCE_METADATA_KEY,
+    LOGO_OVERLAY_ALPHA,
+    LOGO_OVERLAY_MARGIN_PX,
     SNIPPET_MAX_DURATION_SEC,
 )
 from src.ffmpeg.core import add_filter_complex_script, build_ffmpeg_cmd
+from src.ffmpeg.filter_graph import build_minimal_encode_overlay_filter_complex
 
 if TYPE_CHECKING:
     from src.ffmpeg.encoding_resolver import VideoEncoderProfile
@@ -139,6 +142,11 @@ def build_minimal_video_command(
     *,
     title_overlay_path: Path | None = None,
     title_overlay_y: int | None = None,
+    logo_path: Path | None = None,
+    logo_target_width_px: int | None = None,
+    logo_intrinsic_width_px: int | None = None,
+    logo_margin_px: int = LOGO_OVERLAY_MARGIN_PX,
+    logo_alpha: float = LOGO_OVERLAY_ALPHA,
     source_metadata_filename: str | None = None,
 ) -> list[str]:
     """Build a minimal fallback encode command when no audio remains."""
@@ -147,11 +155,21 @@ def build_minimal_video_command(
 
     if title_overlay_path is not None:
         cmd.extend(["-stream_loop", "-1", "-i", str(title_overlay_path)])
-        overlay_y_str = str(title_overlay_y) if title_overlay_y is not None else "0"
+    if logo_path is not None:
+        cmd.extend(["-stream_loop", "-1", "-i", str(logo_path)])
+
+    if title_overlay_path is not None or logo_path is not None:
+        fc = build_minimal_encode_overlay_filter_complex(
+            title_overlay_y=title_overlay_y if title_overlay_path is not None else None,
+            logo_target_width_px=logo_target_width_px if logo_path is not None else None,
+            logo_intrinsic_width_px=logo_intrinsic_width_px if logo_path is not None else None,
+            logo_margin_px=logo_margin_px,
+            logo_alpha=logo_alpha,
+        )
         cmd.extend(
             [
                 "-filter_complex",
-                f"[0:v][1:v]overlay=0:{overlay_y_str}:shortest=1[outv]",
+                fc,
                 "-map",
                 "[outv]",
                 "-map",
@@ -175,17 +193,21 @@ def build_final_trim_command(
     *,
     title_overlay_path: Path | None = None,
     title_overlay_y: int | None = None,
+    logo_path: Path | None = None,
     extra_silent_audio_lavfi: bool = False,
     source_metadata_filename: str | None = None,
 ) -> list[str]:
     """Build final video trim + encode command.
 
     When ``extra_silent_audio_lavfi`` is True, append a stereo `anullsrc` so the
-    filter graph can use ``[1:a]`` (no overlay) or ``[2:a]`` (with PNG overlay) for audio.
+    filter graph can use ``[1:a]`` (no overlay), ``[2:a]`` (one PNG), or ``[3:a]``
+    (title + logo) for silent-audio segment lengths.
     """
     cmd = _build_input_command(input_file)
     if title_overlay_path is not None:
         cmd.extend(["-stream_loop", "-1", "-i", str(title_overlay_path)])
+    if logo_path is not None:
+        cmd.extend(["-stream_loop", "-1", "-i", str(logo_path)])
     if extra_silent_audio_lavfi:
         cmd.extend(["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"])
     add_filter_complex_script(cmd, filter_script_path)

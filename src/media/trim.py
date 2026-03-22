@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import Callable, Literal, Optional
 
 from src.core.constants import (
+    DEFAULT_LOGO_PATH,
+    LOGO_OVERLAY_ALPHA,
+    LOGO_OVERLAY_MARGIN_PX,
+    LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO,
     SCRIPTS_DIR,
     SNIPPET_MAX_DURATION_SEC,
     SNIPPET_MIN_DURATION_SEC,
@@ -433,7 +437,10 @@ def trim_single_video(
         pad_sec=pad_sec,
     )
 
-    if plan.should_copy_input and title_path is None:
+    use_logo = DEFAULT_LOGO_PATH.is_file()
+    logo_path_resolved = DEFAULT_LOGO_PATH if use_logo else None
+
+    if plan.should_copy_input and title_path is None and not use_logo:
         copied_output_file = _copy_input_video(input_file=input_file, output_file=output_file)
         wait_for_file_release(copied_output_file)
         return copied_output_file
@@ -455,16 +462,30 @@ def trim_single_video(
         print(f"Target length: {target_length}s")
         print(f"Expected resulting length: {resulting_length:.3f}s")
 
-    # Handle case where all audio is silence (no segments to keep)
     font_name = title_font or TITLE_FONT_DEFAULT
     temp_dir = output_dir / "temp"
     title_overlay_path: Path | None = None
     banner_top: int | None = None
+    logo_intrinsic_w: int | None = None
+    logo_target_w: int | None = None
+
+    if title_path is not None or use_logo:
+        video_width, video_height = probe_video_dimensions(input_file)
+        if use_logo:
+            try:
+                lw, _lh = probe_video_dimensions(DEFAULT_LOGO_PATH)
+            except (OSError, RuntimeError, ValueError) as exc:
+                print(f"Warning: Skipping logo overlay ({DEFAULT_LOGO_PATH}): {exc}")
+                use_logo = False
+                logo_path_resolved = None
+            else:
+                logo_intrinsic_w = lw
+                logo_target_w = max(1, int(video_width * LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO))
+
     if title_path is not None:
         title_text = title_path.read_text(encoding="utf-8").strip()
         if not title_text:
             raise RuntimeError(f"Empty title at {title_path}")
-        video_width, video_height = probe_video_dimensions(input_file)
         banner_height = max(1, int(video_height * TITLE_BANNER_HEIGHT_FRACTION))
         banner_top = int(video_height * TITLE_BANNER_START_FRACTION)
         title_overlay_path = build_title_overlay(
@@ -488,17 +509,36 @@ def trim_single_video(
                 encoder=encoder,
                 title_overlay_path=title_overlay_path,
                 title_overlay_y=banner_top,
-                source_metadata_filename=input_file.name if title_overlay_path is not None else None,
+                logo_path=logo_path_resolved if use_logo else None,
+                logo_target_width_px=logo_target_w if use_logo else None,
+                logo_intrinsic_width_px=logo_intrinsic_w if use_logo else None,
+                logo_margin_px=LOGO_OVERLAY_MARGIN_PX,
+                logo_alpha=LOGO_OVERLAY_ALPHA,
+                source_metadata_filename=(
+                    input_file.name
+                    if (title_overlay_path is not None or use_logo)
+                    else None
+                ),
             ),
             command_label=f"{encoder.codec} encode",
         )
 
-    if title_overlay_path is not None:
-        filter_builder = (
-            build_video_audio_concat_filter_graph_with_title_overlay
-            if input_has_audio
-            else build_video_lavfi_audio_concat_filter_graph_with_title_overlay
+    burn_in = title_overlay_path is not None or use_logo
+
+    def _graph_with_optional_burn_in(segs: list[tuple[float, float]], oy: int | None) -> str:
+        oy_eff = oy if title_overlay_path is not None else None
+        kw = dict(
+            logo_target_width_px=logo_target_w if use_logo else None,
+            logo_intrinsic_width_px=logo_intrinsic_w if use_logo else None,
+            logo_margin_px=LOGO_OVERLAY_MARGIN_PX,
+            logo_alpha=LOGO_OVERLAY_ALPHA,
         )
+        if input_has_audio:
+            return build_video_audio_concat_filter_graph_with_title_overlay(segs, oy_eff, **kw)
+        return build_video_lavfi_audio_concat_filter_graph_with_title_overlay(segs, oy_eff, **kw)
+
+    if burn_in:
+        filter_builder = _graph_with_optional_burn_in
         use_lavfi_silent_audio = not input_has_audio
     else:
         filter_builder = (
@@ -520,8 +560,11 @@ def trim_single_video(
             encoder=encoder,
             title_overlay_path=title_overlay_path,
             title_overlay_y=banner_top,
+            logo_path=logo_path_resolved if use_logo else None,
             extra_silent_audio_lavfi=use_lavfi_silent_audio,
-            source_metadata_filename=in_file.name if title_overlay_path is not None else None,
+            source_metadata_filename=(
+                in_file.name if (title_overlay_path is not None or use_logo) else None
+            ),
         ),
         expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
         on_progress=lambda percent: print(f"\rProgress: {percent}%", end="", flush=True),

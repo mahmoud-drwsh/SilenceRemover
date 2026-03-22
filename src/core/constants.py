@@ -5,6 +5,7 @@ Secrets (e.g. OPENROUTER_API_KEY) live in src/core/config.py.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 # --- Padding / bitrate ---
@@ -171,6 +172,16 @@ FINAL_VIDEO_SOURCE_METADATA_KEY = "comment"
 # Older builds wrote this custom key; keep for delete matching on existing files.
 LEGACY_FINAL_VIDEO_SOURCE_METADATA_KEY = "SILENCE_REMOVER_SOURCE"
 
+# Repository root (…/SilenceRemover when running from checkout).
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+# Final encode: optional logo overlay (`logo/` is often gitignored).
+DEFAULT_LOGO_PATH = _REPO_ROOT / "logo" / "logo.png"
+# Target logo display width = video_width * this fraction (uniform scale vs intrinsic PNG width).
+LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO = 0.5
+LOGO_OVERLAY_MARGIN_PX = 10
+# Alpha gain on the logo RGBA stream (`colorchannelmixer=aa=…`) before scale/overlay; typical range 0–1.
+LOGO_OVERLAY_ALPHA = 0.82
+
 __all__ = [
     "TrimDefaults",
     "resolve_trim_defaults",
@@ -221,5 +232,9 @@ __all__ = [
     "FINAL_VIDEO_SOURCE_METADATA_KEY",
     "LEGACY_FINAL_VIDEO_SOURCE_METADATA_KEY",
     "EDGE_SILENCE_KEEP_SEC",
+    "DEFAULT_LOGO_PATH",
+    "LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO",
+    "LOGO_OVERLAY_MARGIN_PX",
+    "LOGO_OVERLAY_ALPHA",
 ]
 
