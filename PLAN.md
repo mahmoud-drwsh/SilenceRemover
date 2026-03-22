@@ -229,7 +229,7 @@ flowchart LR
 4. Updated **`src/llm/__init__.py`** and **`pyproject.toml`**; `uv sync` / `uv run python main.py` as usual.
 5. Updated **`README.md`** architecture paths.
 6. **`AGENTS.md`** session notes ongoing per repo rules.
-7. *(Optional)* Align **`temp/test_openrouter.py`** comments or imports with the real public API.
+7. Ad-hoc **`temp/test_openrouter.py`** smoke script removed from the tree.
 
 ---
 

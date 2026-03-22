@@ -48,7 +48,7 @@ After code or config changes, agents append short notes here. When this file gro
 - `sr_transcription/api.py`: `transcribe_and_save` raises `RuntimeError` and does not write when the model returns empty/whitespace-only text.
 - `src/core/paths.py`: `is_transcript_done` requires non-empty transcript content; catches `UnicodeDecodeError` as well as `OSError`.
 - `README.md`: Five-stage “How it works”; merged Phase 3 overlay + renaming section; video-only and process-tracking text aligned with transcript gating.
-- `temp/test_openrouter.py`: Uses `transcribe_with_openrouter` from `sr_transcription` instead of raw `requests`; `extract_first_minute_audio` docstring/`fmt` param aligned with ogg+m4a only.
+- `temp/test_openrouter.py`: Removed ad-hoc OpenRouter transcription smoke test.
 - `README.md`: “How it works” intro set to **four** stages to match four `###` sections (post-review fix).
 
 ## Agent workflow
