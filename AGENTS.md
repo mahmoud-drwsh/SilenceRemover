@@ -49,6 +49,7 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/core/paths.py`: `is_transcript_done` requires non-empty transcript content; catches `UnicodeDecodeError` as well as `OSError`.
 - `README.md`: Five-stage “How it works”; merged Phase 3 overlay + renaming section; video-only and process-tracking text aligned with transcript gating.
 - `temp/test_openrouter.py`: Removed ad-hoc OpenRouter transcription smoke test.
+- `temp/list_audio_models.py`: Removed ad-hoc OpenRouter models listing script.
 - `README.md`: “How it works” intro set to **four** stages to match four `###` sections (post-review fix).
 
 ## Agent workflow
