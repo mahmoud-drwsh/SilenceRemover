@@ -110,7 +110,7 @@ FFmpeg responsibilities are now organized in the `src/ffmpeg` package:
 
 ## How It Works
 
-The tool processes videos sequentially through **five** main stages:
+The tool processes videos sequentially through **four** main stages:
 
 ### 1. Silence Detection & Trimming
 

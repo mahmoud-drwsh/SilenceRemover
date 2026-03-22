@@ -24,24 +24,24 @@ if not OPENROUTER_API_KEY:
     sys.exit(1)
 
 
-def extract_first_minute_audio(input_video: Path, output_audio: Path, format: str = "ogg") -> None:
+def extract_first_minute_audio(input_video: Path, output_audio: Path, fmt: str = "ogg") -> None:
     """Extract first 60 seconds of audio from video.
 
     Args:
         input_video: Input video file
         output_audio: Output audio file path
-        format: Audio format (wav, m4a, mp3, etc.)
+        fmt: ``ogg`` or ``m4a`` (only these are implemented).
     """
     output_audio.parent.mkdir(parents=True, exist_ok=True)
 
-    if format == "ogg":
+    if fmt == "ogg":
         command = build_audio_window_extract_command(
             input_file=input_video,
             output_audio=output_audio,
             duration_seconds=60,
             codec_args=["-c:a", "libopus", "-ar", "16000", "-ac", "1", "-b:a", "32k"],
         )
-    elif format == "m4a":
+    elif fmt == "m4a":
         copy_cmd = build_audio_window_extract_command(
             input_file=input_video,
             output_audio=output_audio,
@@ -84,7 +84,7 @@ def main() -> None:
 
     audio_output = temp_dir / f"{test_video.stem}_1min.ogg"
     print("\n[1/2] Extracting first minute of audio as OGG...")
-    extract_first_minute_audio(test_video, audio_output, format="ogg")
+    extract_first_minute_audio(test_video, audio_output, fmt="ogg")
     print(f"Audio extracted: {audio_output}")
 
     model = "google/gemini-3.1-flash-lite-preview"
