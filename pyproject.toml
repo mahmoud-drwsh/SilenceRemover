@@ -9,4 +9,6 @@ dependencies = [
     "pillow",
     "arabic-reshaper",
     "python-bidi",
+    "fastapi",
+    "uvicorn",
 ]

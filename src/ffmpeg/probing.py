@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
+import unicodedata
 from pathlib import Path
 from typing import Sequence
 
-from src.core.constants import BITRATE_FALLBACK_BPS
+from src.core.constants import (
+    BITRATE_FALLBACK_BPS,
+    FINAL_VIDEO_SOURCE_METADATA_KEY,
+    LEGACY_FINAL_VIDEO_SOURCE_METADATA_KEY,
+)
 from src.ffmpeg.core import build_ffmpeg_cmd, build_ffprobe_cmd
 from src.ffmpeg.runner import run
 
@@ -160,6 +166,81 @@ def can_run_encoder(codec: str, codec_args: Sequence[str] = ()) -> bool:
 def probe_duration(input_file: Path) -> float:
     """Probe media duration in seconds."""
     return run_ffprobe_float(input_file, "duration", 0.0)
+
+
+def build_ffprobe_format_json_command(input_file: Path) -> list[str]:
+    """JSON with format.tags for metadata inspection."""
+    return build_ffprobe_cmd(
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_format",
+        str(input_file),
+    )
+
+
+def read_format_tags(input_file: Path) -> dict[str, str]:
+    """Return format-level tag dict from ffprobe JSON, or empty if missing."""
+    result = run(build_ffprobe_format_json_command(input_file), capture_output=True, check=False)
+    if result.returncode != 0:
+        return {}
+    try:
+        raw = result.stdout
+        if raw is None:
+            return {}
+        text_out = raw if isinstance(raw, str) else raw.decode("utf-8", errors="replace")
+        data = json.loads(text_out)
+    except json.JSONDecodeError:
+        return {}
+    tags = data.get("format", {}).get("tags") or {}
+    if not isinstance(tags, dict):
+        return {}
+    out: dict[str, str] = {}
+    for k, v in tags.items():
+        if isinstance(k, str):
+            out[k] = v if isinstance(v, str) else str(v)
+    return out
+
+
+def _nfc(s: str) -> str:
+    """Normalize for comparison (macOS paths often differ from muxed metadata in NFD vs NFC)."""
+    return unicodedata.normalize("NFC", s.strip())
+
+
+def _tag_matches_source(tags: dict[str, str], source_filename: str) -> bool:
+    """Match `comment` or legacy key; keys may vary in casing; values vs Path.name need NFC match."""
+    want = _nfc(source_filename)
+    legacy = LEGACY_FINAL_VIDEO_SOURCE_METADATA_KEY
+    for k, v in tags.items():
+        if not isinstance(k, str) or not isinstance(v, str):
+            continue
+        key_l = k.lower()
+        if key_l in (FINAL_VIDEO_SOURCE_METADATA_KEY.lower(), "comment"):
+            if _nfc(v) == want:
+                return True
+        if k == legacy or key_l == legacy.lower():
+            if _nfc(v) == want:
+                return True
+    return False
+
+
+def delete_final_videos_matching_source(output_dir: Path, source_filename: str) -> int:
+    """Remove output MP4s whose source tag equals source_filename.
+
+    Used only from the title editor when a title is changed. The pipeline does not call this.
+    Returns the number of files removed.
+    """
+    removed = 0
+    out = output_dir.resolve()
+    if not out.is_dir():
+        return 0
+    for mp4 in sorted(out.glob("*.mp4")):
+        tags = read_format_tags(mp4)
+        if _tag_matches_source(tags, source_filename):
+            mp4.unlink(missing_ok=True)
+            removed += 1
+    return removed
 
 
 def probe_bitrate_bps(input_file: Path, fallback: int = BITRATE_FALLBACK_BPS) -> int:

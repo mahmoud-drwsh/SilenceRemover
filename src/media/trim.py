@@ -488,6 +488,7 @@ def trim_single_video(
                 encoder=encoder,
                 title_overlay_path=title_overlay_path,
                 title_overlay_y=banner_top,
+                source_metadata_filename=input_file.name if title_overlay_path is not None else None,
             ),
             command_label=f"{encoder.codec} encode",
         )
@@ -520,6 +521,7 @@ def trim_single_video(
             title_overlay_path=title_overlay_path,
             title_overlay_y=banner_top,
             extra_silent_audio_lavfi=use_lavfi_silent_audio,
+            source_metadata_filename=in_file.name if title_overlay_path is not None else None,
         ),
         expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
         on_progress=lambda percent: print(f"\rProgress: {percent}%", end="", flush=True),

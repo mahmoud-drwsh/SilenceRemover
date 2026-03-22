@@ -24,7 +24,7 @@ from src.core.paths import (
     mark_completed,
     resolve_output_basename,
 )
-from src.startup import build_startup_context
+from src.startup import StartupContext, build_startup_context
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile
 from src.llm.title import generate_title_from_transcript
 from src.llm.transcription import get_audio_path_for_media, transcribe_and_save
@@ -326,7 +326,7 @@ def run_output_phase(
     )
 
 
-def run() -> None:
+def run() -> StartupContext:
     """Run the full three-phase media processing pipeline."""
     args = parse_args()
     startup = build_startup_context(args)
@@ -431,7 +431,7 @@ def run() -> None:
         print(f"Non-empty titles: {titled}/{len(videos)}")
         print(f"Titles log (append): {_titles_txt_path(temp_dir)}")
         print(f"{'='*60}")
-        return
+        return startup
 
     completed_dir = startup.temp_dir / COMPLETED_DIR
     completed = sum(1 for p in completed_dir.iterdir() if p.is_file())
@@ -439,3 +439,4 @@ def run() -> None:
     print("Processing complete!")
     print(f"Completed: {completed}/{len(videos)}")
     print(f"{'='*60}")
+    return startup

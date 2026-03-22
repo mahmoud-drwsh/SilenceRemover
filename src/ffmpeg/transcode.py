@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence, TYPE_CHECKING
 
-from src.core.constants import AUDIO_BITRATE, SNIPPET_MAX_DURATION_SEC
+from src.core.constants import (
+    AUDIO_BITRATE,
+    FINAL_VIDEO_SOURCE_METADATA_KEY,
+    SNIPPET_MAX_DURATION_SEC,
+)
 from src.ffmpeg.core import add_filter_complex_script, build_ffmpeg_cmd
 
 if TYPE_CHECKING:
@@ -135,6 +139,7 @@ def build_minimal_video_command(
     *,
     title_overlay_path: Path | None = None,
     title_overlay_y: int | None = None,
+    source_metadata_filename: str | None = None,
 ) -> list[str]:
     """Build a minimal fallback encode command when no audio remains."""
     cmd = _build_input_command(input_file)
@@ -155,7 +160,10 @@ def build_minimal_video_command(
         )
 
     cmd.extend(encoder.video_args())
-    cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, str(output_file)])
+    cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE])
+    if source_metadata_filename is not None:
+        cmd.extend(["-metadata", f"{FINAL_VIDEO_SOURCE_METADATA_KEY}={source_metadata_filename}"])
+    cmd.append(str(output_file))
     return cmd
 
 
@@ -168,6 +176,7 @@ def build_final_trim_command(
     title_overlay_path: Path | None = None,
     title_overlay_y: int | None = None,
     extra_silent_audio_lavfi: bool = False,
+    source_metadata_filename: str | None = None,
 ) -> list[str]:
     """Build final video trim + encode command.
 
@@ -183,5 +192,7 @@ def build_final_trim_command(
     cmd.extend(["-map", "[outv]", "-map", "[outa]"])
     cmd.extend(encoder.video_args(include_container_args=True))
     cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, "-progress", "pipe:1", "-nostats", "-loglevel", "error"])
+    if source_metadata_filename is not None:
+        cmd.extend(["-metadata", f"{FINAL_VIDEO_SOURCE_METADATA_KEY}={source_metadata_filename}"])
     cmd.append(str(output_file))
     return cmd

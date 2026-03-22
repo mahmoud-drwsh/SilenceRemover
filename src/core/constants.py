@@ -165,6 +165,12 @@ TITLE_OVERLAY_MAX_LINES = 5
 # Skip a line-count k when C(n-1,k-1) exceeds this (exhaustive split enumeration).
 TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS = 8000
 
+# Final MP4 (overlay encode): format tag; value is original input filename (Path.name).
+# Use the standard `comment` tag so MP4/MOV muxers persist it and ffprobe shows it.
+FINAL_VIDEO_SOURCE_METADATA_KEY = "comment"
+# Older builds wrote this custom key; keep for delete matching on existing files.
+LEGACY_FINAL_VIDEO_SOURCE_METADATA_KEY = "SILENCE_REMOVER_SOURCE"
+
 __all__ = [
     "TrimDefaults",
     "resolve_trim_defaults",
@@ -212,6 +218,8 @@ __all__ = [
     "TITLE_TWO_LINE_MIN_GAIN_PX",
     "TITLE_OVERLAY_MAX_LINES",
     "TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS",
+    "FINAL_VIDEO_SOURCE_METADATA_KEY",
+    "LEGACY_FINAL_VIDEO_SOURCE_METADATA_KEY",
     "EDGE_SILENCE_KEEP_SEC",
 ]
 

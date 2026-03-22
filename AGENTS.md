@@ -70,3 +70,20 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/core/constants.py`: Banner height set to 1/6 frame; added `TITLE_OVERLAY_MAX_LINES` and `TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS` for multi-line layout search.
 - `src/media/title_overlay.py`: Replaced two-line-only optimizer with `_best_multi_line_layout` (2–K lines, combination cap, variance/more-lines tie-break).
 - `ALGO.md` / `README.md`: Documented 1/6 band [H/6,H/3] and multi-line enumeration behavior.
+- `src/app/title_editor_server.py`: New FastAPI localhost title editor (`/`, `/status`, `/save`), `probe_existing_server` for duplicate detection, uvicorn in a background thread, Refresh + JSON save that clears `completed` only when title text changes.
+- `src/app/pipeline.py`: Start title editor after bootstrap (or skip if `/status` matches), run phases, then block on server thread until Ctrl+C; `run()` returns `StartupContext`.
+- `pyproject.toml` / `uv.lock`: Added `fastapi` and `uvicorn` dependencies.
+- `src/core/constants.py`: Added `FINAL_VIDEO_SOURCE_METADATA_KEY` for overlay final-encode provenance (`Path.name` of source video).
+- `src/ffmpeg/transcode.py`: Pass optional `source_metadata_filename` into overlay `build_final_trim_command` / `build_minimal_video_command` as `-metadata`.
+- `src/media/trim.py`: Thread `input_file.name` into those builders when a title overlay is used.
+- `src/ffmpeg/probing.py`: Added `read_format_tags`, `delete_final_videos_matching_source` (editor-only; scans output MP4s by tag).
+- `src/startup/title_editor_layout.py`: New `TitleEditorLayout` + `build_title_editor_layout` (no API key).
+- `src/startup/__init__.py`: Exported title editor layout helpers.
+- `src/app/title_editor_server.py`: Uses `TitleEditorLayout`; on title change deletes matching tagged outputs then updates title + `completed`; removed in-process uvicorn thread helpers.
+- `src/app/pipeline.py`: Removed embedded title editor server.
+- `serve_titles.py`: Standalone entry that runs uvicorn for the title editor.
+- `pwsh/Start-VerticalTitleEditor.ps1`: Launches `serve_titles.py` for the vertical raw folder.
+- `src/ffmpeg/probing.py`: `read_format_tags` handles `stdout` as str when `run()` uses `text=True` (fixes title editor save / ffprobe JSON parse).
+- `src/core/constants.py`: Source provenance uses standard MP4 `comment` metadata (value = original filename); legacy `SILENCE_REMOVER_SOURCE` still matched when deleting old outputs.
+- `src/ffmpeg/probing.py`: `_tag_matches_source` uses Unicode NFC normalization and case-insensitive `comment` keys so editor deletes match ffprobe/metadata vs macOS filenames.
+- `src/ffmpeg/probing.py` / `src/app/title_editor_server.py`: Removed debug-session NDJSON instrumentation.
