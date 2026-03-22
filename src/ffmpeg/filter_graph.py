@@ -211,6 +211,23 @@ def build_minimal_encode_overlay_filter_complex(
     return f"{parts[0]};{parts[1]}"
 
 
+# Video pad after QSV prep (must match `-map` in transcode when this tail is used).
+HEVC_QSV_FINAL_VIDEO_PAD = "outv_qsvsink"
+
+
+def finalize_filter_graph_for_hevc_qsv(filter_graph: str) -> str:
+    """Append NV12 + even width/height after ``[outv]`` for ``hevc_qsv``.
+
+    Title/logo overlays use RGBA chains; Intel QSV can fail on the blended
+    output even when the startup encoder probe (small NV12 lavfi clip) passes.
+    This aligns the final frames with that probe and typical NV12 alignment.
+    """
+    return (
+        f"{filter_graph};[outv]format=nv12,"
+        f"scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=bicubic[{HEVC_QSV_FINAL_VIDEO_PAD}]"
+    )
+
+
 def build_video_lavfi_audio_concat_filter_graph_with_title_overlay(
     segments_to_keep: list[tuple[float, float]],
     overlay_y: int | None = None,
