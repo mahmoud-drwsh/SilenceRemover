@@ -78,6 +78,11 @@ def _run_phase_step(
         work_fn()
         print(success_message)
         return True
+    except ValueError as e:
+        if "Invalid video duration" in str(e):
+            print(f"⚠ Skipping invalid video: {video_path.name}")
+            return False
+        raise
     except Exception as e:
         print(f"\n✗ {failure_label} error for {video_path.name}: {e}", file=sys.stderr)
         traceback.print_exc()
