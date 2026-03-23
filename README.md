@@ -9,7 +9,7 @@ An automated video processing tool that removes silence segments, transcribes au
 - **AI Transcription**: Builds a silence-removed snippet (capped at `SNIPPET_MAX_DURATION_SEC`, 180s / 3 minutes by default), encodes it as Ogg/Opus, and transcribes via OpenRouter (default model: `google/gemini-3.1-flash-lite-preview`)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
-- **Video encoding**: Final MP4 video prefers **`hevc_qsv`** (Intel Quick Sync HEVC) using quality-focused ICQ mode (`-global_quality 26`, `-preset medium`) to target visual quality close to current `libx265` defaults. If `hevc_qsv` is not listed by FFmpeg, startup falls back to **`libx265`** (`-crf 24`, `-preset slow`). If `hevc_qsv` is listed but probe encode fails, startup fails fast so the QSV runtime/build issue can be fixed explicitly.
+- **Video encoding**: Final MP4 video prefers **`hevc_qsv`** (Intel Quick Sync HEVC) using quality-focused ICQ mode (`-global_quality 20`, `-preset slow`) to target visual quality close to current `libx265` defaults. If `hevc_qsv` is not listed by FFmpeg, startup falls back to **`libx265`** (`-crf 24`, `-preset slow`). If `hevc_qsv` is listed but probe encode fails, startup fails fast so the QSV runtime/build issue can be fixed explicitly.
 - **FFmpeg Centralization**: Consolidates command building, execution, probing, and filter graph generation under the new `src/ffmpeg` package.
 
 ## Requirements
