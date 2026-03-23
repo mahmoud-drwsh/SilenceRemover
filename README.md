@@ -87,6 +87,8 @@ Requires FFmpeg/ffprobe on PATH (same as the layout helper). Optional: set `TITL
 - `--min-duration FLOAT`: Override minimum silence duration in seconds (applies in both modes). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with `--target-length` and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
 - `--title-font`: Google Font family name used to render the title overlay. The font is auto-downloaded from Google Fonts on first use and cached under `output/temp/fonts/`.
 - `--quick-test`: Run all three phases, but cap only the final Phase 3 encode output to the first 5 seconds for a fast end-to-end smoke run.
+- `--enable-title-overlay`: Enable title overlay in final output (requires a title from Phase 2). By default, overlays are disabled.
+- `--enable-logo-overlay`: Enable logo overlay in final output (requires `logo/logo.png`). By default, overlays are disabled.
 - `--title-editor`: Start only the title editor web server for `input_dir`; ignores pipeline flags.
 
 ### Suggested Arabic-friendly Google Fonts

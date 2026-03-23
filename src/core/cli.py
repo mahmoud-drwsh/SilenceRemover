@@ -121,4 +121,14 @@ def parse_args() -> argparse.Namespace:
             "to the first 5 seconds for end-to-end smoke testing."
         ),
     )
+    parser.add_argument(
+        "--enable-title-overlay",
+        action="store_true",
+        help="Enable title overlay in final output.",
+    )
+    parser.add_argument(
+        "--enable-logo-overlay",
+        action="store_true",
+        help="Enable logo overlay in final output (requires logo/logo.png).",
+    )
     return parser.parse_args()

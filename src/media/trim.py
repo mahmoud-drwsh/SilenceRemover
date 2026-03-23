@@ -112,6 +112,8 @@ def trim_single_video(
     title_path: Path | None = None,
     title_font: str | None = None,
     max_output_seconds: float | None = None,
+    enable_title_overlay: bool = False,
+    enable_logo_overlay: bool = False,
 ) -> Path:
     """Trim a single video and return the output file path."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -126,7 +128,7 @@ def trim_single_video(
         pad_sec=pad_sec,
     )
 
-    use_logo = DEFAULT_LOGO_PATH.is_file()
+    use_logo = enable_logo_overlay and DEFAULT_LOGO_PATH.is_file()
     logo_path_resolved = DEFAULT_LOGO_PATH if use_logo else None
 
     if plan.should_copy_input and title_path is None and not use_logo:
@@ -158,7 +160,7 @@ def trim_single_video(
     banner_top: int | None = None
     logo_target_w: int | None = None
 
-    if title_path is not None or use_logo:
+    if (title_path is not None and enable_title_overlay) or use_logo:
         video_width, video_height = probe_video_dimensions(input_file)
         if use_logo:
             try:
@@ -183,7 +185,7 @@ def trim_single_video(
                     use_logo = False
                     logo_path_resolved = None
 
-    if title_path is not None:
+    if title_path is not None and enable_title_overlay:
         title_text = title_path.read_text(encoding="utf-8").strip()
         if not title_text:
             raise RuntimeError(f"Empty title at {title_path}")

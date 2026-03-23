@@ -28,6 +28,8 @@ class StartupContext:
     api_key: str
     title_font: str
     encoder: VideoEncoderProfile
+    enable_title_overlay: bool
+    enable_logo_overlay: bool
 
 
 def build_startup_context(args: Namespace) -> StartupContext:
@@ -75,4 +77,6 @@ def build_startup_context(args: Namespace) -> StartupContext:
         api_key=api_key,
         title_font=(args.title_font or "").strip() or TITLE_FONT_DEFAULT,
         encoder=selected_encoder,
+        enable_title_overlay=getattr(args, "enable_title_overlay", False),
+        enable_logo_overlay=getattr(args, "enable_logo_overlay", False),
     )

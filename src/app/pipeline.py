@@ -216,6 +216,8 @@ def run_output_phase(
     max_output_seconds: float | None = None,
     video_index: int = 1,
     total_videos: int = 1,
+    enable_title_overlay: bool = False,
+    enable_logo_overlay: bool = False,
     *,
     total_phases: int = 3,
 ) -> bool:
@@ -274,6 +276,8 @@ def run_output_phase(
             title_path=title_path,
             title_font=title_font,
             max_output_seconds=max_output_seconds,
+            enable_title_overlay=enable_title_overlay,
+            enable_logo_overlay=enable_logo_overlay,
         )
         notify_final_output_ready(
             phase_index=3,
@@ -362,6 +366,8 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 max_output_seconds=max_output_seconds,
                 video_index=vi,
                 total_videos=vn,
+                enable_title_overlay=startup.enable_title_overlay,
+                enable_logo_overlay=startup.enable_logo_overlay,
                 total_phases=total_phases,
             ),
         ),
