@@ -30,10 +30,12 @@ from sr_trim_plan import build_trim_plan
 from sr_title_overlay import build_title_overlay
 from src.ffmpeg.transcode import build_final_trim_command, build_minimal_video_command
 from src.core.fs_utils import wait_for_file_release
+from src.ffmpeg.core import build_ffmpeg_cmd
 from src.ffmpeg.silence_removed_runner import (
     run_minimal_ffmpeg_output,
     run_silence_removed_media,
 )
+from src.ffmpeg.runner import run
 from src.core.paths import get_font_cache_path, get_title_overlay_path
 
 
@@ -47,6 +49,55 @@ def _copy_input_video(input_file: Path, output_file: Path) -> Path:
         return output_file.resolve()
     except Exception as exc:
         raise RuntimeError(f"Failed to copy original file from {input_file} to {output_file}") from exc
+
+
+def _get_prescaled_logo_path(temp_dir: Path, *, target_width_px: int) -> Path:
+    """Return a deterministic cached logo path for a target width."""
+    logo_dir = temp_dir / "logo_overlays"
+    logo_dir.mkdir(parents=True, exist_ok=True)
+    return logo_dir / f"logo_w{target_width_px}.png"
+
+
+def _ensure_prescaled_logo(
+    *,
+    source_logo_path: Path,
+    output_logo_path: Path,
+    target_width_px: int,
+) -> Path:
+    """Create or reuse a pre-scaled logo PNG at the requested width."""
+    if target_width_px <= 0:
+        raise RuntimeError(f"Invalid target logo width: {target_width_px}")
+
+    if output_logo_path.is_file():
+        try:
+            w, _ = probe_video_dimensions(output_logo_path)
+            probe_ffmpeg_can_decode_image_frame(output_logo_path)
+            if w == target_width_px:
+                return output_logo_path
+        except (OSError, RuntimeError, ValueError):
+            # Regenerate corrupted or mismatched cache entry.
+            pass
+
+    cmd = build_ffmpeg_cmd(
+        overwrite=True,
+        "-v",
+        "error",
+        "-i",
+        str(source_logo_path),
+        "-vf",
+        f"scale={target_width_px}:-1:flags=lanczos,format=rgba",
+        "-frames:v",
+        "1",
+        str(output_logo_path),
+    )
+    result = run(cmd, check=False, capture_output=True)
+    if result.returncode != 0:
+        tail = (result.stderr or "").strip()
+        if len(tail) > 400:
+            tail = f"{tail[:400]}..."
+        raise RuntimeError(tail or f"Failed to pre-scale logo: {source_logo_path}")
+
+    return output_logo_path
 
 
 def trim_single_video(
@@ -105,22 +156,32 @@ def trim_single_video(
     temp_dir = output_dir / "temp"
     title_overlay_path: Path | None = None
     banner_top: int | None = None
-    logo_intrinsic_w: int | None = None
     logo_target_w: int | None = None
 
     if title_path is not None or use_logo:
         video_width, video_height = probe_video_dimensions(input_file)
         if use_logo:
             try:
-                lw, _lh = probe_video_dimensions(DEFAULT_LOGO_PATH)
+                _lw, _lh = probe_video_dimensions(DEFAULT_LOGO_PATH)
                 probe_ffmpeg_can_decode_image_frame(DEFAULT_LOGO_PATH)
             except (OSError, RuntimeError, ValueError) as exc:
                 print(f"Warning: Skipping logo overlay ({DEFAULT_LOGO_PATH}): {exc}")
                 use_logo = False
                 logo_path_resolved = None
             else:
-                logo_intrinsic_w = lw
                 logo_target_w = max(1, int(video_width * LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO))
+                try:
+                    logo_path_resolved = _ensure_prescaled_logo(
+                        source_logo_path=DEFAULT_LOGO_PATH,
+                        output_logo_path=_get_prescaled_logo_path(
+                            temp_dir=temp_dir, target_width_px=logo_target_w
+                        ),
+                        target_width_px=logo_target_w,
+                    )
+                except RuntimeError as exc:
+                    print(f"Warning: Skipping logo overlay pre-scale ({DEFAULT_LOGO_PATH}): {exc}")
+                    use_logo = False
+                    logo_path_resolved = None
 
     if title_path is not None:
         title_text = title_path.read_text(encoding="utf-8").strip()
@@ -151,8 +212,7 @@ def trim_single_video(
                     title_overlay_path=title_overlay_path,
                     title_overlay_y=banner_top,
                     logo_path=logo_path_resolved if use_logo else None,
-                    logo_target_width_px=logo_target_w if use_logo else None,
-                    logo_intrinsic_width_px=logo_intrinsic_w if use_logo else None,
+                    logo_enabled=use_logo,
                     logo_margin_px=LOGO_OVERLAY_MARGIN_PX,
                     logo_alpha=LOGO_OVERLAY_ALPHA,
                     source_metadata_filename=(
@@ -183,8 +243,7 @@ def trim_single_video(
     def _graph_with_optional_burn_in(segs: list[tuple[float, float]], oy: int | None) -> str:
         oy_eff = oy if title_overlay_path is not None else None
         kw = dict(
-            logo_target_width_px=logo_target_w if use_logo else None,
-            logo_intrinsic_width_px=logo_intrinsic_w if use_logo else None,
+            logo_enabled=use_logo,
             logo_margin_px=LOGO_OVERLAY_MARGIN_PX,
             logo_alpha=LOGO_OVERLAY_ALPHA,
         )

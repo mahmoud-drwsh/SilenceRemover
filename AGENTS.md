@@ -179,3 +179,8 @@ After code or config changes, agents append short notes here. When this file gro
 - `README.md`: Documented QSV hardware-path retry behavior, `nv12` post-overlay normalization, and a dedicated slow-QSV troubleshooting checklist.
 - `src/ffmpeg/core.py`: Relaxed QSV hardware-path flags to device setup only (`-init_hw_device`, `-filter_hw_device`) and removed forced decode output on `qsv` surfaces to avoid filter-graph format negotiation failures.
 - `README.md`: Updated QSV documentation/troubleshooting to reflect conservative device-only flags instead of forced `-hwaccel_output_format qsv`.
+- `src/media/trim.py`: Added cached logo pre-scaling to `output/temp/logo_overlays/` using FFmpeg (`scale=<target>:-1`) and switched Phase 3 overlay input to the pre-scaled logo asset.
+- `src/ffmpeg/filter_graph.py`: Removed runtime logo scale filters from overlay chains and switched logo-enable logic to a boolean flag while keeping alpha compositing and `format=nv12[outv]` normalization.
+- `src/ffmpeg/transcode.py`: Updated minimal overlay command wiring to use `logo_enabled` rather than target/intrinsic width parameters.
+- `tests/ffmpeg_api_smoke.py`: Updated overlay graph API usage to `logo_enabled` and added assertions that runtime logo scaling is absent.
+- `README.md`: Documented one-time cached logo pre-scaling and clarified that runtime overlay no longer does per-frame logo scaling.

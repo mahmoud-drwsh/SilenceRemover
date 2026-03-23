@@ -77,8 +77,7 @@ def build_minimal_video_command(
     title_overlay_path: Path | None = None,
     title_overlay_y: int | None = None,
     logo_path: Path | None = None,
-    logo_target_width_px: int | None = None,
-    logo_intrinsic_width_px: int | None = None,
+    logo_enabled: bool = False,
     logo_margin_px: int = LOGO_OVERLAY_MARGIN_PX,
     logo_alpha: float = LOGO_OVERLAY_ALPHA,
     source_metadata_filename: str | None = None,
@@ -96,8 +95,7 @@ def build_minimal_video_command(
     if title_overlay_path is not None or logo_path is not None:
         fc = build_minimal_encode_overlay_filter_complex(
             title_overlay_y=title_overlay_y if title_overlay_path is not None else None,
-            logo_target_width_px=logo_target_width_px if logo_path is not None else None,
-            logo_intrinsic_width_px=logo_intrinsic_width_px if logo_path is not None else None,
+            logo_enabled=logo_enabled if logo_path is not None else False,
             logo_margin_px=logo_margin_px,
             logo_alpha=logo_alpha,
         )

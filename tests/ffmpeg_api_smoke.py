@@ -103,20 +103,22 @@ def main() -> None:
     overlay_fc = build_video_audio_concat_filter_graph_with_title_overlay(
         segments_to_keep=[(0.0, 1.0)],
         overlay_y=10,
-        logo_target_width_px=100,
-        logo_intrinsic_width_px=100,
+        logo_enabled=True,
     )
     if "format=nv12[outv]" not in overlay_fc:
         _fail("Overlay concat filter graph is missing final nv12 normalization.")
+    if "scale=" in overlay_fc:
+        _fail("Overlay concat filter graph should not include runtime logo scaling.")
     _ok("Overlay concat filter graph includes final nv12 normalization.")
 
     minimal_overlay_fc = build_minimal_encode_overlay_filter_complex(
         title_overlay_y=10,
-        logo_target_width_px=100,
-        logo_intrinsic_width_px=100,
+        logo_enabled=True,
     )
     if "format=nv12[outv]" not in minimal_overlay_fc:
         _fail("Minimal overlay filter graph is missing final nv12 normalization.")
+    if "scale=" in minimal_overlay_fc:
+        _fail("Minimal overlay filter graph should not include runtime logo scaling.")
     _ok("Minimal overlay filter graph includes final nv12 normalization.")
 
     print("Smoke test completed successfully.")
