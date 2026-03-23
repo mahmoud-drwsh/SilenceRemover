@@ -122,3 +122,8 @@ After code or config changes, agents append short notes here. When this file gro
 - `temp/render_title_overlay_examples.py`: Manual samples writing to `./png_temp/`.
 - `.gitignore`: Ignore `png_temp/`.
 - `README.md` / `ALGO.md`: Document `sr_title_overlay` and moved tunables.
+- `packages/sr_title_overlay/renderer.py`: `_best_multi_line_layout` now skips 3+ line candidates that leave a one-word edge line, preventing orphan top/bottom lines like `1 + N + M`.
+- `packages/sr_title_overlay/renderer.py`: Multi-line candidates now require balanced word counts across lines (`max-min <= 1`) and reject one-word edge lines for `k >= 2`, reducing inconsistent bottom single-word layouts.
+- `temp/render_title_overlay_examples.py`: Added a word-count sweep generator (`png_temp/word_counts/words_02..words_15.png`) to quickly review title layout behavior across varying title lengths.
+- `packages/sr_title_overlay/renderer.py`: Enforced strict “no single-word line” behavior for multi-line output by rejecting multi-line candidates containing any one-word line and falling back to single-line when greedy wrap would create one.
+- `temp/render_title_overlay_examples.py`: Added Arabic word-count sweep outputs under `png_temp/word_counts_ar/` (`words_ar_02..words_ar_15.png`) for RTL layout validation.

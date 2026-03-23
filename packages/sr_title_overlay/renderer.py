@@ -137,6 +137,22 @@ def _line_length_variance(logical_lines: list[str]) -> float:
     return sum((x - m) ** 2 for x in lens)
 
 
+def _has_single_word_line(boundaries: tuple[int, ...]) -> bool:
+    """True when any output line would contain exactly one word."""
+    for i in range(len(boundaries) - 1):
+        if boundaries[i + 1] - boundaries[i] == 1:
+            return True
+    return False
+
+
+def _has_balanced_word_distribution(boundaries: tuple[int, ...]) -> bool:
+    """Keep per-line word counts close for visual consistency."""
+    counts = [boundaries[i + 1] - boundaries[i] for i in range(len(boundaries) - 1)]
+    if not counts:
+        return False
+    return max(counts) - min(counts) <= 1
+
+
 def _best_multi_line_layout(
     font_path: str,
     words: list[str],
@@ -162,6 +178,10 @@ def _best_multi_line_layout(
 
         for cuts in combinations(range(1, n), k - 1):
             boundaries = (0,) + cuts + (n,)
+            if not _has_balanced_word_distribution(boundaries):
+                continue
+            if k >= 2 and _has_single_word_line(boundaries):
+                continue
             logical = [" ".join(words[boundaries[i] : boundaries[i + 1]]) for i in range(k)]
             display_lines = [_line_for_pillow(line) for line in logical]
 
@@ -354,6 +374,10 @@ def build_title_overlay(
 
     if not logical_lines:
         return output_file
+
+    # Rule: never allow a one-word line by itself in multi-line output.
+    if len(logical_lines) >= 2 and any(len(line.split()) == 1 for line in logical_lines):
+        logical_lines = [cleaned_title]
 
     display_lines = [_line_for_pillow(l) for l in logical_lines]
     if not _lines_fit(str(font_path), display_lines, max_width, max_height, font_size):
