@@ -142,3 +142,4 @@ After code or config changes, agents append short notes here. When this file gro
 - `pyproject.toml`: Added `packages/sr_trim_plan` to the Hatch wheel package allowlist.
 - `README.md`: Updated architecture/docs references so `build_trim_plan` points to `packages/sr_trim_plan/`.
 - `ALGO.md`: Updated trim-policy implementation note to reference `packages/sr_trim_plan/api.py` for plan assembly.
+- `src/ffmpeg/encoding_resolver.py`: Tuned default final video encode settings to `libx265 -crf 24 -preset slow` for better visual quality at the cost of slower encodes/larger files.

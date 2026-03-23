@@ -34,9 +34,9 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
         codec="libx265",
         codec_args=(
             "-crf",
-            "27",
+            "24",
             "-preset",
-            "medium",
+            "slow",
         ),
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
     ),
