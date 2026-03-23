@@ -177,3 +177,5 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/ffmpeg/filter_graph.py`: Normalized overlay outputs to `format=nv12[outv]` after RGBA compositing in concat and minimal overlay builders.
 - `tests/ffmpeg_api_smoke.py`: Added assertions for QSV hardware-path command flags and explicit `nv12` post-overlay filter normalization.
 - `README.md`: Documented QSV hardware-path retry behavior, `nv12` post-overlay normalization, and a dedicated slow-QSV troubleshooting checklist.
+- `src/ffmpeg/core.py`: Relaxed QSV hardware-path flags to device setup only (`-init_hw_device`, `-filter_hw_device`) and removed forced decode output on `qsv` surfaces to avoid filter-graph format negotiation failures.
+- `README.md`: Updated QSV documentation/troubleshooting to reflect conservative device-only flags instead of forced `-hwaccel_output_format qsv`.

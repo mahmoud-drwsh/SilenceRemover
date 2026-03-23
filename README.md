@@ -9,7 +9,7 @@ An automated video processing tool that removes silence segments, transcribes au
 - **AI Transcription**: Builds a silence-removed snippet (capped at `SNIPPET_MAX_DURATION_SEC`, 180s / 3 minutes by default), encodes it as Ogg/Opus, and transcribes via OpenRouter (default model: `google/gemini-3.1-flash-lite-preview`)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
-- **Video encoding**: Final MP4 video prefers **`hevc_qsv`** (Intel Quick Sync HEVC) using ICQ (`-global_quality 20`, `-preset slow`) plus extended BRC, lookahead (`-extbrc 1`, `-look_ahead_depth 20`), adaptive I/B placement, and `-forced_idr 1` for steadier quality and seeking. On QSV runs, command assembly now prefers a hardware-oriented input path (`-init_hw_device qsv`, `-filter_hw_device`, `-hwaccel qsv`, `-hwaccel_output_format qsv`) and retries once on the generic path if those flags fail at runtime. If `hevc_qsv` is not listed by FFmpeg, startup falls back to **`libx265`** (`-crf 24`, `-preset slow`). If `hevc_qsv` is listed but probe encode fails, startup fails fast so the QSV runtime/build issue can be fixed explicitly.
+- **Video encoding**: Final MP4 video prefers **`hevc_qsv`** (Intel Quick Sync HEVC) using ICQ (`-global_quality 20`, `-preset slow`) plus extended BRC, lookahead (`-extbrc 1`, `-look_ahead_depth 20`), adaptive I/B placement, and `-forced_idr 1` for steadier quality and seeking. On QSV runs, command assembly applies conservative QSV device flags (`-init_hw_device qsv`, `-filter_hw_device`) and retries once on the generic path if initialization fails at runtime. If `hevc_qsv` is not listed by FFmpeg, startup falls back to **`libx265`** (`-crf 24`, `-preset slow`). If `hevc_qsv` is listed but probe encode fails, startup fails fast so the QSV runtime/build issue can be fixed explicitly.
 - **FFmpeg Centralization**: Consolidates command building, execution, probing, and filter graph generation under the new `src/ffmpeg` package.
 
 ## Requirements
@@ -273,7 +273,7 @@ Note: This project’s shared FFmpeg command builder (`src/ffmpeg/core.py:add_fi
 
 If `hevc_qsv` is selected but throughput is still low:
 
-- Confirm the printed final command includes the QSV hardware-path flags (`-init_hw_device qsv=...`, `-filter_hw_device`, `-hwaccel qsv`, `-hwaccel_output_format qsv`). If those flags fail on your machine, the pipeline logs a warning and retries on the generic path.
+- Confirm the printed final command includes the QSV device flags (`-init_hw_device qsv=...`, `-filter_hw_device`). If those flags fail on your machine, the pipeline logs a warning and retries on the generic path.
 - Confirm your overlay run uses the updated filter graph that ends with `format=nv12[outv]` after logo/title compositing.
 - For quick command-level sanity, run `python tests/ffmpeg_api_smoke.py` and check QSV hardware-path and overlay-format assertions.
 

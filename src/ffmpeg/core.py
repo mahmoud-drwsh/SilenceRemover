@@ -27,16 +27,17 @@ def build_ffmpeg_cmd(overwrite: bool = True, *additional_flags: str) -> list[str
 
 
 def build_qsv_hwaccel_flags(device_name: str = "qsv") -> list[str]:
-    """Build optional FFmpeg flags for a QSV-oriented hardware path."""
+    """Build conservative QSV device flags without forcing qsv frame surfaces.
+
+    Keeping decode output in software frames avoids concat/overlay negotiation
+    failures in mixed software filter graphs while still allowing hevc_qsv
+    encode usage downstream.
+    """
     return [
         "-init_hw_device",
         f"qsv={device_name}",
         "-filter_hw_device",
         device_name,
-        "-hwaccel",
-        "qsv",
-        "-hwaccel_output_format",
-        "qsv",
     ]
 
 
