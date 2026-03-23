@@ -1,4 +1,4 @@
-"""Public API: optional text notification when a final encode completes."""
+"""Public API: optional text notifications for final encode start and completion."""
 
 from __future__ import annotations
 
@@ -17,20 +17,8 @@ def _env(name: str) -> str:
     return (os.environ.get(name) or "").strip()
 
 
-def notify_final_output_ready(
-    *,
-    phase_index: int,
-    total_phases: int,
-    video_index: int,
-    total_videos: int,
-    input_name: str,
-    title: str,
-    output_mp4: Path,
-) -> None:
-    """Send a text Telegram message if ``TELEGRAM_BOT_TOKEN`` and ``TELEGRAM_CHAT_ID`` are set.
-
-    Never raises: failures are printed to stderr. Unconfigured env is a silent no-op.
-    """
+def _telegram_send_if_configured(text: str) -> None:
+    """Send ``text`` if token and chat id are set; never raises."""
     global _half_config_warned
 
     token = _env("TELEGRAM_BOT_TOKEN")
@@ -50,14 +38,6 @@ def notify_final_output_ready(
 
     api_base = _env("TELEGRAM_API_BASE") or None
 
-    lines = [
-        "Encoding complete",
-        f"Phase {phase_index}/{total_phases} — Final output",
-        f"Video {video_index}/{total_videos} — {input_name}",
-        f"Title: {title}",
-        f"Output: {output_mp4.name}",
-    ]
-    text = "\n".join(lines)
     if len(text) > _TELEGRAM_MAX_MESSAGE_LEN:
         text = text[: _TELEGRAM_MAX_MESSAGE_LEN - 3] + "..."
 
@@ -65,3 +45,70 @@ def notify_final_output_ready(
         send_message_text(token=token, chat_id=chat_id, text=text, api_base=api_base)
     except Exception as exc:
         print(f"Telegram notification failed: {exc}", file=sys.stderr)
+
+
+def _progress_body(
+    *,
+    phase_index: int,
+    total_phases: int,
+    video_index: int,
+    total_videos: int,
+    input_name: str,
+    title: str,
+    output_mp4: Path,
+) -> str:
+    lines = [
+        f"Phase {phase_index}/{total_phases} — Final output",
+        f"Video {video_index}/{total_videos} — {input_name}",
+        f"Title: {title}",
+        f"Output: {output_mp4.name}",
+    ]
+    return "\n".join(lines)
+
+
+def notify_final_encoding_started(
+    *,
+    phase_index: int,
+    total_phases: int,
+    video_index: int,
+    total_videos: int,
+    input_name: str,
+    title: str,
+    output_mp4: Path,
+) -> None:
+    """Notify that Phase 3 final encoding is about to start (before FFmpeg)."""
+    head = "Encoding started"
+    body = _progress_body(
+        phase_index=phase_index,
+        total_phases=total_phases,
+        video_index=video_index,
+        total_videos=total_videos,
+        input_name=input_name,
+        title=title,
+        output_mp4=output_mp4,
+    )
+    _telegram_send_if_configured(f"{head}\n{body}")
+
+
+def notify_final_output_ready(
+    *,
+    phase_index: int,
+    total_phases: int,
+    video_index: int,
+    total_videos: int,
+    input_name: str,
+    title: str,
+    output_mp4: Path,
+) -> None:
+    """Notify that Phase 3 encoding finished successfully."""
+    head = "Encoding complete"
+    body = _progress_body(
+        phase_index=phase_index,
+        total_phases=total_phases,
+        video_index=video_index,
+        total_videos=total_videos,
+        input_name=input_name,
+        title=title,
+        output_mp4=output_mp4,
+    )
+    _telegram_send_if_configured(f"{head}\n{body}")

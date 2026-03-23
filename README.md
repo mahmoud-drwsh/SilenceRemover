@@ -49,7 +49,7 @@ All other options (models, silence parameters, timeouts, etc.) are controlled vi
 
 ### Telegram (optional)
 
-After each **successful Phase 3** encode, the pipeline can send a **plain text** Telegram message (no file upload). Set both of the following in `.env` (alongside your OpenRouter key):
+During **Phase 3**, the pipeline can send **plain text** Telegram messages when **final encoding starts** and again when it **finishes successfully** (no file upload). Set both of the following in `.env` (alongside your OpenRouter key):
 
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token
@@ -244,7 +244,7 @@ The main code lives under `src/` and `packages/`:
 - `packages/sr_title/`: transcript-to-title generation using OpenRouter (import as `sr_title`).
 - `packages/sr_title_overlay/`: Pillow/Google Fonts PNG title strip for FFmpeg burn-in (import as `sr_title_overlay`).
 - `packages/openrouter_transport/`: shared OpenRouter transport layer (import as `openrouter_transport`).
-- `packages/sr_telegram_notify/`: optional Phase 3 completion text notifications via Telegram Bot API (`notify_final_output_ready`; import as `sr_telegram_notify`).
+- `packages/sr_telegram_notify/`: optional Phase 3 Telegram text notifications (`notify_final_encoding_started`, `notify_final_output_ready`; import as `sr_telegram_notify`).
 - `src/app`: high-level pipeline orchestration (`run` entrypoint).
 - `src/title_editor`: FastAPI title editor UI and standalone server runner.
 - `src/ffmpeg`: centralized FFmpeg command construction, probing, execution, filter-graph helpers, and `silence_removed_runner` (shared encode orchestration for silence-removed audio/video paths).

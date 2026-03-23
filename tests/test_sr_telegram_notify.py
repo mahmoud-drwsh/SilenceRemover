@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from sr_telegram_notify import api as telegram_api
-from sr_telegram_notify import notify_final_output_ready
+from sr_telegram_notify import notify_final_encoding_started, notify_final_output_ready
 
 
 class TestTelegramNotify(unittest.TestCase):
@@ -19,6 +19,15 @@ class TestTelegramNotify(unittest.TestCase):
     @patch.object(telegram_api, "send_message_text")
     def test_noop_when_unconfigured(self, send_mock: MagicMock) -> None:
         notify_final_output_ready(
+            phase_index=3,
+            total_phases=3,
+            video_index=2,
+            total_videos=5,
+            input_name="clip.mp4",
+            title="Hello",
+            output_mp4=Path("out.mp4"),
+        )
+        notify_final_encoding_started(
             phase_index=3,
             total_phases=3,
             video_index=2,
@@ -56,6 +65,28 @@ class TestTelegramNotify(unittest.TestCase):
         self.assertIn("clip.mp4", text)
         self.assertIn("Title: My Title", text)
         self.assertIn("Output: FinalName.mp4", text)
+
+    @patch.dict(
+        "os.environ",
+        {"TELEGRAM_BOT_TOKEN": "secret", "TELEGRAM_CHAT_ID": "99"},
+        clear=True,
+    )
+    @patch.object(telegram_api, "send_message_text")
+    def test_started_message_includes_progress(self, send_mock: MagicMock) -> None:
+        notify_final_encoding_started(
+            phase_index=3,
+            total_phases=3,
+            video_index=1,
+            total_videos=3,
+            input_name="a.mp4",
+            title="T",
+            output_mp4=Path("planned.mp4"),
+        )
+        send_mock.assert_called_once()
+        text = send_mock.call_args.kwargs["text"]
+        self.assertIn("Encoding started", text)
+        self.assertIn("Phase 3/3", text)
+        self.assertIn("Video 1/3", text)
 
     @patch.dict(
         "os.environ",
