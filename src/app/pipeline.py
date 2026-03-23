@@ -32,6 +32,8 @@ from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
 from src.media.trim import trim_single_video
 
+QUICK_TEST_OUTPUT_SECONDS = 5.0
+
 
 @dataclass(frozen=True)
 class _PipelinePhase:
@@ -209,6 +211,7 @@ def run_output_phase(
     target_length: Optional[float],
     encoder: VideoEncoderProfile,
     title_font: str | None = None,
+    max_output_seconds: float | None = None,
     *,
     total_phases: int = 3,
 ) -> bool:
@@ -254,6 +257,7 @@ def run_output_phase(
             encoder=encoder,
             title_path=title_path,
             title_font=title_font,
+            max_output_seconds=max_output_seconds,
         )
         mark_completed(temp_dir, basename)
 
@@ -280,6 +284,13 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
 
     enc = startup.encoder
     print(f"Resolved encoder: {enc.name} ({enc.codec})")
+    quick_test_enabled = bool(getattr(args, "quick_test", False))
+    max_output_seconds = QUICK_TEST_OUTPUT_SECONDS if quick_test_enabled else None
+    if quick_test_enabled:
+        print(
+            f"Quick test mode enabled: limiting final output encodes to "
+            f"{QUICK_TEST_OUTPUT_SECONDS:.0f}s."
+        )
 
     print(f"Found {len(startup.videos)} video file(s)")
     print(f"Input: {startup.input_dir}")
@@ -323,6 +334,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 target_length=startup.target_length,
                 encoder=startup.encoder,
                 title_font=startup.title_font,
+                max_output_seconds=max_output_seconds,
                 total_phases=total_phases,
             ),
         ),

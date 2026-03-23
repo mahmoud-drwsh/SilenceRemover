@@ -113,4 +113,12 @@ def parse_args() -> argparse.Namespace:
             f"Defaults to {TITLE_FONT_DEFAULT}."
         ),
     )
+    parser.add_argument(
+        "--quick-test",
+        action="store_true",
+        help=(
+            "Run full phases 1-3, but cap only final Phase 3 output encoding "
+            "to the first 5 seconds for end-to-end smoke testing."
+        ),
+    )
     return parser.parse_args()

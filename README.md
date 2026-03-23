@@ -73,6 +73,7 @@ Requires FFmpeg/ffprobe on PATH (same as the layout helper). Optional: set `TITL
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Defaults are `TARGET_NOISE_THRESHOLD_DB` (`-55.0`) when `--target-length` is set, otherwise `NON_TARGET_NOISE_THRESHOLD_DB` (`-50.0`).
 - `--min-duration FLOAT`: Override minimum silence duration in seconds (applies in both modes). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with `--target-length` and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
 - `--title-font`: Google Font family name used to render the title overlay. The font is auto-downloaded from Google Fonts on first use and cached under `output/temp/fonts/`.
+- `--quick-test`: Run all three phases, but cap only the final Phase 3 encode output to the first 5 seconds for a fast end-to-end smoke run.
 - `--title-editor`: Start only the title editor web server for `input_dir`; ignores pipeline flags.
 
 ### Suggested Arabic-friendly Google Fonts
@@ -106,6 +107,12 @@ Customize title typography with a specific Google Font:
 
 ```bash
 python main.py ~/Videos/lectures --title-font "Cairo"
+```
+
+Run a fast end-to-end smoke test (final outputs capped to 5 seconds):
+
+```bash
+python main.py ~/Videos/lectures --quick-test
 ```
 
 ## FFmpeg Command Architecture

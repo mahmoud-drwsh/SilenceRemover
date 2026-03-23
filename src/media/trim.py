@@ -211,6 +211,7 @@ def trim_single_video(
     encoder: VideoEncoderProfile | None = None,
     title_path: Path | None = None,
     title_font: str | None = None,
+    max_output_seconds: float | None = None,
 ) -> Path:
     """Trim a single video and return the output file path."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -355,6 +356,7 @@ def trim_single_video(
             source_metadata_filename=(
                 in_file.name if (title_overlay_path is not None or use_logo) else None
             ),
+            max_output_seconds=max_output_seconds,
         ),
         expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
         on_progress=lambda percent: print(f"\rProgress: {percent}%", end="", flush=True),
