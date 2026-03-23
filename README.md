@@ -47,6 +47,19 @@ OPENROUTER_API_KEY=your_api_key_here
 
 All other options (models, silence parameters, timeouts, etc.) are controlled via CLI flags or constants in `src/core/config.py` and `src/core/constants.py`.
 
+### Telegram (optional)
+
+After each **successful Phase 3** encode, the pipeline can send a **plain text** Telegram message (no file upload). Set both of the following in `.env` (alongside your OpenRouter key):
+
+```env
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_or_channel_id
+```
+
+The message includes pipeline progress (phase 3/3 and video index/total), the input filename, title, and output `.mp4` basename. Text is capped at Telegram’s **4096** character limit. Failures are logged to stderr and **do not** fail the encode.
+
+Optional: `TELEGRAM_API_BASE` overrides the API host (default `https://api.telegram.org`), e.g. for a self-hosted Bot API server. Treat the bot token as a **secret**.
+
 ## Usage
 
 ### Basic Usage
@@ -231,6 +244,7 @@ The main code lives under `src/` and `packages/`:
 - `packages/sr_title/`: transcript-to-title generation using OpenRouter (import as `sr_title`).
 - `packages/sr_title_overlay/`: Pillow/Google Fonts PNG title strip for FFmpeg burn-in (import as `sr_title_overlay`).
 - `packages/openrouter_transport/`: shared OpenRouter transport layer (import as `openrouter_transport`).
+- `packages/sr_telegram_notify/`: optional Phase 3 completion text notifications via Telegram Bot API (`notify_final_output_ready`; import as `sr_telegram_notify`).
 - `src/app`: high-level pipeline orchestration (`run` entrypoint).
 - `src/title_editor`: FastAPI title editor UI and standalone server runner.
 - `src/ffmpeg`: centralized FFmpeg command construction, probing, execution, filter-graph helpers, and `silence_removed_runner` (shared encode orchestration for silence-removed audio/video paths).

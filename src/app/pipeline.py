@@ -28,6 +28,7 @@ from src.core.paths import (
 from src.startup import StartupContext, build_startup_context
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile
 from sr_snippet import create_silence_removed_snippet
+from sr_telegram_notify import notify_final_output_ready
 from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
 from src.media.trim import trim_single_video
@@ -39,16 +40,17 @@ QUICK_TEST_OUTPUT_SECONDS = 5.0
 class _PipelinePhase:
     index: int
     label: str
-    run: Callable[[Path], bool]
+    run: Callable[[Path, int, int], bool]
 
 
 def _run_phase(videos: list[Path], phase: _PipelinePhase, total_phases: int) -> None:
     """Run one phase over all videos with shared progress output."""
+    n = len(videos)
     for i, video_file in enumerate(videos, 1):
         print(f"\n{'='*60}")
-        print(f"[{phase.index}/{total_phases}][{i}/{len(videos)}] {phase.label}: {video_file.name}")
+        print(f"[{phase.index}/{total_phases}][{i}/{n}] {phase.label}: {video_file.name}")
         print(f"{'='*60}")
-        phase.run(video_file)
+        phase.run(video_file, i, n)
 
 
 def _run_phase_step(
@@ -212,6 +214,8 @@ def run_output_phase(
     encoder: VideoEncoderProfile,
     title_font: str | None = None,
     max_output_seconds: float | None = None,
+    video_index: int = 1,
+    total_videos: int = 1,
     *,
     total_phases: int = 3,
 ) -> bool:
@@ -221,6 +225,7 @@ def run_output_phase(
     precondition_ok = True
     precondition_message = None
     chosen_basename: str | None = None
+    title_text = ""
 
     already_done = is_completed(temp_dir, basename)
     if already_done:
@@ -235,17 +240,19 @@ def run_output_phase(
         precondition_ok = False
         precondition_message = f"No title for {video_path.name}, skipping output phase."
     else:
-        title = title_path.read_text(encoding="utf-8").strip()
-        if not title:
+        title_text = title_path.read_text(encoding="utf-8").strip()
+        if not title_text:
             precondition_ok = False
             precondition_message = f"Empty title for {video_path.name}, skipping output phase."
         else:
-            chosen_basename = resolve_output_basename(title, output_dir)
+            chosen_basename = resolve_output_basename(title_text, output_dir)
 
     def _perform() -> None:
+        assert chosen_basename is not None
         print(
             f"\n[3/{total_phases}] Creating final output: {video_path.name} -> {chosen_basename}.mp4"
         )
+        output_mp4 = (output_dir / f"{chosen_basename}.mp4").resolve()
         trim_single_video(
             input_file=video_path,
             output_dir=output_dir,
@@ -258,6 +265,15 @@ def run_output_phase(
             title_path=title_path,
             title_font=title_font,
             max_output_seconds=max_output_seconds,
+        )
+        notify_final_output_ready(
+            phase_index=3,
+            total_phases=total_phases,
+            video_index=video_index,
+            total_videos=total_videos,
+            input_name=video_path.name,
+            title=title_text,
+            output_mp4=output_mp4,
         )
         mark_completed(temp_dir, basename)
 
@@ -303,7 +319,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         _PipelinePhase(
             1,
             "Transcription",
-            lambda video_file: run_transcription_phase(
+            lambda video_file, _i, _n: run_transcription_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 pad_sec=startup.pad_sec,
@@ -314,7 +330,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         _PipelinePhase(
             2,
             "Title Generation",
-            lambda video_file: run_title_phase(
+            lambda video_file, _i, _n: run_title_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 api_key=api_key,
@@ -324,7 +340,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         _PipelinePhase(
             3,
             "Final Output",
-            lambda video_file: run_output_phase(
+            lambda video_file, vi, vn: run_output_phase(
                 video_path=video_file,
                 output_dir=startup.output_dir,
                 temp_dir=startup.temp_dir,
@@ -335,6 +351,8 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 encoder=startup.encoder,
                 title_font=startup.title_font,
                 max_output_seconds=max_output_seconds,
+                video_index=vi,
+                total_videos=vn,
                 total_phases=total_phases,
             ),
         ),

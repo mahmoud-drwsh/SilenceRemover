@@ -433,6 +433,7 @@ source = { editable = "." }
 dependencies = [
     { name = "arabic-reshaper" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "openrouter" },
     { name = "pillow" },
     { name = "python-bidi" },
@@ -444,6 +445,7 @@ dependencies = [
 requires-dist = [
     { name = "arabic-reshaper" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "openrouter" },
     { name = "pillow" },
     { name = "python-bidi" },
