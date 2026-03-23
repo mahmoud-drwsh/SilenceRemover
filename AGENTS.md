@@ -184,3 +184,4 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/ffmpeg/transcode.py`: Updated minimal overlay command wiring to use `logo_enabled` rather than target/intrinsic width parameters.
 - `tests/ffmpeg_api_smoke.py`: Updated overlay graph API usage to `logo_enabled` and added assertions that runtime logo scaling is absent.
 - `README.md`: Documented one-time cached logo pre-scaling and clarified that runtime overlay no longer does per-frame logo scaling.
+- `src/media/trim.py`: Fixed a syntax error in the pre-scale FFmpeg command builder call by passing the `overwrite` argument positionally before variadic flags.

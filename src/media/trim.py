@@ -79,7 +79,7 @@ def _ensure_prescaled_logo(
             pass
 
     cmd = build_ffmpeg_cmd(
-        overwrite=True,
+        True,
         "-v",
         "error",
         "-i",
