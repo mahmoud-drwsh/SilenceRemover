@@ -143,3 +143,8 @@ After code or config changes, agents append short notes here. When this file gro
 - `README.md`: Updated architecture/docs references so `build_trim_plan` points to `packages/sr_trim_plan/`.
 - `ALGO.md`: Updated trim-policy implementation note to reference `packages/sr_trim_plan/api.py` for plan assembly.
 - `src/ffmpeg/encoding_resolver.py`: Tuned default final video encode settings to `libx265 -crf 24 -preset slow` for better visual quality at the cost of slower encodes/larger files.
+- `src/ffmpeg/encoding_resolver.py`: Added `hevc_qsv` as primary encoder with ICQ-style quality args and kept `libx265` as fallback only when QSV is not listed, with codec-specific probe failure hints.
+- `README.md`: Updated encoder documentation to QSV-primary behavior, strict listed-but-unusable QSV failure policy, and `libx265` fallback details.
+- `tests/ffmpeg_api_smoke.py`: Added a manual smoke script that validates FFmpeg encoder discovery/selection and transcode command assembly via existing project APIs.
+- `pwsh/Start-FfmpegApiSmokeTest.ps1`: Added a PowerShell launcher to run the FFmpeg API smoke script.
+- `src/ffmpeg/encoding_resolver.py`: Lowered QSV ICQ target from `-global_quality 26` to `24` for a more conservative (higher visual quality) default.

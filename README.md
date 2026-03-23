@@ -9,13 +9,13 @@ An automated video processing tool that removes silence segments, transcribes au
 - **AI Transcription**: Builds a silence-removed snippet (capped at `SNIPPET_MAX_DURATION_SEC`, 180s / 3 minutes by default), encodes it as Ogg/Opus, and transcribes via OpenRouter (default model: `google/gemini-3.1-flash-lite-preview`)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
-- **Video encoding**: Final MP4 video is always encoded with **libx265** (software HEVC). Startup probes FFmpeg for a working `libx265` encoder; there is no hardware path and no codec fallback. Use a **full FFmpeg build that includes libx265** (often GPL-licensed); verify with `ffmpeg -hide_banner -encoders` and look for `libx265`.
+- **Video encoding**: Final MP4 video prefers **`hevc_qsv`** (Intel Quick Sync HEVC) using quality-focused ICQ mode (`-global_quality 26`, `-preset medium`) to target visual quality close to current `libx265` defaults. If `hevc_qsv` is not listed by FFmpeg, startup falls back to **`libx265`** (`-crf 24`, `-preset slow`). If `hevc_qsv` is listed but probe encode fails, startup fails fast so the QSV runtime/build issue can be fixed explicitly.
 - **FFmpeg Centralization**: Consolidates command building, execution, probing, and filter graph generation under the new `src/ffmpeg` package.
 
 ## Requirements
 
 - **Python**: 3.11 or higher
-- **FFmpeg & FFprobe**: Must be on your PATH; the build must include **encoder `libx265`** (many minimal or LGPL-only builds omit it—use a full/GNU build if startup fails with a libx265 message).
+- **FFmpeg & FFprobe**: Must be on your PATH. Prefer an FFmpeg build with **`hevc_qsv`** plus Intel Quick Sync runtime support for the primary encoder path; also include **`libx265`** for fallback when QSV is unavailable.
 - **OpenRouter API Key**: Required for transcription and title generation (get one at [openrouter.ai](https://openrouter.ai))
 - **Dependencies**: Managed via `pyproject.toml` (installed automatically). Transcription and title generation use the official [OpenRouter Python SDK](https://openrouter.ai/docs/sdks/python).
 
@@ -240,7 +240,7 @@ The main code lives under `src/` and `packages/`:
 
 - **Missing Tools**: Validates FFmpeg/FFprobe availability before processing
 - **API Errors**: Automatic retry with exponential backoff
-- **Encoding Failures**: FFmpeg encoding errors are reported directly (no fallback)
+- **Encoding Failures**: Startup selects `hevc_qsv` when available, falls back to `libx265` only when QSV is absent, and otherwise reports FFmpeg errors directly.
 - **Invalid Videos**: Skips corrupted or unreadable files with error messages
 
 ## Troubleshooting

@@ -30,6 +30,21 @@ class VideoEncoderProfile:
 
 _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
     VideoEncoderProfile(
+        name="hevc_qsv_hardware_primary",
+        codec="hevc_qsv",
+        codec_args=(
+            "-preset",
+            "medium",
+            "-global_quality",
+            "24",
+            "-look_ahead_depth",
+            "0",
+            "-async_depth",
+            "4",
+        ),
+        container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
+    ),
+    VideoEncoderProfile(
         name="libx265_software_hevc",
         codec="libx265",
         codec_args=(
@@ -46,6 +61,10 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
 _LIBX265_VERIFY_HINT = (
     "Install a full FFmpeg build that includes encoder libx265 (often GPL-licensed). "
     "Check: ffmpeg -hide_banner -encoders (look for libx265)."
+)
+_HEVC_QSV_VERIFY_HINT = (
+    "Ensure FFmpeg includes encoder hevc_qsv and Intel Quick Sync runtime support. "
+    "Check: ffmpeg -hide_banner -encoders (look for hevc_qsv)."
 )
 
 
@@ -66,23 +85,33 @@ def _probe_encoder_profile(profile: VideoEncoderProfile) -> VideoEncoderProfile:
 
 
 def resolve_video_encoder() -> VideoEncoderProfile:
-    """Resolve the libx265 software encoder; fail fast if FFmpeg cannot run it."""
+    """Resolve final video encoder with hevc_qsv primary and libx265 fallback."""
     global _RESOLVED_ENCODER
     if _RESOLVED_ENCODER is not None:
         return _RESOLVED_ENCODER
 
-    profile = _ENCODER_PROFILES[0]
     available = _get_available_encoders()
-    if profile.codec not in available:
+    qsv_profile, libx265_profile = _ENCODER_PROFILES
+
+    if qsv_profile.codec in available:
+        try:
+            _RESOLVED_ENCODER = _probe_encoder_profile(qsv_profile)
+            return _RESOLVED_ENCODER
+        except RuntimeError as exc:
+            raise RuntimeError(
+                f"Encoder '{qsv_profile.codec}' is listed but a probe encode failed. {_HEVC_QSV_VERIFY_HINT}"
+            ) from exc
+
+    if libx265_profile.codec not in available:
         raise RuntimeError(
-            f"FFmpeg does not list encoder '{profile.codec}'. {_LIBX265_VERIFY_HINT}"
+            f"FFmpeg does not list fallback encoder '{libx265_profile.codec}'. {_LIBX265_VERIFY_HINT}"
         )
 
     try:
-        _RESOLVED_ENCODER = _probe_encoder_profile(profile)
+        _RESOLVED_ENCODER = _probe_encoder_profile(libx265_profile)
     except RuntimeError as exc:
         raise RuntimeError(
-            f"Encoder '{profile.codec}' is listed but a probe encode failed. {_LIBX265_VERIFY_HINT}"
+            f"Fallback encoder '{libx265_profile.codec}' is listed but a probe encode failed. {_LIBX265_VERIFY_HINT}"
         ) from exc
 
     return _RESOLVED_ENCODER
