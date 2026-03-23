@@ -151,3 +151,5 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/ffmpeg/encoding_resolver.py`: Increased QSV quality further by setting `-preset slow` and `-global_quality 20`.
 - `README.md`: Synced QSV quality documentation to `-global_quality 20` and `-preset slow`.
 - `AGENTS.md`: Condensed changelog **FFmpeg layer**, **Encoding**, and **Pipeline run** bullets updated for QSV-primary / `libx265` fallback (no longer libx265-only).
+- `src/ffmpeg/encoding_resolver.py`: QSV profile adds `-extbrc 1`, `-look_ahead_depth 20`, `-adaptive_i 1`, `-adaptive_b 1`, `-forced_idr 1` alongside `-preset slow` and `-global_quality 20`.
+- `README.md`: Documented QSV extended BRC, lookahead, adaptive I/B, and forced IDR in the encoder bullet.
