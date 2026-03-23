@@ -165,3 +165,6 @@ After code or config changes, agents append short notes here. When this file gro
 - `tests/test_sr_telegram_notify.py`: Extended no-op test for both entrypoints; added started-message progress assertions.
 - `README.md`: Telegram docs note start + complete messages per Phase 3 encode.
 - `.env.example`: Telegram comment notes start + finish notifications.
+- `src/media/trim.py`: Enhanced FFmpeg progress output to include wall/encoded time and current output file size.
+- `src/media/trim.py`: Appended encoding speed (real-time factor) to FFmpeg progress output.
+- `src/ffmpeg/runner.py` and `src/ffmpeg/silence_removed_runner.py`: Forward FFmpeg encoded-time seconds through progress callbacks for richer progress indicators.

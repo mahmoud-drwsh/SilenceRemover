@@ -40,7 +40,7 @@ def run_silence_removed_media(
     build_filter_graph: Callable[[list[tuple[float, float]], int | None], str],
     build_command: Callable[[Path, Path, Path], list[str]],
     expected_total_seconds: Optional[float] = None,
-    on_progress: Optional[Callable[[int], None]] = None,
+    on_progress: Optional[Callable[[int, float], None]] = None,
     command_label: Optional[str] = None,
     overlay_y: int | None = None,
 ) -> Path:
@@ -56,11 +56,11 @@ def run_silence_removed_media(
     if expected_total_seconds is not None:
         emitted_progress = False
 
-        def _on_progress(percent: int) -> None:
+        def _on_progress(percent: int, ffmpeg_seconds: float) -> None:
             nonlocal emitted_progress
             emitted_progress = True
             if on_progress is not None:
-                on_progress(percent)
+                on_progress(percent, ffmpeg_seconds)
 
         try:
             run_with_progress(

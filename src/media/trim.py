@@ -1,6 +1,7 @@
 """Video trimming functionality."""
 
 import shutil
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -186,6 +187,24 @@ def trim_single_video(
         )
         use_lavfi_silent_audio = not input_has_audio
 
+    start_wall = time.monotonic()
+
+    def _on_progress(percent: int, ffmpeg_elapsed_sec: float) -> None:
+        wall_elapsed = time.monotonic() - start_wall
+        speed_x = ffmpeg_elapsed_sec / max(wall_elapsed, 1e-6)
+        size_txt = "n/a"
+        try:
+            size_mb = output_file.stat().st_size / 1048576
+            size_txt = f"{size_mb:.2f} MiB"
+        except OSError:
+            pass
+
+        print(
+            f"\rProgress: {percent}% | {wall_elapsed:.1f}s wall | {ffmpeg_elapsed_sec:.1f}s encoded | {speed_x:.2f}x | {size_txt}",
+            end="",
+            flush=True,
+        )
+
     return run_silence_removed_media(
         input_file=input_file,
         output_file=output_file,
@@ -207,7 +226,7 @@ def trim_single_video(
             max_output_seconds=max_output_seconds,
         ),
         expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
-        on_progress=lambda percent: print(f"\rProgress: {percent}%", end="", flush=True),
+        on_progress=_on_progress,
         command_label=f"{encoder.codec} encode",
         overlay_y=banner_top,
     )

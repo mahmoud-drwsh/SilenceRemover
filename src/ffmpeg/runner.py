@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 import subprocess
 
-ProgressCallback = Callable[[int], None]
+ProgressCallback = Callable[[int, float], None]
 
 
 def format_ffmpeg_process_failure(
@@ -75,6 +75,7 @@ def run_with_progress(
     )
     output_lines: list[str] = []
     current_percent = -1
+    last_encoded_sec_int = -1
     try:
         if proc.stdout is None:
             raise RuntimeError("ffmpeg progress read failed: stdout pipe unavailable")
@@ -88,10 +89,12 @@ def run_with_progress(
                 continue
             if expected_total_seconds > 0:
                 percent = int(min(100.0, max(0.0, (seconds / expected_total_seconds) * 100.0)))
-                if percent != current_percent:
+                encoded_sec_int = int(seconds)
+                if percent != current_percent or encoded_sec_int != last_encoded_sec_int:
                     current_percent = percent
+                    last_encoded_sec_int = encoded_sec_int
                     if on_progress is not None:
-                        on_progress(percent)
+                        on_progress(percent, seconds)
     finally:
         return_code = proc.wait()
     stdout_text = "".join(output_lines)
