@@ -21,7 +21,7 @@ from src.ffmpeg.silence_removed_runner import (
     run_minimal_ffmpeg_output,
     run_silence_removed_media,
 )
-from src.media.trim import build_trim_plan
+from sr_trim_plan import build_trim_plan
 
 
 def _segments_from_trim_plan(

@@ -2,8 +2,7 @@
 
 import shutil
 from pathlib import Path
-from dataclasses import dataclass
-from typing import Callable, Literal, Optional
+from typing import Callable, Optional
 
 from src.core.constants import (
     DEFAULT_LOGO_PATH,
@@ -13,9 +12,6 @@ from src.core.constants import (
     TITLE_BANNER_HEIGHT_FRACTION,
     TITLE_BANNER_START_FRACTION,
     TITLE_FONT_DEFAULT,
-    TRIM_TIMESTAMP_EPSILON_SEC,
-    TrimDefaults,
-    resolve_trim_defaults,
 )
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
 from src.ffmpeg.filter_graph import (
@@ -25,11 +21,11 @@ from src.ffmpeg.filter_graph import (
     build_video_lavfi_audio_concat_filter_graph_with_title_overlay,
 )
 from src.ffmpeg.probing import (
-    probe_duration,
     probe_ffmpeg_can_decode_image_frame,
     probe_has_audio_stream,
     probe_video_dimensions,
 )
+from sr_trim_plan import build_trim_plan
 from sr_title_overlay import build_title_overlay
 from src.ffmpeg.transcode import build_final_trim_command, build_minimal_video_command
 from src.core.fs_utils import wait_for_file_release
@@ -38,154 +34,6 @@ from src.ffmpeg.silence_removed_runner import (
     run_silence_removed_media,
 )
 from src.core.paths import get_font_cache_path, get_title_overlay_path
-from src.media.silence_detector import (
-    choose_threshold_and_padding_for_target,
-    normalize_timestamp,
-    build_keep_segments_from_silences,
-    prepare_silence_intervals_with_edges,
-    truncate_segments_to_max_length,
-)
-
-TrimPlanMode = Literal["target", "non_target"]
-
-
-@dataclass(frozen=True)
-class TrimPlan:
-    """Resolved trim strategy and segment output for one media run."""
-
-    mode: TrimPlanMode
-    segments_to_keep: list[tuple[float, float]]
-    input_duration_sec: float
-    resulting_length_sec: float
-    resolved_noise_threshold: float
-    resolved_min_duration: float
-    resolved_pad_sec: float
-    target_length: Optional[float]
-    should_copy_input: bool = False
-
-
-def should_copy_when_target_exceeds_input(duration_sec: float, target_length: Optional[float]) -> bool:
-    """Return True when target mode can skip trimming because input is already short enough."""
-    return target_length is not None and target_length >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC
-
-
-def _probe_and_validate_duration(input_file: Path) -> float:
-    duration_sec = probe_duration(input_file)
-    if duration_sec <= 0:
-        raise ValueError(f"Invalid video duration: {duration_sec}s. Video file may be corrupted or empty.")
-    return normalize_timestamp(duration_sec)
-
-
-def build_trim_plan(
-    input_file: Path,
-    target_length: Optional[float],
-    noise_threshold: float,
-    min_duration: float,
-    pad_sec: float,
-) -> TrimPlan:
-    """Resolve mode policy and return a reusable trim plan."""
-    trim_defaults = resolve_trim_defaults(
-        target_length=target_length,
-        noise_threshold=noise_threshold,
-        min_duration=min_duration,
-        pad_sec=pad_sec,
-    )
-    duration_sec = _probe_and_validate_duration(input_file)
-    if should_copy_when_target_exceeds_input(duration_sec, target_length):
-        return TrimPlan(
-            mode="target",
-            segments_to_keep=[(0.0, normalize_timestamp(duration_sec))],
-            input_duration_sec=duration_sec,
-            resulting_length_sec=duration_sec,
-            resolved_noise_threshold=trim_defaults.noise_threshold,
-            resolved_min_duration=trim_defaults.min_duration,
-            resolved_pad_sec=0.0,
-            target_length=target_length,
-            should_copy_input=True,
-        )
-
-    if target_length is None:
-        return _build_non_target_trim_plan(input_file=input_file, duration_sec=duration_sec, trim_defaults=trim_defaults)
-
-    return _build_target_trim_plan(
-        input_file=input_file,
-        duration_sec=duration_sec,
-        target_length=target_length,
-        trim_defaults=trim_defaults,
-    )
-
-
-def _build_non_target_trim_plan(
-    input_file: Path,
-    duration_sec: float,
-    trim_defaults: TrimDefaults,
-) -> TrimPlan:
-    """Build a non-target trim plan."""
-    silence_starts, silence_ends = prepare_silence_intervals_with_edges(
-        input_file=input_file,
-        duration_sec=duration_sec,
-        noise_threshold=trim_defaults.noise_threshold,
-        min_duration=trim_defaults.min_duration,
-    )
-    segments_to_keep = build_keep_segments_from_silences(
-        silence_starts=silence_starts,
-        silence_ends=silence_ends,
-        duration_sec=duration_sec,
-        pad_sec=trim_defaults.pad_sec,
-    )
-    resulting_length = normalize_timestamp(sum(end - start for start, end in segments_to_keep))
-    return TrimPlan(
-        mode="non_target",
-        segments_to_keep=segments_to_keep,
-        input_duration_sec=duration_sec,
-        resulting_length_sec=resulting_length,
-        resolved_noise_threshold=trim_defaults.noise_threshold,
-        resolved_min_duration=trim_defaults.min_duration,
-        resolved_pad_sec=trim_defaults.pad_sec,
-        target_length=None,
-    )
-
-
-def _build_target_trim_plan(
-    input_file: Path,
-    duration_sec: float,
-    target_length: float,
-    trim_defaults: TrimDefaults,
-) -> TrimPlan:
-    """Build a target-mode trim plan with adaptive threshold/padding policy."""
-    silence_starts, silence_ends, chosen_threshold, chosen_pad = choose_threshold_and_padding_for_target(
-        input_file=input_file,
-        duration_sec=duration_sec,
-        target_length=target_length,
-        min_duration=trim_defaults.min_duration,
-        override_noise_threshold=trim_defaults.noise_threshold,
-    )
-    segments_to_keep = build_keep_segments_from_silences(
-        silence_starts=silence_starts,
-        silence_ends=silence_ends,
-        duration_sec=duration_sec,
-        pad_sec=chosen_pad,
-    )
-    resulting_length = normalize_timestamp(sum(end - start for start, end in segments_to_keep))
-
-    if resulting_length > target_length + TRIM_TIMESTAMP_EPSILON_SEC:
-        segments_to_keep = truncate_segments_to_max_length(segments_to_keep, target_length)
-        resulting_length = normalize_timestamp(sum(end - start for start, end in segments_to_keep))
-
-    print(
-        f"Target mode: chosen noise_threshold={chosen_threshold}dB, "
-        f"min_duration={trim_defaults.min_duration}s, pad={chosen_pad}s"
-    )
-    return TrimPlan(
-        mode="target",
-        segments_to_keep=segments_to_keep,
-        input_duration_sec=duration_sec,
-        resulting_length_sec=resulting_length,
-        resolved_noise_threshold=chosen_threshold,
-        resolved_min_duration=trim_defaults.min_duration,
-        resolved_pad_sec=chosen_pad,
-        target_length=target_length,
-    )
 
 
 def _copy_input_video(input_file: Path, output_file: Path) -> Path:

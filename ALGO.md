@@ -130,7 +130,7 @@ Final settings used for segment building: `noise_threshold=-50dB`, `min_duration
   - Non-target mode: fixed `noise_threshold`, `min_duration`, and `pad_sec` (`NON_TARGET_PAD_SEC`) with the shared edge helper applied before padding.
   - Target mode: threshold sweep + padding tuning, with `min_duration=TARGET_MIN_DURATION_SEC`, and the shared edge helper applied before each candidate length evaluation.
 
-Implementation: `choose_threshold_and_padding_for_target` and `find_optimal_padding` in `src/media/silence_detector.py`; target-length path in `trim_single_video` in `src/media/trim.py`.
+Implementation: `choose_threshold_and_padding_for_target` and `find_optimal_padding` in `src/media/silence_detector.py`; shared trim-plan assembly in `packages/sr_trim_plan/api.py`, with render execution in `trim_single_video` in `src/media/trim.py`.
 
 ## Title overlay PNG (`packages/sr_title_overlay/`)
 

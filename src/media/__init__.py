@@ -10,7 +10,10 @@ from src.media.silence_detector import (
     normalize_timestamp,
     truncate_segments_to_max_length,
 )
-from src.media.trim import trim_single_video
+def trim_single_video(*args, **kwargs):
+    from src.media.trim import trim_single_video as _trim_single_video
+
+    return _trim_single_video(*args, **kwargs)
 
 __all__ = [
     "TRIM_TIMESTAMP_EPSILON_SEC",

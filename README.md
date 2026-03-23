@@ -143,7 +143,7 @@ The tool processes videos sequentially through **four** main stages:
 
 ### 2. Audio Extraction
 
-- **Snippet** (`packages/sr_snippet/`): extracts up to 3 minutes (`SNIPPET_MAX_DURATION_SEC` = 180s) of silence-removed snippet audio for transcription using the same edge policy as final trim (`build_trim_plan` in `src/media/trim.py`).
+- **Snippet** (`packages/sr_snippet/`): extracts up to 3 minutes (`SNIPPET_MAX_DURATION_SEC` = 180s) of silence-removed snippet audio for transcription using the same edge policy as final trim (`build_trim_plan` in `packages/sr_trim_plan/`).
 - Saves as `.ogg` (Opus) under `output/temp/snippet/` (see `get_snippet_path` / `AUDIO_FILE_EXT`)
 - Phase-1 snippet extraction ignores `--noise-threshold`/`--min-duration` overrides and always uses `SNIPPET_NOISE_THRESHOLD_DB` (`-55dB`) and `SNIPPET_MIN_DURATION_SEC` (`0.01s`) via snippet defaults.
 - Reuses existing audio files if already extracted
@@ -223,7 +223,8 @@ The tool includes built-in retry logic for rate limit errors (exponential backof
 The main code lives under `src/` and `packages/`:
 
 - `src/core`: shared constants, config loading, path utilities, and CLI utilities.
-- `src/media`: silence detection, `build_trim_plan` / `trim_single_video`, and related algorithms.
+- `src/media`: silence detection and final trim rendering (`trim_single_video`).
+- `packages/sr_trim_plan/`: shared trim-policy black box (`TrimPlan`, `build_trim_plan`) for snippet + final trim.
 - `src/llm`: re-exports `sr_transcription` and `sr_title` entrypoints and prompts (no separate FFmpeg extraction module).
 - `packages/sr_snippet/`: silence-removed transcription snippet audio (`create_silence_removed_snippet`; import as `sr_snippet`).
 - `packages/sr_transcription/`: audio transcription API using OpenRouter (import as `sr_transcription`).
