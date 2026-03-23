@@ -15,9 +15,8 @@ import arabic_reshaper
 from bidi.algorithm import get_display
 from PIL import Image, ImageDraw, ImageFont
 
-from src.core.constants import (
+from sr_title_overlay.constants import (
     TITLE_BANNER_BG_ALPHA,
-    TITLE_FONT_DEFAULT,
     TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS,
     TITLE_OVERLAY_MAX_LINES,
     TITLE_TWO_LINE_MIN_GAIN_PX,
@@ -282,7 +281,7 @@ def build_title_overlay(
     video_width: int,
     banner_height: int,
     output_file: Path,
-    font_family: str = TITLE_FONT_DEFAULT,
+    font_family: str,
     font_cache_dir: Path,
 ) -> Path:
     """Render a banner PNG with the title centered inside.

@@ -158,16 +158,9 @@ TEXT_FILE_EXT = ".txt"
 # Vertical sixths: overlay starts at top of 2nd sixth; band height is 1/6 of frame (y in [H/6, H/3]).
 TITLE_BANNER_START_FRACTION = 1 / 6
 TITLE_BANNER_HEIGHT_FRACTION = 1 / 6
-TITLE_BANNER_BG_ALPHA = 0.5
 TITLE_FONT_DEFAULT = "Noto Naskh Arabic"
 TITLE_MIN_READABLE_FONT_PX = 26
 TITLE_MIN_READABLE_FONT_BANNER_FRACTION = 0.12
-# Multi-line layout search: min px gain vs single-line to adopt a word-wrapped layout.
-TITLE_TWO_LINE_MIN_GAIN_PX = 1
-# Max logical lines to evaluate when maximizing fitted font size (word-boundary splits).
-TITLE_OVERLAY_MAX_LINES = 5
-# Skip a line-count k when C(n-1,k-1) exceeds this (exhaustive split enumeration).
-TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS = 8000
 
 # Final MP4 (overlay encode): format tag; value is original input filename (Path.name).
 # Use the standard `comment` tag so MP4/MOV muxers persist it and ffprobe shows it.
@@ -226,13 +219,9 @@ __all__ = [
     "TEXT_FILE_EXT",
     "TITLE_BANNER_START_FRACTION",
     "TITLE_BANNER_HEIGHT_FRACTION",
-    "TITLE_BANNER_BG_ALPHA",
     "TITLE_FONT_DEFAULT",
     "TITLE_MIN_READABLE_FONT_PX",
     "TITLE_MIN_READABLE_FONT_BANNER_FRACTION",
-    "TITLE_TWO_LINE_MIN_GAIN_PX",
-    "TITLE_OVERLAY_MAX_LINES",
-    "TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS",
     "FINAL_VIDEO_SOURCE_METADATA_KEY",
     "LEGACY_FINAL_VIDEO_SOURCE_METADATA_KEY",
     "EDGE_SILENCE_KEEP_SEC",

@@ -30,7 +30,7 @@ from src.ffmpeg.probing import (
     probe_has_audio_stream,
     probe_video_dimensions,
 )
-from src.media.title_overlay import build_title_overlay
+from sr_title_overlay import build_title_overlay
 from src.ffmpeg.transcode import build_final_trim_command, build_minimal_video_command
 from src.core.fs_utils import wait_for_file_release
 from src.ffmpeg.silence_removed_runner import (

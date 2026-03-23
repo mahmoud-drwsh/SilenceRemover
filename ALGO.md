@@ -132,9 +132,9 @@ Final settings used for segment building: `noise_threshold=-50dB`, `min_duration
 
 Implementation: `choose_threshold_and_padding_for_target` and `find_optimal_padding` in `src/media/silence_detector.py`; target-length path in `trim_single_video` in `src/media/trim.py`.
 
-## Title overlay PNG (`src/media/title_overlay.py`)
+## Title overlay PNG (`packages/sr_title_overlay/`)
 
-Phase 3 burns in a **pre-rendered RGBA PNG** (not FFmpeg `drawtext`). The pipeline probes the source with `ffprobe`, then builds a strip image of size **`video_width × banner_height`**, where `banner_height = max(1, int(video_height * TITLE_BANNER_HEIGHT_FRACTION))` with **`TITLE_BANNER_HEIGHT_FRACTION = 1/6`**. That PNG is composited at **`overlay_x=0`, `overlay_y=int(video_height * TITLE_BANNER_START_FRACTION)`** with **`TITLE_BANNER_START_FRACTION = 1/6`** (top of the second sixth), so the covered band is **`y ∈ [H/6, H/3]`** on the full frame. Implementation: `trim.py` → `build_title_overlay` → FFmpeg `overlay=0:{overlay_y}` in `src/ffmpeg/filter_graph.py`.
+Phase 3 burns in a **pre-rendered RGBA PNG** (not FFmpeg `drawtext`). The pipeline probes the source with `ffprobe`, then builds a strip image of size **`video_width × banner_height`**, where `banner_height = max(1, int(video_height * TITLE_BANNER_HEIGHT_FRACTION))` with **`TITLE_BANNER_HEIGHT_FRACTION = 1/6`**. That PNG is composited at **`overlay_x=0`, `overlay_y=int(video_height * TITLE_BANNER_START_FRACTION)`** with **`TITLE_BANNER_START_FRACTION = 1/6`** (top of the second sixth), so the covered band is **`y ∈ [H/6, H/3]`** on the full frame. Implementation: `trim.py` → `sr_title_overlay.build_title_overlay` → FFmpeg `overlay=0:{overlay_y}` in `src/ffmpeg/filter_graph.py`.
 
 ### Text normalization (Arabic / RTL)
 
@@ -148,7 +148,7 @@ Inside the PNG, text must fit in:
 - **max_width** = `max(1, video_width × 0.95)`
 - **max_height** = `banner_height × 0.95`
 
-The strip is filled with a semi-transparent black (`TITLE_BANNER_BG_ALPHA`, default 0.5).
+The strip is filled with a semi-transparent black (`TITLE_BANNER_BG_ALPHA` in `packages/sr_title_overlay/constants.py`, default 0.5).
 
 ### Font
 
@@ -163,9 +163,9 @@ The strip is filled with a semi-transparent black (`TITLE_BANNER_BG_ALPHA`, defa
 
 ### Multi-line word-boundary search (multi-word titles)
 
-If there are at least two words, the code evaluates **word-boundary layouts** with **2 to `TITLE_OVERLAY_MAX_LINES`** logical lines (default **5**). For each line count `k`, it enumerates all `(k-1)`-cut compositions of the `n` words (`itertools.combinations` over the `n-1` inter-word gaps). For each candidate, lines are shaped and `_largest_fitting_font_size` finds the largest font that fits. The winner maximizes **fitted font size**; ties favor **lower variance** of per-line character counts, then **more lines** when variance is equal (so extra vertical space can go toward readability). If `C(n-1, k-1)` exceeds **`TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS`** (default **8000**), that `k` is skipped to bound work.
+If there are at least two words, the code evaluates **word-boundary layouts** with **2 to `TITLE_OVERLAY_MAX_LINES`** logical lines (default **5**, `packages/sr_title_overlay/constants.py`). For each line count `k`, it enumerates all `(k-1)`-cut compositions of the `n` words (`itertools.combinations` over the `n-1` inter-word gaps). For each candidate, lines are shaped and `_largest_fitting_font_size` finds the largest font that fits. The winner maximizes **fitted font size**; ties favor **lower variance** of per-line character counts, then **more lines** when variance is equal (so extra vertical space can go toward readability). If `C(n-1, k-1)` exceeds **`TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS`** (default **8000**), that `k` is skipped to bound work.
 
-The chosen layout replaces single-line **only if** `multi_line_size >= single_line_size + TITLE_TWO_LINE_MIN_GAIN_PX` (default **1**). This prefers more lines when they yield a larger fitted font (e.g. more room to use banner height).
+The chosen layout replaces single-line **only if** `multi_line_size >= single_line_size + TITLE_TWO_LINE_MIN_GAIN_PX` (default **1**, same module). This prefers more lines when they yield a larger fitted font (e.g. more room to use banner height).
 
 ### Greedy wrap (when still single-line)
 
@@ -181,12 +181,10 @@ If the wrapped lines no longer fit at the current size (e.g. after wrapping), `_
 - **Horizontal:** Each line is centered using `x = (video_width - ink_w) / 2 - bb[0]` so the ink box is centered (not advance-width centering).
 - **Vertical:** Lines are stacked top-to-bottom with the same gap as in `_stacked_text_block_height`, starting at `y` so the block is vertically centered in the banner.
 
-### Tunables (`src/core/constants.py`)
+### Tunables
 
-- `TITLE_BANNER_BG_ALPHA` — banner opacity.
-- `TITLE_TWO_LINE_MIN_GAIN_PX` — minimum px improvement required to adopt a multi-line word-boundary layout over single-line.
-- `TITLE_OVERLAY_MAX_LINES` — maximum line count considered in the exhaustive layout search.
-- `TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS` — skip enumerating a given `k` when `C(n-1,k-1)` exceeds this.
+- **PNG renderer** (`packages/sr_title_overlay/constants.py`): `TITLE_BANNER_BG_ALPHA`, `TITLE_TWO_LINE_MIN_GAIN_PX`, `TITLE_OVERLAY_MAX_LINES`, `TITLE_OVERLAY_MAX_LAYOUT_COMBINATIONS`.
+- **Banner placement on frame** (`src/core/constants.py`): `TITLE_BANNER_START_FRACTION`, `TITLE_BANNER_HEIGHT_FRACTION`; default title font family for CLI: `TITLE_FONT_DEFAULT`.
 - `TITLE_MIN_READABLE_FONT_PX` / `TITLE_MIN_READABLE_FONT_BANNER_FRACTION` — defined for potential future readability heuristics; the current overlay sizing logic uses the multi-line gain rule and `_lines_fit` only.
 
 ## Phase 3 video compositing: title + optional logo (`src/ffmpeg/filter_graph.py`)

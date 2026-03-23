@@ -158,8 +158,8 @@ The tool processes videos sequentially through **four** main stages:
 
 - The title text from `output/temp/title/{basename}.txt` is loaded right before output encoding.
 - `ffprobe` reads the source **video width and height**. A **banner-sized** RGBA PNG (`video_width` × `banner_height`, with `banner_height = (1/6) × frame height`) is written to `output/temp/title_overlays/{basename}.png`. FFmpeg composites it at `x=0`, `y=(1/6) × frame height` (`overlay=0:{y}`), so the strip covers **`y` from H/6 to H/3** (the second sixth of the frame). Values come from `TITLE_BANNER_START_FRACTION` and `TITLE_BANNER_HEIGHT_FRACTION` in `src/core/constants.py`.
-- The PNG is a semi-transparent black strip (`TITLE_BANNER_BG_ALPHA`, default 0.5) with **white** title text rendered in Pillow using the selected `--title-font` (Google Font, cached under `output/temp/fonts/`).
-- **Layout algorithm** (largest font that fits, optional multi-line word-boundary splits up to `TITLE_OVERLAY_MAX_LINES`, bbox-based metrics, vertical stacking): see **`ALGO.md` → “Title overlay PNG”**.
+- The PNG is rendered by **`packages/sr_title_overlay/`** (`build_title_overlay`): semi-transparent black strip (default alpha **0.5** in that package) with **white** title text in Pillow using the selected `--title-font` (Google Font, cached under `output/temp/fonts/`).
+- **Layout algorithm** (largest font that fits, optional multi-line word-boundary splits, bbox-based metrics, vertical stacking): see **`ALGO.md` → “Title overlay PNG”** and tunables in `packages/sr_title_overlay/constants.py`.
 - **Arabic / RTL titles**: Pillow draws in visual order only; text is shaped with `arabic-reshaper` and reordered with `python-bidi` (`get_display`) before measuring and drawing. Mixed Arabic + Latin/numbers follow Unicode bidirectional rules.
 - FFmpeg applies this PNG in the trim/concat filter graph; no `drawtext` dependency for the final overlay.
 - **Logo (optional):** If `logo/logo.png` exists at the **repository root** (that folder is often gitignored), Phase 3 adds another looping PNG input to FFmpeg. **Input order** (0-based): **`0`** = source video, **`1`** = title overlay PNG (when a title is rendered), **`2`** = logo PNG when **both** title and logo are used (the logo is the **third** demuxer input in that case). If `trim_single_video` is called **without** a title but with a logo file, the logo is **`1`**. The pipeline’s Phase 3 always supplies a title, so production runs use **title at `1`, logo at `2`**. **Stacking:** the logo is composited onto the video first, then the title strip on top. `ffprobe` reads the logo width, then a tiny FFmpeg decode (`-frames:v 1` to null) confirms the PNG is readable by the same decoder used in the final command; if either check fails, the logo overlay is skipped with a console warning and the rest of the encode continues. The logo is scaled uniformly with `scale=w=iw*{target}/logo_w:h=ih*{target}/logo_w` where **`target = video_width × LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO`** (default **1.0**, full frame width). After `format=rgba`, **`colorchannelmixer=aa=LOGO_OVERLAY_ALPHA`** (default **1.0**, fully opaque gain) applies before compositing **top-aligned** with **`LOGO_OVERLAY_MARGIN_PX`** inset (default **0**, no padding). Constants live in `src/core/constants.py` (`DEFAULT_LOGO_PATH`, `LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO`, `LOGO_OVERLAY_MARGIN_PX`, `LOGO_OVERLAY_ALPHA`). Stream-copy skips when a logo file is present (same as title overlay).
@@ -209,7 +209,7 @@ The tool maintains state in files under **`output/temp/`** to avoid reprocessing
 
 The tool includes built-in retry logic for rate limit errors (exponential backoff) and processes videos sequentially to respect API quotas.
 
-- **Defaults**: Transcription, title, and snippet constants default via `src/core/constants.py` (e.g. `OPENROUTER_DEFAULT_MODEL`, `SNIPPET_*`; see `packages/sr_transcription/`, `packages/sr_title/`, `packages/sr_snippet/`).
+- **Defaults**: Transcription, title, and snippet constants default via `src/core/constants.py` (e.g. `OPENROUTER_DEFAULT_MODEL`, `SNIPPET_*`; see `packages/sr_transcription/`, `packages/sr_title/`, `packages/sr_snippet/`). Title PNG layout tunables live in `packages/sr_title_overlay/constants.py`.
 
 ## Domain Package Layout
 
@@ -221,6 +221,7 @@ The main code lives under `src/` and `packages/`:
 - `packages/sr_snippet/`: silence-removed transcription snippet audio (`create_silence_removed_snippet`; import as `sr_snippet`).
 - `packages/sr_transcription/`: audio transcription API using OpenRouter (import as `sr_transcription`).
 - `packages/sr_title/`: transcript-to-title generation using OpenRouter (import as `sr_title`).
+- `packages/sr_title_overlay/`: Pillow/Google Fonts PNG title strip for FFmpeg burn-in (import as `sr_title_overlay`).
 - `packages/openrouter_transport/`: shared OpenRouter transport layer (import as `openrouter_transport`).
 - `src/app`: high-level pipeline orchestration (`run` entrypoint).
 - `src/title_editor`: FastAPI title editor UI and standalone server runner.
