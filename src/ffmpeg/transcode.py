@@ -11,16 +11,18 @@ from src.core.constants import (
     LOGO_OVERLAY_ALPHA,
     LOGO_OVERLAY_MARGIN_PX,
 )
-from src.ffmpeg.core import add_filter_complex_script, build_ffmpeg_cmd
+from src.ffmpeg.core import add_filter_complex_script, build_ffmpeg_cmd, build_qsv_hwaccel_flags
 from src.ffmpeg.filter_graph import build_minimal_encode_overlay_filter_complex
 
 if TYPE_CHECKING:
     from src.ffmpeg.encoding_resolver import VideoEncoderProfile
 
 
-def _build_input_command(input_file: Path) -> list[str]:
+def _build_input_command(input_file: Path, *, use_qsv_hardware_path: bool = False) -> list[str]:
     """Build an ffmpeg command with a standard output overwrite flag and input."""
     cmd = build_ffmpeg_cmd(overwrite=True)
+    if use_qsv_hardware_path:
+        cmd.extend(build_qsv_hwaccel_flags())
     cmd.extend(["-i", str(input_file)])
     return cmd
 
@@ -80,9 +82,10 @@ def build_minimal_video_command(
     logo_margin_px: int = LOGO_OVERLAY_MARGIN_PX,
     logo_alpha: float = LOGO_OVERLAY_ALPHA,
     source_metadata_filename: str | None = None,
+    use_qsv_hardware_path: bool = False,
 ) -> list[str]:
     """Build a minimal fallback encode command when no audio remains."""
-    cmd = _build_input_command(input_file)
+    cmd = _build_input_command(input_file, use_qsv_hardware_path=use_qsv_hardware_path)
     cmd.extend(["-t", "0.1"])
 
     if title_overlay_path is not None:
@@ -130,6 +133,7 @@ def build_final_trim_command(
     source_metadata_filename: str | None = None,
     video_map_pad: str = "outv",
     max_output_seconds: float | None = None,
+    use_qsv_hardware_path: bool = False,
 ) -> list[str]:
     """Build final video trim + encode command.
 
@@ -139,7 +143,7 @@ def build_final_trim_command(
 
     ``video_map_pad`` names the video filter output pad (default ``outv``).
     """
-    cmd = _build_input_command(input_file)
+    cmd = _build_input_command(input_file, use_qsv_hardware_path=use_qsv_hardware_path)
     if title_overlay_path is not None:
         cmd.extend(["-stream_loop", "-1", "-i", str(title_overlay_path)])
     if logo_path is not None:

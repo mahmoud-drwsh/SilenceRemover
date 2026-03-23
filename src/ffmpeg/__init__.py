@@ -1,7 +1,15 @@
 """Centralized FFmpeg orchestration package."""
 
 from src.ffmpeg.types import ExecutionMode, RunnerOptions
-from src.ffmpeg.core import FFMPEG_BIN, FFPROBE_BIN, add_filter_complex_script, build_ffmpeg_cmd, build_ffprobe_cmd, print_ffmpeg_cmd
+from src.ffmpeg.core import (
+    FFMPEG_BIN,
+    FFPROBE_BIN,
+    add_filter_complex_script,
+    build_ffmpeg_cmd,
+    build_ffprobe_cmd,
+    build_qsv_hwaccel_flags,
+    print_ffmpeg_cmd,
+)
 from src.ffmpeg.detection import detect_silence_points
 from src.ffmpeg.filter_graph import (
     build_audio_concat_filter_graph,
@@ -38,6 +46,7 @@ __all__ = [
     "add_filter_complex_script",
     "build_ffmpeg_cmd",
     "build_ffprobe_cmd",
+    "build_qsv_hwaccel_flags",
     "print_ffmpeg_cmd",
     "detect_silence_points",
     "build_audio_concat_filter_graph",

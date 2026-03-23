@@ -127,20 +127,29 @@ def _overlay_suffix_after_concat(
     if not has_title and not has_logo:
         return ""
     parts: list[str] = []
+    base_label = "outv"
     logo_stream_idx = 2 if has_title else 1
     if has_logo:
         tw = int(logo_target_width_px)  # type: ignore[arg-type]
         lw = int(logo_intrinsic_width_px)  # type: ignore[arg-type]
         m = int(logo_margin_px)
         aa = float(logo_alpha)
+        logo_out = "outv_logo"
         parts.append(
             f"[{logo_stream_idx}:v]format=rgba,colorchannelmixer=aa={aa},"
             f"scale=w=iw*{tw}/{lw}:h=ih*{tw}/{lw}[ov_logo];"
-            f"[outv][ov_logo]overlay=W-w-{m}:{m}:shortest=1[outv]"
+            f"[{base_label}][ov_logo]overlay=W-w-{m}:{m}:shortest=1[{logo_out}]"
         )
+        base_label = logo_out
     if has_title:
         oy = int(title_overlay_y)  # type: ignore[arg-type]
-        parts.append(f"[1:v]format=rgba[ov_title];[outv][ov_title]overlay=0:{oy}:shortest=1[outv]")
+        title_out = "outv_title"
+        parts.append(
+            f"[1:v]format=rgba[ov_title];[{base_label}][ov_title]overlay=0:{oy}:shortest=1[{title_out}]"
+        )
+        base_label = title_out
+    # Normalize the post-overlay graph to a QSV-friendly software format.
+    parts.append(f"[{base_label}]format=nv12[outv]")
     return ";" + ";".join(parts)
 
 
@@ -189,26 +198,29 @@ def build_minimal_encode_overlay_filter_complex(
     if not has_title and not has_logo:
         raise ValueError("minimal overlay graph requires at least title or logo")
     parts: list[str] = []
+    base_label = "0:v"
     if has_logo:
         tw = int(logo_target_width_px)  # type: ignore[arg-type]
         lw = int(logo_intrinsic_width_px)  # type: ignore[arg-type]
         m = int(logo_margin_px)
         logo_i = 2 if has_title else 1
         aa = float(logo_alpha)
+        logo_out = "outv_logo"
         parts.append(
             f"[{logo_i}:v]format=rgba,colorchannelmixer=aa={aa},"
             f"scale=w=iw*{tw}/{lw}:h=ih*{tw}/{lw}[lg];"
-            f"[0:v][lg]overlay=W-w-{m}:{m}:shortest=1[outv]"
+            f"[{base_label}][lg]overlay=W-w-{m}:{m}:shortest=1[{logo_out}]"
         )
+        base_label = logo_out
     if has_title:
         oy = int(title_overlay_y)  # type: ignore[arg-type]
-        base = "[outv]" if has_logo else "[0:v]"
+        title_out = "outv_title"
         parts.append(
-            f"[1:v]format=rgba[ov_title];{base}[ov_title]overlay=0:{oy}:shortest=1[outv]"
+            f"[1:v]format=rgba[ov_title];[{base_label}][ov_title]overlay=0:{oy}:shortest=1[{title_out}]"
         )
-    if len(parts) == 1:
-        return parts[0]
-    return f"{parts[0]};{parts[1]}"
+        base_label = title_out
+    parts.append(f"[{base_label}]format=nv12[outv]")
+    return ";".join(parts)
 
 
 def build_video_lavfi_audio_concat_filter_graph_with_title_overlay(

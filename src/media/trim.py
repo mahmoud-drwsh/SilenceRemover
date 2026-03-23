@@ -89,6 +89,7 @@ def trim_single_video(
     resolved_min_duration = plan.resolved_min_duration
     resolved_pad_sec = plan.resolved_pad_sec
     encoder = encoder or resolve_video_encoder()
+    use_qsv_hardware_path = encoder.codec == "hevc_qsv"
     resulting_length = plan.resulting_length_sec
     input_has_audio = probe_has_audio_stream(input_file)
     print(f"Input: {input_file}")
@@ -140,27 +141,42 @@ def trim_single_video(
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal video (first frame only).")
         # Create minimal video with first frame and silence using the resolved encoder profile.
-        return run_minimal_ffmpeg_output(
-            output_file=output_file,
-            cmd=build_minimal_video_command(
-                input_file=input_file,
+        def _run_minimal_encode(*, use_hw_path: bool) -> Path:
+            return run_minimal_ffmpeg_output(
                 output_file=output_file,
-                encoder=encoder,
-                title_overlay_path=title_overlay_path,
-                title_overlay_y=banner_top,
-                logo_path=logo_path_resolved if use_logo else None,
-                logo_target_width_px=logo_target_w if use_logo else None,
-                logo_intrinsic_width_px=logo_intrinsic_w if use_logo else None,
-                logo_margin_px=LOGO_OVERLAY_MARGIN_PX,
-                logo_alpha=LOGO_OVERLAY_ALPHA,
-                source_metadata_filename=(
-                    input_file.name
-                    if (title_overlay_path is not None or use_logo)
-                    else None
+                cmd=build_minimal_video_command(
+                    input_file=input_file,
+                    output_file=output_file,
+                    encoder=encoder,
+                    title_overlay_path=title_overlay_path,
+                    title_overlay_y=banner_top,
+                    logo_path=logo_path_resolved if use_logo else None,
+                    logo_target_width_px=logo_target_w if use_logo else None,
+                    logo_intrinsic_width_px=logo_intrinsic_w if use_logo else None,
+                    logo_margin_px=LOGO_OVERLAY_MARGIN_PX,
+                    logo_alpha=LOGO_OVERLAY_ALPHA,
+                    source_metadata_filename=(
+                        input_file.name
+                        if (title_overlay_path is not None or use_logo)
+                        else None
+                    ),
+                    use_qsv_hardware_path=use_hw_path,
                 ),
-            ),
-            command_label=f"{encoder.codec} encode",
-        )
+                command_label=f"{encoder.codec} encode",
+            )
+
+        if use_qsv_hardware_path:
+            try:
+                return _run_minimal_encode(use_hw_path=True)
+            except RuntimeError as exc:
+                print(
+                    "Warning: QSV hardware-path flags failed for minimal encode; "
+                    "retrying with generic FFmpeg input path. "
+                    f"Original error: {exc}"
+                )
+                return _run_minimal_encode(use_hw_path=False)
+
+        return _run_minimal_encode(use_hw_path=False)
 
     burn_in = title_overlay_path is not None or use_logo
 
@@ -205,29 +221,44 @@ def trim_single_video(
             flush=True,
         )
 
-    return run_silence_removed_media(
-        input_file=input_file,
-        output_file=output_file,
-        temp_dir=output_dir / "temp",
-        segments_to_keep=segments_to_keep,
-        build_filter_graph=filter_builder,
-        build_command=lambda in_file, out_file, filter_script: build_final_trim_command(
-            input_file=in_file,
-            output_file=out_file,
-            filter_script_path=filter_script,
-            encoder=encoder,
-            title_overlay_path=title_overlay_path,
-            title_overlay_y=banner_top,
-            logo_path=logo_path_resolved if use_logo else None,
-            extra_silent_audio_lavfi=use_lavfi_silent_audio,
-            source_metadata_filename=(
-                in_file.name if (title_overlay_path is not None or use_logo) else None
+    def _run_final_encode(*, use_hw_path: bool) -> Path:
+        return run_silence_removed_media(
+            input_file=input_file,
+            output_file=output_file,
+            temp_dir=output_dir / "temp",
+            segments_to_keep=segments_to_keep,
+            build_filter_graph=filter_builder,
+            build_command=lambda in_file, out_file, filter_script: build_final_trim_command(
+                input_file=in_file,
+                output_file=out_file,
+                filter_script_path=filter_script,
+                encoder=encoder,
+                title_overlay_path=title_overlay_path,
+                title_overlay_y=banner_top,
+                logo_path=logo_path_resolved if use_logo else None,
+                extra_silent_audio_lavfi=use_lavfi_silent_audio,
+                source_metadata_filename=(
+                    in_file.name if (title_overlay_path is not None or use_logo) else None
+                ),
+                max_output_seconds=max_output_seconds,
+                use_qsv_hardware_path=use_hw_path,
             ),
-            max_output_seconds=max_output_seconds,
-        ),
-        expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
-        on_progress=_on_progress,
-        command_label=f"{encoder.codec} encode",
-        overlay_y=banner_top,
-    )
+            expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
+            on_progress=_on_progress,
+            command_label=f"{encoder.codec} encode",
+            overlay_y=banner_top,
+        )
+
+    if use_qsv_hardware_path:
+        try:
+            return _run_final_encode(use_hw_path=True)
+        except RuntimeError as exc:
+            print(
+                "Warning: QSV hardware-path flags failed during encode; "
+                "retrying with generic FFmpeg input path. "
+                f"Original error: {exc}"
+            )
+            return _run_final_encode(use_hw_path=False)
+
+    return _run_final_encode(use_hw_path=False)
 

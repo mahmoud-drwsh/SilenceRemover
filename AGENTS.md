@@ -168,3 +168,12 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/trim.py`: Enhanced FFmpeg progress output to include wall/encoded time and current output file size.
 - `src/media/trim.py`: Appended encoding speed (real-time factor) to FFmpeg progress output.
 - `src/ffmpeg/runner.py` and `src/ffmpeg/silence_removed_runner.py`: Forward FFmpeg encoded-time seconds through progress callbacks for richer progress indicators.
+- `src/llm/__init__.py`: Removed unused compatibility re-export shim; no in-repo runtime imports depended on `src.llm`.
+- `README.md`: Removed the `src/llm` domain-layout bullet now that the shim module is deleted.
+- `src/ffmpeg/core.py`: Added `build_qsv_hwaccel_flags` helper to centralize optional QSV hardware-path FFmpeg flags.
+- `src/ffmpeg/transcode.py`: Added optional `use_qsv_hardware_path` on final/minimal video command builders and wired QSV flags into input command assembly.
+- `src/ffmpeg/__init__.py`: Exported `build_qsv_hwaccel_flags` from the FFmpeg package API.
+- `src/media/trim.py`: Routed `hevc_qsv` runs through the QSV hardware-path command options and added safe runtime retry on the generic path for both minimal and full encodes.
+- `src/ffmpeg/filter_graph.py`: Normalized overlay outputs to `format=nv12[outv]` after RGBA compositing in concat and minimal overlay builders.
+- `tests/ffmpeg_api_smoke.py`: Added assertions for QSV hardware-path command flags and explicit `nv12` post-overlay filter normalization.
+- `README.md`: Documented QSV hardware-path retry behavior, `nv12` post-overlay normalization, and a dedicated slow-QSV troubleshooting checklist.

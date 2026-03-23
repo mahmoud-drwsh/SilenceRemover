@@ -9,7 +9,7 @@ An automated video processing tool that removes silence segments, transcribes au
 - **AI Transcription**: Builds a silence-removed snippet (capped at `SNIPPET_MAX_DURATION_SEC`, 180s / 3 minutes by default), encodes it as Ogg/Opus, and transcribes via OpenRouter (default model: `google/gemini-3.1-flash-lite-preview`)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
-- **Video encoding**: Final MP4 video prefers **`hevc_qsv`** (Intel Quick Sync HEVC) using ICQ (`-global_quality 20`, `-preset slow`) plus extended BRC, lookahead (`-extbrc 1`, `-look_ahead_depth 20`), adaptive I/B placement, and `-forced_idr 1` for steadier quality and seeking. If `hevc_qsv` is not listed by FFmpeg, startup falls back to **`libx265`** (`-crf 24`, `-preset slow`). If `hevc_qsv` is listed but probe encode fails, startup fails fast so the QSV runtime/build issue can be fixed explicitly.
+- **Video encoding**: Final MP4 video prefers **`hevc_qsv`** (Intel Quick Sync HEVC) using ICQ (`-global_quality 20`, `-preset slow`) plus extended BRC, lookahead (`-extbrc 1`, `-look_ahead_depth 20`), adaptive I/B placement, and `-forced_idr 1` for steadier quality and seeking. On QSV runs, command assembly now prefers a hardware-oriented input path (`-init_hw_device qsv`, `-filter_hw_device`, `-hwaccel qsv`, `-hwaccel_output_format qsv`) and retries once on the generic path if those flags fail at runtime. If `hevc_qsv` is not listed by FFmpeg, startup falls back to **`libx265`** (`-crf 24`, `-preset slow`). If `hevc_qsv` is listed but probe encode fails, startup fails fast so the QSV runtime/build issue can be fixed explicitly.
 - **FFmpeg Centralization**: Consolidates command building, execution, probing, and filter graph generation under the new `src/ffmpeg` package.
 
 ## Requirements
@@ -181,7 +181,7 @@ The tool processes videos sequentially through **four** main stages:
 - The PNG is rendered by **`packages/sr_title_overlay/`** (`build_title_overlay`): semi-transparent black strip (default alpha **0.5** in that package) with **white** title text in Pillow using the selected `--title-font` (Google Font, cached under `output/temp/fonts/`).
 - **Layout algorithm** (largest font that fits, optional multi-line word-boundary splits, bbox-based metrics, vertical stacking): see **`ALGO.md` → “Title overlay PNG”** and tunables in `packages/sr_title_overlay/constants.py`.
 - **Arabic / RTL titles**: Pillow draws in visual order only; text is shaped with `arabic-reshaper` and reordered with `python-bidi` (`get_display`) before measuring and drawing. Mixed Arabic + Latin/numbers follow Unicode bidirectional rules.
-- FFmpeg applies this PNG in the trim/concat filter graph; no `drawtext` dependency for the final overlay.
+- FFmpeg applies this PNG in the trim/concat filter graph; no `drawtext` dependency for the final overlay. After PNG/logo alpha compositing (`format=rgba` + `overlay`), the final graph now explicitly normalizes the output video pad to `format=nv12` before `hevc_qsv` mapping to reduce implicit conversion overhead.
 - **Logo (optional):** If `logo/logo.png` exists at the **repository root** (that folder is often gitignored), Phase 3 adds another looping PNG input to FFmpeg. **Input order** (0-based): **`0`** = source video, **`1`** = title overlay PNG (when a title is rendered), **`2`** = logo PNG when **both** title and logo are used (the logo is the **third** demuxer input in that case). If `trim_single_video` is called **without** a title but with a logo file, the logo is **`1`**. The pipeline’s Phase 3 always supplies a title, so production runs use **title at `1`, logo at `2`**. **Stacking:** the logo is composited onto the video first, then the title strip on top. `ffprobe` reads the logo width, then a tiny FFmpeg decode (`-frames:v 1` to null) confirms the PNG is readable by the same decoder used in the final command; if either check fails, the logo overlay is skipped with a console warning and the rest of the encode continues. The logo is scaled uniformly with `scale=w=iw*{target}/logo_w:h=ih*{target}/logo_w` where **`target = video_width × LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO`** (default **1.0**, full frame width). After `format=rgba`, **`colorchannelmixer=aa=LOGO_OVERLAY_ALPHA`** (default **1.0**, fully opaque gain) applies before compositing **top-aligned** with **`LOGO_OVERLAY_MARGIN_PX`** inset (default **0**, no padding). Constants live in `src/core/constants.py` (`DEFAULT_LOGO_PATH`, `LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO`, `LOGO_OVERLAY_MARGIN_PX`, `LOGO_OVERLAY_ALPHA`). Stream-copy skips when a logo file is present (same as title overlay).
 
 - Reads generated title from `output/temp/title/{basename}.txt`
@@ -238,7 +238,6 @@ The main code lives under `src/` and `packages/`:
 - `src/core`: shared constants, config loading, path utilities, and CLI utilities.
 - `src/media`: silence detection and final trim rendering (`trim_single_video`).
 - `packages/sr_trim_plan/`: shared trim-policy black box (`TrimPlan`, `build_trim_plan`) for snippet + final trim.
-- `src/llm`: re-exports `sr_transcription` and `sr_title` entrypoints and prompts (no separate FFmpeg extraction module).
 - `packages/sr_snippet/`: silence-removed transcription snippet audio (`create_silence_removed_snippet`; import as `sr_snippet`).
 - `packages/sr_transcription/`: audio transcription API using OpenRouter (import as `sr_transcription`).
 - `packages/sr_title/`: transcript-to-title generation using OpenRouter (import as `sr_title`).
@@ -269,6 +268,14 @@ ffprobe -version
 ```
 
 Note: This project’s shared FFmpeg command builder (`src/ffmpeg/core.py:add_filter_complex_script`) uses the non-deprecated filter graph script option `-/filter_complex`, so you should no longer see the `-filter_complex_script is deprecated` warning in normal runs.
+
+### Slow QSV encodes
+
+If `hevc_qsv` is selected but throughput is still low:
+
+- Confirm the printed final command includes the QSV hardware-path flags (`-init_hw_device qsv=...`, `-filter_hw_device`, `-hwaccel qsv`, `-hwaccel_output_format qsv`). If those flags fail on your machine, the pipeline logs a warning and retries on the generic path.
+- Confirm your overlay run uses the updated filter graph that ends with `format=nv12[outv]` after logo/title compositing.
+- For quick command-level sanity, run `python tests/ffmpeg_api_smoke.py` and check QSV hardware-path and overlay-format assertions.
 
 ### API Key Issues
 

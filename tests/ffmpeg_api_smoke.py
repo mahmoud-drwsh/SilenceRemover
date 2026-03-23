@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.ffmpeg.core import build_qsv_hwaccel_flags
 from src.ffmpeg.encoding_resolver import resolve_video_encoder
+from src.ffmpeg.filter_graph import (
+    build_minimal_encode_overlay_filter_complex,
+    build_video_audio_concat_filter_graph_with_title_overlay,
+)
 from src.ffmpeg.probing import can_run_encoder, get_available_encoders
 from src.ffmpeg.transcode import build_final_trim_command, build_minimal_video_command
 
@@ -61,6 +66,19 @@ def main() -> None:
         _fail("Final trim command assembly returned an unexpected output path.")
     _ok("Final trim command assembly sanity passed.")
 
+    if profile.codec == "hevc_qsv":
+        cmd_final_qsv = build_final_trim_command(
+            input_file=Path("input.mp4"),
+            output_file=Path("output-qsv.mp4"),
+            filter_script_path=Path("output/temp/scripts/test-qsv.ffscript"),
+            encoder=profile,
+            use_qsv_hardware_path=True,
+        )
+        hw_flags = build_qsv_hwaccel_flags()
+        if not all(flag in cmd_final_qsv for flag in hw_flags):
+            _fail("QSV final command is missing one or more hardware-path flags.")
+        _ok("QSV final command includes hardware-path flags.")
+
     cmd_min = build_minimal_video_command(
         input_file=Path("input.mp4"),
         output_file=Path("output-min.mp4"),
@@ -69,6 +87,37 @@ def main() -> None:
     if not cmd_min or cmd_min[-1] != "output-min.mp4":
         _fail("Minimal video command assembly returned an unexpected output path.")
     _ok("Minimal encode command assembly sanity passed.")
+
+    if profile.codec == "hevc_qsv":
+        cmd_min_qsv = build_minimal_video_command(
+            input_file=Path("input.mp4"),
+            output_file=Path("output-min-qsv.mp4"),
+            encoder=profile,
+            use_qsv_hardware_path=True,
+        )
+        hw_flags = build_qsv_hwaccel_flags()
+        if not all(flag in cmd_min_qsv for flag in hw_flags):
+            _fail("QSV minimal command is missing one or more hardware-path flags.")
+        _ok("QSV minimal command includes hardware-path flags.")
+
+    overlay_fc = build_video_audio_concat_filter_graph_with_title_overlay(
+        segments_to_keep=[(0.0, 1.0)],
+        overlay_y=10,
+        logo_target_width_px=100,
+        logo_intrinsic_width_px=100,
+    )
+    if "format=nv12[outv]" not in overlay_fc:
+        _fail("Overlay concat filter graph is missing final nv12 normalization.")
+    _ok("Overlay concat filter graph includes final nv12 normalization.")
+
+    minimal_overlay_fc = build_minimal_encode_overlay_filter_complex(
+        title_overlay_y=10,
+        logo_target_width_px=100,
+        logo_intrinsic_width_px=100,
+    )
+    if "format=nv12[outv]" not in minimal_overlay_fc:
+        _fail("Minimal overlay filter graph is missing final nv12 normalization.")
+    _ok("Minimal overlay filter graph includes final nv12 normalization.")
 
     print("Smoke test completed successfully.")
 

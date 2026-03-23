@@ -26,6 +26,20 @@ def build_ffmpeg_cmd(overwrite: bool = True, *additional_flags: str) -> list[str
     return cmd
 
 
+def build_qsv_hwaccel_flags(device_name: str = "qsv") -> list[str]:
+    """Build optional FFmpeg flags for a QSV-oriented hardware path."""
+    return [
+        "-init_hw_device",
+        f"qsv={device_name}",
+        "-filter_hw_device",
+        device_name,
+        "-hwaccel",
+        "qsv",
+        "-hwaccel_output_format",
+        "qsv",
+    ]
+
+
 def build_ffprobe_cmd(*args: str) -> list[str]:
     """Build a base FFprobe command."""
     return [FFPROBE_BIN, *args]
