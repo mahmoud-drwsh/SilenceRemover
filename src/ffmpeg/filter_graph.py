@@ -125,7 +125,7 @@ def _overlay_suffix_after_concat(
         aa = float(logo_alpha)
         logo_out = "outv_logo"
         parts.append(
-            f"[{logo_stream_idx}:v]format=rgba,colorchannelmixer=aa={aa},"
+            f"[{logo_stream_idx}:v]format=rgba,colorchannelmixer=aa={aa}"
             f"[ov_logo];"
             f"[{base_label}][ov_logo]overlay=W-w-{m}:{m}:shortest=1[{logo_out}]"
         )
@@ -191,7 +191,7 @@ def build_minimal_encode_overlay_filter_complex(
         aa = float(logo_alpha)
         logo_out = "outv_logo"
         parts.append(
-            f"[{logo_i}:v]format=rgba,colorchannelmixer=aa={aa},"
+            f"[{logo_i}:v]format=rgba,colorchannelmixer=aa={aa}"
             f"[lg];"
             f"[{base_label}][lg]overlay=W-w-{m}:{m}:shortest=1[{logo_out}]"
         )
