@@ -185,3 +185,6 @@ logo/
 
 # Manual title-overlay PNG samples (`temp/render_title_overlay_examples.py`)
 png_temp/
+
+# opencode AI assistant metadata
+.opencode/

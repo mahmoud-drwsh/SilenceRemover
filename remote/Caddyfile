@@ -1,0 +1,29 @@
+# Caddy Configuration for MP3 Manager
+# 
+# IMPORTANT: Replace <YOUR_DOMAIN> with your actual domain or IP
+# 
+# Examples:
+#   Domain: your-domain.com
+#   IP:     <YOUR_SERVER_IP>
+#
+# Then reload Caddy:
+#   systemctl reload caddy
+
+<YOUR_DOMAIN> {
+    reverse_proxy localhost:8080
+    
+    # Security headers
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        X-XSS-Protection "1; mode=block"
+    }
+    
+    # Logging
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 10MB
+            roll_keep 5
+        }
+    }
+}

@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+
+# Virtual environments
+venv/
+.env
+
+# Database and storage (sensitive data)
+*.db
+*.db-journal
+storage/
+*.mp3
+*.ogg
+*.wav
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+
+# Security
+.env
+*.pem
+*.key
+secrets/
