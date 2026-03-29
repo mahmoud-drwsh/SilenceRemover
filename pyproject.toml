@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src", "packages/openrouter_transport", "packages/sr_silence_detection", "packages/sr_snippet", "packages/sr_telegram_notify", "packages/sr_title", "packages/sr_title_overlay", "packages/sr_transcription", "packages/sr_trim_plan"]
+packages = ["src", "packages/openrouter_transport", "packages/sr_silence_detection", "packages/sr_snippet", "packages/sr_telegram_notify", "packages/sr_threshold_selection", "packages/sr_title", "packages/sr_title_overlay", "packages/sr_transcription", "packages/sr_trim_plan"]
 
 [project]
 name = "silence-remover"

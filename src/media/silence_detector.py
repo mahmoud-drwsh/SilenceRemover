@@ -1,11 +1,13 @@
 """Silence detection and trimming algorithm utilities."""
 
 from src.core.constants import (
-    MAX_PAD_SEC,
-    PAD_INCREMENT_SEC,
     TRIM_DECIMAL_PLACES,
     TRIM_TIMESTAMP_EPSILON_SEC,
 )
+
+# Re-export find_optimal_padding from new black box for backward compatibility
+from sr_threshold_selection import find_optimal_padding
+
 
 def normalize_timestamp(value: float, *, minimum: float = 0.0) -> float:
     """Normalize a timestamp to the configured trimming precision."""
@@ -158,41 +160,6 @@ def calculate_resulting_length(silence_starts: list[float], silence_ends: list[f
         pad_sec=pad_sec,
     )
     return normalize_timestamp(sum(end - start for start, end in segments_to_keep))
-
-
-def find_optimal_padding(silence_starts: list[float], silence_ends: list[float], duration_sec: float, target_length: float) -> float:
-    """Find the optimal padding value to achieve a target video length.
-    
-    Args:
-        silence_starts: List of silence start times in seconds
-        silence_ends: List of silence end times in seconds
-        duration_sec: Total video duration in seconds
-        target_length: Desired resulting video length in seconds
-        
-    Returns:
-        Optimal padding value in seconds
-    """
-    if target_length >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC:
-        return 0.0
-    if not silence_starts:
-        return 0.0
-    result_with_0 = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)
-    if result_with_0 + TRIM_TIMESTAMP_EPSILON_SEC > target_length:
-        return 0.0
-    max_pad = MAX_PAD_SEC
-    pad_increment = PAD_INCREMENT_SEC
-    if pad_increment <= 0:
-        return 0.0
-    max_steps = int(max_pad / pad_increment + TRIM_TIMESTAMP_EPSILON_SEC)
-    best_pad = 0.0
-    for step in range(max_steps + 1):
-        current_pad = normalize_timestamp(min(max_pad, step * pad_increment))
-        resulting_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, current_pad)
-        if resulting_length < target_length - TRIM_TIMESTAMP_EPSILON_SEC:
-            best_pad = current_pad
-            continue
-        break
-    return best_pad
 
 
 def truncate_segments_to_max_length(
