@@ -17,11 +17,6 @@ from src.core.cli import parse_args
 
 if __name__ == "__main__":
     args = parse_args()
-    if args.title_editor:
-        from src.title_editor.standalone import run_title_editor_server
+    from src.app.pipeline import run
 
-        run_title_editor_server(Path(args.input_dir))
-    else:
-        from src.app.pipeline import run
-
-        run(args)
+    run(args)

@@ -18,7 +18,7 @@ After code or config changes, agents append short notes here. When this file gro
 - **Default models**: Transcription and title flows default to `OPENROUTER_DEFAULT_MODEL` in `src/core/constants.py` (`google/gemini-3.1-flash-lite-preview`) unless callers override.
 - **Title generation**: Prompts require verbatim, beginning-only title spans from the full transcript. One model call emits a small JSON array of candidates; one call returns per-candidate `verbatim_score` and `correctness_score`; highest combined score wins with deterministic tie-breaks. **No** separate honorific add/check LLM step after selection.
 - **Phase 3 title overlay**: Pipeline passes `title_path` / `title_font` into trim; forces encode (no stream copy) when overlay is used. **PNG overlay** (`packages/sr_title_overlay/`): Google Fonts CSS2 + TTF cache; Pillow render; Arabic via `arabic-reshaper` + `python-bidi`; filter graph uses PNG concat with `shortest=1`. **Layout**: sixths-based band (e.g. H/6–H/3) from `src.core.constants`; multi-line layout tunables in `sr_title_overlay.constants`. **Optional logo**: repo `logo/logo.png`, `colorchannelmixer` alpha, uniform `scale` to `video_w * LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO` vs intrinsic width (default full width), top-aligned, default zero margin and full alpha gain; composited **under** the title strip when both are used; `probe_video_dimensions` plus `probe_ffmpeg_can_decode_image_frame` (one FFmpeg-decoded frame) must pass or logo is skipped with a warning. **Metadata**: final MP4 `comment` = source filename for editor-driven cleanup; legacy `SILENCE_REMOVER_SOURCE` still matched. **CLI**: `--title-font`.
-- **Title editor**: FastAPI app in `src/title_editor/server.py` with `TitleEditorLayout` (`src/startup/title_editor_layout.py`); standalone runner `src/title_editor/standalone.py` (`run_title_editor_server`). Entry: `python main.py <input_dir> --title-editor` (pipeline unchanged otherwise); thin `serve_titles.py` shim + `pwsh/Start-VerticalTitleEditor.ps1`. Probe duplicate server, save JSON, full-width table UI, `textarea` titles, retry writes on Windows locks. On title change, delete final MP4s whose tags match source (`read_format_tags`, NFC + case-insensitive `comment` matching). Dependencies: `fastapi`, `uvicorn`, Pillow, arabic reshaper/bidi.
+- **Title editor removal**: The local FastAPI title editor (`src/title_editor/`, `serve_titles.py`, `pwsh/Start-VerticalTitleEditor.ps1`, `--title-editor` CLI flag) has been removed. Title editing is now handled by the VPS-based MP3 Manager system in the `remote/` directory.
 - **Documentation**: `README.md` and `ALGO.md` cover architecture, CLI, snippet/edges, encoding, title rules, overlay geometry, and video-only behavior.
 
 ## Latest session edits
@@ -28,40 +28,13 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/ffmpeg/transcode.py`: Optional looping `logo_path` and alpha on `build_final_trim_command` / `build_minimal_video_command`.
 - `src/media/trim.py`: Logo overlay when `logo/logo.png` exists; on logo probe failure warn and skip; copy shortcut unless title or logo; threads sizes/alpha into graphs.
 - `README.md`: Logo FFmpeg input order (title at `1`, logo at `2` in Phase 3), resilient logo skip, `output/temp/…` paths and directory tree aligned with bootstrap.
-- `.gitignore`: Ignore repo-root `logo/` so optional branding assets stay local.
-- `AGENTS.md`: Condensed changelog logo note and this session block.
-- `AGENTS.md`: **Agent workflow** guidance was added here, then moved to `.cursor/rules/agent-workflow.mdc` (always-applied).
-- `AGENTS.md`: Re-condensed per-file history into the thematic bullets above (file exceeded ~50 lines).
-- `src/llm/__init__.py` / `sr_transcription/__init__.py`: Added trailing newline at EOF after agent commit review.
-- `src/core/cli.py`: Removed `--llm-only`.
-- `src/startup/bootstrap.py`: Removed `llm_only` from `StartupContext`; encoder is always resolved via `resolve_video_encoder()`.
-- `src/app/pipeline.py`: Single three-phase `run()` path; removed titles.txt helpers, console LLM dump, `llm_only` on `run_title_phase`, and unused `transcribe_single_video`; `run_output_phase` requires `encoder`; Phase 2/3 preconditions require transcript before title/output.
-- `README.md` / `AGENTS.md`: Removed LLM-only / `titles.txt` documentation.
-- `pwsh/Start-VerticalLlmDryRun.ps1`: Deleted (was only for `--llm-only`).
-- `src/llm/client.py`: Deleted duplicate OpenRouter client; `openrouter_transport/` is the only implementation.
-- `openrouter_transport/client.py`: `request()` docstrings describe `log_dir/logs/` (and `logs/errors/`); removed unused `timezone` import and unused log filename constant.
-- `sr_transcription/api.py`: `log_dir` Args documented to match transport logging.
-- `pyproject.toml`: Project name set to `silence-remover` (replacing `hucck`).
-- `uv.lock`: Refreshed for renamed workspace package.
-- `PLAN.md` (historical; file no longer in repo): Marked encapsulation work complete—status section, checked scope list, current paths (snippet in `sr_snippet`, no `src/llm/client.py`), and revised historical sections to match the tree; mermaid/layout labels use `sr_transcription`.
-- `sr_transcription/api.py`: `transcribe_and_save` raises `RuntimeError` and does not write when the model returns empty/whitespace-only text.
-- `src/core/paths.py`: `is_transcript_done` requires non-empty transcript content; catches `UnicodeDecodeError` as well as `OSError`.
-- `README.md`: Five-stage “How it works”; merged Phase 3 overlay + renaming section; video-only and process-tracking text aligned with transcript gating.
-- `temp/test_openrouter.py`: Removed ad-hoc OpenRouter transcription smoke test.
-- `temp/list_audio_models.py`: Removed ad-hoc OpenRouter models listing script.
-- `README.md`: “How it works” intro set to **four** stages to match four `###` sections (post-review fix).
-- `packages/sr_transcription/`: Relocated from repo root into `packages/`; import name unchanged (`sr_transcription`).
-- `packages/openrouter_transport/`: Relocated from repo root into `packages/`; import name unchanged (`openrouter_transport`).
-- `pyproject.toml`: Wheel `packages` list now points at `packages/sr_transcription` and `packages/openrouter_transport`.
-- `README.md`: Transcription / domain-layout docs updated to `packages/…` paths.
-- `AGENTS.md`: Condensed changelog updated for the `packages/` transcription layout.
+- `src/title_editor/` package: **REMOVED**. The local title editor has been replaced by the VPS-based MP3 Manager solution. Deleted files: `src/title_editor/` (server.py, standalone.py, __init__.py), `src/startup/title_editor_layout.py`, `serve_titles.py`, `pwsh/Start-VerticalTitleEditor.ps1`. Updated: `main.py` (removed --title-editor logic), `src/core/cli.py` (removed --title-editor flag), `src/startup/__init__.py` (removed exports), `README.md` (removed documentation), `AGENTS.md` (updated changelog).
 - `.cursor/commands/review-commit-push.md`: Cursor slash command to run agent-assisted review, then commit and push only if checks pass.
 - `src/title_editor/server.py`: FastAPI title editor UI (moved from deleted `src/app/title_editor_server.py`).
 - `src/title_editor/standalone.py`: `run_title_editor_server` uvicorn entry (no pipeline).
 - `src/title_editor/__init__.py`: Re-exports server helpers and standalone runner.
 - `main.py`: Parses CLI; `--title-editor` runs only the title server, else runs pipeline with the same namespace.
 - `src/core/cli.py`: Added `--title-editor` flag.
-- `src/app/pipeline.py`: `run(args=None)` accepts a pre-parsed namespace from `main.py`.
 - `serve_titles.py`: Compatibility wrapper calling `run_title_editor_server`.
 - `pwsh/Start-VerticalTitleEditor.ps1`: Invokes `main.py … --title-editor`.
 - `README.md`: Title editor usage, `--title-editor`, domain layout lists `src/title_editor`; intro line avoids a fixed package count.

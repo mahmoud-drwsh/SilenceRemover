@@ -70,16 +70,6 @@ Process all videos in a directory:
 python main.py /path/to/video/directory
 ```
 
-### Title editor only
-
-Run the local FastAPI UI to edit titles (no transcription or encoding):
-
-```bash
-python main.py /path/to/video/directory --title-editor
-```
-
-Requires FFmpeg/ffprobe on PATH (same as the layout helper). Optional: set `TITLE_EDITOR_PORT` (default `8765`).
-
 ### Options
 
 - `--target-length FLOAT`: Optimize padding to achieve a target video length (in seconds).
@@ -89,7 +79,6 @@ Requires FFmpeg/ffprobe on PATH (same as the layout helper). Optional: set `TITL
 - `--quick-test`: Run all three phases, but cap only the final Phase 3 encode output to the first 5 seconds for a fast end-to-end smoke run.
 - `--enable-title-overlay`: Enable title overlay in final output (requires a title from Phase 2). By default, overlays are disabled.
 - `--enable-logo-overlay`: Enable logo overlay in final output (requires `logo/logo.png`). By default, overlays are disabled.
-- `--title-editor`: Start only the title editor web server for `input_dir`; ignores pipeline flags.
 
 ### Suggested Arabic-friendly Google Fonts
 - `Noto Naskh Arabic`
@@ -247,7 +236,6 @@ The main code lives under `src/` and `packages/`:
 - `packages/openrouter_transport/`: shared OpenRouter transport layer (import as `openrouter_transport`).
 - `packages/sr_telegram_notify/`: optional Phase 3 Telegram text notifications (`notify_final_encoding_started`, `notify_final_output_ready`; import as `sr_telegram_notify`).
 - `src/app`: high-level pipeline orchestration (`run` entrypoint).
-- `src/title_editor`: FastAPI title editor UI and standalone server runner.
 - `src/ffmpeg`: centralized FFmpeg command construction, probing, execution, filter-graph helpers, and `silence_removed_runner` (shared encode orchestration for silence-removed audio/video paths).
 - `src/startup`: startup bootstrap and runtime context assembly.
 
