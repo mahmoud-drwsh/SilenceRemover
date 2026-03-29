@@ -1,22 +1,10 @@
 """Silence detection and trimming algorithm utilities."""
 
-from pathlib import Path
-
 from src.core.constants import (
     MAX_PAD_SEC,
     PAD_INCREMENT_SEC,
-    EDGE_RESCAN_MIN_DURATION_SEC,
-    EDGE_RESCAN_THRESHOLD_DB,
-    EDGE_SILENCE_KEEP_SEC,
     TRIM_DECIMAL_PLACES,
     TRIM_TIMESTAMP_EPSILON_SEC,
-    TARGET_NOISE_THRESHOLD_DB,
-    TARGET_MIN_DURATION_SEC,
-    TARGET_NOISE_THRESHOLDS_DB,
-)
-from src.ffmpeg.detection import (
-    detect_primary_and_edge_silence_points,
-    detect_silence_points as detect_silence_points_via_ffmpeg,
 )
 
 def normalize_timestamp(value: float, *, minimum: float = 0.0) -> float:
@@ -86,67 +74,6 @@ def _leading_trailing_from_edge_lists(
     return leading, trailing
 
 
-def detect_leading_trailing_edge_silence(
-    input_file: Path,
-    duration_sec: float,
-    *,
-    noise_threshold_db: float = EDGE_RESCAN_THRESHOLD_DB,
-    min_duration_sec: float = EDGE_RESCAN_MIN_DURATION_SEC,
-    keep_seconds: float = EDGE_SILENCE_KEEP_SEC,
-) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
-    """Detect only leading/trailing silence using a conservative edge re-scan (standalone FFmpeg pass)."""
-    edge_starts, edge_ends = detect_silence_points(
-        input_file,
-        noise_threshold_db,
-        min_duration_sec,
-    )
-    return _leading_trailing_from_edge_lists(
-        edge_starts, edge_ends, duration_sec, keep_seconds=keep_seconds
-    )
-
-
-def prepare_silence_intervals_with_edges(
-    input_file: Path,
-    duration_sec: float,
-    noise_threshold: float,
-    min_duration: float,
-    *,
-    edge_retain_seconds: float = EDGE_SILENCE_KEEP_SEC,
-    edge_threshold_db: float = EDGE_RESCAN_THRESHOLD_DB,
-    edge_min_duration_sec: float = EDGE_RESCAN_MIN_DURATION_SEC,
-) -> tuple[list[float], list[float]]:
-    """Detect silences, then normalize leading/trailing edges using a shared policy.
-
-    Primary and edge silencedetect filters run in one FFmpeg invocation (single audio decode).
-    """
-    (silence_starts, silence_ends), (edge_starts, edge_ends) = detect_primary_and_edge_silence_points(
-        input_file,
-        noise_threshold,
-        min_duration,
-        edge_threshold_db,
-        edge_min_duration_sec,
-    )
-    leading_edge, trailing_edge = _leading_trailing_from_edge_lists(
-        edge_starts,
-        edge_ends,
-        duration_sec,
-        keep_seconds=edge_retain_seconds,
-    )
-    silence_starts, silence_ends = replace_edge_intervals(
-        silence_starts,
-        silence_ends,
-        leading_edge,
-        trailing_edge,
-        duration_sec,
-    )
-    return trim_edge_silence(
-        silence_starts,
-        silence_ends,
-        duration_sec,
-        keep_seconds=edge_retain_seconds,
-    )
-
-
 def replace_edge_intervals(
     silence_starts: list[float],
     silence_ends: list[float],
@@ -174,7 +101,7 @@ def trim_edge_silence(
     silence_ends: list[float],
     duration_sec: float,
     *,
-    keep_seconds: float = EDGE_SILENCE_KEEP_SEC,
+    keep_seconds: float,
 ) -> tuple[list[float], list[float]]:
     """Reserve `keep_seconds` at each edge and remove edge silence beyond that.
 
@@ -299,89 +226,15 @@ def truncate_segments_to_max_length(
     return out
 
 
-def choose_threshold_and_padding_for_target(
-    input_file: Path,
-    duration_sec: float,
-    target_length: float,
-    *,
-    min_duration: float = TARGET_MIN_DURATION_SEC,
-    noise_thresholds_db: list[float] = TARGET_NOISE_THRESHOLDS_DB,
-    override_noise_threshold: float | None = None,
-) -> tuple[list[float], list[float], float, float]:
-    """Pick the least-aggressive threshold that can meet target, then tune padding.
-
-    Sweep thresholds from quiet -> more aggressive until the base trimmed length
-    (pad=0) is <= target. Then maximize uniform padding without ever exceeding
-    the target.
-
-    Returns:
-        (silence_starts, silence_ends, chosen_threshold_db, pad_sec)
-    """
-    if noise_thresholds_db is None:
-        noise_thresholds_db = [TARGET_NOISE_THRESHOLD_DB]
-
-    ordered_thresholds = list(noise_thresholds_db)
-    if override_noise_threshold is not None and override_noise_threshold not in ordered_thresholds:
-        ordered_thresholds = [override_noise_threshold] + ordered_thresholds
-
-    chosen_threshold = ordered_thresholds[0]
-    chosen_pad = 0.0
-    chosen_starts: list[float] = []
-    chosen_ends: list[float] = []
-    last_starts: list[float] = []
-    last_ends: list[float] = []
-
-    for threshold_db in ordered_thresholds:
-        silence_starts, silence_ends = prepare_silence_intervals_with_edges(
-            input_file,
-            duration_sec=duration_sec,
-            noise_threshold=threshold_db,
-            min_duration=min_duration,
-        )
-        last_starts, last_ends = silence_starts, silence_ends
-
-        base_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)
-        if base_length > target_length:
-            continue
-
-        chosen_threshold = threshold_db
-        chosen_starts = silence_starts
-        chosen_ends = silence_ends
-        chosen_pad = find_optimal_padding(silence_starts, silence_ends, duration_sec, target_length)
-        break
-    else:
-        # If nothing can meet target with silence trimming alone, use the most aggressive
-        # threshold we tried and pad=0; caller can apply truncation as a final safeguard.
-        if ordered_thresholds:
-            chosen_threshold = ordered_thresholds[-1]
-        chosen_starts, chosen_ends = last_starts, last_ends
-        chosen_pad = 0.0
-
-    return (chosen_starts, chosen_ends, chosen_threshold, chosen_pad)
-
-
-def detect_silence_points(input_file: Path, noise_threshold: float, min_duration: float) -> tuple[list[float], list[float]]:
-    return detect_silence_points_via_ffmpeg(input_file, noise_threshold, min_duration)
-
-
-def detect_silences_simple(input_file: Path) -> tuple[list[float], list[float]]:
-    """Detect all silences with fixed settings when --target-length is set.
-
-    Uses TARGET_NOISE_THRESHOLD_DB and TARGET_MIN_DURATION_SEC for a single detection pass.
-    """
-    return detect_silence_points(input_file, TARGET_NOISE_THRESHOLD_DB, TARGET_MIN_DURATION_SEC)
-
-
 __all__ = [
     "calculate_resulting_length",
     "build_keep_segments_from_silences",
-    "prepare_silence_intervals_with_edges",
     "normalize_timestamp",
     "find_optimal_padding",
-    "choose_threshold_and_padding_for_target",
     "trim_edge_silence",
     "truncate_segments_to_max_length",
-    "detect_silence_points",
-    "detect_silences_simple",
+    "replace_edge_intervals",
+    "_leading_trailing_from_edge_lists",
+    "_normalize_pair_lists",
 ]
 

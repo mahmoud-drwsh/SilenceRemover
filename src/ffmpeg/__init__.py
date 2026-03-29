@@ -10,7 +10,6 @@ from src.ffmpeg.core import (
     build_qsv_hwaccel_flags,
     print_ffmpeg_cmd,
 )
-from src.ffmpeg.detection import detect_silence_points
 from src.ffmpeg.filter_graph import (
     build_audio_concat_filter_graph,
     build_filter_graph_script,
@@ -48,7 +47,6 @@ __all__ = [
     "build_ffprobe_cmd",
     "build_qsv_hwaccel_flags",
     "print_ffmpeg_cmd",
-    "detect_silence_points",
     "build_audio_concat_filter_graph",
     "build_filter_graph_script",
     "build_video_audio_concat_filter_graph",

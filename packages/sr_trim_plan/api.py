@@ -6,15 +6,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Optional
 
-from src.core.constants import TRIM_TIMESTAMP_EPSILON_SEC, TrimDefaults, resolve_trim_defaults
+from src.core.constants import (
+    EDGE_RESCAN_MIN_DURATION_SEC,
+    EDGE_RESCAN_THRESHOLD_DB,
+    EDGE_SILENCE_KEEP_SEC,
+    MAX_PAD_SEC,
+    PAD_INCREMENT_SEC,
+    TARGET_NOISE_THRESHOLDS_DB,
+    TRIM_TIMESTAMP_EPSILON_SEC,
+    TrimDefaults,
+    resolve_trim_defaults,
+)
 from src.ffmpeg.probing import probe_duration
 from src.media.silence_detector import (
     build_keep_segments_from_silences,
-    choose_threshold_and_padding_for_target,
+    calculate_resulting_length,
+    find_optimal_padding,
     normalize_timestamp,
-    prepare_silence_intervals_with_edges,
     truncate_segments_to_max_length,
 )
+from sr_silence_detection import detect_silence_with_edges
 
 TrimPlanMode = Literal["target", "non_target"]
 
@@ -91,11 +102,13 @@ def _build_non_target_trim_plan(
     trim_defaults: TrimDefaults,
 ) -> TrimPlan:
     """Build a non-target trim plan."""
-    silence_starts, silence_ends = prepare_silence_intervals_with_edges(
+    silence_starts, silence_ends = detect_silence_with_edges(
         input_file=input_file,
-        duration_sec=duration_sec,
-        noise_threshold=trim_defaults.noise_threshold,
-        min_duration=trim_defaults.min_duration,
+        primary_noise_threshold=trim_defaults.noise_threshold,
+        primary_min_duration=trim_defaults.min_duration,
+        edge_noise_threshold=EDGE_RESCAN_THRESHOLD_DB,
+        edge_min_duration=EDGE_RESCAN_MIN_DURATION_SEC,
+        edge_keep_seconds=EDGE_SILENCE_KEEP_SEC,
     )
     segments_to_keep = build_keep_segments_from_silences(
         silence_starts=silence_starts,
@@ -116,6 +129,71 @@ def _build_non_target_trim_plan(
     )
 
 
+def _choose_threshold_and_padding_for_target(
+    input_file: Path,
+    duration_sec: float,
+    target_length: float,
+    *,
+    min_duration: float,
+    noise_thresholds_db: list[float],
+    override_noise_threshold: float | None = None,
+) -> tuple[list[float], list[float], float, float]:
+    """Pick the least-aggressive threshold that can meet target, then tune padding.
+
+    Sweep thresholds from quiet -> more aggressive until the base trimmed length
+    (pad=0) is <= target. Then maximize uniform padding without ever exceeding
+    the target.
+
+    Returns:
+        (silence_starts, silence_ends, chosen_threshold_db, pad_sec)
+    """
+    if noise_thresholds_db is None:
+        from src.core.constants import TARGET_NOISE_THRESHOLD_DB
+
+        noise_thresholds_db = [TARGET_NOISE_THRESHOLD_DB]
+
+    ordered_thresholds = list(noise_thresholds_db)
+    if override_noise_threshold is not None and override_noise_threshold not in ordered_thresholds:
+        ordered_thresholds = [override_noise_threshold] + ordered_thresholds
+
+    chosen_threshold = ordered_thresholds[0]
+    chosen_pad = 0.0
+    chosen_starts: list[float] = []
+    chosen_ends: list[float] = []
+    last_starts: list[float] = []
+    last_ends: list[float] = []
+
+    for threshold_db in ordered_thresholds:
+        silence_starts, silence_ends = detect_silence_with_edges(
+            input_file=input_file,
+            primary_noise_threshold=threshold_db,
+            primary_min_duration=min_duration,
+            edge_noise_threshold=EDGE_RESCAN_THRESHOLD_DB,
+            edge_min_duration=EDGE_RESCAN_MIN_DURATION_SEC,
+            edge_keep_seconds=EDGE_SILENCE_KEEP_SEC,
+        )
+        last_starts, last_ends = silence_starts, silence_ends
+
+        base_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)
+        if base_length > target_length:
+            continue
+
+        chosen_threshold = threshold_db
+        chosen_starts = silence_starts
+        chosen_ends = silence_ends
+        chosen_pad = find_optimal_padding(silence_starts, silence_ends, duration_sec, target_length)
+        break
+    else:
+        # If nothing can meet target with silence trimming alone, use the most aggressive
+        # threshold we tried and pad=0; caller can apply truncation as a final safeguard.
+        if ordered_thresholds:
+            chosen_threshold = ordered_thresholds[-1]
+        chosen_starts, chosen_ends = last_starts, last_ends
+        chosen_pad = 0.0
+
+    return (chosen_starts, chosen_ends, chosen_threshold, chosen_pad)
+
+
 def _build_target_trim_plan(
     input_file: Path,
     duration_sec: float,
@@ -123,11 +201,12 @@ def _build_target_trim_plan(
     trim_defaults: TrimDefaults,
 ) -> TrimPlan:
     """Build a target-mode trim plan with adaptive threshold/padding policy."""
-    silence_starts, silence_ends, chosen_threshold, chosen_pad = choose_threshold_and_padding_for_target(
+    silence_starts, silence_ends, chosen_threshold, chosen_pad = _choose_threshold_and_padding_for_target(
         input_file=input_file,
         duration_sec=duration_sec,
         target_length=target_length,
         min_duration=trim_defaults.min_duration,
+        noise_thresholds_db=TARGET_NOISE_THRESHOLDS_DB,
         override_noise_threshold=trim_defaults.noise_threshold,
     )
     segments_to_keep = build_keep_segments_from_silences(
