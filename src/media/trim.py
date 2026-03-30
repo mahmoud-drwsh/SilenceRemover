@@ -28,6 +28,7 @@ from src.ffmpeg.probing import (
 )
 from sr_trim_plan import build_trim_plan
 from sr_title_overlay import build_title_overlay
+from sr_progress_formatter import DefaultProgressFormatter, ProgressMetrics
 from src.ffmpeg.transcode import build_final_trim_command, build_minimal_video_command
 from src.core.fs_utils import wait_for_file_release
 from src.ffmpeg.core import build_ffmpeg_cmd
@@ -265,22 +266,23 @@ def trim_single_video(
         use_lavfi_silent_audio = not input_has_audio
 
     start_wall = time.monotonic()
+    progress_formatter = DefaultProgressFormatter(throttle_size_check_seconds=1.0)
 
     def _on_progress(percent: int, ffmpeg_elapsed_sec: float) -> None:
-        wall_elapsed = time.monotonic() - start_wall
-        speed_x = ffmpeg_elapsed_sec / max(wall_elapsed, 1e-6)
-        size_txt = "n/a"
+        metrics = ProgressMetrics(
+            percent=percent,
+            encoded_seconds=ffmpeg_elapsed_sec,
+            wall_start_time=start_wall,
+        )
+        
+        # Get file size (throttled updates handled by formatter)
+        size_bytes = None
         try:
-            size_mb = output_file.stat().st_size / 1048576
-            size_txt = f"{size_mb:.2f} MiB"
+            size_bytes = output_file.stat().st_size
         except OSError:
             pass
-
-        print(
-            f"\rProgress: {percent}% | {wall_elapsed:.1f}s wall | {ffmpeg_elapsed_sec:.1f}s encoded | {speed_x:.2f}x | {size_txt}",
-            end="",
-            flush=True,
-        )
+        
+        progress_formatter.format_and_print(metrics, size_bytes)
 
     def _run_final_encode(*, use_hw_path: bool) -> Path:
         return run_silence_removed_media(
