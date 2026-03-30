@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import io
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+# Setup paths for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "packages"))
 
 from sr_telegram_notify import api as telegram_api
 from sr_telegram_notify import notify_final_encoding_started, notify_final_output_ready

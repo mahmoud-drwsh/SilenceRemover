@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+# Setup paths for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "packages"))
 
 from src.ffmpeg.core import build_qsv_hwaccel_flags
 from src.ffmpeg.encoding_resolver import resolve_video_encoder
