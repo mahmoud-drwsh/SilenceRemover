@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Audio Manager</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div id="app">
+    <header id="header"></header>
+    <main id="file-list" class="card-list"></main>
+    <nav id="bottom-nav"></nav>
+  </div>
+  
+  <script>
+    // Parse token and project from URL path: /TOKEN/PROJECT/
+    const pathParts = location.pathname.split('/').filter(Boolean);
+    window.CONFIG = {
+      token: pathParts[0] || '',
+      project: pathParts[1] || '',
+      lang: new URLSearchParams(location.search).get('lang') || 'en'
+    };
+  </script>
+  
+  <script src="/static/i18n.js"></script>
+  <script src="/static/api.js"></script>
+  <script src="/static/components.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

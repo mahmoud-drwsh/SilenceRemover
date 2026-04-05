@@ -1,0 +1,283 @@
+/* MP3 Manager SPA Styles */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans Arabic', sans-serif;
+  background: #f5f5f5;
+  padding-bottom: 60px;
+}
+
+/* Header */
+.header {
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 6px 12px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  min-height: 32px;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.header-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.header-view {
+  font-weight: 500;
+  color: #333;
+  white-space: nowrap;
+}
+
+.header-count {
+  color: #666;
+  font-size: 12px;
+}
+
+.lang-switch {
+  display: flex;
+  gap: 4px;
+}
+
+.lang-switch a {
+  text-decoration: none;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  color: #666;
+  font-weight: 500;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.lang-switch a.active {
+  background: #2196F3;
+  color: white;
+  border-color: #2196F3;
+}
+
+/* Card List */
+.card-list {
+  padding: 8px;
+}
+
+.card {
+  background: #fff;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.card.expanded {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.card.ready {
+  border-left: 3px solid #22c55e;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  gap: 10px;
+}
+
+.play-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: #2196F3;
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.card-title {
+  flex: 1;
+  font-weight: 500;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-meta {
+  text-align: right;
+  font-size: 12px;
+  color: #666;
+}
+
+.card-meta .status {
+  font-size: 14px;
+  margin-top: 2px;
+}
+
+/* Card Details (shown when expanded) */
+.card-details {
+  display: none;
+  padding: 0 12px 12px;
+}
+
+.card.expanded .card-details {
+  display: block;
+}
+
+.file-id {
+  font-size: 11px;
+  color: #999;
+  margin-bottom: 10px;
+}
+
+/* Progress Bar */
+.progress-bar {
+  position: relative;
+  height: 20px;
+  background: #e0e0e0;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #2196F3;
+  border-radius: 10px;
+  width: 0%;
+  transition: width 0.1s;
+}
+
+.progress-handle {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 14px;
+  height: 14px;
+  background: #2196F3;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  left: 0%;
+  cursor: grab;
+}
+
+/* Title Input */
+.title-input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.spinner {
+  margin-left: 8px;
+  font-size: 12px;
+}
+
+/* Actions */
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.actions button {
+  flex: 1;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-ready {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.btn-unready {
+  background: #fff3e0;
+  color: #ef6c00;
+}
+
+.btn-trash {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.btn-restore {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.btn-icon {
+  flex: none !important;
+  width: 36px;
+  padding: 8px 0 !important;
+  font-size: 16px;
+  background: transparent;
+  border: 1px solid #ddd;
+}
+
+.btn-delete {
+  color: #c62828;
+  border-color: #ffcdd2;
+}
+
+/* Bottom Nav */
+#bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  background: #fff;
+  border-top: 1px solid #ddd;
+  z-index: 100;
+}
+
+#bottom-nav a {
+  flex: 1;
+  text-align: center;
+  padding: 8px;
+  text-decoration: none;
+  font-size: 11px;
+  color: #666;
+}
+
+#bottom-nav a.active {
+  color: #2196F3;
+  background: #f0f7ff;
+}
+
+#bottom-nav .icon {
+  display: block;
+  font-size: 18px;
+  margin-bottom: 2px;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+}
+
+.error {
+  text-align: center;
+  padding: 40px;
+  color: #c62828;
+}
