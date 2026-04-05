@@ -83,6 +83,29 @@ body {
   border-color: #2196F3;
 }
 
+/* Mobile-first: Smaller screens */
+@media (max-width: 380px) {
+  .header {
+    padding: 6px 8px;
+    gap: 4px;
+  }
+  
+  .header-view {
+    font-size: 12px;
+    max-width: 60px;
+  }
+  
+  .header-count {
+    font-size: 10px;
+  }
+  
+  .lang-switch a {
+    font-size: 9px;
+    padding: 2px 3px;
+    min-width: 18px;
+  }
+}
+
 /* Card List */
 .card-list {
   padding: 8px;
