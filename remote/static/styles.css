@@ -9,16 +9,17 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Header - CSS GRID strict layout */
+/* Header - CSS GRID strict layout with depth */
 .header {
   background: #fff;
   border-bottom: 1px solid #e0e0e0;
-  padding: 0 12px;
+  padding: 6px 14px;
   position: sticky;
   top: 0;
   z-index: 10;
-  height: 44px;
+  height: 48px;
   overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 
 /* Card List */
