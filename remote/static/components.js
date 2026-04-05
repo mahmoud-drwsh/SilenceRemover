@@ -61,6 +61,7 @@ function renderCard(file) {
           oninput="onTitleInput('${file.id}', this)"
           onfocus="autoResizeTextarea(this)"
           rows="1"
+          dir="auto"
         >${escapeHtml(file.title || '')}</textarea>
         <span id="spinner-${file.id}" class="save-indicator" style="display: none;">⏳</span>
         <span id="saved-${file.id}" class="save-indicator" style="display: none;">✓</span>
@@ -96,7 +97,7 @@ function renderTrashedCard(file) {
       </div>
       
       <div class="row-title-only">
-        <span class="trashed-title">${escapeHtml(file.title || t('untitled'))}</span>
+        <span class="trashed-title" dir="auto">${escapeHtml(file.title || t('untitled'))}</span>
       </div>
       
     </div>
