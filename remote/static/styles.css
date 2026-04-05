@@ -9,7 +9,7 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Header - CSS GRID strict layout */
+/* Header - Container only, content styled inline */
 .header {
   background: #fff;
   border-bottom: 1px solid #e0e0e0;
@@ -17,81 +17,18 @@ body {
   position: sticky;
   top: 0;
   z-index: 10;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  font-size: 13px;
   height: 44px;
-  gap: 8px;
   overflow: hidden;
 }
 
-.header-info {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.header-view {
-  font-weight: 500;
-  color: #333;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-.header-count {
-  color: #666;
-  font-size: 12px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.lang-switch {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.lang-switch a {
-  text-decoration: none;
-  font-size: 11px;
-  padding: 3px 6px;
-  border-radius: 3px;
-  color: #666;
-  font-weight: 500;
-  border: 1px solid transparent;
-  white-space: nowrap;
-  display: block;
-}
-
-.lang-switch a.active {
-  background: #2196F3;
-  color: white;
-  border-color: #2196F3;
-}
-
-/* Extreme small screens - hide count, smaller fonts */
+/* Hide count on very small screens */
 @media (max-width: 360px) {
   .header {
     padding: 0 8px;
-    gap: 6px;
-  }
-  
-  .header-view {
-    font-size: 12px;
   }
   
   .header-count {
-    display: none; /* Hide count on very small screens */
-  }
-  
-  .lang-switch a {
-    font-size: 10px;
-    padding: 2px 4px;
+    display: none;
   }
 }
 
