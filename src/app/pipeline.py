@@ -36,7 +36,7 @@ from src.media.trim import trim_single_video
 
 # Optional MP3 Manager integration for title sync and upload
 try:
-    from sr_mp3_manager import Mp3ApiClient, sync_titles, ensure_uploaded, get_uploaded_file_ids, check_uploaded
+    from sr_mp3_manager import Mp3ApiClient, sync_titles, get_uploaded_file_ids, check_uploaded
     _MP3_AVAILABLE = True
 except ImportError:
     _MP3_AVAILABLE = False
@@ -234,8 +234,8 @@ def run_mp3_upload_phase(
         
         client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
         try:
-            uploaded = ensure_uploaded(client, file_id, title, snippet_path)
-            if uploaded:
+            result = client.upload(file_id, title, snippet_path)
+            if result:
                 print(f"  Uploaded: {file_id}")
             else:
                 print(f"  Upload failed for {file_id}")
