@@ -234,7 +234,7 @@ body {
   padding: 6px 10px;
   border: 1px solid #ddd;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 15px;
   font-family: inherit;
   resize: none;
   overflow: hidden;
@@ -313,7 +313,7 @@ body {
   }
   
   .title-textarea {
-    font-size: 13px;
+    font-size: 14px;
   }
 }
 
