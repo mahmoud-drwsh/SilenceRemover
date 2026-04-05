@@ -9,6 +9,13 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Mobile-first: larger base font for readability */
+@media (max-width: 480px) {
+  body {
+    font-size: 16px;
+  }
+}
+
 /* Header - Floating island style */
 .header {
   background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
@@ -306,6 +313,10 @@ body {
 
 /* Responsive */
 @media (max-width: 480px) {
+  body {
+    font-size: 16px;
+  }
+  
   .card {
     padding: 8px 10px;
   }
@@ -316,6 +327,21 @@ body {
   
   .title-textarea {
     font-size: 14px;
+  }
+  
+  /* Larger bottom nav on mobile */
+  #bottom-nav {
+    height: 52px;
+  }
+  
+  #bottom-nav a {
+    font-size: 12px;
+    padding: 8px 4px;
+    gap: 2px;
+  }
+  
+  #bottom-nav .icon {
+    font-size: 18px;
   }
 }
 
