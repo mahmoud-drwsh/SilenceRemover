@@ -6,6 +6,7 @@ Serves JSON API for static SPA frontend
 import os
 import sqlite3
 import uuid
+from datetime import datetime
 from pathlib import Path
 from flask import Flask, request, jsonify, send_file
 from werkzeug.utils import secure_filename
@@ -269,8 +270,89 @@ def api_stream(token, project, file_id):
     return send_file(filepath, mimetype='audio/mpeg')
 
 
-# Serve static SPA for all other routes
-@app.route('/', defaults={'path': ''})
+@app.route('/<token>/<project>/monitor')
+def api_monitor(token, project):
+    """Simple HTTPS endpoint for monitoring access attempts."""
+    if not require_token(token):
+        return jsonify({"error": "Invalid token"}), 403
+    
+    # Get attack statistics
+    stats = {
+        "timestamp": datetime.now().isoformat(),
+        "server": project,
+        "attacks": {
+            "ssh_failed_24h": 0,
+            "ufw_blocks_24h": 0,
+            "banned_ips": [],
+            "top_attackers": []
+        },
+        "access": {
+            "your_ip": request.remote_addr,
+            "last_ssh_logins": []
+        }
+    }
+    
+    # Get banned IPs from fail2ban
+    try:
+        import subprocess
+        result = subprocess.run(['fail2ban-client', 'status', 'sshd'], 
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if 'Banned IP list' in line:
+                    ips = line.split(':')[-1].strip()
+                    if ips:
+                        stats["attacks"]["banned_ips"] = [ip.strip() for ip in ips.split(',')]
+                if 'Currently banned' in line:
+                    count = line.split(':')[-1].strip()
+                    stats["attacks"]["currently_banned_count"] = count
+    except:
+        pass
+    
+    # Get SSH auth stats from journalctl
+    try:
+        result = subprocess.run(
+            ['journalctl', '-u', 'ssh', '--since', '24 hours ago', '-q'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            failed = result.stdout.count('Failed password') + result.stdout.count('Invalid user')
+            accepted = result.stdout.count('Accepted publickey')
+            stats["attacks"]["ssh_failed_24h"] = failed
+            stats["access"]["successful_ssh_24h"] = accepted
+    except:
+        pass
+    
+    # Get UFW blocks
+    try:
+        result = subprocess.run(
+            ['dmesg'], capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            blocks = result.stdout.count('[UFW BLOCK]')
+            stats["attacks"]["ufw_blocks_24h"] = blocks
+    except:
+        pass
+    
+    # Get last 5 SSH logins
+    try:
+        result = subprocess.run(['last', '-5'], capture_output=True, text=True, timeout=3)
+        if result.returncode == 0:
+            logins = []
+            for line in result.stdout.strip().split('\n')[:5]:
+                if 'pts' in line or 'tty' in line:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        logins.append({
+                            "user": parts[0],
+                            "ip": parts[2],
+                            "time": " ".join(parts[3:6]) if len(parts) > 5 else ""
+                        })
+            stats["access"]["last_ssh_logins"] = logins
+    except:
+        pass
+    
+    return jsonify(stats)
 @app.route('/<token>/', defaults={'path': ''})
 @app.route('/<token>/<project>/')
 @app.route('/<token>/<project>/<path:path>')
