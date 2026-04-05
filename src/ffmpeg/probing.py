@@ -16,6 +16,13 @@ from src.core.constants import (
 )
 from src.ffmpeg.core import build_ffmpeg_cmd, build_ffprobe_cmd
 from src.ffmpeg.runner import run
+from sr_ffmpeg_cmd_builder import (
+    build_encoder_probe_command,
+    build_ffprobe_format_json_command,
+    build_ffprobe_has_audio_command,
+    build_ffprobe_metadata_command,
+    build_ffprobe_stream_dimensions_command,
+)
 
 _ENCODER_LINE_RE = re.compile(r"^\s*[.A-Z]{6}\s+\S+")
 
@@ -42,41 +49,6 @@ def get_available_encoders() -> set[str]:
     return parse_ffmpeg_encoder_lines(result.stdout)
 
 
-def build_encoder_probe_command(codec: str, codec_args: Sequence[str] = ()) -> list[str]:
-    """Build a probe command for encoding tests."""
-    cmd = build_ffmpeg_cmd(
-        False,
-        "-v",
-        "error",
-        "-f",
-        "lavfi",
-        "-i",
-        "color=black:s=64x64:d=0.4",
-        "-frames:v",
-        "4",
-        "-c:v",
-        codec,
-        "-pix_fmt",
-        "yuv420p",
-    )
-    cmd.extend(codec_args)
-    cmd.extend(["-f", "null", "-"])
-    return cmd
-
-
-def build_ffprobe_metadata_command(input_file: Path, format_entry: str) -> list[str]:
-    """Build a simple ffprobe format field query command."""
-    return build_ffprobe_cmd(
-        "-v",
-        "error",
-        "-show_entries",
-        f"format={format_entry}",
-        "-of",
-        "default=nw=1:nk=1",
-        str(input_file),
-    )
-
-
 def run_ffprobe_float(input_file: Path, format_entry: str, fallback: float) -> float:
     """Run ffprobe and parse a float metadata field."""
     result = run(build_ffprobe_metadata_command(input_file, format_entry), capture_output=True, check=False)
@@ -85,36 +57,6 @@ def run_ffprobe_float(input_file: Path, format_entry: str, fallback: float) -> f
         return float(output)
     except (TypeError, ValueError):
         return fallback
-
-
-def build_ffprobe_stream_dimensions_command(input_file: Path) -> list[str]:
-    """Build a command to query stream width and height."""
-    return build_ffprobe_cmd(
-        "-v",
-        "error",
-        "-select_streams",
-        "v:0",
-        "-show_entries",
-        "stream=width,height",
-        "-of",
-        "csv=p=0:nk=1",
-        str(input_file),
-    )
-
-
-def build_ffprobe_has_audio_command(input_file: Path) -> list[str]:
-    """Return whether the file has at least one audio stream (non-empty ffprobe output)."""
-    return build_ffprobe_cmd(
-        "-v",
-        "error",
-        "-select_streams",
-        "a",
-        "-show_entries",
-        "stream=index",
-        "-of",
-        "csv=p=0",
-        str(input_file),
-    )
 
 
 def probe_has_audio_stream(input_file: Path) -> bool:
@@ -179,18 +121,6 @@ def can_run_encoder(codec: str, codec_args: Sequence[str] = ()) -> bool:
 def probe_duration(input_file: Path) -> float:
     """Probe media duration in seconds."""
     return run_ffprobe_float(input_file, "duration", 0.0)
-
-
-def build_ffprobe_format_json_command(input_file: Path) -> list[str]:
-    """JSON with format.tags for metadata inspection."""
-    return build_ffprobe_cmd(
-        "-v",
-        "quiet",
-        "-print_format",
-        "json",
-        "-show_format",
-        str(input_file),
-    )
 
 
 def read_format_tags(input_file: Path) -> dict[str, str]:
