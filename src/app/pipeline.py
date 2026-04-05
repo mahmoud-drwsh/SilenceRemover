@@ -29,7 +29,7 @@ from src.core.paths import (
 from src.startup import StartupContext, build_startup_context
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile
 from sr_snippet import create_silence_removed_snippet
-from sr_telegram_notify import notify_final_encoding_started, notify_final_output_ready
+from sr_telegram_notify import notify_final_output_ready
 from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
 from src.media.trim import trim_single_video
@@ -283,15 +283,6 @@ def run_output_phase(
             f"\n[3/{total_phases}] Creating final output: {video_path.name} -> {chosen_basename}.mp4"
         )
         output_mp4 = (output_dir / f"{chosen_basename}.mp4").resolve()
-        notify_final_encoding_started(
-            phase_index=3,
-            total_phases=total_phases,
-            video_index=video_index,
-            total_videos=total_videos,
-            input_name=video_path.name,
-            title=title_text,
-            output_mp4=output_mp4,
-        )
         trim_single_video(
             input_file=video_path,
             output_dir=output_dir,
