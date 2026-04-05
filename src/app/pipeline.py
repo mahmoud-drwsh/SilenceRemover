@@ -183,30 +183,18 @@ def run_title_phase(
     """Phase 2: Generate title from transcript to `temp/title/{basename}.txt`."""
     basename = video_path.stem
     file_id = video_path.name  # Exact filename with extension
+    title_path = get_title_path(temp_dir, basename)
 
     def _perform() -> None:
         print(f"\n[2/{total_phases}] Generating title for: {video_path.name}")
         generate_title(temp_dir=temp_dir, api_key=api_key, basename=basename)
-        
-        # Upload snippet + title to MP3 Manager if configured
-        if _MP3_AVAILABLE and os.getenv('MP3_MANAGER_URL'):
-            try:
-                client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
-                title_path = get_title_path(temp_dir, basename)
-                title = title_path.read_text(encoding='utf-8').strip() if title_path.exists() else ''
-                snippet_path = get_snippet_path(temp_dir, basename)
-                uploaded = ensure_uploaded(client, file_id, title, snippet_path)
-                if uploaded:
-                    print(f"  Uploaded to MP3 Manager: {file_id}")
-                client.close()
-            except Exception as e:
-                print(f"  MP3 upload failed (continuing): {e}")
 
-    if is_title_done(temp_dir, basename):
+    # Check if title already exists
+    title_already_done = is_title_done(temp_dir, basename)
+    
+    if title_already_done:
         print(f"Phase 2 already done for {video_path.name}, skipping title generation.")
-        return True
-
-    if not is_transcript_done(temp_dir, basename):
+    elif not is_transcript_done(temp_dir, basename):
         return _run_phase_step(
             video_path=video_path,
             already_done=False,
@@ -219,16 +207,35 @@ def run_title_phase(
             success_message="",
             failure_label="Phase 2",
         )
+    else:
+        # Generate title
+        result = _run_phase_step(
+            video_path=video_path,
+            already_done=False,
+            already_done_message="",
+            precondition_ok=True,
+            work_fn=_perform,
+            success_message=f"\n✓ Phase 2 (title generation) done: {video_path.name}",
+            failure_label="Phase 2",
+        )
+        if not result:
+            return False
 
-    return _run_phase_step(
-        video_path=video_path,
-        already_done=False,
-        already_done_message="",
-        precondition_ok=True,
-        work_fn=_perform,
-        success_message=f"\n✓ Phase 2 (title generation) done: {video_path.name}",
-        failure_label="Phase 2",
-    )
+    # Upload to MP3 Manager (runs regardless of whether title was just generated or already existed)
+    # This happens AFTER title.txt is written, BEFORE Phase 3 encoding
+    if _MP3_AVAILABLE and os.getenv('MP3_MANAGER_URL') and title_path.exists():
+        try:
+            client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
+            title = title_path.read_text(encoding='utf-8').strip()
+            snippet_path = get_snippet_path(temp_dir, basename)
+            uploaded = ensure_uploaded(client, file_id, title, snippet_path)
+            if uploaded:
+                print(f"  Uploaded to MP3 Manager: {file_id}")
+            client.close()
+        except Exception as e:
+            print(f"  MP3 upload check failed (continuing): {e}")
+    
+    return True
 
 
 def run_output_phase(
