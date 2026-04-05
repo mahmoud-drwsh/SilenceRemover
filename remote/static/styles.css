@@ -311,37 +311,80 @@ body {
   font-size: 14px;
 }
 
-/* Responsive */
+/* Responsive - Bigger on mobile */
 @media (max-width: 480px) {
+  html {
+    font-size: 18px;
+  }
+  
   body {
-    font-size: 16px;
+    padding: 0 8px 56px 8px;
+  }
+  
+  .header {
+    height: 58px;
+    padding: 8px 12px;
+    margin: 8px 2px;
   }
   
   .card {
-    padding: 8px 10px;
+    padding: 12px 14px;
+    gap: 12px;
   }
   
   .native-player {
-    height: 32px;
+    height: 40px;
   }
   
   .title-textarea {
+    font-size: 16px;
+    padding: 8px 12px;
+  }
+  
+  .checkmark-ready, .checkmark-done {
+    font-size: 24px;
+  }
+  
+  .icon-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+  
+  .menu-btn {
+    font-size: 22px;
+  }
+  
+  .context-menu {
+    min-width: 180px;
+  }
+  
+  .menu-item {
+    font-size: 14px;
+    padding: 12px 14px;
+  }
+  
+  .save-indicator {
     font-size: 14px;
   }
   
-  /* Larger bottom nav on mobile */
+  /* Larger bottom nav */
   #bottom-nav {
-    height: 52px;
+    height: 56px;
   }
   
   #bottom-nav a {
-    font-size: 12px;
-    padding: 8px 4px;
-    gap: 2px;
+    font-size: 13px;
+    padding: 10px 6px;
+    gap: 4px;
   }
   
   #bottom-nav .icon {
-    font-size: 18px;
+    font-size: 20px;
+  }
+  
+  .empty-state, .error {
+    font-size: 16px;
   }
 }
 
