@@ -205,17 +205,18 @@ body {
   color: #16a34a;
 }
 
-/* Yellow/Red indicator when already ready (can be removed) */
+/* Red X when already ready (click to unmark) */
 .checkmark-done {
-  color: #f59e0b;
+  color: #dc2626;
   font-size: 20px;
+  font-weight: bold;
   cursor: pointer;
   line-height: 1;
   padding: 2px;
 }
 
 .checkmark-done:hover {
-  color: #dc2626;
+  color: #991b1b;
 }
 
 /* Row 2: Progress Bar */
