@@ -114,6 +114,9 @@ function renderFileList(files, view) {
     return !f.trashed;
   });
   
+  // Sort by ID ascending (default)
+  filtered.sort((a, b) => a.id.localeCompare(b.id));
+  
   if (filtered.length === 0) {
     const t = (key) => getText(key, window.CONFIG.lang);
     container.innerHTML = `<div class="empty-state">${t('no_files') || 'No files'}</div>`;
