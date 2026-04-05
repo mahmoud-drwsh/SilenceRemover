@@ -9,31 +9,27 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Header - STRICT single line */
+/* Header - CSS GRID strict layout */
 .header {
   background: #fff;
   border-bottom: 1px solid #e0e0e0;
-  padding: 6px 12px;
+  padding: 0 12px;
   position: sticky;
   top: 0;
   z-index: 10;
-  display: flex;
-  flex-direction: row !important;
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  justify-content: space-between;
   font-size: 13px;
   height: 44px;
-  flex-wrap: nowrap !important;
   gap: 8px;
   overflow: hidden;
-  white-space: nowrap;
 }
 
 .header-info {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
 }
@@ -44,8 +40,7 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100px;
-  flex-shrink: 1;
+  min-width: 0;
 }
 
 .header-count {
@@ -56,12 +51,9 @@ body {
 }
 
 .lang-switch {
-  display: flex !important;
-  flex-direction: row !important;
+  display: flex;
   gap: 4px;
-  flex: 0 0 auto;
-  margin-left: auto;
-  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .lang-switch a {
@@ -73,8 +65,7 @@ body {
   font-weight: 500;
   border: 1px solid transparent;
   white-space: nowrap;
-  flex: 0 0 auto;
-  display: inline-block;
+  display: block;
 }
 
 .lang-switch a.active {
@@ -83,26 +74,24 @@ body {
   border-color: #2196F3;
 }
 
-/* Mobile-first: Smaller screens */
-@media (max-width: 380px) {
+/* Extreme small screens - hide count, smaller fonts */
+@media (max-width: 360px) {
   .header {
-    padding: 6px 8px;
-    gap: 4px;
+    padding: 0 8px;
+    gap: 6px;
   }
   
   .header-view {
     font-size: 12px;
-    max-width: 60px;
   }
   
   .header-count {
-    font-size: 10px;
+    display: none; /* Hide count on very small screens */
   }
   
   .lang-switch a {
-    font-size: 9px;
-    padding: 2px 3px;
-    min-width: 18px;
+    font-size: 10px;
+    padding: 2px 4px;
   }
 }
 

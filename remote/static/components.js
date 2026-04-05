@@ -141,17 +141,22 @@ function renderFileList(files, view) {
 
 function renderHeader(fileCount, view) {
   const t = (key) => getText(key, window.CONFIG.lang);
+  
+  // Short view names without emojis for space
   const viewNames = {
-    notready: '⏳ ' + t('todo'),
-    ready: '✓ ' + t('ready'),
-    all: '📁 ' + t('all'),
-    trash: '🗑 ' + t('trash')
+    notready: t('todo'),
+    ready: t('ready'), 
+    all: t('all'),
+    trash: t('trash')
   };
+  
+  // Responsive: hide count on very small screens via CSS
+  const countText = window.innerWidth < 360 ? '' : ` · ${fileCount}`;
   
   document.getElementById('header').innerHTML = `
     <div class="header-info">
       <span class="header-view">${viewNames[view] || viewNames.notready}</span>
-      <span class="header-count">· ${fileCount} ${t('files')}</span>
+      <span class="header-count">${countText}</span>
     </div>
     <div class="lang-switch">
       <a href="?lang=en&view=${view}" class="${window.CONFIG.lang === 'en' ? 'active' : ''}">EN</a>
