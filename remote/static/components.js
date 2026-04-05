@@ -41,13 +41,18 @@ function renderCard(file) {
         
         <div class="action-buttons">
           ${readyIcon}
-          <button class="icon-btn trash-btn" onclick="confirmTrash('${file.id}', '${escapeHtml(file.title || t('untitled'))}')" title="${t('move_to_trash')}">
-            🗑
-          </button>
+          <div class="context-menu-container">
+            <button class="icon-btn menu-btn" onclick="toggleMenu('${file.id}')" title="${t('more_actions')}">⋮</button>
+            <div id="menu-${file.id}" class="context-menu" style="display: none;">
+              <button class="menu-item trash" onclick="confirmTrash('${file.id}', '${escapeHtml(file.title || t('untitled'))}'); hideMenu('${file.id}');">
+                <span class="menu-icon">🗑</span> ${t('move_to_trash')}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
       
-      <!-- Row 2: Title Textarea Only (no duplicate title display) -->
+      <!-- Row 2: Title Textarea Only -->
       <div class="row-title-only">
         <textarea 
           id="textarea-${file.id}"
@@ -76,12 +81,17 @@ function renderTrashedCard(file) {
         <div class="trashed-label">${t('trash')} • ${formatDuration(file.duration)}</div>
         
         <div class="action-buttons">
-          <button class="icon-btn restore-btn" onclick="restore('${file.id}')" title="${t('restore')}">
-            ♻️
-          </button>
-          <button class="icon-btn delete-btn" onclick="confirmDelete('${file.id}', '${escapeHtml(file.title || t('untitled'))}')" title="${t('delete_forever')}">
-            🗑
-          </button>
+          <div class="context-menu-container">
+            <button class="icon-btn menu-btn" onclick="toggleMenu('${file.id}')" title="${t('more_actions')}">⋮</button>
+            <div id="menu-${file.id}" class="context-menu" style="display: none;">
+              <button class="menu-item restore" onclick="restore('${file.id}'); hideMenu('${file.id}');">
+                <span class="menu-icon">♻️</span> ${t('restore')}
+              </button>
+              <button class="menu-item delete" onclick="confirmDelete('${file.id}', '${escapeHtml(file.title || t('untitled'))}'); hideMenu('${file.id}');">
+                <span class="menu-icon">🗑</span> ${t('delete_forever')}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
       
