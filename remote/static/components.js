@@ -165,15 +165,14 @@ function renderHeader(fileCount, view) {
 function renderBottomNav(view) {
   const t = (key) => getText(key, window.CONFIG.lang);
   const views = [
-    { id: 'notready', icon: '⏳', label: t('todo') },
-    { id: 'ready', icon: '✓', label: t('ready') },
-    { id: 'all', icon: '📁', label: t('all') },
-    { id: 'trash', icon: '🗑', label: t('trash') }
+    { id: 'notready', label: t('todo') },
+    { id: 'ready', label: t('ready') },
+    { id: 'all', label: t('all') },
+    { id: 'trash', label: t('trash') }
   ];
   
   document.getElementById('bottom-nav').innerHTML = views.map(v => `
     <a href="?view=${v.id}&lang=${window.CONFIG.lang}" class="${view === v.id ? 'active' : ''}">
-      <span class="icon">${v.icon}</span>
       <span>${v.label}</span>
     </a>
   `).join('');

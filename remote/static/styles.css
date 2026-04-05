@@ -259,7 +259,7 @@ body {
   margin-top: 6px;
 }
 
-/* Bottom Navigation - Compact */
+/* Bottom Navigation - Text only */
 #bottom-nav {
   position: fixed;
   bottom: 0;
@@ -275,25 +275,20 @@ body {
 #bottom-nav a {
   flex: 1;
   text-align: center;
-  padding: 6px 2px;
+  padding: 6px 4px;
   text-decoration: none;
-  font-size: 10px;
+  font-size: 11px;
   color: #666;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
+  font-weight: 500;
 }
 
 #bottom-nav a.active {
   color: #2196F3;
   background: #f0f7ff;
-}
-
-#bottom-nav .icon {
-  font-size: 16px;
-  line-height: 1;
+  font-weight: 600;
 }
 
 /* Empty State */
@@ -314,77 +309,83 @@ body {
 /* Responsive - Bigger on mobile */
 @media (max-width: 480px) {
   html {
-    font-size: 18px;
+    font-size: 20px;
   }
   
   body {
-    padding: 0 8px 56px 8px;
+    padding: 0 12px 64px 12px;
   }
   
   .header {
-    height: 58px;
-    padding: 8px 12px;
-    margin: 8px 2px;
+    height: 64px;
+    padding: 10px 14px;
+    margin: 10px 4px;
+    border-radius: 12px;
   }
   
   .card {
-    padding: 12px 14px;
-    gap: 12px;
+    padding: 16px;
+    gap: 14px;
+    border-radius: 12px;
   }
   
   .native-player {
-    height: 40px;
+    height: 44px;
   }
   
   .title-textarea {
-    font-size: 16px;
-    padding: 8px 12px;
+    font-size: 18px;
+    padding: 10px 14px;
+    min-height: 28px;
   }
   
   .checkmark-ready, .checkmark-done {
-    font-size: 24px;
+    font-size: 28px;
+    padding: 4px;
   }
   
   .icon-btn {
-    width: 36px;
-    height: 36px;
-    font-size: 18px;
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
   }
   
   .menu-btn {
-    font-size: 22px;
+    font-size: 26px;
   }
   
   .context-menu {
-    min-width: 180px;
+    min-width: 200px;
+    border-radius: 10px;
   }
   
   .menu-item {
-    font-size: 14px;
-    padding: 12px 14px;
+    font-size: 16px;
+    padding: 14px 16px;
+  }
+  
+  .menu-icon {
+    font-size: 18px;
   }
   
   .save-indicator {
-    font-size: 14px;
+    font-size: 16px;
+    margin-top: 8px;
   }
   
-  /* Larger bottom nav */
+  /* Larger bottom nav - text only */
   #bottom-nav {
     height: 56px;
   }
   
   #bottom-nav a {
-    font-size: 13px;
-    padding: 10px 6px;
-    gap: 4px;
-  }
-  
-  #bottom-nav .icon {
-    font-size: 20px;
+    font-size: 14px;
+    padding: 12px 8px;
   }
   
   .empty-state, .error {
-    font-size: 16px;
+    font-size: 18px;
+    padding: 50px;
   }
 }
 
