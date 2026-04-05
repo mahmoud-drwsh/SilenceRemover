@@ -151,9 +151,9 @@ function renderHeader(fileCount, view) {
         <span style="font-weight: 600; color: #495057; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-size: 14px;">${viewNames[view] || viewNames.notready}</span>
         <span class="header-count" style="color: #6c757d; font-size: 12px; white-space: nowrap; background: rgba(255,255,255,0.6); padding: 2px 8px; border-radius: 12px;">${countText}</span>
       </div>
-      <div style="display: flex; gap: 6px; flex-shrink: 0; background: rgba(255,255,255,0.8); padding: 4px; border-radius: 6px;">
-        <a href="?lang=en&view=${view}" style="text-decoration: none; font-size: 11px; padding: 4px 8px; border-radius: 4px; color: #495057; font-weight: 600; border: 1px solid transparent; white-space: nowrap; display: block; ${window.CONFIG.lang === 'en' ? 'background: #2196F3; color: white; border-color: #2196F3;' : 'background: transparent;'}">EN</a>
-        <a href="?lang=ar&view=${view}" style="text-decoration: none; font-size: 11px; padding: 4px 8px; border-radius: 4px; color: #495057; font-weight: 600; border: 1px solid transparent; white-space: nowrap; display: block; ${window.CONFIG.lang === 'ar' ? 'background: #2196F3; color: white; border-color: #2196F3;' : 'background: transparent;'}">AR</a>
+      <div style="display: flex; flex-shrink: 0; background: #fff; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden;">
+        <a href="?lang=en&view=${view}" style="text-decoration: none; font-size: 10px; padding: 3px 6px; color: ${window.CONFIG.lang === 'en' ? '#fff' : '#495057'}; font-weight: 600; white-space: nowrap; display: block; background: ${window.CONFIG.lang === 'en' ? '#2196F3' : 'transparent'}; border-right: 1px solid #dee2e6;">EN</a>
+        <a href="?lang=ar&view=${view}" style="text-decoration: none; font-size: 10px; padding: 3px 6px; color: ${window.CONFIG.lang === 'ar' ? '#fff' : '#495057'}; font-weight: 600; white-space: nowrap; display: block; background: ${window.CONFIG.lang === 'ar' ? '#2196F3' : 'transparent'};">AR</a>
       </div>
     </div>
   `;
