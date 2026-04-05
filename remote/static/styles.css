@@ -13,7 +13,7 @@ body {
 .header {
   background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
   border-bottom: 1px solid #dee2e6;
-  padding: 8px 16px;
+  padding: 8px 24px;
   position: sticky;
   top: 0;
   z-index: 10;
