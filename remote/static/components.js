@@ -150,8 +150,8 @@ function renderHeader(fileCount, view) {
     trash: t('trash')
   };
   
-  // Responsive: hide count on very small screens via CSS
-  const countText = window.innerWidth < 360 ? '' : ` · ${fileCount}`;
+  // Always show count: "3 files"
+  const countText = ` · ${fileCount} ${t('files')}`;
   
   document.getElementById('header').innerHTML = `
     <div style="display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; width: 100%; height: 100%; overflow: hidden;">

@@ -21,17 +21,6 @@ body {
   overflow: hidden;
 }
 
-/* Hide count on very small screens */
-@media (max-width: 360px) {
-  .header {
-    padding: 0 8px;
-  }
-  
-  .header-count {
-    display: none;
-  }
-}
-
 /* Card List */
 .card-list {
   padding: 8px;
