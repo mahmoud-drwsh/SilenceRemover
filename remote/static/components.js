@@ -135,14 +135,14 @@ function renderHeader(fileCount, view) {
   const countText = ` · ${fileCount} ${t('files')}`;
   
   document.getElementById('header').innerHTML = `
-    <div style="display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; width: 100%; height: 100%; overflow: hidden;">
-      <div style="display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden;">
-        <span style="font-weight: 500; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;">${viewNames[view] || viewNames.notready}</span>
-        <span class="header-count" style="color: #666; font-size: 12px; white-space: nowrap;">${countText}</span>
+    <div style="display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; width: 100%; height: 100%; overflow: hidden; padding: 4px 0;">
+      <div style="display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden;">
+        <span style="font-weight: 600; color: #495057; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-size: 14px;">${viewNames[view] || viewNames.notready}</span>
+        <span class="header-count" style="color: #6c757d; font-size: 12px; white-space: nowrap; background: rgba(255,255,255,0.6); padding: 2px 8px; border-radius: 12px;">${countText}</span>
       </div>
-      <div style="display: flex; gap: 4px; flex-shrink: 0;">
-        <a href="?lang=en&view=${view}" style="text-decoration: none; font-size: 11px; padding: 3px 6px; border-radius: 3px; color: #666; font-weight: 500; border: 1px solid transparent; white-space: nowrap; display: block; ${window.CONFIG.lang === 'en' ? 'background: #2196F3; color: white; border-color: #2196F3;' : ''}">EN</a>
-        <a href="?lang=ar&view=${view}" style="text-decoration: none; font-size: 11px; padding: 3px 6px; border-radius: 3px; color: #666; font-weight: 500; border: 1px solid transparent; white-space: nowrap; display: block; ${window.CONFIG.lang === 'ar' ? 'background: #2196F3; color: white; border-color: #2196F3;' : ''}">AR</a>
+      <div style="display: flex; gap: 6px; flex-shrink: 0; background: rgba(255,255,255,0.8); padding: 4px; border-radius: 6px;">
+        <a href="?lang=en&view=${view}" style="text-decoration: none; font-size: 11px; padding: 4px 8px; border-radius: 4px; color: #495057; font-weight: 600; border: 1px solid transparent; white-space: nowrap; display: block; ${window.CONFIG.lang === 'en' ? 'background: #2196F3; color: white; border-color: #2196F3;' : 'background: transparent;'}">EN</a>
+        <a href="?lang=ar&view=${view}" style="text-decoration: none; font-size: 11px; padding: 4px 8px; border-radius: 4px; color: #495057; font-weight: 600; border: 1px solid transparent; white-space: nowrap; display: block; ${window.CONFIG.lang === 'ar' ? 'background: #2196F3; color: white; border-color: #2196F3;' : 'background: transparent;'}">AR</a>
       </div>
     </div>
   `;
