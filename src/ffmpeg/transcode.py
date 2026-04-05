@@ -12,7 +12,7 @@ from src.core.constants import (
     LOGO_OVERLAY_MARGIN_PX,
 )
 from src.ffmpeg.core import add_filter_complex_script, build_ffmpeg_cmd, build_qsv_hwaccel_flags
-from src.ffmpeg.filter_graph import build_minimal_encode_overlay_filter_complex
+from sr_filter_graph import build_minimal_encode_overlay_filter_complex
 
 if TYPE_CHECKING:
     from src.ffmpeg.encoding_resolver import VideoEncoderProfile

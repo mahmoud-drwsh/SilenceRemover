@@ -14,7 +14,7 @@ from src.core.constants import (
     TITLE_OVERLAYS_DIR,
     TRANSCRIPT_DIR,
 )
-from src.core.filename_sanitizer import sanitize_filename
+from sr_filename import sanitize_filename
 
 __all__ = [
     "sibling_dir",

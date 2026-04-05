@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "packages"))
 
 from src.ffmpeg.core import build_qsv_hwaccel_flags
 from src.ffmpeg.encoding_resolver import resolve_video_encoder
-from src.ffmpeg.filter_graph import (
+from sr_filter_graph import (
     build_minimal_encode_overlay_filter_complex,
     build_video_audio_concat_filter_graph_with_title_overlay,
 )

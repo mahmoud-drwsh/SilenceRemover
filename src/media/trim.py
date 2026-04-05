@@ -15,7 +15,7 @@ from src.core.constants import (
     TITLE_FONT_DEFAULT,
 )
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
-from src.ffmpeg.filter_graph import (
+from sr_filter_graph import (
     build_video_audio_concat_filter_graph,
     build_video_audio_concat_filter_graph_with_title_overlay,
     build_video_lavfi_audio_concat_filter_graph,

@@ -10,7 +10,7 @@ from src.core.constants import (
     SNIPPET_MIN_DURATION_SEC,
     SNIPPET_NOISE_THRESHOLD_DB,
 )
-from src.ffmpeg.filter_graph import build_audio_concat_filter_graph
+from sr_filter_graph import build_audio_concat_filter_graph
 from src.ffmpeg.probing import probe_duration, probe_has_audio_stream
 from src.ffmpeg.transcode import (
     build_minimal_audio_command,

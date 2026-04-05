@@ -159,3 +159,4 @@ After code or config changes, agents append short notes here. When this file gro
 - `README.md`: Documented one-time cached logo pre-scaling and clarified that runtime overlay no longer does per-frame logo scaling.
 - `src/media/trim.py`: Fixed a syntax error in the pre-scale FFmpeg command builder call by passing the `overwrite` argument positionally before variadic flags.
 - `src/ffmpeg/filter_graph.py`: Fixed malformed logo overlay filter strings by removing stray trailing commas that created an empty FFmpeg filter (`No such filter: ''`).
+- `packages/sr_filename/`: **NEW** - Extracted `sanitize_filename()` from `src/core/filename_sanitizer.py` into standalone black box package. Pure string function for converting titles to safe filenames (no I/O, no FFmpeg). Added comprehensive test suite with 56 tests. Updated `pyproject.toml`, `src/core/paths.py` import, and maintained backward compatibility via `src/core/filename_sanitizer.py` re-export shim.
