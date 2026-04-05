@@ -191,34 +191,26 @@ body {
   color: #c62828;
 }
 
-/* Checkbox-style ready toggle */
-.checkbox-ready {
-  width: 20px;
-  height: 20px;
-  border: 2px solid #ccc;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: white;
-  flex-shrink: 0;
-}
-
-.checkbox-ready.checked {
-  background: #22c55e;
-  border-color: #22c55e;
-}
-
-.checkbox-ready.checked::after {
-  content: '✓';
-  color: white;
-  font-size: 14px;
+/* Green checkmark icon */
+.checkmark-ready {
+  color: #22c55e;
+  font-size: 20px;
   font-weight: bold;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px;
 }
 
-.checkbox-ready:hover {
-  border-color: #22c55e;
+.checkmark-empty {
+  color: #ccc;
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px;
+}
+
+.checkmark-empty:hover {
+  color: #22c55e;
 }
 
 /* Row 2: Progress Bar */

@@ -26,10 +26,10 @@ function renderCard(file) {
   const isReady = file.ready;
   const isTrashed = file.trashed;
   
-  // Checkbox-style ready toggle (not Unicode)
-  const readyCheckbox = isReady 
-    ? `<div class="checkbox-ready checked" onclick="toggleReady('${file.id}')" title="${t('mark_not_ready')}"></div>`
-    : `<div class="checkbox-ready" onclick="toggleReady('${file.id}')" title="${t('mark_ready')}"></div>`;
+  // Green checkmark for ready, nothing for not ready
+  const readyIcon = isReady 
+    ? `<span class="checkmark-ready" onclick="toggleReady('${file.id}')" title="${t('mark_not_ready')}">✓</span>`
+    : `<span class="checkmark-empty" onclick="toggleReady('${file.id}')" title="${t('mark_ready')}">○</span>`;
   
   return `
     <div id="file-${file.id}" class="card ${isReady ? 'ready' : ''} ${isTrashed ? 'trashed' : ''}" data-id="${file.id}">
@@ -44,7 +44,7 @@ function renderCard(file) {
         
         <div class="meta">
           <span class="duration">${formatDuration(file.duration)}</span>
-          ${readyCheckbox}
+  ${readyIcon}
           <button class="icon-btn trash-btn" onclick="confirmTrash('${file.id}', '${escapeHtml(file.title || t('untitled'))}')" title="${t('move_to_trash')}">
             🗑
           </button>
