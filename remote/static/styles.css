@@ -201,16 +201,21 @@ body {
   padding: 2px;
 }
 
-.checkmark-empty {
-  color: #ccc;
+.checkmark-ready:hover {
+  color: #16a34a;
+}
+
+/* Yellow/Red indicator when already ready (can be removed) */
+.checkmark-done {
+  color: #f59e0b;
   font-size: 20px;
   cursor: pointer;
   line-height: 1;
   padding: 2px;
 }
 
-.checkmark-empty:hover {
-  color: #22c55e;
+.checkmark-done:hover {
+  color: #dc2626;
 }
 
 /* Row 2: Progress Bar */

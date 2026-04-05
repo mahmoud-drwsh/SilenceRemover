@@ -26,10 +26,10 @@ function renderCard(file) {
   const isReady = file.ready;
   const isTrashed = file.trashed;
   
-  // Green checkmark for ready, nothing for not ready
+  // Reversed logic: Green checkmark when NOT ready, yellow when ready
   const readyIcon = isReady 
-    ? `<span class="checkmark-ready" onclick="toggleReady('${file.id}')" title="${t('mark_not_ready')}">✓</span>`
-    : `<span class="checkmark-empty" onclick="toggleReady('${file.id}')" title="${t('mark_ready')}">○</span>`;
+    ? `<span class="checkmark-done" onclick="toggleReady('${file.id}')" title="${t('mark_not_ready')}">●</span>`
+    : `<span class="checkmark-ready" onclick="toggleReady('${file.id}')" title="${t('mark_ready')}">✓</span>`;
   
   return `
     <div id="file-${file.id}" class="card ${isReady ? 'ready' : ''} ${isTrashed ? 'trashed' : ''}" data-id="${file.id}">
