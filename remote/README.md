@@ -2,6 +2,102 @@
 
 A secure, lightweight Flask application for MP3 file upload, storage, and playback via web interface.
 
+## User Stories
+
+### As an authenticated user...
+
+1. **Audio File List View**
+   - I want to see the list of playable audio files that were uploaded to my project
+   - So that I can browse and manage my audio content
+
+2. **Audio Metadata Display**
+   - I want to see their titles and their IDs in small subtext
+   - So that I can easily identify and reference specific audio files
+
+3. **Audio Playback Controls**
+   - I want to play and pause the audio with a single responsive button
+   - So that I can quickly preview audio without complex controls
+
+4. **Publishing Status Indicator**
+   - I want to mark an audio file ready for publishing to have a visual indicator of what's ready and what's not
+   - So that I can track which files are approved for release
+
+5. **Compact Mobile-First UI**
+   - I want a compact mobile-friendly interface with bottom navigation and expandable cards
+   - So that I can easily manage audio files on small screens without excessive scrolling
+
+6. **Safe Delete (Trash)**
+   - I want to move audio files to a "trash" state instead of immediate deletion
+   - So that I can recover accidentally deleted files, with the backend clearing trash manually after a safety period
+
+7. **Compact Audio Progress Bar**
+   - I want a small progress bar that doesn't take much space
+   - So that I can see the current playback position without cluttering the interface
+
+8. **Audio Seeking**
+   - I want to click or drag on the progress bar to jump to any position in the audio
+   - So that I can quickly navigate to specific parts of the audio without listening from the beginning
+
+9. **Currently Playing Indicator**
+   - I want to see which audio file is currently playing in the list
+   - So that I know which title I'm editing while listening
+
+10. **Audio Duration Display**
+   - I want to see the total duration of each audio file in the list
+   - So that I know how long each clip is before I play it
+
+11. **Auto-save Title Edits**
+   - I want title changes to save automatically as I type (with debounce)
+   - So that I don't lose my edits or need to click a save button
+
+### As a developer...
+
+1. **Audio Upload API (API-only)**
+   - I want an API endpoint to upload audio files to a specific project URL and associate each with an ID
+   - So that I can programmatically manage uploads (web interface is view/play/edit only, no upload)
+
+2. **Minimal List API**
+   - I want an API endpoint that returns the complete list of files for a specific project ID as IDs and their titles only
+   - So that I can quickly fetch a lightweight inventory for a specific project without unnecessary metadata or cross-project data
+
+3. **Project-Based URL Structure**
+   - I want to set a project ID so that each project has a dedicated base URL to access its list
+   - So that I can organize and isolate different audio collections (e.g., `https://domain.com/TOKEN/PROJECT_ID/`)
+
+---
+
+### As any user (authenticated or developer)...
+
+1. **URL Path Token Authentication**
+   - I want URL path token based auth for all operations including upload, viewing, and management
+   - So that I can access all functionality through a single secure URL pattern without additional login steps
+
+2. **Project Isolation**
+   - I want someone with the link for project A to not be able to navigate within the UI to project B
+   - So that projects remain separated and organized, with no cross-project access from within the interface
+
+12. **Bottom Navigation Views**
+   - I want navigation tabs at the bottom of the screen for TODO, Ready, All, and Trash views
+   - So that I can quickly switch views with my thumb without reaching to the top of the screen
+
+13. **Expandable Card UI**
+   - I want file cards that expand when clicked to reveal full controls (progress bar, edit title, action buttons)
+   - So that the list stays compact but I can access detailed controls when needed
+
+14. **TODO-First Default View**
+   - I want the interface to default to showing TODO (not ready) files first
+   - So that I immediately see what work needs my attention
+
+15. **Ready Files View**
+   - I want a dedicated view to see only files marked as "ready for publishing"
+   - So that I can quickly access the curated content approved for release
+
+16. **Trash View**
+   - I want a dedicated view to see deleted (trashed) files with restore option
+   - So that I can review and potentially recover accidentally deleted content
+
+---
+
 ## Features
 
 - **Secure Access**: URL-based token authentication via environment variable

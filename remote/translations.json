@@ -1,0 +1,38 @@
+{
+  "en": {
+    "title": "Audio Manager",
+    "todo": "TODO",
+    "ready": "Ready",
+    "all": "All",
+    "trash": "Trash",
+    "files": "files",
+    "mark_ready": "Mark Ready",
+    "mark_not_ready": "Mark as not ready",
+    "untitled": "Untitled",
+    "edit_title": "Edit title...",
+    "move_to_trash": "Move to trash?",
+    "restore": "Restore",
+    "delete_forever": "Delete forever?",
+    "save_error": "Error saving",
+    "playing": "Playing",
+    "paused": "Paused"
+  },
+  "ar": {
+    "title": "مدير الصوت",
+    "todo": "قيد الانتظار",
+    "ready": "جاهز",
+    "all": "الكل",
+    "trash": "المحذوفات",
+    "files": "ملفات",
+    "mark_ready": "تحديد كجاهز",
+    "mark_not_ready": "تحديد كغير جاهز",
+    "untitled": "بدون عنوان",
+    "edit_title": "تعديل العنوان...",
+    "move_to_trash": "نقل إلى المحذوفات؟",
+    "restore": "استعادة",
+    "delete_forever": "حذف نهائي؟",
+    "save_error": "خطأ في الحفظ",
+    "playing": "يعمل",
+    "paused": "متوقف"
+  }
+}

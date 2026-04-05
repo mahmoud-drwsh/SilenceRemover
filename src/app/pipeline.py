@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import traceback
 from dataclasses import dataclass
@@ -32,6 +33,13 @@ from sr_telegram_notify import notify_final_encoding_started, notify_final_outpu
 from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
 from src.media.trim import trim_single_video
+
+# Optional MP3 Manager integration for title sync and upload
+try:
+    from sr_mp3_manager import Mp3ApiClient, sync_titles, ensure_uploaded
+    _MP3_AVAILABLE = True
+except ImportError:
+    _MP3_AVAILABLE = False
 
 QUICK_TEST_OUTPUT_SECONDS = 5.0
 
@@ -174,10 +182,25 @@ def run_title_phase(
 ) -> bool:
     """Phase 2: Generate title from transcript to `temp/title/{basename}.txt`."""
     basename = video_path.stem
+    file_id = video_path.name  # Exact filename with extension
 
     def _perform() -> None:
         print(f"\n[2/{total_phases}] Generating title for: {video_path.name}")
         generate_title(temp_dir=temp_dir, api_key=api_key, basename=basename)
+        
+        # Upload snippet + title to MP3 Manager if configured
+        if _MP3_AVAILABLE and os.getenv('MP3_MANAGER_URL'):
+            try:
+                client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
+                title_path = get_title_path(temp_dir, basename)
+                title = title_path.read_text(encoding='utf-8').strip() if title_path.exists() else ''
+                snippet_path = get_snippet_path(temp_dir, basename)
+                uploaded = ensure_uploaded(client, file_id, title, snippet_path)
+                if uploaded:
+                    print(f"  Uploaded to MP3 Manager: {file_id}")
+                client.close()
+            except Exception as e:
+                print(f"  MP3 upload failed (continuing): {e}")
 
     if is_title_done(temp_dir, basename):
         print(f"Phase 2 already done for {video_path.name}, skipping title generation.")
@@ -315,6 +338,19 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     api_key = startup.api_key
     temp_dir = startup.temp_dir
     videos = startup.videos
+
+    # MP3 Manager sync: fetch titles from API, update local .txt, trigger re-encodes
+    if _MP3_AVAILABLE and os.getenv('MP3_MANAGER_URL'):
+        try:
+            client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
+            titles_dir = temp_dir / 'titles'
+            completed_dir = temp_dir / 'completed'
+            updated = sync_titles(client, titles_dir, completed_dir)
+            if updated:
+                print(f"MP3 Manager: {len(updated)} title(s) updated from API, scheduled for re-encode")
+            client.close()
+        except Exception as e:
+            print(f"MP3 Manager sync failed (continuing): {e}")
 
     enc = startup.encoder
     print(f"Resolved encoder: {enc.name} ({enc.codec})")
