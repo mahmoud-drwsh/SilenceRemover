@@ -6,6 +6,8 @@ from collections.abc import Callable
 from pathlib import Path
 import subprocess
 
+from sr_progress_formatter import parse_progress_seconds
+
 ProgressCallback = Callable[[int, float], None]
 
 
@@ -36,23 +38,6 @@ def run(
     if check and result.returncode != 0:
         raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
     return result
-
-
-def parse_progress_seconds(line: str) -> float | None:
-    """Parse FFmpeg -progress output into seconds."""
-    if line.startswith("out_time_ms="):
-        try:
-            return float(line.split("=", 1)[1]) / 1_000_000.0
-        except ValueError:
-            return None
-    if line.startswith("out_time="):
-        value = line.split("=", 1)[1]
-        try:
-            hours, minutes, seconds = value.split(":")
-            return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
-        except (ValueError, TypeError):
-            return None
-    return None
 
 
 def run_with_progress(
