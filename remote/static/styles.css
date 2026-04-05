@@ -22,27 +22,34 @@ body {
   justify-content: space-between;
   font-size: 13px;
   height: 44px;
-  flex-wrap: nowrap; /* Force single line */
+  flex-wrap: nowrap;
   gap: 8px;
+  overflow: hidden;
 }
 
 .header-info {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .header-view {
   font-weight: 500;
   color: #333;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
 }
 
 .header-count {
   color: #666;
   font-size: 12px;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .lang-switch {
