@@ -9,7 +9,7 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Header */
+/* Header - STRICT single line */
 .header {
   background: #fff;
   border-bottom: 1px solid #e0e0e0;
@@ -18,21 +18,22 @@ body {
   top: 0;
   z-index: 10;
   display: flex;
-  flex-direction: row;
+  flex-direction: row !important;
   align-items: center;
   justify-content: space-between;
   font-size: 13px;
   height: 44px;
-  flex-wrap: nowrap;
+  flex-wrap: nowrap !important;
   gap: 8px;
   overflow: hidden;
+  white-space: nowrap;
 }
 
 .header-info {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-shrink: 1;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
 }
@@ -44,6 +45,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100px;
+  flex-shrink: 1;
 }
 
 .header-count {
@@ -54,10 +56,12 @@ body {
 }
 
 .lang-switch {
-  display: flex;
+  display: flex !important;
+  flex-direction: row !important;
   gap: 4px;
-  flex-shrink: 0;
-  flex-direction: row;
+  flex: 0 0 auto;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .lang-switch a {
@@ -69,7 +73,8 @@ body {
   font-weight: 500;
   border: 1px solid transparent;
   white-space: nowrap;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  display: inline-block;
 }
 
 .lang-switch a.active {
