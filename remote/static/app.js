@@ -133,3 +133,15 @@ async function deletePermanent(id) {
 
 // Start
 init();
+
+// Global audio coordination: pause others when one plays
+document.addEventListener('play', function(e) {
+  if (e.target.tagName === 'AUDIO') {
+    // Pause all other audio elements
+    document.querySelectorAll('audio').forEach(audio => {
+      if (audio !== e.target && !audio.paused) {
+        audio.pause();
+      }
+    });
+  }
+}, true);
