@@ -1,4 +1,4 @@
-// UI Components - Compact 3-Row Layout (No Accordion)
+// UI Components - 2-Row Layout with Native Audio Player
 
 function escapeHtml(text) {
   const div = document.createElement('div');
@@ -16,53 +16,39 @@ function formatDuration(seconds) {
 // Auto-resize textarea to fit content
 function autoResizeTextarea(textarea) {
   textarea.style.height = 'auto';
-  const newHeight = Math.min(Math.max(textarea.scrollHeight, 24), 96); // 1-4 lines
+  const newHeight = Math.min(Math.max(textarea.scrollHeight, 24), 96);
   textarea.style.height = newHeight + 'px';
 }
 
-// Render single card - 3-row compact layout
+// Render single card - 2-row layout with native audio player
 function renderCard(file) {
   const t = (key) => getText(key, window.CONFIG.lang);
   const isReady = file.ready;
-  const isTrashed = file.trashed;
   
-  // Red X logic: Green ✓ when NOT ready, Red ✗ when ready
+  // Ready toggle: Green ✓ when NOT ready, Red ✗ when ready
   const readyIcon = isReady 
     ? `<span class="checkmark-done" onclick="toggleReady('${file.id}')" title="${t('mark_not_ready')}">✗</span>`
     : `<span class="checkmark-ready" onclick="toggleReady('${file.id}')" title="${t('mark_ready')}">✓</span>`;
   
   return `
-    <div id="file-${file.id}" class="card ${isReady ? 'ready' : ''} ${isTrashed ? 'trashed' : ''}" data-id="${file.id}">
+    <div id="file-${file.id}" class="card ${isReady ? 'ready' : ''}" data-id="${file.id}">
       
-      <!-- Row 1: Info + Actions -->
-      <div class="row-info">
-        <button class="play-btn" id="play-${file.id}" onclick="togglePlay('${file.id}', event)">
-          ▶
-        </button>
+      <!-- Row 1: Native Audio Player + Action Buttons -->
+      <div class="row-player-actions">
+        <audio controls preload="metadata" class="native-player">
+          <source src="${API.getStreamUrl(file.id)}" type="audio/mpeg">
+        </audio>
         
-        <div class="title-display" id="display-${file.id}">${escapeHtml(file.title || t('untitled'))}</div>
-        
-        <div class="meta">
-          <span class="duration">${formatDuration(file.duration)}</span>
-  ${readyIcon}
+        <div class="action-buttons">
+          ${readyIcon}
           <button class="icon-btn trash-btn" onclick="confirmTrash('${file.id}', '${escapeHtml(file.title || t('untitled'))}')" title="${t('move_to_trash')}">
             🗑
           </button>
         </div>
       </div>
       
-      <!-- Row 2: Progress Bar (Always Visible) -->
-      <div class="row-progress">
-        <div class="progress-container" onclick="seekAudio(event, '${file.id}')">
-          <div class="progress-bar">
-            <div class="progress-fill" id="fill-${file.id}" style="width: 0%"></div>
-          </div>
-          <div class="progress-handle" id="handle-${file.id}" style="left: 0%"></div>
-        </div>
-      </div>
-      
-      <!-- Row 3: Auto-resizing Title Textarea -->
-      <div class="row-title">
+      <!-- Row 2: Title Textarea Only (no duplicate title display) -->
+      <div class="row-title-only">
         <textarea 
           id="textarea-${file.id}"
           class="title-textarea"
@@ -79,19 +65,17 @@ function renderCard(file) {
   `;
 }
 
-// Render card for trashed items (simpler - no progress, restore instead of trash)
+// Render card for trashed items
 function renderTrashedCard(file) {
   const t = (key) => getText(key, window.CONFIG.lang);
   
   return `
     <div id="file-${file.id}" class="card trashed" data-id="${file.id}">
       
-      <div class="row-info">
-        <div class="play-btn disabled">▶</div>
-        <div class="title-display trashed">${escapeHtml(file.title || t('untitled'))}</div>
+      <div class="row-player-actions trashed">
+        <div class="trashed-label">${t('trash')} • ${formatDuration(file.duration)}</div>
         
-        <div class="meta">
-          <span class="duration">${formatDuration(file.duration)}</span>
+        <div class="action-buttons">
           <button class="icon-btn restore-btn" onclick="restore('${file.id}')" title="${t('restore')}">
             ♻️
           </button>
@@ -101,9 +85,8 @@ function renderTrashedCard(file) {
         </div>
       </div>
       
-      <!-- Simple row for trashed items -->
-      <div class="row-title trashed-info">
-        <span class="trashed-label">${t('trash')} • ${file.id}</span>
+      <div class="row-title-only">
+        <span class="trashed-title">${escapeHtml(file.title || t('untitled'))}</span>
       </div>
       
     </div>
@@ -117,7 +100,7 @@ function renderFileList(files, view) {
     if (view === 'notready') return !f.ready && !f.trashed;
     if (view === 'ready') return f.ready && !f.trashed;
     if (view === 'trash') return f.trashed;
-    return !f.trashed; // 'all'
+    return !f.trashed;
   });
   
   if (filtered.length === 0) {
@@ -142,15 +125,13 @@ function renderFileList(files, view) {
 function renderHeader(fileCount, view) {
   const t = (key) => getText(key, window.CONFIG.lang);
   
-  // Short view names without emojis for space
   const viewNames = {
     notready: t('todo'),
-    ready: t('ready'), 
+    ready: t('ready'),
     all: t('all'),
     trash: t('trash')
   };
   
-  // Always show count: "3 files"
   const countText = ` · ${fileCount} ${t('files')}`;
   
   document.getElementById('header').innerHTML = `
