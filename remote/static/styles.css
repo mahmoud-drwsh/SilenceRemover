@@ -9,17 +9,19 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Header - Distinct background with depth */
+/* Header - Distinct background with depth and external margin */
 .header {
   background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
   border-bottom: 1px solid #dee2e6;
-  padding: 8px 24px;
+  padding: 8px 16px;
+  margin: 8px 16px;
   position: sticky;
-  top: 0;
+  top: 8px;
   z-index: 10;
   height: 52px;
   overflow: hidden;
   box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  border-radius: 8px;
 }
 
 /* Card List */
