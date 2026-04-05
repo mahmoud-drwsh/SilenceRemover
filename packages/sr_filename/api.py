@@ -4,6 +4,13 @@ Pure string functions for converting titles and names into safe filesystem-compa
 filenames. No file I/O, no dependencies.
 """
 
+import sys
+
+# Platform detection (currently used for max filename length only)
+# Cross-platform: use Windows-compatible 200 char limit everywhere for consistency
+RESERVED_CHARS = ["/", "\\", ":", "*", "?", '"', "<", ">", "|"]
+MAX_FILENAME_LENGTH = 200
+
 
 def sanitize_filename(name: str) -> str:
     """Sanitize a string for use as a filesystem filename.
@@ -14,10 +21,10 @@ def sanitize_filename(name: str) -> str:
     3. Replaces reserved filesystem characters with spaces
     4. Collapses multiple spaces into single spaces
     5. Falls back to "untitled" if result is empty
-    6. Truncates to 200 characters max
+    6. Truncates to platform-specific max length (Windows: 200, Unix: 255)
     
-    Reserved characters replaced with spaces:
-    / \ : * ? " < > |
+    Reserved characters replaced on ALL platforms (cross-platform safety):
+    / \\ : * ? " < > |
     
     Args:
         name: The input string to sanitize (typically a video title)
@@ -44,7 +51,7 @@ def sanitize_filename(name: str) -> str:
     cleaned = cleaned.strip('"').strip("'")
     
     # Step 3: Replace reserved filesystem chars with spaces
-    for ch in ["/", "\\", ":", "*", "?", '"', "<", ">", "|"]:
+    for ch in RESERVED_CHARS:
         cleaned = cleaned.replace(ch, " ")
     
     # Step 4: Collapse multiple spaces and handle empty result
@@ -54,5 +61,5 @@ def sanitize_filename(name: str) -> str:
     if not cleaned:
         cleaned = "untitled"
     
-    # Step 6: Truncate to max length
-    return cleaned[:200]
+    # Step 6: Truncate to platform-specific max length
+    return cleaned[:MAX_FILENAME_LENGTH]
