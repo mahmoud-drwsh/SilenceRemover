@@ -1,4 +1,4 @@
-// UI Components
+// UI Components - Compact 3-Row Layout (No Accordion)
 
 function escapeHtml(text) {
   const div = document.createElement('div');
@@ -7,76 +7,136 @@ function escapeHtml(text) {
 }
 
 function formatDuration(seconds) {
-  if (!seconds) return '0:00';
+  if (!seconds || seconds === 0) return '0:00';
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+// Auto-resize textarea to fit content
+function autoResizeTextarea(textarea) {
+  textarea.style.height = 'auto';
+  const newHeight = Math.min(Math.max(textarea.scrollHeight, 24), 96); // 1-4 lines
+  textarea.style.height = newHeight + 'px';
+}
+
+// Render single card - 3-row compact layout
 function renderCard(file) {
   const t = (key) => getText(key, window.CONFIG.lang);
-  const statusIcon = file.ready ? '✓' : '⏳';
-  const readyBtnText = file.ready ? t('mark_not_ready') : t('mark_ready');
-  const readyClass = file.ready ? 'ready' : '';
-  const readyBtnClass = file.ready ? 'btn-unready' : 'btn-ready';
+  const isReady = file.ready;
+  const isTrashed = file.trashed;
+  
+  // Checkbox-style ready toggle (not Unicode)
+  const readyCheckbox = isReady 
+    ? `<div class="checkbox-ready checked" onclick="toggleReady('${file.id}')" title="${t('mark_not_ready')}"></div>`
+    : `<div class="checkbox-ready" onclick="toggleReady('${file.id}')" title="${t('mark_ready')}"></div>`;
   
   return `
-    <div id="file-${file.id}" class="card ${readyClass}" data-id="${file.id}">
-      <div class="card-header" onclick="toggleExpand('${file.id}')">
-        <button class="play-btn" onclick="playAudio('${file.id}', '${escapeHtml(file.filename)}', event)">▶</button>
-        <div id="title-${file.id}" class="card-title">${escapeHtml(file.title || t('untitled'))}</div>
-        <div class="card-meta">
-          <div>${formatDuration(file.duration)}</div>
-          <div class="status">${statusIcon}</div>
+    <div id="file-${file.id}" class="card ${isReady ? 'ready' : ''} ${isTrashed ? 'trashed' : ''}" data-id="${file.id}">
+      
+      <!-- Row 1: Info + Actions -->
+      <div class="row-info">
+        <button class="play-btn" id="play-${file.id}" onclick="togglePlay('${file.id}', event)">
+          ▶
+        </button>
+        
+        <div class="title-display" id="display-${file.id}">${escapeHtml(file.title || t('untitled'))}</div>
+        
+        <div class="meta">
+          <span class="duration">${formatDuration(file.duration)}</span>
+          ${readyCheckbox}
+          <button class="icon-btn trash-btn" onclick="confirmTrash('${file.id}', '${escapeHtml(file.title || t('untitled'))}')" title="${t('move_to_trash')}">
+            🗑
+          </button>
         </div>
       </div>
       
-      <div class="card-details" id="details-${file.id}">
-        <div class="progress-bar" data-file-id="${file.id}" onclick="seekAudio(event, '${file.id}')">
-          <div class="progress-fill" id="progress-${file.id}"></div>
-          <div class="progress-handle" id="handle-${file.id}"></div>
-        </div>
-        
-        <div class="file-id">${file.id}</div>
-        
-        <input type="text" 
-               id="input-${file.id}"
-               class="title-input"
-               value="${escapeHtml(file.title || '')}" 
-               placeholder="${t('edit_title')}"
-               oninput="onTitleInput('${file.id}', this.value)"
-               onclick="event.stopPropagation()">
-        
-        <span id="spinner-${file.id}" class="spinner" style="display: none;">⏳</span>
-        
-        <div class="actions" onclick="event.stopPropagation()">
-          ${file.trashed ? renderTrashedButtons(file.id, t) : renderActiveButtons(file.id, file.ready, readyBtnText, readyBtnClass, t)}
+      <!-- Row 2: Progress Bar (Always Visible) -->
+      <div class="row-progress">
+        <div class="progress-container" onclick="seekAudio(event, '${file.id}')">
+          <div class="progress-bar">
+            <div class="progress-fill" id="fill-${file.id}" style="width: 0%"></div>
+          </div>
+          <div class="progress-handle" id="handle-${file.id}" style="left: 0%"></div>
         </div>
       </div>
+      
+      <!-- Row 3: Auto-resizing Title Textarea -->
+      <div class="row-title">
+        <textarea 
+          id="textarea-${file.id}"
+          class="title-textarea"
+          placeholder="${t('edit_title')}"
+          oninput="onTitleInput('${file.id}', this)"
+          onfocus="autoResizeTextarea(this)"
+          rows="1"
+        >${escapeHtml(file.title || '')}</textarea>
+        <span id="spinner-${file.id}" class="save-indicator" style="display: none;">⏳</span>
+        <span id="saved-${file.id}" class="save-indicator" style="display: none;">✓</span>
+      </div>
+      
     </div>
   `;
 }
 
-function renderActiveButtons(id, ready, readyBtnText, readyBtnClass, t) {
+// Render card for trashed items (simpler - no progress, restore instead of trash)
+function renderTrashedCard(file) {
+  const t = (key) => getText(key, window.CONFIG.lang);
+  
   return `
-    <button class="${readyBtnClass}" onclick="toggleReady('${id}', ${!ready})">
-      ${readyBtnText}
-    </button>
-    <button class="btn-icon btn-trash" onclick="moveToTrash('${id}')" title="${t('move_to_trash')}">
-      🗑
-    </button>
+    <div id="file-${file.id}" class="card trashed" data-id="${file.id}">
+      
+      <div class="row-info">
+        <div class="play-btn disabled">▶</div>
+        <div class="title-display trashed">${escapeHtml(file.title || t('untitled'))}</div>
+        
+        <div class="meta">
+          <span class="duration">${formatDuration(file.duration)}</span>
+          <button class="icon-btn restore-btn" onclick="restore('${file.id}')" title="${t('restore')}">
+            ♻️
+          </button>
+          <button class="icon-btn delete-btn" onclick="confirmDelete('${file.id}', '${escapeHtml(file.title || t('untitled'))}')" title="${t('delete_forever')}">
+            🗑
+          </button>
+        </div>
+      </div>
+      
+      <!-- Simple row for trashed items -->
+      <div class="row-title trashed-info">
+        <span class="trashed-label">${t('trash')} • ${file.id}</span>
+      </div>
+      
+    </div>
   `;
 }
 
-function renderTrashedButtons(id, t) {
-  return `
-    <button class="btn-restore" style="flex: 3;" onclick="restore('${id}')">
-      ♻️ ${t('restore')}
-    </button>
-    <button class="btn-icon btn-delete" onclick="deletePermanent('${id}')" title="${t('delete_forever')}">
-      🗑
-    </button>
-  `;
+function renderFileList(files, view) {
+  const container = document.getElementById('file-list');
+  
+  const filtered = files.filter(f => {
+    if (view === 'notready') return !f.ready && !f.trashed;
+    if (view === 'ready') return f.ready && !f.trashed;
+    if (view === 'trash') return f.trashed;
+    return !f.trashed; // 'all'
+  });
+  
+  if (filtered.length === 0) {
+    const t = (key) => getText(key, window.CONFIG.lang);
+    container.innerHTML = `<div class="empty-state">${t('no_files') || 'No files'}</div>`;
+    return;
+  }
+  
+  container.innerHTML = filtered.map(f => {
+    if (view === 'trash' || f.trashed) {
+      return renderTrashedCard(f);
+    }
+    return renderCard(f);
+  }).join('');
+  
+  // Auto-resize all textareas after render
+  setTimeout(() => {
+    document.querySelectorAll('.title-textarea').forEach(ta => autoResizeTextarea(ta));
+  }, 0);
 }
 
 function renderHeader(fileCount, view) {
@@ -91,7 +151,7 @@ function renderHeader(fileCount, view) {
   document.getElementById('header').innerHTML = `
     <div class="header-info">
       <span class="header-view">${viewNames[view] || viewNames.notready}</span>
-      <span class="header-count">· ${fileCount}</span>
+      <span class="header-count">· ${fileCount} ${t('files')}</span>
     </div>
     <div class="lang-switch">
       <a href="?lang=en&view=${view}" class="${window.CONFIG.lang === 'en' ? 'active' : ''}">EN</a>
@@ -117,26 +177,17 @@ function renderBottomNav(view) {
   `).join('');
 }
 
-function renderFileList(files, view) {
-  const container = document.getElementById('file-list');
-  
-  // Filter based on view
-  const filtered = files.filter(f => {
-    if (view === 'notready') return !f.ready && !f.trashed;
-    if (view === 'ready') return f.ready && !f.trashed;
-    if (view === 'trash') return f.trashed;
-    return !f.trashed; // 'all' - exclude trashed
-  });
-  
-  if (filtered.length === 0) {
-    container.innerHTML = '<div class="empty-state">No files</div>';
-    return;
+// Confirmation dialogs
+function confirmTrash(id, title) {
+  const t = (key) => getText(key, window.CONFIG.lang);
+  if (confirm(`${t('move_to_trash')}\n\n"${title}"`)) {
+    moveToTrash(id);
   }
-  
-  container.innerHTML = filtered.map(renderCard).join('');
 }
 
-function toggleExpand(id) {
-  const card = document.getElementById(`file-${id}`);
-  card.classList.toggle('expanded');
+function confirmDelete(id, title) {
+  const t = (key) => getText(key, window.CONFIG.lang);
+  if (confirm(`${t('delete_forever')}\n\n"${title}"`)) {
+    deletePermanent(id);
+  }
 }
