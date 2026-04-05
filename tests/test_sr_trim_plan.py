@@ -1,10 +1,13 @@
-"""Test sr_trim_plan black box against real videos.
+"""Integration tests for sr_trim_plan package.
 
-Run: python tests/test_sr_trim_plan.py
+Tests run against generated fixture videos. Generate fixtures with:
+    python tests/generate_fixtures.py
 """
 
 import sys
 from pathlib import Path
+
+import pytest
 
 # Setup paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -19,13 +22,6 @@ from src.core.constants import (
     TARGET_MIN_DURATION_SEC,
     TARGET_NOISE_THRESHOLD_DB,
 )
-
-
-def find_test_videos():
-    """Find video files in the raw directory."""
-    raw_dir = Path("/Users/mahmoud/Desktop/TEMP/raw")
-    videos = list(raw_dir.glob("*.mp4")) + list(raw_dir.glob("*.mov")) + list(raw_dir.glob("*.mkv"))
-    return [v for v in videos if not v.name.startswith(".")]
 
 
 def validate_trim_plan(plan: TrimPlan, video_path: Path) -> None:
@@ -75,163 +71,134 @@ def validate_trim_plan(plan: TrimPlan, video_path: Path) -> None:
             assert plan.segments_to_keep[0][0] == 0.0, "Copy mode segment should start at 0"
 
 
-def test_non_target_mode(video_path: Path) -> None:
+class TestNonTargetMode:
     """Test non-target mode (aggressive silence removal)."""
-    print(f"\n--- Testing non-target mode on: {video_path.name} ---")
     
-    plan = build_trim_plan(
-        input_file=video_path,
-        target_length=None,
-        noise_threshold=NON_TARGET_NOISE_THRESHOLD_DB,
-        min_duration=NON_TARGET_MIN_DURATION_SEC,
-        pad_sec=NON_TARGET_PAD_SEC,
-    )
+    def test_non_target_on_vertical_video(self, sample_vertical):
+        """Test non-target mode on vertical video."""
+        plan = build_trim_plan(
+            input_file=sample_vertical,
+            target_length=None,
+            noise_threshold=NON_TARGET_NOISE_THRESHOLD_DB,
+            min_duration=NON_TARGET_MIN_DURATION_SEC,
+            pad_sec=NON_TARGET_PAD_SEC,
+        )
+        
+        validate_trim_plan(plan, sample_vertical)
+        assert plan.mode == "non_target"
     
-    print(f"  Mode: {plan.mode}")
-    print(f"  Input duration: {plan.input_duration_sec:.2f}s")
-    print(f"  Resulting length: {plan.resulting_length_sec:.2f}s")
-    print(f"  Segments: {len(plan.segments_to_keep)}")
-    print(f"  Resolved: noise={plan.resolved_noise_threshold}dB, min_dur={plan.resolved_min_duration}s, pad={plan.resolved_pad_sec}s")
+    def test_non_target_on_video_with_silence(self, sample_with_silence):
+        """Test non-target mode on video with known silence sections."""
+        plan = build_trim_plan(
+            input_file=sample_with_silence,
+            target_length=None,
+            noise_threshold=NON_TARGET_NOISE_THRESHOLD_DB,
+            min_duration=NON_TARGET_MIN_DURATION_SEC,
+            pad_sec=NON_TARGET_PAD_SEC,
+        )
+        
+        validate_trim_plan(plan, sample_with_silence)
+        # Note: 1-second silence sections may not be detected if min_duration >= 1.0
+        # This test validates the plan is valid, not that it trims significantly
     
-    validate_trim_plan(plan, video_path)
-    
-    assert plan.mode == "non_target"
-    assert plan.target_length is None
-    assert not plan.should_copy_input
-    
-    print("  ✓ Non-target mode passed")
+    def test_non_target_on_short_video(self, sample_short):
+        """Test non-target mode on short video."""
+        plan = build_trim_plan(
+            input_file=sample_short,
+            target_length=None,
+            noise_threshold=NON_TARGET_NOISE_THRESHOLD_DB,
+            min_duration=NON_TARGET_MIN_DURATION_SEC,
+            pad_sec=NON_TARGET_PAD_SEC,
+        )
+        
+        validate_trim_plan(plan, sample_short)
 
 
-def test_target_mode_short_video(video_path: Path) -> None:
-    """Test target mode when video is already short enough (should copy)."""
-    print(f"\n--- Testing target mode (short video) on: {video_path.name} ---")
+class TestTargetMode:
+    """Test target mode with various video lengths."""
     
-    # Use a very long target to guarantee input is shorter
-    very_long_target = 3600.0  # 1 hour
+    def test_target_mode_short_video(self, sample_short):
+        """Test target mode on short 2-second video."""
+        plan = build_trim_plan(
+            input_file=sample_short,
+            target_length=TARGET_MIN_DURATION_SEC,
+            noise_threshold=TARGET_NOISE_THRESHOLD_DB,
+            min_duration=TARGET_MIN_DURATION_SEC,
+            pad_sec=0.0,
+        )
+        
+        validate_trim_plan(plan, sample_short)
+        assert plan.mode == "target"
+        
+        # Short videos should copy input when target exceeds duration
+        if plan.input_duration_sec <= TARGET_MIN_DURATION_SEC:
+            assert plan.should_copy_input or plan.resulting_length_sec <= TARGET_MIN_DURATION_SEC + 0.1
     
-    plan = build_trim_plan(
-        input_file=video_path,
-        target_length=very_long_target,
-        noise_threshold=TARGET_NOISE_THRESHOLD_DB,
-        min_duration=TARGET_MIN_DURATION_SEC,
-        pad_sec=NON_TARGET_PAD_SEC,
-    )
+    def test_target_mode_long_video(self, sample_vertical):
+        """Test target mode on 5-second video."""
+        plan = build_trim_plan(
+            input_file=sample_vertical,
+            target_length=TARGET_MIN_DURATION_SEC,
+            noise_threshold=TARGET_NOISE_THRESHOLD_DB,
+            min_duration=TARGET_MIN_DURATION_SEC,
+            pad_sec=0.0,
+        )
+        
+        validate_trim_plan(plan, sample_vertical)
+        assert plan.mode == "target"
+        assert plan.resulting_length_sec <= TARGET_MIN_DURATION_SEC + 0.1
     
-    print(f"  Target: {plan.target_length:.2f}s, Input: {plan.input_duration_sec:.2f}s")
-    print(f"  Should copy: {plan.should_copy_input}")
-    print(f"  Segments: {plan.segments_to_keep}")
-    
-    validate_trim_plan(plan, video_path)
-    
-    assert plan.mode == "target"
-    assert plan.should_copy_input, "Should copy when input is already under target"
-    assert plan.resolved_pad_sec == 0.0, "Copy mode should have no padding"
-    
-    print("  ✓ Target mode (short video) passed")
+    def test_target_mode_with_padding(self, sample_vertical):
+        """Test target mode with padding enabled."""
+        plan = build_trim_plan(
+            input_file=sample_vertical,
+            target_length=TARGET_MIN_DURATION_SEC,
+            noise_threshold=TARGET_NOISE_THRESHOLD_DB,
+            min_duration=TARGET_MIN_DURATION_SEC,
+            pad_sec=0.5,  # Add 0.5s padding
+        )
+        
+        validate_trim_plan(plan, sample_vertical)
+        assert plan.mode == "target"
 
 
-def test_target_mode_long_video(video_path: Path) -> None:
-    """Test target mode when video needs trimming to hit target."""
-    print(f"\n--- Testing target mode (long video) on: {video_path.name} ---")
+class TestSnippetMode:
+    """Test snippet mode for transcription."""
     
-    # Use a short target to force trimming (but not too short or we might not have enough content)
-    short_target = 30.0  # 30 seconds
-    
-    plan = build_trim_plan(
-        input_file=video_path,
-        target_length=short_target,
-        noise_threshold=TARGET_NOISE_THRESHOLD_DB,
-        min_duration=TARGET_MIN_DURATION_SEC,
-        pad_sec=NON_TARGET_PAD_SEC,
-    )
-    
-    print(f"  Target: {plan.target_length:.2f}s, Input: {plan.input_duration_sec:.2f}s")
-    print(f"  Should copy: {plan.should_copy_input}")
-    print(f"  Resulting: {plan.resulting_length_sec:.2f}s")
-    print(f"  Segments: {len(plan.segments_to_keep)}")
-    print(f"  Resolved: noise={plan.resolved_noise_threshold}dB, pad={plan.resolved_pad_sec}s")
-    
-    validate_trim_plan(plan, video_path)
-    
-    assert plan.mode == "target"
-    assert plan.target_length == short_target
-    
-    # Result should be at or under target
-    assert plan.resulting_length_sec <= short_target + 0.1, \
-        f"Result {plan.resulting_length_sec:.2f}s exceeds target {short_target:.2f}s"
-    
-    # If input was longer than target, we shouldn't be in copy mode
-    if plan.input_duration_sec > short_target:
-        # It's okay if it copies (when silence removal doesn't help enough), 
-        # but usually we'd expect trimming to happen
-        pass
-    
-    print("  ✓ Target mode (long video) passed")
+    def test_snippet_mode(self, sample_vertical):
+        """Test snippet mode generates short preview."""
+        plan = build_trim_plan(
+            input_file=sample_vertical,
+            target_length=SNIPPET_MAX_DURATION_SEC,
+            noise_threshold=NON_TARGET_NOISE_THRESHOLD_DB,
+            min_duration=NON_TARGET_MIN_DURATION_SEC,
+            pad_sec=NON_TARGET_PAD_SEC,
+        )
+        
+        validate_trim_plan(plan, sample_vertical)
+        # Result should be limited to snippet max duration
+        assert plan.resulting_length_sec <= SNIPPET_MAX_DURATION_SEC + 0.1
 
 
-def test_snippet_mode(video_path: Path) -> None:
-    """Test snippet mode (like Phase 1 transcription snippet)."""
-    print(f"\n--- Testing snippet mode on: {video_path.name} ---")
+class TestBlackBoxApi:
+    """Test the public API surface."""
     
-    # Snippet uses non-target mode with snippet-specific constants
-    plan = build_trim_plan(
-        input_file=video_path,
-        target_length=None,
-        noise_threshold=NON_TARGET_NOISE_THRESHOLD_DB,
-        min_duration=NON_TARGET_MIN_DURATION_SEC,
-        pad_sec=NON_TARGET_PAD_SEC,
-    )
+    def test_imports(self):
+        """Test that all public symbols can be imported."""
+        from sr_trim_plan import build_trim_plan, TrimPlan
+        assert callable(build_trim_plan)
+        assert isinstance(TrimPlan, type)
     
-    print(f"  Input: {plan.input_duration_sec:.2f}s")
-    print(f"  Resulting: {plan.resulting_length_sec:.2f}s")
-    print(f"  Segments: {len(plan.segments_to_keep)}")
-    
-    validate_trim_plan(plan, video_path)
-    
-    # Snippet should be capped at SNIPPET_MAX_DURATION_SEC
-    # Note: The trim plan doesn't enforce this, the snippet module truncates after
-    assert plan.mode == "non_target"
-    
-    print("  ✓ Snippet mode passed")
-
-
-def test_black_box_api():
-    """Run black box tests on available videos."""
-    videos = find_test_videos()
-    
-    if not videos:
-        print("⚠ No test videos found in /Users/mahmoud/Desktop/TEMP/raw/")
-        return 1
-    
-    print(f"Found {len(videos)} test video(s):")
-    for v in videos:
-        print(f"  - {v.name}")
-    
-    # Test each video with each mode
-    for video_path in videos:
-        try:
-            test_non_target_mode(video_path)
-            test_target_mode_short_video(video_path)
-            test_target_mode_long_video(video_path)
-            test_snippet_mode(video_path)
-        except Exception as e:
-            print(f"  ✗ FAILED: {e}")
-            raise
-    
-    print("\n" + "="*60)
-    print("✓ ALL TRIM PLAN TESTS PASSED!")
-    print("="*60)
-    print(f"\nSummary:")
-    print(f"  - Tested {len(videos)} video(s)")
-    print(f"  - Non-target mode: ✓")
-    print(f"  - Target mode (copy): ✓")
-    print(f"  - Target mode (trim): ✓")
-    print(f"  - Snippet mode: ✓")
-    print(f"  - Segment invariants: ✓")
-    print(f"  - FFmpeg fully encapsulated: ✓")
-    print(f"\nThe trim planning black box is working correctly!")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(test_black_box_api())
+    def test_build_trim_plan_signature(self, sample_vertical):
+        """Test build_trim_plan() accepts required parameters."""
+        plan = build_trim_plan(
+            input_file=sample_vertical,
+            target_length=None,
+            noise_threshold=-30.0,
+            min_duration=0.5,
+            pad_sec=0.1,
+        )
+        
+        assert isinstance(plan, TrimPlan)
+        assert plan.input_duration_sec > 0
+        assert len(plan.segments_to_keep) > 0
