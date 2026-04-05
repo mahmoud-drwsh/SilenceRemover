@@ -36,7 +36,7 @@ from src.media.trim import trim_single_video
 
 # Optional MP3 Manager integration for title sync and upload
 try:
-    from sr_mp3_manager import Mp3ApiClient, sync_titles, ensure_uploaded
+    from sr_mp3_manager import Mp3ApiClient, sync_titles, ensure_uploaded, get_uploaded_file_ids, check_uploaded
     _MP3_AVAILABLE = True
 except ImportError:
     _MP3_AVAILABLE = False
@@ -142,7 +142,7 @@ def run_transcription_phase(
     pad_sec: float,
     api_key: str,
     *,
-    total_phases: int = 3,
+    total_phases: int = 4,
 ) -> bool:
     """Phase 1: Create snippet and transcribe it to `temp/transcript/{basename}.txt`."""
     basename = video_path.stem
@@ -178,64 +178,80 @@ def run_title_phase(
     temp_dir: Path,
     api_key: str,
     *,
-    total_phases: int = 3,
+    total_phases: int = 4,
 ) -> bool:
     """Phase 2: Generate title from transcript to `temp/title/{basename}.txt`."""
     basename = video_path.stem
-    file_id = video_path.name  # Exact filename with extension
-    title_path = get_title_path(temp_dir, basename)
 
     def _perform() -> None:
         print(f"\n[2/{total_phases}] Generating title for: {video_path.name}")
         generate_title(temp_dir=temp_dir, api_key=api_key, basename=basename)
 
-    # Check if title already exists
-    title_already_done = is_title_done(temp_dir, basename)
-    
-    if title_already_done:
-        print(f"Phase 2 already done for {video_path.name}, skipping title generation.")
-    elif not is_transcript_done(temp_dir, basename):
-        return _run_phase_step(
-            video_path=video_path,
-            already_done=False,
-            already_done_message="",
-            precondition_ok=False,
-            precondition_message=(
-                f"No transcript for {video_path.name}; cannot run title generation."
-            ),
-            work_fn=lambda: None,
-            success_message="",
-            failure_label="Phase 2",
-        )
-    else:
-        # Generate title
-        result = _run_phase_step(
-            video_path=video_path,
-            already_done=False,
-            already_done_message="",
-            precondition_ok=True,
-            work_fn=_perform,
-            success_message=f"\n✓ Phase 2 (title generation) done: {video_path.name}",
-            failure_label="Phase 2",
-        )
-        if not result:
-            return False
+    return _run_phase_step(
+        video_path=video_path,
+        already_done=is_title_done(temp_dir, basename),
+        already_done_message=f"Phase 2 already done for {video_path.name}, skipping title generation.",
+        precondition_ok=is_transcript_done(temp_dir, basename),
+        precondition_message=f"No transcript for {video_path.name}; cannot run title generation.",
+        work_fn=_perform,
+        success_message=f"\n✓ Phase 2 (title generation) done: {video_path.name}",
+        failure_label="Phase 2",
+    )
 
-    # Upload to MP3 Manager (runs regardless of whether title was just generated or already existed)
-    # This happens AFTER title.txt is written, BEFORE Phase 3 encoding
-    if _MP3_AVAILABLE and os.getenv('MP3_MANAGER_URL') and title_path.exists():
+
+def run_mp3_upload_phase(
+    video_path: Path,
+    temp_dir: Path,
+    uploaded_ids: list[str],
+    *,
+    total_phases: int = 4,
+) -> bool:
+    """Phase 3: Upload audio snippet and title to MP3 Manager.
+    
+    Uses pre-fetched uploaded_ids list to avoid re-uploading existing files.
+    """
+    basename = video_path.stem
+    file_id = video_path.name
+    title_path = get_title_path(temp_dir, basename)
+    snippet_path = get_snippet_path(temp_dir, basename)
+    
+    # Precondition: title must exist
+    if not title_path.exists():
+        print(f"No title for {video_path.name}, skipping MP3 upload.")
+        return False
+    
+    # Check if already uploaded using pre-fetched list
+    if check_uploaded(file_id, uploaded_ids):
+        print(f"Phase 3 already done for {video_path.name}, skipping upload (already on server).")
+        return True
+    
+    # Upload
+    def _perform() -> None:
+        print(f"\n[3/{total_phases}] Uploading to MP3 Manager: {video_path.name}")
+        title = title_path.read_text(encoding='utf-8').strip()
+        if not title:
+            raise ValueError(f"Empty title for {video_path.name}")
+        
+        client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
         try:
-            client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
-            title = title_path.read_text(encoding='utf-8').strip()
-            snippet_path = get_snippet_path(temp_dir, basename)
             uploaded = ensure_uploaded(client, file_id, title, snippet_path)
             if uploaded:
-                print(f"  Uploaded to MP3 Manager: {file_id}")
+                print(f"  Uploaded: {file_id}")
+            else:
+                print(f"  Upload failed for {file_id}")
+        finally:
             client.close()
-        except Exception as e:
-            print(f"  MP3 upload check failed (continuing): {e}")
     
-    return True
+    return _run_phase_step(
+        video_path=video_path,
+        already_done=False,
+        already_done_message="",
+        precondition_ok=_MP3_AVAILABLE and os.getenv('MP3_MANAGER_URL') is not None,
+        precondition_message=f"MP3 Manager not configured, skipping upload for {video_path.name}.",
+        work_fn=_perform,
+        success_message=f"\n✓ Phase 3 (MP3 upload) done: {video_path.name}",
+        failure_label="Phase 3",
+    )
 
 
 def run_output_phase(
@@ -254,9 +270,9 @@ def run_output_phase(
     enable_title_overlay: bool = False,
     enable_logo_overlay: bool = False,
     *,
-    total_phases: int = 3,
+    total_phases: int = 4,
 ) -> bool:
-    """Phase 3: Full video trim with title-based output filename."""
+    """Phase 4: Full video trim with title-based output filename."""
     basename = video_path.stem
     title_path = get_title_path(temp_dir, basename)
     precondition_ok = True
@@ -267,7 +283,7 @@ def run_output_phase(
     already_done = is_completed(temp_dir, basename)
     if already_done:
         precondition_ok = False
-        precondition_message = f"Phase 3 already done for {video_path.name}, skipping."
+        precondition_message = f"Phase 4 already done for {video_path.name}, skipping."
     elif not is_transcript_done(temp_dir, basename):
         precondition_ok = False
         precondition_message = (
@@ -287,7 +303,7 @@ def run_output_phase(
     def _perform() -> None:
         assert chosen_basename is not None
         print(
-            f"\n[3/{total_phases}] Creating final output: {video_path.name} -> {chosen_basename}.mp4"
+            f"\n[4/{total_phases}] Creating final output: {video_path.name} -> {chosen_basename}.mp4"
         )
         output_mp4 = (output_dir / f"{chosen_basename}.mp4").resolve()
         trim_single_video(
@@ -306,7 +322,7 @@ def run_output_phase(
             enable_logo_overlay=enable_logo_overlay,
         )
         notify_final_output_ready(
-            phase_index=3,
+            phase_index=4,
             total_phases=total_phases,
             video_index=video_index,
             total_videos=total_videos,
@@ -319,12 +335,12 @@ def run_output_phase(
     return _run_phase_step(
         video_path=video_path,
         already_done=already_done,
-        already_done_message=f"Phase 3 already done for {video_path.name}, skipping.",
+        already_done_message=f"Phase 4 already done for {video_path.name}, skipping.",
         precondition_ok=precondition_ok,
         precondition_message=precondition_message,
         work_fn=_perform,
-        success_message=f"\n✓ Phase 3 (output) done: {video_path.name}",
-        failure_label="Phase 3",
+        success_message=f"\n✓ Phase 4 (output) done: {video_path.name}",
+        failure_label="Phase 4",
     )
 
 
@@ -366,7 +382,18 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     print(f"Temp: {startup.temp_dir}")
     print("-" * 60)
 
-    total_phases = 3
+    # Pre-fetch MP3 Manager uploaded files list for Phase 3 idempotency
+    uploaded_ids: list[str] = []
+    if _MP3_AVAILABLE and os.getenv('MP3_MANAGER_URL'):
+        try:
+            client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
+            uploaded_ids = get_uploaded_file_ids(client)
+            print(f"MP3 Manager: Fetched {len(uploaded_ids)} existing file(s) from server")
+            client.close()
+        except Exception as e:
+            print(f"MP3 Manager: Failed to fetch file list (continuing): {e}")
+
+    total_phases = 4
     phases = (
         _PipelinePhase(
             1,
@@ -391,6 +418,16 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         ),
         _PipelinePhase(
             3,
+            "MP3 Upload",
+            lambda video_file, _i, _n: run_mp3_upload_phase(
+                video_path=video_file,
+                temp_dir=temp_dir,
+                uploaded_ids=uploaded_ids,
+                total_phases=total_phases,
+            ),
+        ),
+        _PipelinePhase(
+            4,
             "Final Output",
             lambda video_file, vi, vn: run_output_phase(
                 video_path=video_file,
