@@ -39,6 +39,14 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
             "26",  # ~100MB for 3min talking heads
             "-extbrc",
             "1",
+            "-adaptive_i",
+            "1",
+            "-adaptive_b",
+            "1",
+            "-g",
+            "250",  # 8+ second GOP for better compression (talking heads safe)
+            "-bf",
+            "3",  # 3 B-frames for better temporal compression
         ),
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
     ),
@@ -47,6 +55,7 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
         codec="hevc_amf",
         codec_args=(
             "-qp_p", "32",  # ~100MB for 3min talking heads
+            "-g", "250",  # Longer GOP for better compression
         ),
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
     ),
