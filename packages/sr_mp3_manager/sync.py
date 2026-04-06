@@ -51,8 +51,8 @@ def sync_titles(
         if api_title != current_title:
             title_path.write_text(api_title, encoding='utf-8')
             
-            # Delete from completed to trigger Phase 3 re-encode
-            completed_path = completed_dir / f"{file_id}.json"
+            # Delete from completed to trigger Phase 4 re-encode
+            completed_path = completed_dir / f"{file_id}.txt"
             if completed_path.exists():
                 completed_path.unlink()
             
