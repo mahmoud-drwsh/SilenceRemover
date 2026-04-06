@@ -126,4 +126,22 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable logo overlay in final output (requires logo/logo.png).",
     )
+    parser.add_argument(
+        "--title-y-fraction",
+        type=float,
+        default=None,
+        help=(
+            "Title overlay Y position as fraction of video height (0.0-1.0). "
+            "Default is 1/6 (0.167). 0.0 = top, 0.5 = middle."
+        ),
+    )
+    parser.add_argument(
+        "--title-height-fraction",
+        type=float,
+        default=None,
+        help=(
+            "Title banner height as fraction of video height (0.0-1.0). "
+            "Default is 1/6 (0.167)."
+        ),
+    )
     return parser.parse_args()
