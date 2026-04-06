@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -228,18 +229,27 @@ def run_mp3_upload_phase(
     
     # Upload
     def _perform() -> None:
-        print(f"\n[3/{total_phases}] Uploading to MP3 Manager: {video_path.name}")
         title = title_path.read_text(encoding='utf-8').strip()
         if not title:
             raise ValueError(f"Empty title for {video_path.name}")
         
+        # Get file size for logging
+        snippet_size_mb = snippet_path.stat().st_size / (1024 * 1024) if snippet_path.exists() else 0
+        
+        print(f"\n[3/{total_phases}] Uploading to MP3 Manager")
+        print(f"  File: {video_path.name}")
+        print(f"  Title: {title[:60]}{'...' if len(title) > 60 else ''}")
+        print(f"  Audio snippet: {snippet_size_mb:.1f} MB")
+        
         client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
+        start_time = time.time()
         try:
             result = client.upload(file_id, title, snippet_path)
+            elapsed = time.time() - start_time
             if result:
-                print(f"  Uploaded: {file_id}")
+                print(f"  ✓ Uploaded in {elapsed:.1f}s: {file_id}")
             else:
-                print(f"  Upload failed for {file_id}")
+                print(f"  ✗ Upload failed for {file_id} (server returned false)")
         finally:
             client.close()
     
@@ -356,16 +366,24 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
 
     # MP3 Manager sync: fetch titles from API, update local .txt, trigger re-encodes
     if _MP3_AVAILABLE and os.getenv('MP3_MANAGER_URL'):
+        print(f"\n[MP3 Manager] Syncing titles from server...")
         try:
             client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
             titles_dir = temp_dir / TITLE_DIR
             completed_dir = temp_dir / 'completed'
             updated = sync_titles(client, titles_dir, completed_dir)
             if updated:
-                print(f"MP3 Manager: {len(updated)} title(s) updated from API, scheduled for re-encode")
+                print(f"  [MP3 Manager] {len(updated)} title(s) updated from API:")
+                for file_id in updated:
+                    title_path = titles_dir / f"{file_id}.txt"
+                    new_title = title_path.read_text(encoding='utf-8').strip() if title_path.exists() else "(deleted)"
+                    print(f"    • {file_id}: '{new_title[:50]}{'...' if len(new_title) > 50 else ''}'")
+            else:
+                print(f"  [MP3 Manager] No title updates from server")
             client.close()
+            print(f"  [MP3 Manager] Sync complete")
         except Exception as e:
-            print(f"MP3 Manager sync failed (continuing): {e}")
+            print(f"  [MP3 Manager] Sync failed (continuing): {e}")
 
     enc = startup.encoder
     print(f"Resolved encoder: {enc.name} ({enc.codec})")
