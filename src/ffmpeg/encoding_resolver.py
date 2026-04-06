@@ -53,6 +53,23 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
     ),
     VideoEncoderProfile(
+        name="hevc_amf_hardware",
+        codec="hevc_amf",
+        codec_args=(
+            "-rc",
+            "cqp",  # Constant quality mode
+            "-qp_i",
+            "24",  # I-frame QP (adjusted for ~80MB target)
+            "-qp_p",
+            "26",  # P-frame QP (adjusted for ~80MB target)
+            "-preset",
+            "quality",  # Quality-focused preset
+            "-header_insertion_mode",
+            "gop",  # GOP-aligned headers
+        ),
+        container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
+    ),
+    VideoEncoderProfile(
         name="libx265_software_hevc",
         codec="libx265",
         codec_args=(
@@ -74,6 +91,10 @@ _HEVC_QSV_VERIFY_HINT = (
     "Ensure FFmpeg includes encoder hevc_qsv and Intel Quick Sync runtime support. "
     "Check: ffmpeg -hide_banner -encoders (look for hevc_qsv)."
 )
+_HEVC_AMF_VERIFY_HINT = (
+    "Ensure FFmpeg includes encoder hevc_amf and AMD GPU drivers are installed. "
+    "Check: ffmpeg -hide_banner -encoders (look for hevc_amf)."
+)
 
 
 @lru_cache(maxsize=1)
@@ -93,32 +114,44 @@ def _probe_encoder_profile(profile: VideoEncoderProfile) -> VideoEncoderProfile:
 
 
 def resolve_video_encoder() -> VideoEncoderProfile:
-    """Resolve final video encoder with hevc_qsv primary and libx265 fallback."""
+    """Resolve final video encoder with hardware priority: QSV → AMF → libx265 fallback."""
     global _RESOLVED_ENCODER
     if _RESOLVED_ENCODER is not None:
         return _RESOLVED_ENCODER
 
     available = _get_available_encoders()
-    qsv_profile, libx265_profile = _ENCODER_PROFILES
+    qsv_profile, amf_profile, libx265_profile = _ENCODER_PROFILES
 
-    # Try primary encoder (hevc_qsv) first
+    # Try Intel Quick Sync (QSV) first
     if qsv_profile.codec in available:
         try:
             _RESOLVED_ENCODER = _probe_encoder_profile(qsv_profile)
+            print(f"Using hardware encoder: {qsv_profile.name}")
             return _RESOLVED_ENCODER
         except RuntimeError:
             # QSV probe failed - hardware not available or drivers missing
-            # Fall through to try software encoder
             pass
 
-    # Try fallback encoder (libx265)
+    # Try AMD AMF (for AMD GPUs like Ryzen with Radeon)
+    if amf_profile.codec in available:
+        try:
+            _RESOLVED_ENCODER = _probe_encoder_profile(amf_profile)
+            print(f"Using hardware encoder: {amf_profile.name}")
+            return _RESOLVED_ENCODER
+        except RuntimeError:
+            # AMF probe failed - AMD GPU/drivers issue
+            pass
+
+    # Fall back to software encoding (libx265)
     if libx265_profile.codec not in available:
         raise RuntimeError(
-            f"FFmpeg does not list fallback encoder '{libx265_profile.codec}'. {_LIBX265_VERIFY_HINT}"
+            f"No usable HEVC encoder found. Tried: hevc_qsv, hevc_amf, {libx265_profile.codec}. "
+            f"{_LIBX265_VERIFY_HINT}"
         )
 
     try:
         _RESOLVED_ENCODER = _probe_encoder_profile(libx265_profile)
+        print(f"Using software encoder: {libx265_profile.name}")
     except RuntimeError as exc:
         raise RuntimeError(
             f"Fallback encoder '{libx265_profile.codec}' is listed but a probe encode failed. {_LIBX265_VERIFY_HINT}"
