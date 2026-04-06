@@ -55,7 +55,9 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
     VideoEncoderProfile(
         name="hevc_amf_hardware",
         codec="hevc_amf",
-        codec_args=(),  # Minimal - let AMF use defaults
+        codec_args=(
+            "-qp_p", "30",  # Medium-high quality (lower = better quality)
+        ),
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
     ),
     VideoEncoderProfile(
