@@ -270,16 +270,17 @@ def api_stream(token, project, file_id):
     return send_file(filepath, mimetype='audio/mpeg')
 
 
+@app.route('/<token>/monitor')
 @app.route('/<token>/<project>/monitor')
-def api_monitor(token, project):
-    """Simple HTTPS endpoint for monitoring access attempts."""
+def api_monitor(token, project=None):
+    """Simple HTTPS endpoint for monitoring access attempts - project independent."""
     if not require_token(token):
         return jsonify({"error": "Invalid token"}), 403
     
     # Get attack statistics
     stats = {
         "timestamp": datetime.now().isoformat(),
-        "server": project,
+        "server": project or "all",
         "attacks": {
             "ssh_failed_24h": 0,
             "ufw_blocks_24h": 0,
@@ -433,9 +434,10 @@ MONITOR_HTML = '''<!DOCTYPE html>
 </html>'''
 
 
+@app.route('/<token>/monitor/view')
 @app.route('/<token>/<project>/monitor/view')
-def api_monitor_view(token, project):
-    """Serve monitor HTML interface - token protected."""
+def api_monitor_view(token, project=None):
+    """Serve monitor HTML interface - token protected, project independent."""
     if not require_token(token):
         return jsonify({"error": "Invalid token"}), 403
     return MONITOR_HTML
