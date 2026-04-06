@@ -36,7 +36,7 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
             "-preset",
             "medium",
             "-global_quality",
-            "20",
+            "26",  # ~100MB for 3min talking heads
             "-extbrc",
             "1",
         ),
@@ -46,7 +46,7 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
         name="hevc_amf_hardware",
         codec="hevc_amf",
         codec_args=(
-            "-qp_p", "26",  # High quality (near-default)
+            "-qp_p", "32",  # ~100MB for 3min talking heads
         ),
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
     ),
@@ -55,9 +55,9 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
         codec="libx265",
         codec_args=(
             "-crf",
-            "24",
+            "30",  # ~100MB for 3min talking heads
             "-preset",
-            "slow",
+            "medium",  # faster than slow, still efficient
         ),
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
     ),
