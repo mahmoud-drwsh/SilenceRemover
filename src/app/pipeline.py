@@ -50,7 +50,7 @@ QUICK_TEST_OUTPUT_SECONDS = 5.0
 class _PipelinePhase:
     index: int
     label: str
-    run: Callable[[Path, int, int], bool]
+    run: Callable[[Path, int, int, int], bool | None]
 
 
 def _run_phase(
@@ -65,10 +65,8 @@ def _run_phase(
     skip_count = 0
     fail_count = 0
     for i, video_file in enumerate(videos, 1):
-        print(f"\n{'='*60}")
-        print(f"[{phase.index}/{total_phases}][{i}/{n}] {phase.label}: {video_file.name}")
-        print(f"{'='*60}")
-        result = phase.run(video_file, i, n)
+        # Call the phase function first - it will print its own header if work is needed
+        result = phase.run(video_file, i, n, total_phases)
         if result is True:
             success_count += 1
         elif result is None:
@@ -88,6 +86,11 @@ def _run_phase_step(
     failure_label: str,
     precondition_ok: bool = True,
     precondition_message: str | None = None,
+    phase_index: int = 0,
+    total_phases: int = 0,
+    video_index: int = 0,
+    total_videos: int = 0,
+    label: str = "",
 ) -> bool | None:
     """Centralized phase execution wrapper with consistent skip/error behavior.
     
@@ -104,6 +107,12 @@ def _run_phase_step(
         if precondition_message is not None:
             print(precondition_message)
         return False
+
+    # Print header when work actually starts
+    if phase_index and total_phases and video_index and total_videos:
+        print(f"\n{'='*60}")
+        print(f"[{phase_index}/{total_phases}][{video_index}/{total_videos}] {label}: {video_path.name}")
+        print(f"{'='*60}")
 
     try:
         work_fn()
@@ -164,9 +173,11 @@ def run_transcription_phase(
     temp_dir: Path,
     pad_sec: float,
     api_key: str,
+    video_index: int,
+    total_videos: int,
     *,
     total_phases: int = 4,
-) -> bool:
+) -> bool | None:
     """Phase 1: Create snippet and transcribe it to `temp/transcript/{basename}.txt`."""
     basename = video_path.stem
     snippet_path = get_snippet_path(temp_dir, basename)
@@ -193,6 +204,11 @@ def run_transcription_phase(
         work_fn=_perform,
         success_message=f"\n✓ Phase 1 (transcription) done: {video_path.name}",
         failure_label="Phase 1",
+        phase_index=1,
+        total_phases=total_phases,
+        video_index=video_index,
+        total_videos=total_videos,
+        label="Transcription",
     )
 
 
@@ -200,9 +216,11 @@ def run_title_phase(
     video_path: Path,
     temp_dir: Path,
     api_key: str,
+    video_index: int,
+    total_videos: int,
     *,
     total_phases: int = 4,
-) -> bool:
+) -> bool | None:
     """Phase 2: Generate title from transcript to `temp/title/{basename}.txt`."""
     basename = video_path.stem
 
@@ -219,6 +237,11 @@ def run_title_phase(
         work_fn=_perform,
         success_message=f"\n✓ Phase 2 (title generation) done: {video_path.name}",
         failure_label="Phase 2",
+        phase_index=2,
+        total_phases=total_phases,
+        video_index=video_index,
+        total_videos=total_videos,
+        label="Title Generation",
     )
 
 
@@ -226,9 +249,11 @@ def run_mp3_upload_phase(
     video_path: Path,
     temp_dir: Path,
     uploaded_ids: list[str],
+    video_index: int,
+    total_videos: int,
     *,
     total_phases: int = 4,
-) -> bool:
+) -> bool | None:
     """Phase 3: Upload audio snippet and title to MP3 Manager.
     
     Uses pre-fetched uploaded_ids list to avoid re-uploading existing files.
@@ -240,13 +265,13 @@ def run_mp3_upload_phase(
     
     # Precondition: title must exist
     if not title_path.exists():
-        print(f"\033[91mNo title for {video_path.name}, skipping MP3 upload.\033[0m")
+        # Silent skip - counted as precondition failure in phase summary
         return False
     
     # Check if already uploaded using pre-fetched list
     if check_uploaded(file_id, uploaded_ids):
-        print(f"Phase 3 already done for {video_path.name}, skipping upload (already on server).")
-        return True
+        # Silent skip - counted at phase level
+        return None
     
     # Upload
     def _perform() -> None:
@@ -283,6 +308,11 @@ def run_mp3_upload_phase(
         work_fn=_perform,
         success_message=f"\n✓ Phase 3 (MP3 upload) done: {video_path.name}",
         failure_label="Phase 3",
+        phase_index=3,
+        total_phases=total_phases,
+        video_index=video_index,
+        total_videos=total_videos,
+        label="MP3 Upload",
     )
 
 
@@ -303,7 +333,7 @@ def run_output_phase(
     enable_logo_overlay: bool = False,
     *,
     total_phases: int = 4,
-) -> bool:
+) -> bool | None:
     """Phase 4: Full video trim with title-based output filename."""
     basename = video_path.stem
     title_path = get_title_path(temp_dir, basename)
@@ -314,21 +344,22 @@ def run_output_phase(
 
     already_done = is_completed(temp_dir, basename)
     if already_done:
-        precondition_ok = False
-        precondition_message = f"Phase 4 already done for {video_path.name}, skipping."
-    elif not is_transcript_done(temp_dir, basename):
+        # Silent skip - counted at phase level
+        return None
+    
+    if not is_transcript_done(temp_dir, basename):
         precondition_ok = False
         precondition_message = (
-            f"No transcript for {video_path.name}, skipping output phase."
+            f"\033[91mNo transcript for {video_path.name}, skipping output phase.\033[0m"
         )
     elif not title_path.exists():
         precondition_ok = False
-        precondition_message = f"No title for {video_path.name}, skipping output phase."
+        precondition_message = f"\033[91mNo title for {video_path.name}, skipping output phase.\033[0m"
     else:
         title_text = title_path.read_text(encoding="utf-8").strip()
         if not title_text:
             precondition_ok = False
-            precondition_message = f"Empty title for {video_path.name}, skipping output phase."
+            precondition_message = f"\033[91mEmpty title for {video_path.name}, skipping output phase.\033[0m"
         else:
             chosen_basename = resolve_output_basename(title_text, output_dir)
 
@@ -366,13 +397,18 @@ def run_output_phase(
 
     return _run_phase_step(
         video_path=video_path,
-        already_done=already_done,
-        already_done_message=f"Phase 4 already done for {video_path.name}, skipping.",
+        already_done=False,
+        already_done_message="",
         precondition_ok=precondition_ok,
         precondition_message=precondition_message,
         work_fn=_perform,
         success_message=f"\n✓ Phase 4 (output) done: {video_path.name}",
         failure_label="Phase 4",
+        phase_index=4,
+        total_phases=total_phases,
+        video_index=video_index,
+        total_videos=total_videos,
+        label="Final Output",
     )
 
 
@@ -438,38 +474,44 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         _PipelinePhase(
             1,
             "Transcription",
-            lambda video_file, _i, _n: run_transcription_phase(
+            lambda video_file, vi, vn, tp: run_transcription_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 pad_sec=startup.pad_sec,
                 api_key=api_key,
-                total_phases=total_phases,
+                video_index=vi,
+                total_videos=vn,
+                total_phases=tp,
             ),
         ),
         _PipelinePhase(
             2,
             "Title Generation",
-            lambda video_file, _i, _n: run_title_phase(
+            lambda video_file, vi, vn, tp: run_title_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 api_key=api_key,
-                total_phases=total_phases,
+                video_index=vi,
+                total_videos=vn,
+                total_phases=tp,
             ),
         ),
         _PipelinePhase(
             3,
             "MP3 Upload",
-            lambda video_file, _i, _n: run_mp3_upload_phase(
+            lambda video_file, vi, vn, tp: run_mp3_upload_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 uploaded_ids=uploaded_ids,
-                total_phases=total_phases,
+                video_index=vi,
+                total_videos=vn,
+                total_phases=tp,
             ),
         ),
         _PipelinePhase(
             4,
             "Final Output",
-            lambda video_file, vi, vn: run_output_phase(
+            lambda video_file, vi, vn, tp: run_output_phase(
                 video_path=video_file,
                 output_dir=startup.output_dir,
                 temp_dir=startup.temp_dir,
@@ -484,7 +526,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 total_videos=vn,
                 enable_title_overlay=startup.enable_title_overlay,
                 enable_logo_overlay=startup.enable_logo_overlay,
-                total_phases=total_phases,
+                total_phases=tp,
             ),
         ),
     )
