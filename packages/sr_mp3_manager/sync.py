@@ -1,27 +1,33 @@
 """Title synchronization logic: API → local .txt files."""
 
 from pathlib import Path
+from sr_filename import sanitize_filename
 from .api import Mp3ApiClient
 
 
 def sync_titles(
     client: Mp3ApiClient,
     titles_dir: Path,
-    completed_dir: Path
-) -> list[str]:
+    completed_dir: Path,
+    output_dir: Path,
+) -> list[tuple[str, str, str]]:
     """Sync titles from API to local .txt files.
     
     For each file returned by API:
     - Compare API title to local title.txt (if exists)
-    - If different: overwrite .txt with API title, delete completed/ entry
+    - If different: 
+        - Overwrite .txt with API title
+        - Delete completed/ entry to trigger re-encode
+        - Delete old output MP4 (from previous title) if exists
     - If same: do nothing
     
     Missing API entries are ignored (no action taken).
     
-    Returns: list of file IDs that were updated (for logging).
+    Returns: list of (file_id, old_title, new_title) tuples for logging.
     """
     titles_dir = Path(titles_dir)
     completed_dir = Path(completed_dir)
+    output_dir = Path(output_dir)
     titles_dir.mkdir(parents=True, exist_ok=True)
     completed_dir.mkdir(parents=True, exist_ok=True)
     
@@ -31,7 +37,7 @@ def sync_titles(
         # Fail-safe: any error, return empty (no changes)
         return []
     
-    updated_ids = []
+    updated: list[tuple[str, str, str]] = []
     
     for file_info in files:
         file_id = file_info.get('id')
@@ -49,6 +55,7 @@ def sync_titles(
         
         # Compare and update if different
         if api_title != current_title:
+            # Write new title
             title_path.write_text(api_title, encoding='utf-8')
             
             # Delete from completed to trigger Phase 4 re-encode
@@ -56,6 +63,13 @@ def sync_titles(
             if completed_path.exists():
                 completed_path.unlink()
             
-            updated_ids.append(file_id)
+            # Delete old output MP4 if it exists (based on old title)
+            if current_title:
+                old_basename = sanitize_filename(current_title)
+                old_output_path = output_dir / f"{old_basename}.mp4"
+                if old_output_path.exists():
+                    old_output_path.unlink()
+            
+            updated.append((file_id, current_title, api_title))
     
-    return updated_ids
+    return updated

@@ -428,13 +428,15 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
             titles_dir = temp_dir / TITLE_DIR
             completed_dir = temp_dir / 'completed'
-            updated = sync_titles(client, titles_dir, completed_dir)
+            updated = sync_titles(client, titles_dir, completed_dir, startup.output_dir)
             if updated:
                 print(f"  [MP3 Manager] {len(updated)} title(s) updated from API:")
-                for file_id in updated:
-                    title_path = titles_dir / f"{file_id}.txt"
-                    new_title = title_path.read_text(encoding='utf-8').strip() if title_path.exists() else "(deleted)"
-                    print(f"    • {file_id}: '{new_title[:50]}{'...' if len(new_title) > 50 else ''}'")
+                for file_id, old_title, new_title in updated:
+                    old_short = old_title[:30] + '...' if len(old_title) > 30 else old_title
+                    new_short = new_title[:30] + '...' if len(new_title) > 30 else new_title
+                    print(f"    • {file_id}:")
+                    print(f"      Old: '{old_short}'")
+                    print(f"      New: '{new_short}'")
             else:
                 print(f"  [MP3 Manager] No title updates from server")
             client.close()
