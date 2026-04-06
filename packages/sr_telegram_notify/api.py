@@ -49,19 +49,14 @@ def _telegram_send_if_configured(text: str) -> None:
 
 def _progress_body(
     *,
-    phase_index: int,
-    total_phases: int,
     video_index: int,
     total_videos: int,
     input_name: str,
     title: str,
-    output_mp4: Path,
 ) -> str:
     lines = [
-        f"Phase {phase_index}/{total_phases} — Final output",
-        f"Video {video_index}/{total_videos} — {input_name}",
-        f"Title: {title}",
-        f"Output: {output_mp4.name}",
+        f"Video {video_index}/{total_videos}",
+        f"{input_name} → {title}",
     ]
     return "\n".join(lines)
 
@@ -77,17 +72,13 @@ def notify_final_encoding_started(
     output_mp4: Path,
 ) -> None:
     """Notify that Phase 3 final encoding is about to start (before FFmpeg)."""
-    head = "Encoding started"
     body = _progress_body(
-        phase_index=phase_index,
-        total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         input_name=input_name,
         title=title,
-        output_mp4=output_mp4,
     )
-    _telegram_send_if_configured(f"{head}\n{body}")
+    _telegram_send_if_configured(f"▶️ Starting — {body}")
 
 
 def notify_final_output_ready(
@@ -101,14 +92,10 @@ def notify_final_output_ready(
     output_mp4: Path,
 ) -> None:
     """Notify that Phase 3 encoding finished successfully."""
-    head = "Encoding complete"
     body = _progress_body(
-        phase_index=phase_index,
-        total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         input_name=input_name,
         title=title,
-        output_mp4=output_mp4,
     )
-    _telegram_send_if_configured(f"{head}\n{body}")
+    _telegram_send_if_configured(f"✅ Done — {body}")

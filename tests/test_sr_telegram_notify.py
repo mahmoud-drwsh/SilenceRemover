@@ -64,12 +64,11 @@ class TestTelegramNotify(unittest.TestCase):
         self.assertEqual(kwargs["token"], "secret")
         self.assertEqual(kwargs["chat_id"], "99")
         text = kwargs["text"]
-        self.assertIn("Encoding complete", text)
-        self.assertIn("Phase 3/3", text)
+        self.assertIn("✅ Done", text)
         self.assertIn("Video 2/5", text)
         self.assertIn("clip.mp4", text)
-        self.assertIn("Title: My Title", text)
-        self.assertIn("Output: FinalName.mp4", text)
+        self.assertIn("My Title", text)
+        self.assertIn("→", text)  # Arrow between filename and title
 
     @patch.dict(
         "os.environ",
@@ -89,9 +88,10 @@ class TestTelegramNotify(unittest.TestCase):
         )
         send_mock.assert_called_once()
         text = send_mock.call_args.kwargs["text"]
-        self.assertIn("Encoding started", text)
-        self.assertIn("Phase 3/3", text)
+        self.assertIn("▶️ Starting", text)
         self.assertIn("Video 1/3", text)
+        self.assertIn("a.mp4", text)
+        self.assertIn("T", text)
 
     @patch.dict(
         "os.environ",
