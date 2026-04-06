@@ -407,7 +407,7 @@ MONITOR_HTML = '''<!DOCTYPE html>
   <script>
     async function fetchData() {
       try {
-        const response = await fetch('monitor');
+        const response = await fetch(window.location.pathname.replace('/view', ''));
         if (!response.ok) throw new Error('Failed to fetch');
         const data = await response.json();
         updateUI(data);
