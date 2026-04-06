@@ -219,7 +219,7 @@ def run_mp3_upload_phase(
     
     # Precondition: title must exist
     if not title_path.exists():
-        print(f"No title for {video_path.name}, skipping MP3 upload.")
+        print(f"\033[91mNo title for {video_path.name}, skipping MP3 upload.\033[0m")
         return False
     
     # Check if already uploaded using pre-fetched list
@@ -249,7 +249,7 @@ def run_mp3_upload_phase(
             if result:
                 print(f"  ✓ Uploaded in {elapsed:.1f}s: {file_id}")
             else:
-                print(f"  ✗ Upload failed for {file_id} (server returned false)")
+                print(f"  \033[91m✗ Upload failed for {file_id} (server returned false)\033[0m")
         finally:
             client.close()
     
@@ -383,7 +383,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             client.close()
             print(f"  [MP3 Manager] Sync complete")
         except Exception as e:
-            print(f"  [MP3 Manager] Sync failed (continuing): {e}")
+            print(f"  \033[91m[MP3 Manager] Sync failed (continuing): {e}\033[0m")
 
     enc = startup.encoder
     print(f"Resolved encoder: {enc.name} ({enc.codec})")
