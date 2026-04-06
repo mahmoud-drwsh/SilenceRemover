@@ -53,14 +53,29 @@ class _PipelinePhase:
     run: Callable[[Path, int, int], bool]
 
 
-def _run_phase(videos: list[Path], phase: _PipelinePhase, total_phases: int) -> None:
-    """Run one phase over all videos with shared progress output."""
+def _run_phase(
+    videos: list[Path], phase: _PipelinePhase, total_phases: int
+) -> tuple[int, int, int]:
+    """Run one phase over all videos with shared progress output.
+    
+    Returns: (success_count, skip_count, fail_count)
+    """
     n = len(videos)
+    success_count = 0
+    skip_count = 0
+    fail_count = 0
     for i, video_file in enumerate(videos, 1):
         print(f"\n{'='*60}")
         print(f"[{phase.index}/{total_phases}][{i}/{n}] {phase.label}: {video_file.name}")
         print(f"{'='*60}")
-        phase.run(video_file, i, n)
+        result = phase.run(video_file, i, n)
+        if result is True:
+            success_count += 1
+        elif result is None:
+            skip_count += 1
+        else:
+            fail_count += 1
+    return success_count, skip_count, fail_count
 
 
 def _run_phase_step(
@@ -73,11 +88,17 @@ def _run_phase_step(
     failure_label: str,
     precondition_ok: bool = True,
     precondition_message: str | None = None,
-) -> bool:
-    """Centralized phase execution wrapper with consistent skip/error behavior."""
+) -> bool | None:
+    """Centralized phase execution wrapper with consistent skip/error behavior.
+    
+    Returns:
+        True: Success
+        None: Skipped (already done) - silent, no logging
+        False: Failed or precondition not met
+    """
     if already_done:
-        print(already_done_message)
-        return True
+        # Silent skip - no individual logging, counted at phase level
+        return None
 
     if not precondition_ok:
         if precondition_message is not None:
@@ -94,7 +115,7 @@ def _run_phase_step(
             return False
         raise
     except Exception as e:
-        print(f"\n✗ {failure_label} error for {video_path.name}: {e}", file=sys.stderr)
+        print(f"\n\033[91m✗ {failure_label} error for {video_path.name}: {e}\033[0m", file=sys.stderr)
         traceback.print_exc()
         return False
 
@@ -469,7 +490,17 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     )
 
     for phase in phases:
-        _run_phase(videos=videos, phase=phase, total_phases=len(phases))
+        success, skipped, failed = _run_phase(videos=videos, phase=phase, total_phases=len(phases))
+        # Phase summary
+        summary_parts = []
+        if success:
+            summary_parts.append(f"{success} done")
+        if skipped:
+            summary_parts.append(f"{skipped} skipped (already done)")
+        if failed:
+            summary_parts.append(f"\033[91m{failed} failed\033[0m")
+        summary = ", ".join(summary_parts) if summary_parts else "nothing to do"
+        print(f"\n[Phase {phase.index} complete] {summary}")
 
     completed_dir = startup.temp_dir / COMPLETED_DIR
     completed = sum(1 for p in completed_dir.iterdir() if p.is_file())
