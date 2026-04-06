@@ -55,14 +55,7 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
     VideoEncoderProfile(
         name="hevc_amf_hardware",
         codec="hevc_amf",
-        codec_args=(
-            "-qp_i",
-            "24",  # I-frame QP (adjusted for ~80MB target)
-            "-qp_p",
-            "26",  # P-frame QP (adjusted for ~80MB target)
-            "-preset",
-            "quality",  # Quality-focused preset
-        ),
+        codec_args=(),  # Minimal - let AMF use defaults
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
     ),
     VideoEncoderProfile(
