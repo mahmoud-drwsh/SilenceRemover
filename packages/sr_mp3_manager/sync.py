@@ -1,8 +1,54 @@
 """Title synchronization logic: API → local .txt files."""
 
+import time
 from pathlib import Path
 from sr_filename import sanitize_filename
 from .api import Mp3ApiClient
+
+
+# Retry configuration for AV interference on Windows
+_MAX_RETRIES = 5
+_RETRY_DELAY_SEC = 0.5
+
+
+def _write_text_with_retry(path: Path, text: str) -> None:
+    """Write text file with retry for AV locking."""
+    for attempt in range(_MAX_RETRIES):
+        try:
+            path.write_text(text, encoding='utf-8')
+            return
+        except PermissionError:
+            if attempt < _MAX_RETRIES - 1:
+                time.sleep(_RETRY_DELAY_SEC)
+            else:
+                raise
+
+
+def _unlink_with_retry(path: Path) -> None:
+    """Delete file with retry for AV locking."""
+    for attempt in range(_MAX_RETRIES):
+        try:
+            path.unlink()
+            return
+        except PermissionError:
+            if attempt < _MAX_RETRIES - 1:
+                time.sleep(_RETRY_DELAY_SEC)
+            else:
+                raise
+        except FileNotFoundError:
+            return
+
+
+def _read_text_with_retry(path: Path) -> str:
+    """Read text file with retry for AV locking."""
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return path.read_text(encoding='utf-8')
+        except PermissionError:
+            if attempt < _MAX_RETRIES - 1:
+                time.sleep(_RETRY_DELAY_SEC)
+            else:
+                raise
 
 
 def sync_titles(
@@ -49,26 +95,26 @@ def sync_titles(
         # Read current local title
         title_path = titles_dir / f"{file_id}.txt"
         if title_path.exists():
-            current_title = title_path.read_text(encoding='utf-8').strip()
+            current_title = _read_text_with_retry(title_path).strip()
         else:
             current_title = ''
         
         # Compare and update if different
         if api_title != current_title:
-            # Write new title
-            title_path.write_text(api_title, encoding='utf-8')
+            # Write new title with retry (AV may lock)
+            _write_text_with_retry(title_path, api_title)
             
             # Delete from completed to trigger Phase 4 re-encode
             completed_path = completed_dir / f"{file_id}.txt"
             if completed_path.exists():
-                completed_path.unlink()
+                _unlink_with_retry(completed_path)
             
             # Delete old output MP4 if it exists (based on old title)
             if current_title:
                 old_basename = sanitize_filename(current_title)
                 old_output_path = output_dir / f"{old_basename}.mp4"
                 if old_output_path.exists():
-                    old_output_path.unlink()
+                    _unlink_with_retry(old_output_path)
             
             updated.append((file_id, current_title, api_title))
     
