@@ -259,7 +259,7 @@ def run_mp3_upload_phase(
     Uses pre-fetched uploaded_ids list to avoid re-uploading existing files.
     """
     basename = video_path.stem
-    file_id = video_path.name
+    file_id = basename  # Use basename without extension as the ID
     title_path = get_title_path(temp_dir, basename)
     snippet_path = get_snippet_path(temp_dir, basename)
     
