@@ -22,14 +22,14 @@ def build_encoder_probe_command(codec: str, codec_args: Sequence[str] = ()) -> l
         
     Example:
         >>> build_encoder_probe_command("libx264")
-        ['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'color=black:s=64x64:d=0.4', ...]
+        ['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc=duration=1:size=320x240', ...]
     """
     cmd = [
         "ffmpeg",
         "-v", "error",
         "-f", "lavfi",
-        "-i", "color=black:s=64x64:d=0.4",
-        "-frames:v", "4",
+        "-i", "testsrc=duration=1:size=320x240",  # Use testsrc - more compatible with HW encoders
+        "-frames:v", "25",
         "-c:v", codec,
         "-pix_fmt", "yuv420p",
     ]

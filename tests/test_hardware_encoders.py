@@ -41,15 +41,15 @@ SOFTWARE_ENCODERS = [
 ]
 
 
-def test_encoder(codec: str, args: list[str]) -> tuple[bool, str]:
+def _test_encoder(codec: str, args: list[str]) -> tuple[bool, str]:
     """Test if an encoder works. Returns (success, error_message)."""
     cmd = [
         "ffmpeg",
         "-hide_banner",
         "-v", "error",
         "-f", "lavfi",
-        "-i", "color=black:s=64x64:d=0.1",
-        "-frames:v", "2",
+        "-i", "testsrc=duration=1:size=320x240",  # Use testsrc - more compatible with HW encoders
+        "-frames:v", "25",
         "-c:v", codec,
         "-pix_fmt", "yuv420p",
     ] + args + ["-f", "null", "-"]
@@ -133,7 +133,7 @@ def main():
             print(f"  [NOT LISTED] - Not available in this FFmpeg build")
             continue
             
-        success, error = test_encoder(codec, args)
+        success, error = _test_encoder(codec, args)
         if success:
             print(f"  [✓ WORKING] - Hardware encoder ready!")
             working_hardware.append((codec, name))
@@ -155,7 +155,7 @@ def main():
             print(f"  [NOT LISTED] - Not available")
             continue
             
-        success, error = test_encoder(codec, args)
+        success, error = _test_encoder(codec, args)
         if success:
             print(f"  [✓ WORKING] - Software encoder ready")
             working_software.append((codec, name))

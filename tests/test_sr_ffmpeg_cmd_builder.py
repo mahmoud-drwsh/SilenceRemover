@@ -51,13 +51,13 @@ class TestBuildEncoderProbeCommand:
         result = build_encoder_probe_command("libx264")
         assert "-f" in result
         assert "lavfi" in result
-        assert "color=black:s=64x64:d=0.4" in result
+        assert "testsrc=duration=1:size=320x240" in result
     
     def test_contains_frame_limit(self):
         """Test that frame limit is set."""
         result = build_encoder_probe_command("libx264")
         assert "-frames:v" in result
-        assert "4" in result
+        assert "25" in result
     
     def test_contains_output_to_null(self):
         """Test that output goes to null."""
