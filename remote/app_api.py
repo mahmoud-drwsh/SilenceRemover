@@ -353,6 +353,94 @@ def api_monitor(token, project):
         pass
     
     return jsonify(stats)
+
+
+# HTML Monitor Interface - Token Protected
+MONITOR_HTML = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server Security Monitor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #fff;
+      padding: 20px;
+      min-height: 100vh;
+    }
+    h1 { font-size: 24px; margin-bottom: 20px; color: #00d4aa; }
+    .status { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px; }
+    .card { background: #16213e; border-radius: 12px; padding: 15px; min-width: 140px; flex: 1; }
+    .card h3 { font-size: 12px; color: #8892b0; text-transform: uppercase; margin-bottom: 8px; }
+    .card .number { font-size: 32px; font-weight: bold; color: #00d4aa; }
+    .card .number.danger { color: #ff6b6b; }
+    .card .number.warning { color: #ffd93d; }
+    .section { background: #16213e; border-radius: 12px; padding: 15px; margin-bottom: 15px; }
+    .section h2 { font-size: 16px; color: #00d4aa; margin-bottom: 12px; }
+    .ip-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .ip-badge { background: #ff6b6b; color: #fff; padding: 6px 12px; border-radius: 20px; font-size: 13px; font-family: monospace; }
+    .login-item { background: #0f3460; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; }
+    .login-item .ip { color: #00d4aa; font-family: monospace; }
+    .last-update { text-align: center; color: #8892b0; font-size: 12px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>🔒 Server Security Monitor</h1>
+  <div class="status">
+    <div class="card"><h3>SSH Attacks (24h)</h3><div class="number" id="sshFailed">-</div></div>
+    <div class="card"><h3>Blocked (24h)</h3><div class="number" id="ufwBlocks">-</div></div>
+    <div class="card"><h3>Banned IPs</h3><div class="number" id="bannedCount">-</div></div>
+    <div class="card"><h3>Your Logins</h3><div class="number" id="successLogins">-</div></div>
+  </div>
+  <div class="section">
+    <h2>🚫 Banned Attacker IPs</h2>
+    <div class="ip-list" id="bannedIps"><span style="color: #8892b0;">Loading...</span></div>
+  </div>
+  <div class="section">
+    <h2>✅ Your Recent SSH Logins</h2>
+    <div id="loginHistory"><span style="color: #8892b0;">Loading...</span></div>
+  </div>
+  <div class="last-update">Last updated: <span id="lastUpdate">-</span></div>
+  <script>
+    async function fetchData() {
+      try {
+        const response = await fetch('monitor');
+        if (!response.ok) throw new Error('Failed to fetch');
+        const data = await response.json();
+        updateUI(data);
+      } catch (err) {
+        document.body.innerHTML = '<div style="background:#ff6b6b;padding:15px;border-radius:8px;">Error: ' + err.message + '</div>';
+      }
+    }
+    function updateUI(data) {
+      document.getElementById('sshFailed').textContent = data.attacks?.ssh_failed_24h || 0;
+      document.getElementById('ufwBlocks').textContent = data.attacks?.ufw_blocks_24h || 0;
+      document.getElementById('bannedCount').textContent = data.attacks?.currently_banned_count || '0';
+      document.getElementById('successLogins').textContent = data.access?.successful_ssh_24h || 0;
+      const bannedIps = data.attacks?.banned_ips || [];
+      document.getElementById('bannedIps').innerHTML = bannedIps.length > 0 ? bannedIps.map(ip => `<span class="ip-badge">${ip}</span>`).join('') : '<span style="color: #8892b0;">No banned IPs</span>';
+      const logins = data.access?.last_ssh_logins || [];
+      document.getElementById('loginHistory').innerHTML = logins.length > 0 ? logins.map(login => `<div class="login-item"><span>${login.user} @ ${login.time}</span><span class="ip">${login.ip}</span></div>`).join('') : '<span style="color: #8892b0;">No recent logins</span>';
+      document.getElementById('lastUpdate').textContent = new Date().toLocaleString();
+    }
+    fetchData();
+    setInterval(fetchData, 10000);
+  </script>
+</body>
+</html>'''
+
+
+@app.route('/<token>/<project>/monitor/view')
+def api_monitor_view(token, project):
+    """Serve monitor HTML interface - token protected."""
+    if not require_token(token):
+        return jsonify({"error": "Invalid token"}), 403
+    return MONITOR_HTML
+
+
 @app.route('/<token>/', defaults={'path': ''})
 @app.route('/<token>/<project>/')
 @app.route('/<token>/<project>/<path:path>')
