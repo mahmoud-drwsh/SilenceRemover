@@ -1,0 +1,21 @@
+{
+  "name": "safe-commands-only",
+  "version": "1.0.0",
+  "commands": {
+    "bash": {
+      "*": "ask",
+      "ls": "allow",
+      "cat": "allow",
+      "pwd": "allow",
+      "echo": "allow",
+      "find": "allow",
+      "grep": "allow",
+      "head": "allow",
+      "tail": "allow",
+      "wc": "allow",
+      "mkdir": "ask",
+      "touch": "ask",
+      "rm": "deny"
+    }
+  }
+}
