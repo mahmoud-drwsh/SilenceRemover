@@ -101,15 +101,17 @@ def resolve_video_encoder() -> VideoEncoderProfile:
     available = _get_available_encoders()
     qsv_profile, libx265_profile = _ENCODER_PROFILES
 
+    # Try primary encoder (hevc_qsv) first
     if qsv_profile.codec in available:
         try:
             _RESOLVED_ENCODER = _probe_encoder_profile(qsv_profile)
             return _RESOLVED_ENCODER
-        except RuntimeError as exc:
-            raise RuntimeError(
-                f"Encoder '{qsv_profile.codec}' is listed but a probe encode failed. {_HEVC_QSV_VERIFY_HINT}"
-            ) from exc
+        except RuntimeError:
+            # QSV probe failed - hardware not available or drivers missing
+            # Fall through to try software encoder
+            pass
 
+    # Try fallback encoder (libx265)
     if libx265_profile.codec not in available:
         raise RuntimeError(
             f"FFmpeg does not list fallback encoder '{libx265_profile.codec}'. {_LIBX265_VERIFY_HINT}"
