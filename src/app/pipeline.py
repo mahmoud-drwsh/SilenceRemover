@@ -15,6 +15,7 @@ from src.core.constants import (
     AUDIO_EXTENSIONS,
     COMPLETED_DIR,
     SNIPPET_MAX_DURATION_SEC,
+    TITLE_DIR,
 )
 from src.core.paths import (
     get_snippet_path,
@@ -357,7 +358,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     if _MP3_AVAILABLE and os.getenv('MP3_MANAGER_URL'):
         try:
             client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
-            titles_dir = temp_dir / 'titles'
+            titles_dir = temp_dir / TITLE_DIR
             completed_dir = temp_dir / 'completed'
             updated = sync_titles(client, titles_dir, completed_dir)
             if updated:
