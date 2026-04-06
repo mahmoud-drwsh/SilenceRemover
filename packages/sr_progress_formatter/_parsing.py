@@ -1,7 +1,14 @@
-"""FFmpeg progress line parsing utilities.
+"""FFmpeg output parsing utilities.
 
-Pure functions for parsing FFmpeg -progress output lines.
+Pure functions for parsing FFmpeg output lines including progress and encoder listings.
 """
+
+import re
+
+
+# Regex to match encoder lines from `ffmpeg -encoders` output
+# Matches lines like: " V..... libx264      H.264/AVC ..."
+_ENCODER_LINE_RE = re.compile(r"^\s*[.A-Z]{6}\s+\S+")
 
 
 def parse_progress_seconds(line: str) -> float | None:
@@ -38,3 +45,37 @@ def parse_progress_seconds(line: str) -> float | None:
         except (ValueError, TypeError, IndexError):
             return None
     return None
+
+
+def parse_ffmpeg_encoder_lines(output: str) -> set[str]:
+    """Extract encoder names from `ffmpeg -encoders` output.
+    
+    Parses the output of `ffmpeg -encoders` and extracts valid encoder names.
+    Filters lines based on encoder capability flags and extracts the second
+    column (encoder name).
+    
+    Args:
+        output: Raw stdout from `ffmpeg -encoders` command
+        
+    Returns:
+        Set of encoder names (e.g., {"libx264", "libx265", "hevc_qsv"})
+        
+    Examples:
+        >>> output = " V..... libx264      H.264/AVC...\\n A..... libmp3lame MP3..."
+        >>> parse_ffmpeg_encoder_lines(output)
+        {'libx264', 'libmp3lame'}
+        
+        >>> parse_ffmpeg_encoder_lines("")
+        set()
+    """
+    encoders: set[str] = set()
+    for raw_line in output.splitlines():
+        if not raw_line.strip():
+            continue
+        if _ENCODER_LINE_RE.match(raw_line) is None:
+            continue
+        parts = raw_line.split()
+        encoder_name = parts[1] if len(parts) > 1 else ""
+        if encoder_name:
+            encoders.add(encoder_name)
+    return encoders

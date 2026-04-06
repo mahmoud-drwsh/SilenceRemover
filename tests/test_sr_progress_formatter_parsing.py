@@ -12,7 +12,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "packages"))
 
 import pytest
 
-from sr_progress_formatter._parsing import parse_progress_seconds
+from sr_progress_formatter._parsing import (
+    parse_ffmpeg_encoder_lines,
+    parse_progress_seconds,
+)
 
 
 class TestParseProgressMicroseconds:
@@ -191,6 +194,83 @@ class TestParseProgressPrecision:
         # 100 hours in microseconds
         result = parse_progress_seconds("out_time_ms=360000000000")
         assert result == 360000.0
+
+
+class TestParseFfmpegEncoderLines:
+    """Test parsing FFmpeg encoder list output."""
+    
+    def test_empty_output_returns_empty_set(self):
+        """Test that empty string returns empty set."""
+        result = parse_ffmpeg_encoder_lines("")
+        assert result == set()
+    
+    def test_single_encoder_line(self):
+        """Test parsing single encoder line."""
+        output = " V..... libx264      H.264/AVC encoder (codec h264)"
+        result = parse_ffmpeg_encoder_lines(output)
+        assert result == {"libx264"}
+    
+    def test_multiple_encoder_lines(self):
+        """Test parsing multiple encoder lines."""
+        output = """ V..... libx264      H.264/AVC encoder
+ V..... libx265      H.265/HEVC encoder
+ A..... libmp3lame   MP3 encoding"""
+        result = parse_ffmpeg_encoder_lines(output)
+        assert result == {"libx264", "libx265", "libmp3lame"}
+    
+    def test_skips_header_lines(self):
+        """Test that header/description lines are skipped."""
+        output = """Encoders:
+ V..... libx264      H.264/AVC
+-------
+ V..... libx265      H.265/HEVC"""
+        result = parse_ffmpeg_encoder_lines(output)
+        assert "libx264" in result
+        assert "libx265" in result
+        assert "Encoders:" not in result
+    
+    def test_skips_lines_without_proper_flags(self):
+        """Test that lines without encoder flags are skipped."""
+        output = """Some description here
+ V..... libx264      H.264/AVC
+Another description"""
+        result = parse_ffmpeg_encoder_lines(output)
+        assert result == {"libx264"}
+    
+    def test_handles_audio_encoders(self):
+        """Test parsing audio encoder lines."""
+        output = " A..... aac          AAC (Advanced Audio Coding)"
+        result = parse_ffmpeg_encoder_lines(output)
+        assert result == {"aac"}
+    
+    def test_handles_video_encoders(self):
+        """Test parsing video encoder lines."""
+        output = " V..... h264_nvenc   NVIDIA NVENC H.264 encoder"
+        result = parse_ffmpeg_encoder_lines(output)
+        assert result == {"h264_nvenc"}
+    
+    def test_handles_subtitle_encoders(self):
+        """Test parsing subtitle encoder lines."""
+        output = " S..... mov_text     MOV text"
+        result = parse_ffmpeg_encoder_lines(output)
+        assert result == {"mov_text"}
+    
+    def test_ignores_empty_lines(self):
+        """Test that empty lines are ignored."""
+        output = """ V..... libx264      H.264/AVC
+
+ V..... libx265      H.265/HEVC"""
+        result = parse_ffmpeg_encoder_lines(output)
+        assert result == {"libx264", "libx265"}
+    
+    def test_handles_malformed_lines_gracefully(self):
+        """Test that malformed lines don't crash parser."""
+        output = """ V..... libx264      H.264/AVC
+ V.....
+ A..... libmp3lame   MP3"""
+        result = parse_ffmpeg_encoder_lines(output)
+        assert "libx264" in result
+        assert "libmp3lame" in result
 
 
 if __name__ == "__main__":

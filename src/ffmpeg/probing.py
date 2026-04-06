@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import shlex
 import unicodedata
 from pathlib import Path
@@ -23,23 +22,7 @@ from sr_ffmpeg_cmd_builder import (
     build_ffprobe_metadata_command,
     build_ffprobe_stream_dimensions_command,
 )
-
-_ENCODER_LINE_RE = re.compile(r"^\s*[.A-Z]{6}\s+\S+")
-
-
-def parse_ffmpeg_encoder_lines(output: str) -> set[str]:
-    """Extract encoder names from `ffmpeg -encoders` output."""
-    encoders: set[str] = set()
-    for raw_line in output.splitlines():
-        if not raw_line.strip():
-            continue
-        if _ENCODER_LINE_RE.match(raw_line) is None:
-            continue
-        parts = raw_line.split()
-        encoder_name = parts[1] if len(parts) > 1 else ""
-        if encoder_name:
-            encoders.add(encoder_name)
-    return encoders
+from sr_progress_formatter import parse_ffmpeg_encoder_lines
 
 
 def get_available_encoders() -> set[str]:
