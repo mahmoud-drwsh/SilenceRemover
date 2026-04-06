@@ -25,10 +25,10 @@ function renderCard(file) {
   const t = (key) => getText(key, window.CONFIG.lang);
   const isReady = file.ready;
   
-  // Ready toggle: Green ✓ when NOT ready, Red ✗ when ready
-  const readyIcon = isReady 
-    ? `<span class="checkmark-done" onclick="toggleReady('${file.id}')" title="${t('mark_not_ready')}">✗</span>`
-    : `<span class="checkmark-ready" onclick="toggleReady('${file.id}')" title="${t('mark_ready')}">✓</span>`;
+  // Ready toggle: Green "Ready" when NOT ready, Red "Cancel" when ready
+  const readyLabel = isReady 
+    ? `<span class="checkmark-done" onclick="toggleReady('${file.id}')" title="${t('cancel')}">${t('cancel')}</span>`
+    : `<span class="checkmark-ready" onclick="toggleReady('${file.id}')" title="${t('mark_ready')}">${t('ready')}</span>`;
   
   return `
     <div id="file-${file.id}" class="card ${isReady ? 'ready' : ''}" data-id="${file.id}">
@@ -40,7 +40,7 @@ function renderCard(file) {
         </audio>
         
         <div class="action-buttons">
-          ${readyIcon}
+          ${readyLabel}
           <div class="context-menu-container">
             <button class="icon-btn menu-btn" onclick="toggleMenu('${file.id}')" title="${t('more_actions')}">⋮</button>
             <div id="menu-${file.id}" class="context-menu" style="display: none;">

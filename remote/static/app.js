@@ -3,6 +3,38 @@
 let allFiles = [];
 let currentView = 'notready';
 let saveTimeout;
+let modalCallback = null;
+
+// Modal functions
+function showModal(title, message, confirmText, cancelText, isDanger = false) {
+  const t = (key) => getText(key, window.CONFIG.lang);
+  
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-message').textContent = message;
+  document.getElementById('modal-confirm').textContent = confirmText || t('confirm');
+  document.getElementById('modal-cancel').textContent = cancelText || t('cancel');
+  
+  const confirmBtn = document.getElementById('modal-confirm');
+  if (isDanger) {
+    confirmBtn.classList.add('danger');
+  } else {
+    confirmBtn.classList.remove('danger');
+  }
+  
+  document.getElementById('modal-overlay').style.display = 'flex';
+  
+  return new Promise((resolve) => {
+    modalCallback = resolve;
+  });
+}
+
+function closeModal(confirmed) {
+  document.getElementById('modal-overlay').style.display = 'none';
+  if (modalCallback) {
+    modalCallback(confirmed);
+    modalCallback = null;
+  }
+}
 
 // Initialize
 async function init() {
@@ -86,6 +118,20 @@ async function toggleReady(id) {
   if (!file) return;
   
   const newReady = !file.ready;
+  const t = (key) => getText(key, window.CONFIG.lang);
+  
+  // Confirm when marking as ready (green checkmark), allow instant unmark
+  if (newReady) {
+    const title = file.title || t('untitled');
+    const confirmed = await showModal(
+      t('confirm_ready'),
+      title,
+      t('confirm'),
+      t('cancel'),
+      false
+    );
+    if (!confirmed) return;
+  }
   
   try {
     await API.toggleReady(id, newReady);

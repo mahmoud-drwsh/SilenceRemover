@@ -16,6 +16,9 @@ const TRANSLATIONS = {
     restore: 'Restore',
     delete_forever: 'Delete forever?',
     save_error: 'Error saving',
+    confirm_ready: 'Mark as ready?',
+    cancel: 'Cancel',
+    confirm: 'Confirm',
     playing: 'Playing',
     paused: 'Paused'
   },
@@ -35,6 +38,9 @@ const TRANSLATIONS = {
     restore: 'استعادة',
     delete_forever: 'حذف نهائي؟',
     save_error: 'خطأ في الحفظ',
+    confirm_ready: 'تحديد كجاهز؟',
+    cancel: 'إلغاء',
+    confirm: 'تأكيد',
     playing: 'يعمل',
     paused: 'متوقف'
   }

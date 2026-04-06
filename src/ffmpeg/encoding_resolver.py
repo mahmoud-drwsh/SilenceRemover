@@ -34,13 +34,13 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
         codec="hevc_qsv",
         codec_args=(
             "-preset",
-            "slow",
+            "medium",  # ~2x faster than slow, quality indistinguishable
             "-global_quality",
             "20",
             "-extbrc",
             "1",
             "-look_ahead_depth",
-            "20",
+            "10",  # Reduced from 20 for speed
             "-adaptive_i",
             "1",
             "-adaptive_b",
@@ -48,7 +48,7 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
             "-forced_idr",
             "1",
             "-async_depth",
-            "4",
+            "2",  # Reduced from 4 for speed
         ),
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
     ),
