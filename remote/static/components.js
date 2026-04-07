@@ -35,7 +35,7 @@ function renderCard(file) {
       
       <!-- Row 1: Native Audio Player + Action Buttons -->
       <div class="row-player-actions">
-        <audio controls preload="metadata" class="native-player">
+        <audio controls preload="none" class="native-player">
           <source src="${API.getStreamUrl(file.id)}" type="audio/mpeg">
         </audio>
         

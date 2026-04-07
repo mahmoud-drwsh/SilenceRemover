@@ -96,7 +96,7 @@ function onTitleInput(id, textarea) {
     } finally {
       showSpinner(id, false);
     }
-  }, 500);
+  }, 1000);
 }
 
 function showSpinner(id, show) {
