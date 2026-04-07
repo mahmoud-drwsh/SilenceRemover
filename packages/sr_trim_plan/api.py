@@ -30,8 +30,8 @@ from sr_threshold_selection import find_optimal_padding
 TrimPlanMode = Literal["target", "non_target"]
 
 # Binary search constants for target mode
-# 16 tiers from 0.5s to 0.125s in 0.025s steps
-_MIN_DURATIONS_TIERS = [0.5 - i * 0.025 for i in range(16)]  # 0.5, 0.475, ..., 0.125
+# 50 tiers from 0.5s to 0.01s in 0.01s steps
+_MIN_DURATIONS_TIERS = [0.5 - i * 0.01 for i in range(50)]  # 0.5, 0.49, ..., 0.01
 _DB_SEARCH_LOW = -60.0
 _DB_SEARCH_HIGH = -25.0
 _DB_SEARCH_STEP = 0.05
@@ -213,11 +213,11 @@ def _collect_threshold_candidates_binary(
             return (best_starts, best_ends, min_dur, best_db, pad_sec)
 
     # Fallback: most aggressive settings (no truncation - accept over-target)
-    # Use min_dur=0.125, dB=-25.0
+    # Use min_dur=0.01, dB=-25.0
     silence_starts, silence_ends = detect_primary_with_cached_edges(
         input_file=input_file,
-        primary_noise_threshold=_DB_SEARCH_HIGH,  # -30.0
-        primary_min_duration=_MIN_DURATIONS_TIERS[-1],  # 0.1
+        primary_noise_threshold=_DB_SEARCH_HIGH,  # -25.0
+        primary_min_duration=_MIN_DURATIONS_TIERS[-1],  # 0.01
         edge_starts=edge_starts,
         edge_ends=edge_ends,
         edge_keep_seconds=EDGE_SILENCE_KEEP_SEC,

@@ -20,9 +20,9 @@ class TestBinarySearchConstants:
     """Verify computed constant ranges."""
     
     def test_min_duration_tiers_count(self):
-        """Should have exactly 16 min_duration tiers."""
+        """Should have exactly 50 min_duration tiers."""
         from src.core.constants import TARGET_MIN_DURATION_TIERS
-        assert len(TARGET_MIN_DURATION_TIERS) == 16
+        assert len(TARGET_MIN_DURATION_TIERS) == 50
     
     def test_min_duration_tiers_start(self):
         """First tier should be 0.5s."""
@@ -30,16 +30,16 @@ class TestBinarySearchConstants:
         assert TARGET_MIN_DURATION_TIERS[0] == 0.5
     
     def test_min_duration_tiers_end(self):
-        """Last tier should be approximately 0.125s."""
+        """Last tier should be approximately 0.01s."""
         from src.core.constants import TARGET_MIN_DURATION_TIERS
-        assert abs(TARGET_MIN_DURATION_TIERS[-1] - 0.125) < 0.0001
+        assert abs(TARGET_MIN_DURATION_TIERS[-1] - 0.01) < 0.0001
     
     def test_min_duration_tiers_step(self):
-        """Step size should be approximately 0.025s."""
+        """Step size should be approximately 0.01s."""
         from src.core.constants import TARGET_MIN_DURATION_TIERS
         for i in range(1, len(TARGET_MIN_DURATION_TIERS)):
             step = TARGET_MIN_DURATION_TIERS[i-1] - TARGET_MIN_DURATION_TIERS[i]
-            assert abs(step - 0.025) < 0.0001
+            assert abs(step - 0.01) < 0.0001
     
     def test_db_range(self):
         """dB range should be -60 to -25 with 0.05 step (fine precision)."""
@@ -109,7 +109,7 @@ class TestBinarySearchAlgorithm:
         pass
     
     def test_fallback_to_aggressive_settings(self):
-        """Should use most aggressive (0.125, -25) when no valid combo found."""
+        """Should use most aggressive (0.01, -25) when no valid combo found."""
         # Integration test: test_target_mode_long_video covers fallback
         pass
 
@@ -118,14 +118,14 @@ class TestBinarySearchPerformance:
     """Verify binary search complexity."""
     
     def test_max_iterations_upper_bound(self):
-        """Max iterations should be ~160 (16 tiers × 10 dB steps for 701 values)."""
+        """Max iterations should be ~500 (50 tiers × 10 dB steps for 701 values)."""
         import math
         
-        tiers = 16
+        tiers = 50
         db_steps = math.ceil(math.log2(701))  # Binary search over 701 values
         max_iterations = tiers * db_steps
         
-        assert max_iterations <= 160  # 16 × 10
+        assert max_iterations <= 500  # 50 × 10
         assert max_iterations < 11217  # Linear search worst case
     
     def test_early_termination_performance(self):
