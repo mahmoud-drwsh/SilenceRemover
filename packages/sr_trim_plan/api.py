@@ -212,8 +212,8 @@ def _collect_threshold_candidates_binary(
             )
             return (best_starts, best_ends, min_dur, best_db, pad_sec)
 
-    # Fallback: most aggressive settings
-    # Use min_dur=0.1, dB=-30.0
+    # Fallback: most aggressive settings (no truncation - accept over-target)
+    # Use min_dur=0.125, dB=-25.0
     silence_starts, silence_ends = detect_primary_with_cached_edges(
         input_file=input_file,
         primary_noise_threshold=_DB_SEARCH_HIGH,  # -30.0
