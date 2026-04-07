@@ -42,7 +42,7 @@ class TestBinarySearchConstants:
             assert abs(step - 0.025) < 0.0001
     
     def test_db_range(self):
-        """dB range should be -60 to -30 with 0.25 step."""
+        """dB range should be -60 to -30 with 0.125 step (3-decimal precision)."""
         from src.core.constants import (
             TARGET_NOISE_THRESHOLD_START_DB,
             TARGET_NOISE_THRESHOLD_END_DB,
@@ -50,12 +50,12 @@ class TestBinarySearchConstants:
         )
         assert TARGET_NOISE_THRESHOLD_START_DB == -60.0
         assert TARGET_NOISE_THRESHOLD_END_DB == -30.0
-        assert TARGET_NOISE_THRESHOLD_STEP_DB == 0.25
+        assert TARGET_NOISE_THRESHOLD_STEP_DB == 0.125
         
-        # Verify 121 values
+        # Verify 241 values (with 0.125 step)
         count = int((TARGET_NOISE_THRESHOLD_END_DB - TARGET_NOISE_THRESHOLD_START_DB) 
                     / TARGET_NOISE_THRESHOLD_STEP_DB) + 1
-        assert count == 121
+        assert count == 241
 
 
 class TestCacheFilenameEncoding:
@@ -68,19 +68,19 @@ class TestCacheFilenameEncoding:
         assert _encode_min_duration(0.375) == "0_375"
         assert _encode_min_duration(0.5) == "0_500"
     
-    def test_encode_threshold_two_decimals_negative(self):
-        """Negative threshold should encode with 'neg' prefix."""
+    def test_encode_threshold_three_decimals_negative(self):
+        """Negative threshold should encode with 'neg' prefix and 3 decimals."""
         from packages.sr_silence_detection._cache import _encode_threshold
-        assert _encode_threshold(-60.0) == "neg_60_00"
-        assert _encode_threshold(-59.75) == "neg_59_75"
-        assert _encode_threshold(-55.0) == "neg_55_00"
-        assert _encode_threshold(-30.0) == "neg_30_00"
+        assert _encode_threshold(-60.0) == "neg_60_000"
+        assert _encode_threshold(-59.75) == "neg_59_750"
+        assert _encode_threshold(-55.0) == "neg_55_000"
+        assert _encode_threshold(-30.0) == "neg_30_000"
     
     def test_encode_threshold_positive(self):
-        """Positive threshold should encode with 'pos' prefix."""
+        """Positive threshold should encode with 'pos' prefix and 3 decimals."""
         from packages.sr_silence_detection._cache import _encode_threshold
-        assert _encode_threshold(30.0) == "pos_30_00"
-        assert _encode_threshold(0.0) == "pos_0_00"
+        assert _encode_threshold(30.0) == "pos_30_000"
+        assert _encode_threshold(0.0) == "pos_0_000"
     
     def test_primary_cache_path_format(self):
         """Cache path should combine all components correctly."""
@@ -90,7 +90,7 @@ class TestCacheFilenameEncoding:
         temp_dir = Path("/tmp/temp")
         path = _get_primary_cache_path(temp_dir, "Video", 0.375, -59.75)
         
-        expected = temp_dir / "silence" / "Video_primary_0_375_neg_59_75.json"
+        expected = temp_dir / "silence" / "Video_primary_0_375_neg_59_750.json"
         assert path == expected
 
 
@@ -118,15 +118,15 @@ class TestBinarySearchPerformance:
     """Verify binary search complexity."""
     
     def test_max_iterations_upper_bound(self):
-        """Max iterations should be ~119 (17 tiers × 7 dB steps)."""
+        """Max iterations should be ~136 (17 tiers × 8 dB steps for 241 values)."""
         import math
         
         tiers = 17
-        db_steps = math.ceil(math.log2(121))  # Binary search over 121 values
+        db_steps = math.ceil(math.log2(241))  # Binary search over 241 values
         max_iterations = tiers * db_steps
         
-        assert max_iterations <= 119  # 17 × 7
-        assert max_iterations < 2057  # Linear search worst case
+        assert max_iterations <= 136  # 17 × 8
+        assert max_iterations < 4097  # Linear search worst case
     
     def test_early_termination_performance(self):
         """Early termination should happen in first few tiers typically."""

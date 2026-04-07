@@ -45,17 +45,18 @@ def _encode_min_duration(min_duration: float) -> str:
 
 
 def _encode_threshold(threshold: float) -> str:
-    """Encode threshold (dB) to filename-safe string with 2 decimal places.
+    """Encode threshold (dB) to filename-safe string with 3 decimal places.
 
     Examples:
-        -59.75 -> "neg_59_75"
-        -55.0 -> "neg_55_00"
-        30.0 -> "pos_30_00"
+        -59.75 -> "neg_59_750"
+        -55.0 -> "neg_55_000"
+        30.0 -> "pos_30_000"
+        -30.125 -> "neg_30_125"
     """
     if threshold < 0:
-        return f"neg_{abs(threshold):.2f}".replace(".", "_")
+        return f"neg_{abs(threshold):.3f}".replace(".", "_")
     else:
-        return f"pos_{threshold:.2f}".replace(".", "_")
+        return f"pos_{threshold:.3f}".replace(".", "_")
 
 
 def _get_primary_cache_path(

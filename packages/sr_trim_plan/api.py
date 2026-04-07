@@ -35,7 +35,7 @@ TrimPlanMode = Literal["target", "non_target"]
 _MIN_DURATIONS_TIERS = [0.5 - i * 0.025 for i in range(17)]  # 0.5, 0.475, ..., 0.1
 _DB_SEARCH_LOW = -60.0
 _DB_SEARCH_HIGH = -30.0
-_DB_SEARCH_STEP = 0.25
+_DB_SEARCH_STEP = 0.125
 
 
 @dataclass(frozen=True)
@@ -168,14 +168,15 @@ def _collect_threshold_candidates_binary(
     Returns:
         Tuple of (silence_starts, silence_ends, chosen_min_dur, chosen_dB, pad_sec)
     """
-    for min_dur in _MIN_DURATIONS_TIERS:  # Try longest first
+    for min_dur_raw in _MIN_DURATIONS_TIERS:  # Try longest first
+        min_dur = round(min_dur_raw, 3)
         # Binary search dB at this min_dur
         low_db, high_db = _DB_SEARCH_LOW, _DB_SEARCH_HIGH
         best_db = None
         best_starts, best_ends = None, None
 
         while low_db <= high_db:
-            mid_db = (low_db + high_db) / 2
+            mid_db = round((low_db + high_db) / 2, 3)
 
             # Detect with (min_dur, mid_db)
             silence_starts, silence_ends = detect_primary_with_cached_edges(
@@ -199,10 +200,10 @@ def _collect_threshold_candidates_binary(
                 # This works, try quieter (better quality)
                 best_db = mid_db
                 best_starts, best_ends = silence_starts, silence_ends
-                high_db = mid_db - _DB_SEARCH_STEP
+                high_db = round(mid_db - _DB_SEARCH_STEP, 3)
             else:
                 # Doesn't work, need louder (more aggressive)
-                low_db = mid_db + _DB_SEARCH_STEP
+                low_db = round(mid_db + _DB_SEARCH_STEP, 3)
 
         if best_db is not None:
             # Found optimal at this min_dur!
