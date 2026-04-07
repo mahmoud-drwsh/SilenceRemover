@@ -10,7 +10,6 @@ from src.core.constants import (
     EDGE_RESCAN_MIN_DURATION_SEC,
     EDGE_RESCAN_THRESHOLD_DB,
     EDGE_SILENCE_KEEP_SEC,
-    TARGET_NOISE_THRESHOLDS_DB,
     TRIM_TIMESTAMP_EPSILON_SEC,
     TrimDefaults,
     resolve_trim_defaults,
@@ -18,6 +17,7 @@ from src.core.constants import (
 from src.ffmpeg.probing import probe_duration
 from src.media.silence_detector import (
     build_keep_segments_from_silences,
+    calculate_resulting_length,
     normalize_timestamp,
     truncate_segments_to_max_length,
 )
@@ -26,13 +26,16 @@ from sr_silence_detection import (
     detect_edge_only_cached,     # NEW
     detect_primary_with_cached_edges,  # NEW
 )
-from sr_threshold_selection import (
-    ThresholdCandidate,
-    SelectionResult,
-    select_threshold_and_padding,
-)
+from sr_threshold_selection import find_optimal_padding
 
 TrimPlanMode = Literal["target", "non_target"]
+
+# Binary search constants for target mode
+# 17 tiers from 0.5s to 0.1s in 0.025s steps
+_MIN_DURATIONS_TIERS = [0.5 - i * 0.025 for i in range(17)]  # 0.5, 0.475, ..., 0.1
+_DB_SEARCH_LOW = -60.0
+_DB_SEARCH_HIGH = -30.0
+_DB_SEARCH_STEP = 0.25
 
 
 @dataclass(frozen=True)
@@ -136,65 +139,93 @@ def _build_non_target_trim_plan(
     )
 
 
-def _collect_threshold_candidates(
+def _collect_threshold_candidates_binary(
     input_file: Path,
-    temp_dir: Path,  # NEW parameter
-    basename: str,    # NEW parameter
+    temp_dir: Path,
+    basename: str,
     duration_sec: float,
-    min_duration: float,
-    noise_thresholds_db: list[float],
-    override_noise_threshold: float | None,
-) -> list[ThresholdCandidate]:
-    """Detect silence for all thresholds and build candidate list.
-    
-    Uses cached edge detection - runs edge detection once, then reuses
-    the results for all threshold candidates. Also uses cached primary
-    detection to eliminate redundant FFmpeg calls on re-runs.
-    
-    Args:
-        input_file: Path to media file
-        temp_dir: Directory for caching edge detection results
-        basename: Base filename for cache naming
-        duration_sec: Media duration in seconds
-        min_duration: Minimum silence duration for detection
-        noise_thresholds_db: List of thresholds to try (ordered quiet -> aggressive)
-        override_noise_threshold: Optional threshold to prepend to the list
-        
-    Returns:
-        List of ThresholdCandidate objects for all tested thresholds
-    """
-    from src.media.silence_detector import calculate_resulting_length
-    
-    ordered_thresholds = list(noise_thresholds_db)
-    if override_noise_threshold is not None and override_noise_threshold not in ordered_thresholds:
-        ordered_thresholds = [override_noise_threshold] + ordered_thresholds
-    
-    # Run edge detection ONCE (cached) with pre-probed duration
-    edge_starts, edge_ends = detect_edge_only_cached(
-        input_file, temp_dir, basename, 
-        EDGE_RESCAN_THRESHOLD_DB, EDGE_RESCAN_MIN_DURATION_SEC, EDGE_SILENCE_KEEP_SEC,
-        duration_sec=duration_sec
-    )
+    target_length: float,
+    edge_starts: list[float],
+    edge_ends: list[float],
+) -> tuple[list[float], list[float], float, float, float]:
+    """Binary search for optimal (min_duration, dB) combination.
 
-    candidates = []
-    for threshold_db in ordered_thresholds:
-        # Primary detection with caching - pass temp_dir and basename for cache lookup
-        silence_starts, silence_ends = detect_primary_with_cached_edges(
-            input_file, threshold_db, min_duration, edge_starts, edge_ends, EDGE_SILENCE_KEEP_SEC,
-            duration_sec=duration_sec,
-            temp_dir=temp_dir,
-            basename=basename,
-        )
-        base_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)
-        candidates.append(ThresholdCandidate(
-            threshold_db=threshold_db,
-            silence_starts=silence_starts,
-            silence_ends=silence_ends,
-            base_trimmed_length_sec=base_length,
-            duration_sec=duration_sec,
-        ))
-    
-    return candidates
+    Optimality criteria:
+    - Maximize min_duration (longer gaps preserved)
+    - Minimize dB (quieter threshold = more natural audio)
+    - Constraint: result_length <= target_length
+
+    Search space:
+    - Min durations: 17 tiers from 0.5s to 0.1s in 0.025s steps
+    - dB range: -60.0 to -30.0 in 0.25dB steps (121 values)
+
+    Algorithm:
+    - For each min_duration (longest first), binary search dB to find
+      the quietest threshold that satisfies target_length constraint
+    - Early termination: return at first tier where a valid dB is found
+    - Cache all detection attempts (handled by detect_primary_with_cached_edges)
+
+    Returns:
+        Tuple of (silence_starts, silence_ends, chosen_min_dur, chosen_dB, pad_sec)
+    """
+    for min_dur in _MIN_DURATIONS_TIERS:  # Try longest first
+        # Binary search dB at this min_dur
+        low_db, high_db = _DB_SEARCH_LOW, _DB_SEARCH_HIGH
+        best_db = None
+        best_starts, best_ends = None, None
+
+        while low_db <= high_db:
+            mid_db = (low_db + high_db) / 2
+
+            # Detect with (min_dur, mid_db)
+            silence_starts, silence_ends = detect_primary_with_cached_edges(
+                input_file=input_file,
+                primary_noise_threshold=mid_db,
+                primary_min_duration=min_dur,
+                edge_starts=edge_starts,
+                edge_ends=edge_ends,
+                edge_keep_seconds=EDGE_SILENCE_KEEP_SEC,
+                duration_sec=duration_sec,
+                temp_dir=temp_dir,
+                basename=basename,
+            )
+
+            # Calculate base trimmed length
+            base_length = calculate_resulting_length(
+                silence_starts, silence_ends, duration_sec, 0.0
+            )
+
+            if base_length <= target_length:
+                # This works, try quieter (better quality)
+                best_db = mid_db
+                best_starts, best_ends = silence_starts, silence_ends
+                high_db = mid_db - _DB_SEARCH_STEP
+            else:
+                # Doesn't work, need louder (more aggressive)
+                low_db = mid_db + _DB_SEARCH_STEP
+
+        if best_db is not None:
+            # Found optimal at this min_dur!
+            # Now compute optimal padding
+            pad_sec = find_optimal_padding(
+                best_starts, best_ends, duration_sec, target_length
+            )
+            return (best_starts, best_ends, min_dur, best_db, pad_sec)
+
+    # Fallback: most aggressive settings
+    # Use min_dur=0.1, dB=-30.0
+    silence_starts, silence_ends = detect_primary_with_cached_edges(
+        input_file=input_file,
+        primary_noise_threshold=_DB_SEARCH_HIGH,  # -30.0
+        primary_min_duration=_MIN_DURATIONS_TIERS[-1],  # 0.1
+        edge_starts=edge_starts,
+        edge_ends=edge_ends,
+        edge_keep_seconds=EDGE_SILENCE_KEEP_SEC,
+        duration_sec=duration_sec,
+        temp_dir=temp_dir,
+        basename=basename,
+    )
+    return (silence_starts, silence_ends, _MIN_DURATIONS_TIERS[-1], _DB_SEARCH_HIGH, 0.0)
 
 
 def _build_target_trim_plan(
@@ -204,33 +235,34 @@ def _build_target_trim_plan(
     target_length: float,
     trim_defaults: TrimDefaults,
 ) -> TrimPlan:
-    """Build a target-mode trim plan with adaptive threshold/padding policy."""
+    """Build a target-mode trim plan with binary search for optimal threshold/padding policy."""
     # Derive basename from input file for cache naming
     basename = input_file.stem
-    
-    # Step 1: Collect candidates for all thresholds (passing duration_sec to avoid re-probing)
-    candidates = _collect_threshold_candidates(
+
+    # Step 1: Run edge detection ONCE (cached) with pre-probed duration
+    edge_starts, edge_ends = detect_edge_only_cached(
+        input_file, temp_dir, basename,
+        EDGE_RESCAN_THRESHOLD_DB, EDGE_RESCAN_MIN_DURATION_SEC, EDGE_SILENCE_KEEP_SEC,
+        duration_sec=duration_sec
+    )
+
+    # Step 2: Binary search for optimal (min_duration, dB) combination
+    silence_starts, silence_ends, chosen_min_dur, chosen_db, pad_sec = _collect_threshold_candidates_binary(
         input_file=input_file,
-        temp_dir=temp_dir,  # NEW
-        basename=basename,  # NEW
+        temp_dir=temp_dir,
+        basename=basename,
         duration_sec=duration_sec,
-        min_duration=trim_defaults.min_duration,
-        noise_thresholds_db=TARGET_NOISE_THRESHOLDS_DB,
-        override_noise_threshold=trim_defaults.noise_threshold,
+        target_length=target_length,
+        edge_starts=edge_starts,
+        edge_ends=edge_ends,
     )
-    
-    # Step 2: Use black box to select optimal threshold and padding
-    selection = select_threshold_and_padding(
-        candidates=candidates,
-        target_length_sec=target_length,
-    )
-    
+
     # Step 3: Build segments with chosen padding
     segments_to_keep = build_keep_segments_from_silences(
-        silence_starts=selection.chosen_starts,
-        silence_ends=selection.chosen_ends,
+        silence_starts=silence_starts,
+        silence_ends=silence_ends,
         duration_sec=duration_sec,
-        pad_sec=selection.pad_sec,
+        pad_sec=pad_sec,
     )
     resulting_length = normalize_timestamp(sum(end - start for start, end in segments_to_keep))
 
@@ -239,18 +271,23 @@ def _build_target_trim_plan(
         segments_to_keep = truncate_segments_to_max_length(segments_to_keep, target_length)
         resulting_length = normalize_timestamp(sum(end - start for start, end in segments_to_keep))
 
+    # Determine if we fell back to most aggressive
+    fallback_to_most_aggressive = (
+        chosen_min_dur == _MIN_DURATIONS_TIERS[-1] and chosen_db == _DB_SEARCH_HIGH
+    )
+
     print(
-        f"Target mode: chosen noise_threshold={selection.chosen_threshold_db}dB, "
-        f"min_duration={trim_defaults.min_duration}s, pad={selection.pad_sec}s, "
-        f"fallback={selection.fallback_to_most_aggressive}"
+        f"Target mode (binary search): chosen noise_threshold={chosen_db}dB, "
+        f"min_duration={chosen_min_dur}s, pad={pad_sec}s, "
+        f"fallback={fallback_to_most_aggressive}"
     )
     return TrimPlan(
         mode="target",
         segments_to_keep=segments_to_keep,
         input_duration_sec=duration_sec,
         resulting_length_sec=resulting_length,
-        resolved_noise_threshold=selection.chosen_threshold_db,
-        resolved_min_duration=trim_defaults.min_duration,
-        resolved_pad_sec=selection.pad_sec,
+        resolved_noise_threshold=chosen_db,
+        resolved_min_duration=chosen_min_dur,
+        resolved_pad_sec=pad_sec,
         target_length=target_length,
     )

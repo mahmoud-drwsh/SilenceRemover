@@ -9,7 +9,7 @@ def _get_cache_path(temp_dir: Path, basename: str) -> Path:
 
 def _threshold_to_filename_safe(threshold_db: float) -> str:
     """Convert threshold to filename-safe string.
-    
+
     Examples:
         -55.0 -> "neg_55_0"
         -50.5 -> "neg_50_5"
@@ -33,14 +33,45 @@ def _threshold_to_filename_safe(threshold_db: float) -> str:
             return f"pos_{pos_str}"
 
 
-def _get_primary_cache_path(temp_dir: Path, basename: str, threshold_db: float) -> Path:
-    """Get cache path for primary detection results.
-    
-    Filename format: {basename}_primary_{threshold}.json
-    Example: MyVideo_primary_neg_55_0.json (for threshold -55.0)
+def _encode_min_duration(min_duration: float) -> str:
+    """Encode min_duration to filename-safe string with 3 decimal places.
+
+    Examples:
+        0.1 -> "0_100"
+        0.375 -> "0_375"
+        0.5 -> "0_500"
     """
-    threshold_safe = _threshold_to_filename_safe(threshold_db)
-    return temp_dir / "silence" / f"{basename}_primary_{threshold_safe}.json"
+    return f"{min_duration:.3f}".replace(".", "_")
+
+
+def _encode_threshold(threshold: float) -> str:
+    """Encode threshold (dB) to filename-safe string with 2 decimal places.
+
+    Examples:
+        -59.75 -> "neg_59_75"
+        -55.0 -> "neg_55_00"
+        30.0 -> "pos_30_00"
+    """
+    if threshold < 0:
+        return f"neg_{abs(threshold):.2f}".replace(".", "_")
+    else:
+        return f"pos_{threshold:.2f}".replace(".", "_")
+
+
+def _get_primary_cache_path(
+    temp_dir: Path,
+    basename: str,
+    min_duration: float,
+    threshold_db: float,
+) -> Path:
+    """Get cache path for primary detection results.
+
+    Filename format: {basename}_primary_{min_duration}_{threshold}.json
+    Example: MyVideo_primary_0_375_neg_59_75.json (for min_duration=0.375, threshold=-59.75)
+    """
+    min_dur_str = _encode_min_duration(min_duration)
+    thresh_str = _encode_threshold(threshold_db)
+    return temp_dir / "silence" / f"{basename}_primary_{min_dur_str}_{thresh_str}.json"
 
 
 def _is_cache_valid(cache_data: dict, input_file: Path, params: dict) -> bool:
@@ -160,18 +191,18 @@ def get_cached_primary_detection(
     min_duration_sec: float,
 ) -> tuple[list[float], list[float], float] | None:
     """Get cached primary detection results if valid.
-    
+
     Args:
         temp_dir: Directory for cache storage
         basename: Base name for cache file identification
         input_file: Path to media file (used for cache validation)
         threshold_db: Silence threshold in dB
         min_duration_sec: Minimum silence duration in seconds
-        
+
     Returns:
         Tuple of (silence_starts, silence_ends, duration_sec) or None if cache miss/invalid
     """
-    cache_path = _get_primary_cache_path(temp_dir, basename, threshold_db)
+    cache_path = _get_primary_cache_path(temp_dir, basename, min_duration_sec, threshold_db)
     if not cache_path.exists():
         return None
 
@@ -210,7 +241,7 @@ def save_primary_detection(
     min_duration_sec: float,
 ) -> None:
     """Save primary detection results to cache.
-    
+
     Args:
         temp_dir: Directory for cache storage
         basename: Base name for cache file identification
@@ -221,7 +252,7 @@ def save_primary_detection(
         threshold_db: Silence threshold in dB used for detection
         min_duration_sec: Minimum silence duration used for detection
     """
-    cache_path = _get_primary_cache_path(temp_dir, basename, threshold_db)
+    cache_path = _get_primary_cache_path(temp_dir, basename, min_duration_sec, threshold_db)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
 
     stat = input_file.stat()
