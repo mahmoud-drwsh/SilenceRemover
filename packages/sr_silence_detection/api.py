@@ -18,7 +18,12 @@ from src.media.silence_detector import (
     trim_edge_silence,
 )
 
-from sr_silence_detection._cache import get_cached_edge_detection, save_edge_detection
+from sr_silence_detection._cache import (
+    get_cached_edge_detection,
+    get_cached_primary_detection,
+    save_edge_detection,
+    save_primary_detection,
+)
 from sr_silence_detection._runner import _detect_dual_raw, _detect_raw, _probe_duration_safe
 
 
@@ -113,6 +118,7 @@ def detect_edge_only_cached(
     edge_noise_threshold: float = -55.0,  # EDGE_RESCAN_THRESHOLD_DB
     edge_min_duration: float = 0.01,      # EDGE_RESCAN_MIN_DURATION_SEC
     edge_keep_seconds: float = 0.2,      # EDGE_SILENCE_KEEP_SEC
+    duration_sec: float | None = None,
 ) -> tuple[list[float], list[float]]:
     """Detect edge silences with file-based caching.
 
@@ -123,6 +129,8 @@ def detect_edge_only_cached(
         edge_noise_threshold: Edge re-scan threshold in dB (more sensitive)
         edge_min_duration: Edge re-scan minimum duration in seconds
         edge_keep_seconds: Seconds to preserve at media start/end
+        duration_sec: Optional media duration in seconds. If None, duration
+            will be probed from the input file.
 
     Returns:
         Tuple of (edge_starts, edge_ends) as lists of timestamps.
@@ -146,8 +154,9 @@ def detect_edge_only_cached(
     #    - Run _detect_raw(input_file, edge_noise_threshold, edge_min_duration)
     edge_starts, edge_ends = _detect_raw(input_file, edge_noise_threshold, edge_min_duration)
 
-    #    - Get duration via _probe_duration_safe(input_file)
-    duration_sec = normalize_timestamp(_probe_duration_safe(input_file))
+    #    - Get duration via _probe_duration_safe(input_file) only if not provided
+    if duration_sec is None:
+        duration_sec = normalize_timestamp(_probe_duration_safe(input_file))
 
     #    - Apply trim_edge_silence() with edge_keep_seconds
     edge_starts, edge_ends = trim_edge_silence(
@@ -182,8 +191,14 @@ def detect_primary_with_cached_edges(
     edge_starts: list[float],
     edge_ends: list[float],
     edge_keep_seconds: float = 0.2,  # EDGE_SILENCE_KEEP_SEC
+    duration_sec: float | None = None,
+    temp_dir: Path | None = None,
+    basename: str | None = None,
 ) -> tuple[list[float], list[float]]:
     """Primary detection combining with pre-computed edge intervals.
+
+    Supports file-based caching when temp_dir and basename are provided.
+    This eliminates redundant FFmpeg calls on re-runs with the same threshold.
 
     Args:
         input_file: Path to media file
@@ -192,13 +207,58 @@ def detect_primary_with_cached_edges(
         edge_starts: Pre-computed edge silence start timestamps
         edge_ends: Pre-computed edge silence end timestamps
         edge_keep_seconds: Seconds to preserve at media start/end
+        duration_sec: Optional media duration in seconds. If None, duration
+            will be probed from the input file.
+        temp_dir: Optional directory for cache storage (enables caching if provided)
+        basename: Optional base name for cache file identification
 
     Returns:
         Tuple of (silence_starts, silence_ends) as lists of timestamps.
         Primary edge intervals are replaced with cached edge intervals.
     """
-    # 1. Get duration via _probe_duration_safe(input_file)
-    duration_sec = normalize_timestamp(_probe_duration_safe(input_file))
+    # 0. Check cache first if caching is enabled
+    if temp_dir is not None and basename is not None:
+        cached = get_cached_primary_detection(
+            temp_dir,
+            basename,
+            input_file,
+            primary_noise_threshold,
+            primary_min_duration,
+        )
+        if cached is not None:
+            # Cache hit: use cached silence intervals
+            silence_starts, silence_ends, duration_sec_cached = cached
+            
+            # Use cached duration if not explicitly provided
+            if duration_sec is None:
+                duration_sec = duration_sec_cached
+            
+            # Still need to apply edge replacement and trimming with current edge params
+            leading_edge, trailing_edge = _leading_trailing_from_edge_lists(
+                edge_starts,
+                edge_ends,
+                duration_sec,
+                keep_seconds=edge_keep_seconds,
+            )
+            
+            silence_starts, silence_ends = replace_edge_intervals(
+                silence_starts,
+                silence_ends,
+                leading_edge,
+                trailing_edge,
+                duration_sec,
+            )
+            
+            return trim_edge_silence(
+                silence_starts,
+                silence_ends,
+                duration_sec,
+                keep_seconds=edge_keep_seconds,
+            )
+
+    # 1. Get duration via _probe_duration_safe(input_file) only if not provided
+    if duration_sec is None:
+        duration_sec = normalize_timestamp(_probe_duration_safe(input_file))
 
     # 2. Run _detect_raw(input_file, primary_noise_threshold, primary_min_duration)
     silence_starts, silence_ends = _detect_raw(input_file, primary_noise_threshold, primary_min_duration)
@@ -221,10 +281,25 @@ def detect_primary_with_cached_edges(
     )
 
     # 5. Apply trim_edge_silence() with edge_keep_seconds
-    # 6. Return result
-    return trim_edge_silence(
+    result = trim_edge_silence(
         silence_starts,
         silence_ends,
         duration_sec,
         keep_seconds=edge_keep_seconds,
     )
+
+    # 6. Save to cache if caching is enabled
+    if temp_dir is not None and basename is not None:
+        save_primary_detection(
+            temp_dir,
+            basename,
+            input_file,
+            silence_starts,
+            silence_ends,
+            duration_sec,
+            primary_noise_threshold,
+            primary_min_duration,
+        )
+
+    # 7. Return result
+    return result

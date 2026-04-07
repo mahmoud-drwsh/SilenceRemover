@@ -148,7 +148,8 @@ def _collect_threshold_candidates(
     """Detect silence for all thresholds and build candidate list.
     
     Uses cached edge detection - runs edge detection once, then reuses
-    the results for all threshold candidates.
+    the results for all threshold candidates. Also uses cached primary
+    detection to eliminate redundant FFmpeg calls on re-runs.
     
     Args:
         input_file: Path to media file
@@ -168,17 +169,21 @@ def _collect_threshold_candidates(
     if override_noise_threshold is not None and override_noise_threshold not in ordered_thresholds:
         ordered_thresholds = [override_noise_threshold] + ordered_thresholds
     
-    # Run edge detection ONCE (cached)
+    # Run edge detection ONCE (cached) with pre-probed duration
     edge_starts, edge_ends = detect_edge_only_cached(
         input_file, temp_dir, basename, 
-        EDGE_RESCAN_THRESHOLD_DB, EDGE_RESCAN_MIN_DURATION_SEC, EDGE_SILENCE_KEEP_SEC
+        EDGE_RESCAN_THRESHOLD_DB, EDGE_RESCAN_MIN_DURATION_SEC, EDGE_SILENCE_KEEP_SEC,
+        duration_sec=duration_sec
     )
 
     candidates = []
     for threshold_db in ordered_thresholds:
-        # Primary detection only, combine with cached edges
+        # Primary detection with caching - pass temp_dir and basename for cache lookup
         silence_starts, silence_ends = detect_primary_with_cached_edges(
-            input_file, threshold_db, min_duration, edge_starts, edge_ends, EDGE_SILENCE_KEEP_SEC
+            input_file, threshold_db, min_duration, edge_starts, edge_ends, EDGE_SILENCE_KEEP_SEC,
+            duration_sec=duration_sec,
+            temp_dir=temp_dir,
+            basename=basename,
         )
         base_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)
         candidates.append(ThresholdCandidate(
@@ -203,7 +208,7 @@ def _build_target_trim_plan(
     # Derive basename from input file for cache naming
     basename = input_file.stem
     
-    # Step 1: Collect candidates for all thresholds
+    # Step 1: Collect candidates for all thresholds (passing duration_sec to avoid re-probing)
     candidates = _collect_threshold_candidates(
         input_file=input_file,
         temp_dir=temp_dir,  # NEW

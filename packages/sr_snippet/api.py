@@ -30,6 +30,7 @@ def _segments_from_trim_plan(
     min_duration: float,
     pad_sec: float,
     target_length: Optional[float],
+    temp_dir: Optional[Path] = None,
 ) -> tuple[list[tuple[float, float]], float, float, float, float]:
     plan = build_trim_plan(
         input_file,
@@ -37,6 +38,7 @@ def _segments_from_trim_plan(
         noise_threshold,
         min_duration,
         pad_sec,
+        temp_dir,
     )
     return (
         plan.segments_to_keep,
@@ -108,7 +110,7 @@ def create_silence_removed_audio(
         )
 
     segments_to_keep, _, _, _, _ = _segments_from_trim_plan(
-        input_file, noise_threshold, min_duration, pad_sec, target_length
+        input_file, noise_threshold, min_duration, pad_sec, target_length, temp_dir
     )
 
     if len(segments_to_keep) == 0:
