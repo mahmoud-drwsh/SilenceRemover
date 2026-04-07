@@ -36,7 +36,7 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
             "-preset",
             "medium",
             "-global_quality",
-            "20",  # ~10% quality increase over 24
+            "19",  # ~5% quality increase over 20
             "-g",
             "250",  # 8+ second GOP for better compression (talking heads safe)
         ),
