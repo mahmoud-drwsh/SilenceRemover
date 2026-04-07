@@ -145,6 +145,7 @@ TRANSCRIPT_DIR = "transcript"
 TITLE_DIR = "title"
 COMPLETED_DIR = "completed"
 SCRIPTS_DIR = "scripts"
+SILENCE_CACHE_DIR = "silence"
 FONTS_DIR = "fonts"
 TITLE_OVERLAYS_DIR = "title_overlays"
 
@@ -211,6 +212,7 @@ __all__ = [
     "TITLE_DIR",
     "COMPLETED_DIR",
     "SCRIPTS_DIR",
+    "SILENCE_CACHE_DIR",
     "FONTS_DIR",
     "TITLE_OVERLAYS_DIR",
     "AUDIO_EXTENSIONS",

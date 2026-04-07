@@ -117,6 +117,7 @@ def trim_single_video(
     enable_logo_overlay: bool = False,
     title_y_fraction: float | None = None,
     title_height_fraction: float | None = None,
+    temp_dir: Optional[Path] = None,
 ) -> Path:
     """Trim a single video and return the output file path."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -129,6 +130,7 @@ def trim_single_video(
         noise_threshold=noise_threshold,
         min_duration=min_duration,
         pad_sec=pad_sec,
+        temp_dir=temp_dir,
     )
 
     use_logo = enable_logo_overlay and DEFAULT_LOGO_PATH.is_file()

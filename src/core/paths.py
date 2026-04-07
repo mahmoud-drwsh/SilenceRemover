@@ -8,6 +8,7 @@ from src.core.constants import (
     COMPLETED_DIR,
     FONTS_DIR,
     SCRIPTS_DIR,
+    SILENCE_CACHE_DIR,
     SNIPPET_DIR,
     TEXT_FILE_EXT,
     TITLE_DIR,
@@ -48,6 +49,7 @@ def create_temp_subdirs(temp_dir: Path) -> None:
         TITLE_DIR,
         COMPLETED_DIR,
         SCRIPTS_DIR,
+        SILENCE_CACHE_DIR,
         FONTS_DIR,
         TITLE_OVERLAYS_DIR,
     ]:

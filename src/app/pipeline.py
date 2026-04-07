@@ -387,6 +387,7 @@ def run_output_phase(
             enable_logo_overlay=enable_logo_overlay,
             title_y_fraction=title_y_fraction,
             title_height_fraction=title_height_fraction,
+            temp_dir=temp_dir,
         )
         notify_final_output_ready(
             phase_index=4,

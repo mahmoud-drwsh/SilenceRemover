@@ -18,6 +18,7 @@ from src.media.silence_detector import (
     trim_edge_silence,
 )
 
+from sr_silence_detection._cache import get_cached_edge_detection, save_edge_detection
 from sr_silence_detection._runner import _detect_dual_raw, _detect_raw, _probe_duration_safe
 
 
@@ -97,6 +98,130 @@ def detect_silence_with_edges(
     )
 
     # Apply final edge trimming
+    return trim_edge_silence(
+        silence_starts,
+        silence_ends,
+        duration_sec,
+        keep_seconds=edge_keep_seconds,
+    )
+
+
+def detect_edge_only_cached(
+    input_file: Path,
+    temp_dir: Path | None,
+    basename: str,
+    edge_noise_threshold: float = -55.0,  # EDGE_RESCAN_THRESHOLD_DB
+    edge_min_duration: float = 0.01,      # EDGE_RESCAN_MIN_DURATION_SEC
+    edge_keep_seconds: float = 0.2,      # EDGE_SILENCE_KEEP_SEC
+) -> tuple[list[float], list[float]]:
+    """Detect edge silences with file-based caching.
+
+    Args:
+        input_file: Path to media file
+        temp_dir: Directory for cache storage (if None, caching is skipped)
+        basename: Base name for cache file identification
+        edge_noise_threshold: Edge re-scan threshold in dB (more sensitive)
+        edge_min_duration: Edge re-scan minimum duration in seconds
+        edge_keep_seconds: Seconds to preserve at media start/end
+
+    Returns:
+        Tuple of (edge_starts, edge_ends) as lists of timestamps.
+    """
+    # 1. Try cache first via _cache.get_cached_edge_detection() (if temp_dir provided)
+    if temp_dir is not None:
+        cached = get_cached_edge_detection(
+            temp_dir,
+            basename,
+            input_file,
+            edge_noise_threshold,
+            edge_min_duration,
+            edge_keep_seconds,
+        )
+        if cached is not None:
+            # 2. If cache hit, extract and return (edge_starts, edge_ends)
+            edge_starts, edge_ends, _duration_sec = cached
+            return (edge_starts, edge_ends)
+
+    # 3. If cache miss or no temp_dir (caching disabled):
+    #    - Run _detect_raw(input_file, edge_noise_threshold, edge_min_duration)
+    edge_starts, edge_ends = _detect_raw(input_file, edge_noise_threshold, edge_min_duration)
+
+    #    - Get duration via _probe_duration_safe(input_file)
+    duration_sec = normalize_timestamp(_probe_duration_safe(input_file))
+
+    #    - Apply trim_edge_silence() with edge_keep_seconds
+    edge_starts, edge_ends = trim_edge_silence(
+        edge_starts,
+        edge_ends,
+        duration_sec,
+        keep_seconds=edge_keep_seconds,
+    )
+
+    #    - Save to cache via _cache.save_edge_detection() (only if temp_dir provided)
+    if temp_dir is not None:
+        save_edge_detection(
+            temp_dir,
+            basename,
+            input_file,
+            edge_starts,
+            edge_ends,
+            duration_sec,
+            edge_noise_threshold,
+            edge_min_duration,
+            edge_keep_seconds,
+        )
+
+    # 4. Return (edge_starts, edge_ends)
+    return (edge_starts, edge_ends)
+
+
+def detect_primary_with_cached_edges(
+    input_file: Path,
+    primary_noise_threshold: float,
+    primary_min_duration: float,
+    edge_starts: list[float],
+    edge_ends: list[float],
+    edge_keep_seconds: float = 0.2,  # EDGE_SILENCE_KEEP_SEC
+) -> tuple[list[float], list[float]]:
+    """Primary detection combining with pre-computed edge intervals.
+
+    Args:
+        input_file: Path to media file
+        primary_noise_threshold: Main detection threshold in dB
+        primary_min_duration: Main detection minimum duration in seconds
+        edge_starts: Pre-computed edge silence start timestamps
+        edge_ends: Pre-computed edge silence end timestamps
+        edge_keep_seconds: Seconds to preserve at media start/end
+
+    Returns:
+        Tuple of (silence_starts, silence_ends) as lists of timestamps.
+        Primary edge intervals are replaced with cached edge intervals.
+    """
+    # 1. Get duration via _probe_duration_safe(input_file)
+    duration_sec = normalize_timestamp(_probe_duration_safe(input_file))
+
+    # 2. Run _detect_raw(input_file, primary_noise_threshold, primary_min_duration)
+    silence_starts, silence_ends = _detect_raw(input_file, primary_noise_threshold, primary_min_duration)
+
+    # 3. Derive leading/trailing from cached edge intervals using _leading_trailing_from_edge_lists()
+    leading_edge, trailing_edge = _leading_trailing_from_edge_lists(
+        edge_starts,
+        edge_ends,
+        duration_sec,
+        keep_seconds=edge_keep_seconds,
+    )
+
+    # 4. Replace primary edge intervals with cached edge intervals using replace_edge_intervals()
+    silence_starts, silence_ends = replace_edge_intervals(
+        silence_starts,
+        silence_ends,
+        leading_edge,
+        trailing_edge,
+        duration_sec,
+    )
+
+    # 5. Apply trim_edge_silence() with edge_keep_seconds
+    # 6. Return result
     return trim_edge_silence(
         silence_starts,
         silence_ends,
