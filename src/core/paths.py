@@ -31,6 +31,7 @@ __all__ = [
     "is_completed",
     "mark_completed",
     "resolve_output_basename",
+    "get_temp_video_path",
 ]
 
 
@@ -124,3 +125,18 @@ def resolve_output_basename(title: str, output_dir: Path) -> str:
         k += 1
         candidate = f"{base}_{k}"
     return candidate
+
+
+def get_temp_video_path(final_path: Path) -> Path:
+    """Get temporary video path for encoding (appends .temp extension).
+    
+    The temp file is written in the same directory as the final output
+    to ensure atomic rename is possible.
+    
+    Args:
+        final_path: The final output video path (e.g., /output/Final.mp4)
+        
+    Returns:
+        Path to temp file (e.g., /output/Final.mp4.temp)
+    """
+    return final_path.parent / f"{final_path.name}.temp"

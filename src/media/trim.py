@@ -37,19 +37,42 @@ from src.ffmpeg.silence_removed_runner import (
     run_silence_removed_media,
 )
 from src.ffmpeg.runner import run
-from src.core.paths import get_font_cache_path, get_title_overlay_path
+from src.core.paths import get_font_cache_path, get_temp_video_path, get_title_overlay_path
 
 
 def _copy_input_video(input_file: Path, output_file: Path) -> Path:
+    """Copy input video to output using temp file → final rename pattern."""
     print(
         f"Target length >= original duration, copying original file "
         f"{input_file} -> {output_file}"
     )
+    temp_output = get_temp_video_path(output_file)
     try:
-        shutil.copyfile(input_file, output_file)
+        shutil.copyfile(input_file, temp_output)
+        _move_temp_to_final(temp_output, output_file)
         return output_file.resolve()
     except Exception as exc:
         raise RuntimeError(f"Failed to copy original file from {input_file} to {output_file}") from exc
+
+
+def _move_temp_to_final(temp_path: Path, final_path: Path) -> None:
+    """Atomically rename temp file to final path, with copy fallback.
+    
+    On success: final_path exists, temp_path does not exist.
+    On failure: raises RuntimeError, temp_path may still exist.
+    """
+    try:
+        temp_path.rename(final_path)
+    except OSError:
+        # Rename failed (different filesystems, Windows with open handles, etc.)
+        # Fallback to copy + delete
+        try:
+            shutil.copy2(temp_path, final_path)
+            temp_path.unlink()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to move temp file {temp_path} to final {final_path}: {exc}"
+            ) from exc
 
 
 def _get_prescaled_logo_path(temp_dir: Path, *, target_width_px: int) -> Path:
@@ -213,11 +236,12 @@ def trim_single_video(
         print("Warning: All audio detected as silence. Creating minimal video (first frame only).")
         # Create minimal video with first frame and silence using the resolved encoder profile.
         def _run_minimal_encode(*, use_hw_path: bool) -> Path:
-            return run_minimal_ffmpeg_output(
-                output_file=output_file,
+            temp_output = get_temp_video_path(output_file)
+            result_path = run_minimal_ffmpeg_output(
+                output_file=temp_output,
                 cmd=build_minimal_video_command(
                     input_file=input_file,
-                    output_file=output_file,
+                    output_file=temp_output,
                     encoder=encoder,
                     title_overlay_path=title_overlay_path,
                     title_overlay_y=banner_top,
@@ -234,6 +258,10 @@ def trim_single_video(
                 ),
                 command_label=f"{encoder.codec} encode",
             )
+            # result_path is temp_output resolved; move to final destination
+            _move_temp_to_final(temp_output, output_file)
+            wait_for_file_release(output_file)
+            return output_file.resolve()
 
         if use_qsv_hardware_path:
             try:
@@ -275,32 +303,35 @@ def trim_single_video(
     start_wall = time.monotonic()
     progress_formatter = DefaultProgressFormatter(throttle_size_check_seconds=1.0)
 
-    def _on_progress(percent: int, ffmpeg_elapsed_sec: float) -> None:
-        metrics = ProgressMetrics(
-            percent=percent,
-            encoded_seconds=ffmpeg_elapsed_sec,
-            wall_start_time=start_wall,
-        )
-        
-        # Get file size (throttled updates handled by formatter)
-        size_bytes = None
-        try:
-            size_bytes = output_file.stat().st_size
-        except OSError:
-            pass
-        
-        progress_formatter.format_and_print(metrics, size_bytes)
-
     def _run_final_encode(*, use_hw_path: bool) -> Path:
-        return run_silence_removed_media(
+        temp_output = get_temp_video_path(output_file)
+
+        def _on_progress(percent: int, ffmpeg_elapsed_sec: float) -> None:
+            metrics = ProgressMetrics(
+                percent=percent,
+                encoded_seconds=ffmpeg_elapsed_sec,
+                wall_start_time=start_wall,
+            )
+            
+            # Get file size (throttled updates handled by formatter)
+            # During encoding, temp_output exists; display progress against final name
+            size_bytes = None
+            try:
+                size_bytes = temp_output.stat().st_size
+            except OSError:
+                pass
+            
+            progress_formatter.format_and_print(metrics, size_bytes)
+
+        result_path = run_silence_removed_media(
             input_file=input_file,
-            output_file=output_file,
+            output_file=temp_output,
             temp_dir=output_dir / "temp",
             segments_to_keep=segments_to_keep,
             build_filter_graph=filter_builder,
             build_command=lambda in_file, out_file, filter_script: build_final_trim_command(
                 input_file=in_file,
-                output_file=out_file,
+                output_file=temp_output,  # FFmpeg writes to temp
                 filter_script_path=filter_script,
                 encoder=encoder,
                 title_overlay_path=title_overlay_path,
@@ -318,6 +349,11 @@ def trim_single_video(
             command_label=f"{encoder.codec} encode",
             overlay_y=banner_top,
         )
+        # result_path is temp_output resolved; move to final destination
+        _move_temp_to_final(temp_output, output_file)
+        wait_for_file_release(output_file)
+        print(f"Done! Output saved to: {output_file}")
+        return output_file.resolve()
 
     if use_qsv_hardware_path:
         try:
