@@ -36,7 +36,7 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
             "-preset",
             "medium",
             "-global_quality",
-            "26",  # ~100MB for 3min talking heads
+            "24",  # Slightly higher quality than 26
             "-g",
             "250",  # 8+ second GOP for better compression (talking heads safe)
         ),
