@@ -14,6 +14,7 @@ from src.core.constants import (
     TITLE_DIR,
     TITLE_OVERLAYS_DIR,
     TRANSCRIPT_DIR,
+    VIDEO_PROCESSING_DIR,
 )
 from sr_filename import sanitize_filename
 
@@ -31,7 +32,7 @@ __all__ = [
     "is_completed",
     "mark_completed",
     "resolve_output_basename",
-    "get_temp_video_path",
+    "get_processing_video_path",
 ]
 
 
@@ -53,6 +54,7 @@ def create_temp_subdirs(temp_dir: Path) -> None:
         SILENCE_CACHE_DIR,
         FONTS_DIR,
         TITLE_OVERLAYS_DIR,
+        VIDEO_PROCESSING_DIR,
     ]:
         (temp_dir / subdir).mkdir(parents=True, exist_ok=True)
 
@@ -127,16 +129,17 @@ def resolve_output_basename(title: str, output_dir: Path) -> str:
     return candidate
 
 
-def get_temp_video_path(final_path: Path) -> Path:
-    """Get temporary video path for encoding (appends .temp extension).
+def get_processing_video_path(temp_dir: Path, basename: str) -> Path:
+    """Get processing video path during encoding (temp/processing/{basename}.mp4).
     
-    The temp file is written in the same directory as the final output
-    to ensure atomic rename is possible.
+    Uses proper .mp4 extension so FFmpeg can auto-detect muxer format.
+    File is written here during encoding, then renamed to final output on success.
     
     Args:
-        final_path: The final output video path (e.g., /output/Final.mp4)
+        temp_dir: The temp directory root (e.g., output/temp)
+        basename: Video basename without extension
         
     Returns:
-        Path to temp file (e.g., /output/Final.mp4.temp)
+        Path to processing file (e.g., output/temp/processing/Final.mp4)
     """
-    return final_path.parent / f"{final_path.name}.temp"
+    return temp_dir / VIDEO_PROCESSING_DIR / f"{basename}.mp4"

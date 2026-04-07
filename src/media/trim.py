@@ -37,41 +37,55 @@ from src.ffmpeg.silence_removed_runner import (
     run_silence_removed_media,
 )
 from src.ffmpeg.runner import run
-from src.core.paths import get_font_cache_path, get_temp_video_path, get_title_overlay_path
+from src.core.paths import get_font_cache_path, get_processing_video_path, get_title_overlay_path
 
 
-def _copy_input_video(input_file: Path, output_file: Path) -> Path:
-    """Copy input video to output using temp file → final rename pattern."""
+def _copy_input_video(
+    input_file: Path,
+    output_file: Path,
+    temp_dir: Path,
+    basename: str,
+) -> Path:
+    """Copy input video to output using processing file → final rename pattern."""
     print(
         f"Target length >= original duration, copying original file "
         f"{input_file} -> {output_file}"
     )
-    temp_output = get_temp_video_path(output_file)
+    processing_output = get_processing_video_path(temp_dir, basename)
+    processing_output.parent.mkdir(parents=True, exist_ok=True)
+
+    # Check for existing processing file
+    if processing_output.exists():
+        print(f"⚠️  Overwriting existing processing file: {basename}.mp4")
+
     try:
-        shutil.copyfile(input_file, temp_output)
-        _move_temp_to_final(temp_output, output_file)
+        shutil.copyfile(input_file, processing_output)
+        _move_processing_to_final(processing_output, output_file)
+        # Delete from processing after successful move
+        if processing_output.exists():
+            processing_output.unlink()
         return output_file.resolve()
     except Exception as exc:
         raise RuntimeError(f"Failed to copy original file from {input_file} to {output_file}") from exc
 
 
-def _move_temp_to_final(temp_path: Path, final_path: Path) -> None:
-    """Atomically rename temp file to final path, with copy fallback.
+def _move_processing_to_final(processing_path: Path, final_path: Path) -> None:
+    """Atomically rename processing file to final path, with copy fallback.
     
-    On success: final_path exists, temp_path does not exist.
-    On failure: raises RuntimeError, temp_path may still exist.
+    On success: final_path exists, processing_path does not exist.
+    On failure: raises RuntimeError, processing_path may still exist.
     """
     try:
-        temp_path.rename(final_path)
+        processing_path.rename(final_path)
     except OSError:
         # Rename failed (different filesystems, Windows with open handles, etc.)
         # Fallback to copy + delete
         try:
-            shutil.copy2(temp_path, final_path)
-            temp_path.unlink()
+            shutil.copy2(processing_path, final_path)
+            processing_path.unlink()
         except Exception as exc:
             raise RuntimeError(
-                f"Failed to move temp file {temp_path} to final {final_path}: {exc}"
+                f"Failed to move processing file {processing_path} to final {final_path}: {exc}"
             ) from exc
 
 
@@ -146,6 +160,8 @@ def trim_single_video(
     output_dir.mkdir(parents=True, exist_ok=True)
     basename = output_basename if output_basename is not None else input_file.stem
     output_file = (output_dir / f"{basename}.mp4").resolve()
+    temp_dir_resolved = temp_dir if temp_dir is not None else output_dir / "temp"
+    temp_dir_resolved.mkdir(parents=True, exist_ok=True)
 
     plan = build_trim_plan(
         input_file=input_file,
@@ -153,14 +169,19 @@ def trim_single_video(
         noise_threshold=noise_threshold,
         min_duration=min_duration,
         pad_sec=pad_sec,
-        temp_dir=temp_dir,
+        temp_dir=temp_dir_resolved,
     )
 
     use_logo = enable_logo_overlay and DEFAULT_LOGO_PATH.is_file()
     logo_path_resolved = DEFAULT_LOGO_PATH if use_logo else None
 
     if plan.should_copy_input and title_path is None and not use_logo:
-        copied_output_file = _copy_input_video(input_file=input_file, output_file=output_file)
+        copied_output_file = _copy_input_video(
+            input_file=input_file,
+            output_file=output_file,
+            temp_dir=temp_dir_resolved,
+            basename=basename,
+        )
         wait_for_file_release(copied_output_file)
         return copied_output_file
 
@@ -183,10 +204,11 @@ def trim_single_video(
         print(f"Expected resulting length: {resulting_length:.3f}s")
 
     font_name = title_font or TITLE_FONT_DEFAULT
-    temp_dir = output_dir / "temp"
     title_overlay_path: Path | None = None
     banner_top: int | None = None
     logo_target_w: int | None = None
+    video_width: int = 0
+    video_height: int = 0
 
     if (title_path is not None and enable_title_overlay) or use_logo:
         video_width, video_height = probe_video_dimensions(input_file)
@@ -204,7 +226,7 @@ def trim_single_video(
                     logo_path_resolved = _ensure_prescaled_logo(
                         source_logo_path=DEFAULT_LOGO_PATH,
                         output_logo_path=_get_prescaled_logo_path(
-                            temp_dir=temp_dir, target_width_px=logo_target_w
+                            temp_dir=temp_dir_resolved, target_width_px=logo_target_w
                         ),
                         target_width_px=logo_target_w,
                     )
@@ -226,22 +248,28 @@ def trim_single_video(
             title=title_text,
             video_width=video_width,
             banner_height=banner_height,
-            output_file=get_title_overlay_path(temp_dir, basename),
+            output_file=get_title_overlay_path(temp_dir_resolved, basename),
             font_family=font_name,
-            font_cache_dir=get_font_cache_path(temp_dir),
+            font_cache_dir=get_font_cache_path(temp_dir_resolved),
         )
 
     # Handle case where all audio is silence (no segments to keep)
     if len(segments_to_keep) == 0:
         print("Warning: All audio detected as silence. Creating minimal video (first frame only).")
-        # Create minimal video with first frame and silence using the resolved encoder profile.
+
         def _run_minimal_encode(*, use_hw_path: bool) -> Path:
-            temp_output = get_temp_video_path(output_file)
+            processing_output = get_processing_video_path(temp_dir_resolved, basename)
+            processing_output.parent.mkdir(parents=True, exist_ok=True)
+
+            # Check for existing processing file
+            if processing_output.exists():
+                print(f"⚠️  Overwriting existing processing file: {basename}.mp4")
+
             result_path = run_minimal_ffmpeg_output(
-                output_file=temp_output,
+                output_file=processing_output,
                 cmd=build_minimal_video_command(
                     input_file=input_file,
-                    output_file=temp_output,
+                    output_file=processing_output,
                     encoder=encoder,
                     title_overlay_path=title_overlay_path,
                     title_overlay_y=banner_top,
@@ -258,8 +286,11 @@ def trim_single_video(
                 ),
                 command_label=f"{encoder.codec} encode",
             )
-            # result_path is temp_output resolved; move to final destination
-            _move_temp_to_final(temp_output, output_file)
+            # result_path is processing_output resolved; move to final destination
+            _move_processing_to_final(processing_output, output_file)
+            # Delete from processing after successful move
+            if processing_output.exists():
+                processing_output.unlink()
             wait_for_file_release(output_file)
             return output_file.resolve()
 
@@ -304,7 +335,12 @@ def trim_single_video(
     progress_formatter = DefaultProgressFormatter(throttle_size_check_seconds=1.0)
 
     def _run_final_encode(*, use_hw_path: bool) -> Path:
-        temp_output = get_temp_video_path(output_file)
+        processing_output = get_processing_video_path(temp_dir_resolved, basename)
+        processing_output.parent.mkdir(parents=True, exist_ok=True)
+
+        # Check for existing processing file
+        if processing_output.exists():
+            print(f"⚠️  Overwriting existing processing file: {basename}.mp4")
 
         def _on_progress(percent: int, ffmpeg_elapsed_sec: float) -> None:
             metrics = ProgressMetrics(
@@ -314,10 +350,10 @@ def trim_single_video(
             )
             
             # Get file size (throttled updates handled by formatter)
-            # During encoding, temp_output exists; display progress against final name
+            # During encoding, processing_output exists; display progress against final name
             size_bytes = None
             try:
-                size_bytes = temp_output.stat().st_size
+                size_bytes = processing_output.stat().st_size
             except OSError:
                 pass
             
@@ -325,13 +361,13 @@ def trim_single_video(
 
         result_path = run_silence_removed_media(
             input_file=input_file,
-            output_file=temp_output,
-            temp_dir=output_dir / "temp",
+            output_file=processing_output,
+            temp_dir=temp_dir_resolved,
             segments_to_keep=segments_to_keep,
             build_filter_graph=filter_builder,
             build_command=lambda in_file, out_file, filter_script: build_final_trim_command(
                 input_file=in_file,
-                output_file=temp_output,  # FFmpeg writes to temp
+                output_file=processing_output,  # FFmpeg writes to processing
                 filter_script_path=filter_script,
                 encoder=encoder,
                 title_overlay_path=title_overlay_path,
@@ -349,8 +385,11 @@ def trim_single_video(
             command_label=f"{encoder.codec} encode",
             overlay_y=banner_top,
         )
-        # result_path is temp_output resolved; move to final destination
-        _move_temp_to_final(temp_output, output_file)
+        # result_path is processing_output resolved; move to final destination
+        _move_processing_to_final(processing_output, output_file)
+        # Delete from processing after successful move
+        if processing_output.exists():
+            processing_output.unlink()
         wait_for_file_release(output_file)
         print(f"Done! Output saved to: {output_file}")
         return output_file.resolve()
@@ -367,4 +406,3 @@ def trim_single_video(
             return _run_final_encode(use_hw_path=False)
 
     return _run_final_encode(use_hw_path=False)
-
