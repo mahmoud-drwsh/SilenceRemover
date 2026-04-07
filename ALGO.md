@@ -91,7 +91,7 @@ Min silence duration is fixed at `TARGET_MIN_DURATION_SEC` (**0.01s**) in target
 
 5. **Segments:** build segments from the chosen `(silence_starts, silence_ends)` and `pad_sec`. Silences with **duration ≤ 2 × pad_sec** are treated as non-silence (skipped), so very short gaps are merged with adjacent speech.
 
-6. **No truncation:** if even the most aggressive threshold still results in output **> target**, we keep the output as-is (over target) rather than cutting content.
+6. **Truncation safeguard:** if the result still exceeds target after threshold sweep and padding tuning, segments are truncated via `truncate_segments_to_max_length` to force the output to exactly meet the target length.
 
 ### Example C: Target-mode sweep + padding tuning (end-to-end)
 
@@ -120,7 +120,7 @@ Final settings used for segment building: `noise_threshold=-50dB`, `min_duration
 
 - **Target length ≥ original duration:** Output is a copy of the input (no detection).
 - **No silences:** Base length = full duration; `find_optimal_padding` returns 0; output is the full file.
-- **Base length still > target even at the most aggressive threshold:** padding is forced to 0, and the output may remain above target (no truncation is applied).
+- **Base length still > target even at the most aggressive threshold:** a final truncation step is applied to force the output to exactly meet the target length.
 
 ## Shared flow across modes
 
@@ -130,7 +130,7 @@ Final settings used for segment building: `noise_threshold=-50dB`, `min_duration
   - Non-target mode: fixed `noise_threshold`, `min_duration`, and `pad_sec` (`NON_TARGET_PAD_SEC`) with the shared edge helper applied before padding.
   - Target mode: threshold sweep + padding tuning, with `min_duration=TARGET_MIN_DURATION_SEC`, and the shared edge helper applied before each candidate length evaluation.
 
-Implementation: `choose_threshold_and_padding_for_target` and `find_optimal_padding` in `src/media/silence_detector.py`; shared trim-plan assembly in `packages/sr_trim_plan/api.py`, with render execution in `trim_single_video` in `src/media/trim.py`.
+Implementation: `select_threshold_and_padding` in `packages/sr_threshold_selection/api.py`, `find_optimal_padding` in `packages/sr_threshold_selection/_padding.py`, and trim-plan assembly in `packages/sr_trim_plan/api.py`, with render execution in `trim_single_video` in `src/media/trim.py`.
 
 ## Title overlay PNG (`packages/sr_title_overlay/`)
 
