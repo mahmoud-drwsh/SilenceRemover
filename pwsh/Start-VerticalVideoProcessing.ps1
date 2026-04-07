@@ -5,7 +5,7 @@ param(
 
 Set-Location C:\Users\user\scripts\SilenceRemover
 uv run python main.py C:\Users\user\Videos\vertical\raw\ `
-    --target-length 179.750 `
+    --target-length 179.25 `
     --noise-threshold -40 `
     --enable-title-overlay `
     --enable-logo-overlay `
