@@ -49,7 +49,7 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
             "-rc",
             "qvbr",  # Quality VBR - scene-adaptive like QSV ICQ
             "-qvbr_quality_level",
-            "22",  # ~10% quality target (lower=better, range 0-51)
+            "18",  # ~20% quality increase over 22 (lower=better, range 0-51)
             "-g",
             "250",  # Longer GOP for better compression
         ),
