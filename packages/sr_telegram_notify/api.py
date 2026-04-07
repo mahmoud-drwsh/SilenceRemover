@@ -54,11 +54,10 @@ def _progress_body(
     input_name: str,
     title: str,
 ) -> str:
-    lines = [
-        f"Video {video_index}/{total_videos}",
-        f"{input_name} → {title}",
-    ]
-    return "\n".join(lines)
+    """Build compact progress message: '1/3: basename: title' (no extensions)."""
+    basename = Path(input_name).stem
+    title_clean = Path(title).stem
+    return f"{video_index}/{total_videos}: {basename}: {title_clean}"
 
 
 def notify_final_encoding_started(
@@ -78,7 +77,7 @@ def notify_final_encoding_started(
         input_name=input_name,
         title=title,
     )
-    _telegram_send_if_configured(f"▶️ Starting — {body}")
+    _telegram_send_if_configured(f"▶️ {body}")
 
 
 def notify_final_output_ready(
@@ -98,4 +97,4 @@ def notify_final_output_ready(
         input_name=input_name,
         title=title,
     )
-    _telegram_send_if_configured(f"✅ Done — {body}")
+    _telegram_send_if_configured(f"✅ {body}")

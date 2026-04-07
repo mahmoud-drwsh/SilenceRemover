@@ -64,11 +64,11 @@ class TestTelegramNotify(unittest.TestCase):
         self.assertEqual(kwargs["token"], "secret")
         self.assertEqual(kwargs["chat_id"], "99")
         text = kwargs["text"]
-        self.assertIn("✅ Done", text)
-        self.assertIn("Video 2/5", text)
-        self.assertIn("clip.mp4", text)
-        self.assertIn("My Title", text)
-        self.assertIn("→", text)  # Arrow between filename and title
+        self.assertIn("✅", text)  # Emoji indicator
+        self.assertIn("2/5", text)  # Video counter
+        self.assertIn("clip", text)  # Basename (no extension)
+        self.assertIn("My Title", text)  # Title (no extension)
+        self.assertIn(":", text)  # Colon separators
 
     @patch.dict(
         "os.environ",
@@ -88,10 +88,10 @@ class TestTelegramNotify(unittest.TestCase):
         )
         send_mock.assert_called_once()
         text = send_mock.call_args.kwargs["text"]
-        self.assertIn("▶️ Starting", text)
-        self.assertIn("Video 1/3", text)
-        self.assertIn("a.mp4", text)
-        self.assertIn("T", text)
+        self.assertIn("▶️", text)  # Emoji indicator
+        self.assertIn("1/3", text)  # Video counter
+        self.assertIn("a", text)  # Basename (no extension)
+        self.assertIn("T", text)  # Title (no extension)
 
     @patch.dict(
         "os.environ",
