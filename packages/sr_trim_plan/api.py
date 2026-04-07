@@ -31,11 +31,11 @@ from sr_threshold_selection import find_optimal_padding
 TrimPlanMode = Literal["target", "non_target"]
 
 # Binary search constants for target mode
-# 17 tiers from 0.5s to 0.1s in 0.025s steps
-_MIN_DURATIONS_TIERS = [0.5 - i * 0.025 for i in range(17)]  # 0.5, 0.475, ..., 0.1
+# 16 tiers from 0.5s to 0.125s in 0.025s steps
+_MIN_DURATIONS_TIERS = [0.5 - i * 0.025 for i in range(16)]  # 0.5, 0.475, ..., 0.125
 _DB_SEARCH_LOW = -60.0
-_DB_SEARCH_HIGH = -30.0
-_DB_SEARCH_STEP = 0.125
+_DB_SEARCH_HIGH = -25.0
+_DB_SEARCH_STEP = 0.05
 
 
 @dataclass(frozen=True)

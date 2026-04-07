@@ -66,16 +66,16 @@ TARGET_NOISE_THRESHOLDS_DB: list[float] = [
 
 # --- Silence detection binary search ranges ---
 TARGET_MIN_DURATION_START_SEC = 0.5
-TARGET_MIN_DURATION_END_SEC = 0.1
+TARGET_MIN_DURATION_END_SEC = 0.125
 TARGET_MIN_DURATION_STEP_SEC = 0.025
 TARGET_MIN_DURATION_TIERS = [
-    0.5 - i * 0.025 for i in range(17)
-]  # [0.5, 0.475, 0.45, ..., 0.1]
+    0.5 - i * 0.025 for i in range(16)
+]  # [0.5, 0.475, 0.45, ..., 0.125]
 
 TARGET_NOISE_THRESHOLD_START_DB = -60.0
-TARGET_NOISE_THRESHOLD_END_DB = -30.0
-TARGET_NOISE_THRESHOLD_STEP_DB = 0.125
-# Total: (-30 - (-60)) / 0.125 + 1 = 241 values
+TARGET_NOISE_THRESHOLD_END_DB = -25.0
+TARGET_NOISE_THRESHOLD_STEP_DB = 0.05
+# Total: (-25 - (-60)) / 0.05 + 1 = 701 values
 
 # --- Snippet defaults ---
 

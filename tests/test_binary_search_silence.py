@@ -20,9 +20,9 @@ class TestBinarySearchConstants:
     """Verify computed constant ranges."""
     
     def test_min_duration_tiers_count(self):
-        """Should have exactly 17 min_duration tiers."""
+        """Should have exactly 16 min_duration tiers."""
         from src.core.constants import TARGET_MIN_DURATION_TIERS
-        assert len(TARGET_MIN_DURATION_TIERS) == 17
+        assert len(TARGET_MIN_DURATION_TIERS) == 16
     
     def test_min_duration_tiers_start(self):
         """First tier should be 0.5s."""
@@ -30,9 +30,9 @@ class TestBinarySearchConstants:
         assert TARGET_MIN_DURATION_TIERS[0] == 0.5
     
     def test_min_duration_tiers_end(self):
-        """Last tier should be approximately 0.1s."""
+        """Last tier should be approximately 0.125s."""
         from src.core.constants import TARGET_MIN_DURATION_TIERS
-        assert abs(TARGET_MIN_DURATION_TIERS[-1] - 0.1) < 0.0001
+        assert abs(TARGET_MIN_DURATION_TIERS[-1] - 0.125) < 0.0001
     
     def test_min_duration_tiers_step(self):
         """Step size should be approximately 0.025s."""
@@ -42,20 +42,20 @@ class TestBinarySearchConstants:
             assert abs(step - 0.025) < 0.0001
     
     def test_db_range(self):
-        """dB range should be -60 to -30 with 0.125 step (3-decimal precision)."""
+        """dB range should be -60 to -25 with 0.05 step (fine precision)."""
         from src.core.constants import (
             TARGET_NOISE_THRESHOLD_START_DB,
             TARGET_NOISE_THRESHOLD_END_DB,
             TARGET_NOISE_THRESHOLD_STEP_DB,
         )
         assert TARGET_NOISE_THRESHOLD_START_DB == -60.0
-        assert TARGET_NOISE_THRESHOLD_END_DB == -30.0
-        assert TARGET_NOISE_THRESHOLD_STEP_DB == 0.125
+        assert TARGET_NOISE_THRESHOLD_END_DB == -25.0
+        assert TARGET_NOISE_THRESHOLD_STEP_DB == 0.05
         
-        # Verify 241 values (with 0.125 step)
+        # Verify 701 values (with 0.05 step)
         count = int((TARGET_NOISE_THRESHOLD_END_DB - TARGET_NOISE_THRESHOLD_START_DB) 
                     / TARGET_NOISE_THRESHOLD_STEP_DB) + 1
-        assert count == 241
+        assert count == 701
 
 
 class TestCacheFilenameEncoding:
@@ -109,7 +109,7 @@ class TestBinarySearchAlgorithm:
         pass
     
     def test_fallback_to_aggressive_settings(self):
-        """Should use most aggressive (0.1, -30) when no valid combo found."""
+        """Should use most aggressive (0.125, -25) when no valid combo found."""
         # Integration test: test_target_mode_long_video covers fallback
         pass
 
@@ -118,15 +118,15 @@ class TestBinarySearchPerformance:
     """Verify binary search complexity."""
     
     def test_max_iterations_upper_bound(self):
-        """Max iterations should be ~136 (17 tiers × 8 dB steps for 241 values)."""
+        """Max iterations should be ~160 (16 tiers × 10 dB steps for 701 values)."""
         import math
         
-        tiers = 17
-        db_steps = math.ceil(math.log2(241))  # Binary search over 241 values
+        tiers = 16
+        db_steps = math.ceil(math.log2(701))  # Binary search over 701 values
         max_iterations = tiers * db_steps
         
-        assert max_iterations <= 136  # 17 × 8
-        assert max_iterations < 4097  # Linear search worst case
+        assert max_iterations <= 160  # 16 × 10
+        assert max_iterations < 11217  # Linear search worst case
     
     def test_early_termination_performance(self):
         """Early termination should happen in first few tiers typically."""
