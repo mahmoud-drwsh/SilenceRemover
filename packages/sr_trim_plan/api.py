@@ -19,7 +19,6 @@ from src.media.silence_detector import (
     build_keep_segments_from_silences,
     calculate_resulting_length,
     normalize_timestamp,
-    truncate_segments_to_max_length,
 )
 from sr_silence_detection import (
     detect_silence_with_edges,  # Keep for non-target mode
@@ -267,20 +266,17 @@ def _build_target_trim_plan(
     )
     resulting_length = normalize_timestamp(sum(end - start for start, end in segments_to_keep))
 
-    # Step 4: Final safeguard - truncate if still over target
-    if resulting_length > target_length + TRIM_TIMESTAMP_EPSILON_SEC:
-        segments_to_keep = truncate_segments_to_max_length(segments_to_keep, target_length)
-        resulting_length = normalize_timestamp(sum(end - start for start, end in segments_to_keep))
+    # Note: No truncation - we accept over-target results to preserve all content
 
-    # Determine if we fell back to most aggressive
-    fallback_to_most_aggressive = (
+    # Determine if we used most aggressive settings
+    used_most_aggressive = (
         chosen_min_dur == _MIN_DURATIONS_TIERS[-1] and chosen_db == _DB_SEARCH_HIGH
     )
 
     print(
         f"Target mode (binary search): chosen noise_threshold={chosen_db}dB, "
         f"min_duration={chosen_min_dur}s, pad={pad_sec}s, "
-        f"fallback={fallback_to_most_aggressive}"
+        f"used_most_aggressive={used_most_aggressive}"
     )
     return TrimPlan(
         mode="target",
