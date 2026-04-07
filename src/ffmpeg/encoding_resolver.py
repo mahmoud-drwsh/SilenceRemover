@@ -46,7 +46,7 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
         name="hevc_amf_hardware",
         codec="hevc_amf",
         codec_args=(
-            "-qp_p", "32",  # ~100MB for 3min talking heads
+            "-qp_p", "28",  # ~10% quality increase over 32
             "-g", "250",  # Longer GOP for better compression
         ),
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
