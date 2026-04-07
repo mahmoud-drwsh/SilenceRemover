@@ -46,8 +46,12 @@ _ENCODER_PROFILES: tuple[VideoEncoderProfile, ...] = (
         name="hevc_amf_hardware",
         codec="hevc_amf",
         codec_args=(
-            "-qp_p", "28",  # ~10% quality increase over 32
-            "-g", "250",  # Longer GOP for better compression
+            "-rc",
+            "qvbr",  # Quality VBR - scene-adaptive like QSV ICQ
+            "-qvbr_quality_level",
+            "22",  # ~10% quality target (lower=better, range 0-51)
+            "-g",
+            "250",  # Longer GOP for better compression
         ),
         container_args=("-tag:v", "hvc1", "-movflags", "+faststart"),
     ),
