@@ -6,7 +6,16 @@
       "git *": "allow",
       "npm *": "allow",
       "rm *": "deny",
-      "grep *": "allow"
+      "grep *": "allow",
+      "ls *": "allow",
+      "find *": "allow",
+      "cat *": "allow",
+      "head *": "allow",
+      "tail *": "allow",
+      "echo *": "allow",
+      "which *": "allow",
+      "env": "allow",
+      "printenv *": "allow"
     }
   }
 }
