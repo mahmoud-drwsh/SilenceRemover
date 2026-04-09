@@ -60,15 +60,21 @@ The message includes pipeline progress (phase 3/3 and video index/total), the in
 
 Optional: `TELEGRAM_API_BASE` overrides the API host (default `https://api.telegram.org`), e.g. for a self-hosted Bot API server. Treat the bot token as a **secret**.
 
-### MP3 Manager (optional)
+### Media Manager (optional)
 
-For integration with an external MP3 Manager service, set the full URL including token and project path:
+For integration with the external Media Manager service (VPS-based), set the full URL including token and project path:
 
 ```env
-MP3_MANAGER_URL=https://your-server.com/TOKEN/your-project/
+MEDIA_MANAGER_URL=https://your-server.com/TOKEN/your-project/
 ```
 
-This enables: (1) API fetch → local title.txt sync + re-encode trigger at pipeline start, and (2) auto-upload snippet + AI title after Phase 2 if not on server.
+This enables the **5-phase workflow**:
+1. **Phase 1-2**: Local transcription and title generation
+2. **Phase 3**: Upload audio snippet with `tags: ["todo"]` for review
+3. **Phase 4**: Create final video locally (no upload yet)
+4. **Phase 5**: Query ready audio, upload matching videos with `tags: ["FB", "TT"]`
+
+Plus **two-way sync**: At startup, fetch edited titles from Media Manager and trigger re-encode if changed.
 
 ## Usage
 
@@ -86,7 +92,7 @@ python main.py /path/to/video/directory
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Defaults are `TARGET_NOISE_THRESHOLD_DB` (`-55.0`) when `--target-length` is set, otherwise `NON_TARGET_NOISE_THRESHOLD_DB` (`-50.0`).
 - `--min-duration FLOAT`: Override minimum silence duration in seconds (applies in both modes). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with `--target-length` and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
 - `--title-font`: Google Font family name used to render the title overlay. The font is auto-downloaded from Google Fonts on first use and cached under `output/temp/fonts/`.
-- `--quick-test`: Run all three phases, but cap only the final Phase 3 encode output to the first 5 seconds for a fast end-to-end smoke run.
+- `--quick-test`: Run all five phases, but cap only the final Phase 4 encode output to the first 5 seconds for a fast end-to-end smoke run.
 - `--enable-title-overlay`: Enable title overlay in final output (requires a title from Phase 2). By default, overlays are disabled.
 - `--enable-logo-overlay`: Enable logo overlay in final output (requires `logo/logo.png`). By default, overlays are disabled.
 
@@ -101,7 +107,7 @@ python main.py /path/to/video/directory
 
 The first run for each font downloads the family from Google Fonts into `output/temp/fonts/` and reuses that file on subsequent runs.
 
-**Video-only files (no audio stream):** Some exports are silent (video track only). The pipeline detects missing audio with ffprobe, skips `silencedetect` (which would otherwise fail on `-map 0:a:0`), generates a **silent** transcription snippet from the video duration, and muxes **silent stereo** from `anullsrc` during the final trim/encode when a full encode runs. **Transcription** still calls OpenRouter on that snippet; if the model returns **empty or whitespace-only** text, **no** `output/temp/transcript/{basename}.txt` is written, Phase 1 fails for that video, and **Phase 2 / Phase 3 are skipped** until a non-empty transcript exists (fix the model/audio or delete partial temp files and re-run).
+**Video-only files (no audio stream):** Some exports are silent (video track only). The pipeline detects missing audio with ffprobe, skips `silencedetect` (which would otherwise fail on `-map 0:a:0`), generates a **silent** transcription snippet from the video duration, and muxes **silent stereo** from `anullsrc` during the final trim/encode when a full encode runs. **Transcription** still calls OpenRouter on that snippet; if the model returns **empty or whitespace-only** text, **no** `output/temp/transcript/{basename}.txt` is written, Phase 1 fails for that video, and **subsequent phases are skipped** until a non-empty transcript exists (fix the model/audio or delete partial temp files and re-run).
 
 Trimming precision controls (advanced):
 
@@ -175,7 +181,7 @@ The tool processes videos sequentially through **four** main stages:
   - The model produces a small pool of candidate titles in **one** generation call (JSON array of distinct titles). A **second** call scores every candidate in one shot (`verbatim_score` and `correctness_score`, each 0–10); the implementation picks the highest **combined** score (sum). Ties break deterministically (earliest transcript substring match, then length near a practical band, then candidate order).
   - The final title is returned after that scoring step (no further LLM calls).
 
-### 4. Title overlay & file renaming (Phase 3)
+### 4. Title overlay & file renaming (Phase 4)
 
 - The title text from `output/temp/title/{basename}.txt` is loaded right before output encoding.
 - `ffprobe` reads the source **video width and height**. A **banner-sized** RGBA PNG (`video_width` × `banner_height`, with `banner_height = (1/6) × frame height`) is written to `output/temp/title_overlays/{basename}.png`. FFmpeg composites it at `x=0`, `y=(1/6) × frame height` (`overlay=0:{y}`), so the strip covers **`y` from H/6 to H/3** (the second sixth of the frame). Values come from `TITLE_BANNER_START_FRACTION` and `TITLE_BANNER_HEIGHT_FRACTION` in `src/core/constants.py`.
@@ -256,7 +262,7 @@ The main code lives under `src/` and `packages/`:
 - `packages/sr_filename/`: filename sanitization utilities (import as `sr_filename`).
 - `packages/sr_ffmpeg_cmd_builder/`: FFmpeg/FFprobe command builders (import as `sr_ffmpeg_cmd_builder`).
 - `packages/sr_filter_graph/`: FFmpeg filter graph construction (import as `sr_filter_graph`).
-- `packages/sr_mp3_manager/`: MP3 Manager API client for title sync (import as `sr_mp3_manager`).
+- `packages/sr_media_manager/`: Media Manager API client for 5-phase workflow (import as `sr_media_manager`). Replaces old `sr_mp3_manager`.
 - `packages/sr_progress_formatter/`: FFmpeg progress output formatting (import as `sr_progress_formatter`).
 - `packages/sr_silence_detection/`: silence detection and interval processing (import as `sr_silence_detection`).
 - `packages/sr_threshold_selection/`: threshold selection algorithms (import as `sr_threshold_selection`).

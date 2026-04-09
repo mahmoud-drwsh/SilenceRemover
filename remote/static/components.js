@@ -1,4 +1,4 @@
-// UI Components - 2-Row Layout with Native Audio Player
+// UI Components - 2-Row Layout with Native Media Player
 
 function escapeHtml(text) {
   const div = document.createElement('div');
@@ -20,24 +20,51 @@ function autoResizeTextarea(textarea) {
   textarea.style.height = newHeight + 'px';
 }
 
-// Render single card - 2-row layout with native audio player
+// Get media player HTML (audio or video)
+function getMediaPlayer(file) {
+  const streamUrl = API.getStreamUrl(file.id);
+  const isVideo = file.file_type === 'video';
+  
+  if (isVideo) {
+    return `
+      <video controls preload="none" class="native-player" style="max-height: 200px;">
+        <source src="${streamUrl}" type="video/mp4">
+      </video>
+      <div style="font-size: 11px; color: #666; margin-top: 4px;">🎬 ${file.duration ? formatDuration(file.duration) : ''}</div>
+    `;
+  }
+  
+  return `
+    <audio controls preload="none" class="native-player">
+      <source src="${streamUrl}" type="audio/mpeg">
+    </audio>
+  `;
+}
+
+// Render single card - 2-row layout with native media player
 function renderCard(file) {
   const t = (key) => getText(key, window.CONFIG.lang);
   const isReady = file.ready;
+  const isVideo = file.file_type === 'video';
   
   // Ready toggle: Green "Ready" when NOT ready, Red "Cancel" when ready
   const readyLabel = isReady 
     ? `<span class="checkmark-done" onclick="toggleReady('${file.id}')" title="${t('cancel')}">${t('cancel')}</span>`
     : `<span class="checkmark-ready" onclick="toggleReady('${file.id}')" title="${t('mark_ready')}">${t('ready')}</span>`;
   
+  // Media type badge
+  const typeBadge = isVideo 
+    ? `<span style="font-size: 10px; background: #e3f2fd; color: #1976d2; padding: 2px 6px; border-radius: 4px; margin-right: 6px;">${t('video')}</span>`
+    : `<span style="font-size: 10px; background: #f3e5f5; color: #7b1fa2; padding: 2px 6px; border-radius: 4px; margin-right: 6px;">${t('audio')}</span>`;
+  
   return `
-    <div id="file-${file.id}" class="card ${isReady ? 'ready' : ''}" data-id="${file.id}">
+    <div id="file-${file.id}" class="card ${isReady ? 'ready' : ''} ${isVideo ? 'video' : 'audio'}" data-id="${file.id}">
       
-      <!-- Row 1: Native Audio Player + Action Buttons -->
+      <!-- Row 1: Native Media Player + Action Buttons -->
       <div class="row-player-actions">
-        <audio controls preload="none" class="native-player">
-          <source src="${API.getStreamUrl(file.id)}" type="audio/mpeg">
-        </audio>
+        <div style="flex: 1; min-width: 0;">
+          ${getMediaPlayer(file)}
+        </div>
         
         <div class="action-buttons">
           ${readyLabel}
@@ -52,8 +79,9 @@ function renderCard(file) {
         </div>
       </div>
       
-      <!-- Row 2: Title Textarea Only -->
+      <!-- Row 2: Title Textarea + Type Badge -->
       <div class="row-title-only">
+        ${typeBadge}
         <textarea 
           id="textarea-${file.id}"
           class="title-textarea"
@@ -74,12 +102,14 @@ function renderCard(file) {
 // Render card for trashed items
 function renderTrashedCard(file) {
   const t = (key) => getText(key, window.CONFIG.lang);
+  const isVideo = file.file_type === 'video';
+  const typeIcon = isVideo ? '🎬' : '🎵';
   
   return `
     <div id="file-${file.id}" class="card trashed" data-id="${file.id}">
       
       <div class="row-player-actions trashed">
-        <div class="trashed-label">${t('trash')} • ${formatDuration(file.duration)}</div>
+        <div class="trashed-label">${typeIcon} ${t('trash')} • ${formatDuration(file.duration)}</div>
         
         <div class="action-buttons">
           <div class="context-menu-container">

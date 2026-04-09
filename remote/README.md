@@ -1,310 +1,296 @@
-# MP3 Management System
+# Media Manager
 
-A secure, lightweight Flask application for MP3 file upload, storage, and playback via web interface.
-
-## User Stories
-
-### As an authenticated user...
-
-1. **Audio File List View**
-   - I want to see the list of playable audio files that were uploaded to my project
-   - So that I can browse and manage my audio content
-
-2. **Audio Metadata Display**
-   - I want to see their titles and their IDs in small subtext
-   - So that I can easily identify and reference specific audio files
-
-3. **Audio Playback Controls**
-   - I want to play and pause the audio with a single responsive button
-   - So that I can quickly preview audio without complex controls
-
-4. **Publishing Status Indicator**
-   - I want to mark an audio file ready for publishing to have a visual indicator of what's ready and what's not
-   - So that I can track which files are approved for release
-
-5. **Compact Mobile-First UI**
-   - I want a compact mobile-friendly interface with bottom navigation and expandable cards
-   - So that I can easily manage audio files on small screens without excessive scrolling
-
-6. **Safe Delete (Trash)**
-   - I want to move audio files to a "trash" state instead of immediate deletion
-   - So that I can recover accidentally deleted files, with the backend clearing trash manually after a safety period
-
-7. **Compact Audio Progress Bar**
-   - I want a small progress bar that doesn't take much space
-   - So that I can see the current playback position without cluttering the interface
-
-8. **Audio Seeking**
-   - I want to click or drag on the progress bar to jump to any position in the audio
-   - So that I can quickly navigate to specific parts of the audio without listening from the beginning
-
-9. **Currently Playing Indicator**
-   - I want to see which audio file is currently playing in the list
-   - So that I know which title I'm editing while listening
-
-10. **Audio Duration Display**
-   - I want to see the total duration of each audio file in the list
-   - So that I know how long each clip is before I play it
-
-11. **Auto-save Title Edits**
-   - I want title changes to save automatically as I type (with debounce)
-   - So that I don't lose my edits or need to click a save button
-
-### As a developer...
-
-1. **Audio Upload API (API-only)**
-   - I want an API endpoint to upload audio files to a specific project URL and associate each with an ID
-   - So that I can programmatically manage uploads (web interface is view/play/edit only, no upload)
-
-2. **Minimal List API**
-   - I want an API endpoint that returns the complete list of files for a specific project ID as IDs and their titles only
-   - So that I can quickly fetch a lightweight inventory for a specific project without unnecessary metadata or cross-project data
-
-3. **Project-Based URL Structure**
-   - I want to set a project ID so that each project has a dedicated base URL to access its list
-   - So that I can organize and isolate different audio collections (e.g., `https://domain.com/TOKEN/PROJECT_ID/`)
-
----
-
-### As any user (authenticated or developer)...
-
-1. **URL Path Token Authentication**
-   - I want URL path token based auth for all operations including upload, viewing, and management
-   - So that I can access all functionality through a single secure URL pattern without additional login steps
-
-2. **Project Isolation**
-   - I want someone with the link for project A to not be able to navigate within the UI to project B
-   - So that projects remain separated and organized, with no cross-project access from within the interface
-
-12. **Bottom Navigation Views**
-   - I want navigation tabs at the bottom of the screen for TODO, Ready, All, and Trash views
-   - So that I can quickly switch views with my thumb without reaching to the top of the screen
-
-13. **Expandable Card UI**
-   - I want file cards that expand when clicked to reveal full controls (progress bar, edit title, action buttons)
-   - So that the list stays compact but I can access detailed controls when needed
-
-14. **TODO-First Default View**
-   - I want the interface to default to showing TODO (not ready) files first
-   - So that I immediately see what work needs my attention
-
-15. **Ready Files View**
-   - I want a dedicated view to see only files marked as "ready for publishing"
-   - So that I can quickly access the curated content approved for release
-
-16. **Trash View**
-   - I want a dedicated view to see deleted (trashed) files with restore option
-   - So that I can review and potentially recover accidentally deleted content
-
----
+A secure, lightweight FastAPI application for audio and video file management with tag-based organization. Built for the SilenceRemover pipeline 5-phase workflow.
 
 ## Features
 
-- **Secure Access**: URL-based token authentication via environment variable
-- **File Security**: Files stored with hashed names for obfuscation
-- **Web Interface**: Single-page application with auto-saving title editing (800ms debounce)
-- **SQLite Database**: Lightweight, file-based storage
+- **Audio & Video Support**: MP3, MP4, WAV, OGG, FLAC, AAC, MOV, AVI, MKV, WebM
+- **Project-Based Organization**: Each project isolated with token-based access
+- **Tag-Based Organization**: Virtual folders via JSON tags (no file moving)
+- **Secure Access**: URL-based token authentication
+- **Web Interface**: Single-page application with inline audio player and title editing
+- **SQLite Database**: Lightweight with JSON tag storage
 - **HTTPS Support**: Automatic SSL certificates via Caddy
-- **Audit Logging**: Security event tracking
+- **Auto-Start**: systemd service for production
 
 ## Quick Start
 
 ### Local Development
 
-1. **Install dependencies:**
 ```bash
-pip install -r requirements.txt
+./scripts/local.sh
 ```
 
-2. **Set the token environment variable:**
-```bash
-export MP3_TOKEN=$(openssl rand -hex 32)
-echo "Your token: $MP3_TOKEN"
-```
+Access: `http://localhost:8080/$MEDIA_TOKEN/test-project/`
 
-3. **Run the application:**
-```bash
-python app.py
-```
-
-4. **Access the interface:**
-```
-http://localhost:8080/interface/$MP3_TOKEN
-```
-
-## Production Deployment
-
-### Prerequisites
-- VPS with SSH access
-- Domain or IP pointing to VPS
-- SSH key configured (passwordless login)
-
-### One-Time VPS Setup
-
-1. **Install Caddy on your VPS:**
-```bash
-apt-get install -y caddy
-```
-
-2. **Configure Caddy** (edit `/etc/caddy/Caddyfile` with your domain):
-```
-your-domain.com {
-    reverse_proxy localhost:8080
-    
-    header {
-        X-Content-Type-Options nosniff
-        X-Frame-Options DENY
-        X-XSS-Protection "1; mode=block"
-    }
-}
-```
-
-3. **Start Caddy:**
-```bash
-systemctl start caddy
-systemctl enable caddy
-```
-
-### Deploy to Server
+### Deploy to VPS
 
 ```bash
-# Sync files (preserves storage/ and *.db on server)
-rsync -avz --delete --exclude='.git' --exclude='storage/' --exclude='*.db' --exclude='*.log' --exclude='__pycache__/' --exclude='*.pyc' --exclude='.env' --exclude='venv/' ./ root@<SERVER_IP>:/var/lib/mp3-manager/
+./deploy.sh root@myserver.com
+```
+
+Outputs your token and URLs automatically.
+
+## File Structure
+
+```
+remote/
+├── app.py                   # FastAPI backend
+├── deploy.sh                # Deploy to VPS
+├── media-manager.service    # systemd service
+├── requirements.txt         # Python dependencies
+├── Caddyfile               # HTTPS configuration
+├── README.md               # This file
+├── .gitignore              # Git exclusions
+├── scripts/                # Helper scripts
+│   ├── local.sh            # Run locally
+│   ├── migrate_db.py       # Database migration (old → new schema)
+│   ├── test_migration.py   # Test migration script
+│   ├── install-service.sh  # Install systemd service
+│   ├── test-api.sh         # API test suite
+│   ├── test-api.py         # API test suite (Python)
+│   ├── list-db.sh          # View database
+│   └── generate-test-media.sh  # Create test files
+└── static/                 # Frontend SPA
+    └── index.html          # Self-contained SPA (all-in-one)
+```
+
+**VPS storage structure:**
+```
+/var/lib/media-manager/
+├── .env                    # Token (auto-generated)
+├── database.db             # SQLite database
+├── storage/                # File storage
+│   ├── audio/              # Audio files
+│   │   └── {id}.ogg
+│   └── video/              # Video files
+│       └── {id}.mp4
+└── venv/                   # Python environment
 ```
 
 ## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/upload/<token>` | POST | Upload MP3 (form: id, title, file) |
-| `/interface/<token>` | GET | Web interface |
-| `/data/<token>` | GET | JSON list of all songs |
-| `/update/<token>` | PATCH | Update title (JSON: id, title) |
-| `/stream/<token>/<file>` | GET | Stream MP3 file |
+| `/<token>/<project>/api/files?type=audio\|video&tags=...` | GET | List files (optional filters) |
+| `/<token>/<project>/api/files` | POST | Upload audio/video |
+| `/<token>/<project>/api/files/<id>` | PUT | Update file tags/title |
+| `/<token>/<project>/api/files/<id>` | DELETE | Delete file permanently |
+| `/<token>/<project>/stream/<id>` | GET | Stream file |
 
-## Usage Examples
+## Migration from Old (Flask) Schema
 
-### Upload via cURL (HTTPS)
-
-```bash
-curl -X POST https://your-domain.com/upload/YOUR_TOKEN \
-  -F "id=202603281530" \
-  -F "title=My Awesome Song" \
-  -F "file=@/path/to/song.mp3"
-```
-
-### Get Data (JSON)
+If you have an existing database from the Flask version (with `ready`/`trashed` columns), migrate before deploying:
 
 ```bash
-curl https://your-domain.com/data/YOUR_TOKEN
+# On the server (after deploying code but before starting service)
+cd /var/lib/media-manager
+
+# 1. Backup old database
+cp /var/lib/mp3-manager/db.sqlite /var/lib/mp3-manager/db.sqlite.backup.$(date +%Y%m%d)
+
+# 2. Run migration (copies and converts)
+python3 scripts/migrate_db.py /var/lib/mp3-manager/db.sqlite /var/lib/media-manager/database.db
+
+# 3. Verify migration output shows correct tag distribution
+# 4. Start service
+sudo systemctl start media-manager
 ```
 
-### Update Title
+**What the migration does:**
+- Copies old DB to new location
+- Converts `ready=1` → `tags: ["ready"]`
+- Converts `trashed=1` → `tags: ["trash"]`
+- Converts default → `tags: ["todo"]`
+- Leaves source database untouched
+
+## Production Setup
+
+### Prerequisites
+
+- VPS with SSH access
+- Domain pointing to VPS
+- SSH key configured
+
+### One-Time VPS Setup
 
 ```bash
-curl -X PATCH https://your-domain.com/update/YOUR_TOKEN \
-  -H "Content-Type: application/json" \
-  -d '{"id": "202603281530", "title": "New Title"}'
+# Install Caddy (for HTTPS)
+apt-get install -y caddy
+
+# Configure Caddy
+nano /etc/caddy/Caddyfile
+# Add:
+# your-domain.com {
+#     handle_path /static/* {
+#         root * /var/lib/media-manager/static
+#         file_server
+#         header Cache-Control "public, max-age=86400"
+#     }
+#     handle_path /api/* {
+#         reverse_proxy localhost:8080
+#     }
+#     handle_path /stream/* {
+#         reverse_proxy localhost:8080
+#     }
+#     reverse_proxy localhost:8080
+# }
+
+systemctl start caddy
+systemctl enable caddy
 ```
 
-### Access Web Interface
-
-Open browser to:
-```
-https://your-domain.com/interface/YOUR_TOKEN
-```
-
-## File Structure
-
-```
-remote/
-├── requirements.txt    # Python dependencies
-├── Caddyfile          # HTTPS reverse proxy configuration
-├── translations.json   # EN/AR UI translations
-├── README.md          # This file
-├── .gitignore         # Git exclusions
-└── static/            # Frontend SPA
-    ├── index.html
-    ├── app.js
-    ├── components.js
-    ├── api.js
-    ├── styles.css
-    └── i18n.js
-```
-
-**VPS-only (not in git):** `app.py`, `storage/`, `database.db`
-
-## Security Features
-
-- **Environment-based token**: No hardcoded secrets
-- **Non-root execution**: App runs as dedicated user
-- **Rate limiting**: 100 requests/hour per IP
-- **File type validation**: Magic number checking (not just extension)
-- **Path traversal protection**: Validated file paths
-- **Input sanitization**: XSS and injection prevention
-- **Audit logging**: Security events logged
-- **Automatic security headers**: HSTS, CSP, X-Frame-Options
-
-## Management Commands
-
-**On the VPS:**
+### Deploy and Start
 
 ```bash
-# Check service status
-systemctl status mp3-manager
-
-# View logs
-journalctl -u mp3-manager -f
-
-# Restart service
-systemctl restart mp3-manager
-
-# View security audit log
-tail -f /root/mp3-manager/security.log
-
-# Backup database and files
-tar -czf backup-$(date +%Y%m%d).tar.gz /root/mp3-manager/database.db /root/mp3-manager/storage/
+# From local machine
+./deploy.sh root@your-domain.com
 ```
 
-## Troubleshooting
+This will:
+1. Sync files to `/var/lib/media-manager/`
+2. Install systemd service
+3. Start the service
+4. Print your token
 
-### Service won't start
+### Service Commands
+
 ```bash
-# Check for errors
-journalctl -u mp3-manager -n 50 --no-pager
+# On VPS
+sudo systemctl status media-manager    # Check status
+sudo systemctl restart media-manager   # Restart
+sudo journalctl -u media-manager -f    # View logs
 
-# Verify token is set
-echo $MP3_TOKEN
-
-# Check file permissions
-ls -la /root/mp3-manager/
+# Get token
+cat /var/lib/media-manager/.env
 ```
 
-### Can't connect via SSH
+## Testing
+
 ```bash
-# Test SSH connection
-ssh root@YOUR_SERVER_IP "echo OK"
+# Generate test audio/video files
+./scripts/generate-test-media.sh 5
 
-# If fails, set up SSH key
-ssh-copy-id root@YOUR_SERVER_IP
+# Run API tests
+./scripts/test-api.sh
+# or
+python3 scripts/test-api.py
+
+# Test migration
+python3 scripts/test_migration.py
+
+# View database
+./scripts/list-db.sh
 ```
-
-### Files not syncing
-- Check that `rsync` is installed locally
-- Verify SSH key is configured
-- Ensure VPS IP is correct
 
 ## Environment Variables
 
-Set these on your VPS (in systemd service or .env file):
+- `MEDIA_TOKEN` - Authentication token (auto-generated on first run)
+- `DATA_DIR` - Data directory (default: `/var/lib/media-manager`)
+- `PROJECT_NAME` - Default project name (default: 'default')
 
-- `MP3_TOKEN` - Authentication token (generate with `openssl rand -hex 32`)
-- `FLASK_ENV=production` - Production mode
+## Tag-Based Workflow
 
-## License
+The Media Manager uses **tags** for virtual folder organization:
 
-[Your License]
+### Audio Tags (Fixed Set)
+- `todo` - Waiting for review (TODO folder)
+- `ready` - Approved, ready for video delivery (Ready folder)
+- `all` - Default tag for all audio
+- `trash` - Deleted items (Trash folder)
+- `delivered` - Video has been delivered
 
----
+### Video Tags (Freeform)
+- `FB` - Facebook folder
+- `TT` - TikTok folder
+- `trash` - Trash folder
+- Any custom tags
 
-**Note**: This is the production-ready secure version. For a single VPS deployment with automatic HTTPS and one-command updates via SSH.
+**Example Flow:**
+1. Pipeline uploads audio with `tags: ["todo"]` (appears in TODO)
+2. Editor reviews, edits title, clicks "Ready" → `tags: ["ready"]` (moves to Ready)
+3. Pipeline sees ready audio, creates video, uploads with `tags: ["FB", "TT"]`
+4. Video appears in both FB and TT folders
+
+## Upload Examples
+
+```bash
+# Upload audio (Phase 3)
+curl -X POST https://your-domain.com/$TOKEN/ihya/api/files \
+  -F "id=video-basename" \
+  -F "title=The AI Generated Title" \
+  -F "type=audio" \
+  -F "tags=[\"todo\"]" \
+  -F "file=@snippet.ogg"
+
+# Upload video (Phase 5)
+curl -X POST https://your-domain.com/$TOKEN/ihya/api/files \
+  -F "id=video-basename" \
+  -F "title=The AI Generated Title" \
+  -F "type=video" \
+  -F "tags=[\"FB\", \"TT\"]" \
+  -F "file=@output.mp4"
+
+# Mark audio as ready
+curl -X PUT https://your-domain.com/$TOKEN/ihya/api/files/video-basename \
+  -H "Content-Type: application/json" \
+  -d '{"tags": ["ready"]}'
+
+# List ready audio
+curl "https://your-domain.com/$TOKEN/ihya/api/files?type=audio&tags=ready"
+
+# List all files
+curl "https://your-domain.com/$TOKEN/ihya/api/files"
+```
+
+## SilenceRemover Integration
+
+Set `MEDIA_MANAGER_URL` in your SilenceRemover `.env`:
+
+```bash
+MEDIA_MANAGER_URL=https://your-domain.com/TOKEN/ihya/
+```
+
+This enables:
+- **Phase 3**: Auto-upload audio with `tags: ["todo"]`
+- **Phase 5**: Upload video only when audio has `tags: ["ready"]`
+- **Two-way sync**: Fetch edited titles from Media Manager at startup
+
+## Supported File Types
+
+**Audio:** MP3, MP4 (audio), WAV, OGG, FLAC, AAC, M4A  
+**Video:** MP4, M4V, WebM, OGV, MOV, AVI, MKV
+
+Maximum file size: 500MB
+
+## Migration from Old Service
+
+If upgrading from the old Flask-based `mp3-manager`:
+
+1. **Stop old service:**
+   ```bash
+   sudo systemctl stop mp3-manager
+   sudo systemctl disable mp3-manager
+   ```
+
+2. **Deploy new code:**
+   ```bash
+   ./deploy.sh root@your-server
+   ```
+
+3. **Migrate database:**
+   ```bash
+   sudo python3 /var/lib/media-manager/scripts/migrate_db.py \
+     /var/lib/mp3-manager/db.sqlite \
+     /var/lib/media-manager/database.db
+   ```
+
+4. **Start new service:**
+   ```bash
+   sudo systemctl start media-manager
+   ```
+
+5. **Verify:**
+   ```bash
+   curl http://localhost:8080/$TOKEN/ihya/api/files
+   ```

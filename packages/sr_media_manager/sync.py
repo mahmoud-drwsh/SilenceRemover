@@ -1,9 +1,9 @@
-"""Title synchronization logic: API → local .txt files."""
+"""Title synchronization logic: Media Manager API → local .txt files."""
 
 import time
 from pathlib import Path
 from sr_filename import sanitize_filename
-from .api import Mp3ApiClient
+from .api import MediaManagerClient
 
 
 # Retry configuration for AV interference on Windows
@@ -51,15 +51,15 @@ def _read_text_with_retry(path: Path) -> str:
                 raise
 
 
-def sync_titles(
-    client: Mp3ApiClient,
+def sync_titles_from_api(
+    client: MediaManagerClient,
     titles_dir: Path,
     completed_dir: Path,
     output_dir: Path,
 ) -> list[tuple[str, str, str]]:
-    """Sync titles from API to local .txt files.
+    """Sync audio titles from Media Manager API to local .txt files.
     
-    For each file returned by API:
+    For each audio file returned by API:
     - Compare API title to local title.txt (if exists)
     - If different: 
         - Overwrite .txt with API title
@@ -68,6 +68,12 @@ def sync_titles(
     - If same: do nothing
     
     Missing API entries are ignored (no action taken).
+    
+    Args:
+        client: MediaManagerClient instance
+        titles_dir: Directory for title .txt files
+        completed_dir: Directory for completion markers
+        output_dir: Directory for output MP4 files
     
     Returns: list of (file_id, old_title, new_title) tuples for logging.
     """
@@ -78,7 +84,8 @@ def sync_titles(
     completed_dir.mkdir(parents=True, exist_ok=True)
     
     try:
-        files = client.get_all_files()
+        # Fetch all audio files from API (not filtered by tag)
+        files = client.get_audio_files()
     except Exception:
         # Fail-safe: any error, return empty (no changes)
         return []
@@ -104,7 +111,7 @@ def sync_titles(
             # Write new title with retry (AV may lock)
             _write_text_with_retry(title_path, api_title)
             
-            # Delete from completed to trigger Phase 4 re-encode
+            # Delete from completed to trigger Phase 4/5 re-encode
             completed_path = completed_dir / f"{file_id}.txt"
             if completed_path.exists():
                 _unlink_with_retry(completed_path)
@@ -119,3 +126,18 @@ def sync_titles(
             updated.append((file_id, current_title, api_title))
     
     return updated
+
+
+def get_ready_audio_ids(client: MediaManagerClient) -> list[str]:
+    """Fetch list of audio file IDs that are marked as 'ready'.
+    
+    These are used in Phase 5 to determine which videos to upload.
+    
+    Returns: List of file_id strings that are ready for video delivery.
+    """
+    try:
+        files = client.get_audio_files(tags='ready')
+        return [f.get('id') for f in files if f.get('id')]
+    except Exception:
+        # Fail-safe: return empty list on error
+        return []

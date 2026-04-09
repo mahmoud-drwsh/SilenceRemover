@@ -36,12 +36,20 @@ from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
 from src.media.trim import trim_single_video
 
-# Optional MP3 Manager integration for title sync and upload
+# Optional Media Manager integration for title sync and upload (Phases 3 and 5)
 try:
-    from sr_mp3_manager import Mp3ApiClient, sync_titles, get_uploaded_file_ids, check_uploaded
-    _MP3_AVAILABLE = True
+    from sr_media_manager import (
+        MediaManagerClient,
+        sync_titles_from_api,
+        get_ready_audio_ids,
+        ensure_audio_uploaded,
+        ensure_video_uploaded,
+        get_uploaded_audio_ids,
+        get_uploaded_video_ids,
+    )
+    _MEDIA_MANAGER_AVAILABLE = True
 except ImportError:
-    _MP3_AVAILABLE = False
+    _MEDIA_MANAGER_AVAILABLE = False
 
 QUICK_TEST_OUTPUT_SECONDS = 5.0
 
@@ -245,18 +253,19 @@ def run_title_phase(
     )
 
 
-def run_mp3_upload_phase(
+def run_audio_upload_phase(
     video_path: Path,
     temp_dir: Path,
-    uploaded_ids: list[str],
+    uploaded_audio_ids: list[str],
     video_index: int,
     total_videos: int,
     *,
-    total_phases: int = 4,
+    total_phases: int = 5,
 ) -> bool | None:
-    """Phase 3: Upload audio snippet and title to MP3 Manager.
+    """Phase 3: Upload audio snippet to Media Manager for review.
     
-    Uses pre-fetched uploaded_ids list to avoid re-uploading existing files.
+    Uploads with tags=["todo"] so it appears in the TODO folder for review.
+    Uses pre-fetched uploaded_audio_ids list to avoid re-uploading existing files.
     """
     basename = video_path.stem
     file_id = basename  # Use basename without extension as the ID
@@ -265,13 +274,11 @@ def run_mp3_upload_phase(
     
     # Precondition: title must exist
     if not title_path.exists():
-        # Silent skip - counted as precondition failure in phase summary
         return False
     
     # Check if already uploaded using pre-fetched list
-    if check_uploaded(file_id, uploaded_ids):
-        # Silent skip - counted at phase level
-        return None
+    if file_id in uploaded_audio_ids:
+        return None  # Silent skip
     
     # Upload
     def _perform() -> None:
@@ -279,23 +286,23 @@ def run_mp3_upload_phase(
         if not title:
             raise ValueError(f"Empty title for {video_path.name}")
         
-        # Get file size for logging
         snippet_size_mb = snippet_path.stat().st_size / (1024 * 1024) if snippet_path.exists() else 0
         
-        print(f"\n[3/{total_phases}] Uploading to MP3 Manager")
+        print(f"\n[3/{total_phases}] Uploading audio to Media Manager")
         print(f"  File: {video_path.name}")
         print(f"  Title: {title[:60]}{'...' if len(title) > 60 else ''}")
         print(f"  Audio snippet: {snippet_size_mb:.1f} MB")
+        print(f"  Tags: [todo] (for review)")
         
-        client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
+        client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         start_time = time.time()
         try:
-            result = client.upload(file_id, title, snippet_path)
+            result = client.upload_audio(file_id, title, snippet_path, tags=['todo'])
             elapsed = time.time() - start_time
             if result:
                 print(f"  ✓ Uploaded in {elapsed:.1f}s: {file_id}")
             else:
-                print(f"  \033[91m✗ Upload failed for {file_id} (server returned false)\033[0m")
+                print(f"  \033[91m✗ Upload failed for {file_id}\033[0m")
         finally:
             client.close()
     
@@ -303,16 +310,16 @@ def run_mp3_upload_phase(
         video_path=video_path,
         already_done=False,
         already_done_message="",
-        precondition_ok=_MP3_AVAILABLE and os.getenv('MP3_MANAGER_URL') is not None,
-        precondition_message=f"MP3 Manager not configured, skipping upload for {video_path.name}.",
+        precondition_ok=_MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL') is not None,
+        precondition_message=f"Media Manager not configured, skipping audio upload for {video_path.name}.",
         work_fn=_perform,
-        success_message=f"\n✓ Phase 3 (MP3 upload) done: {video_path.name}",
+        success_message=f"\n✓ Phase 3 (audio upload) done: {video_path.name}",
         failure_label="Phase 3",
         phase_index=3,
         total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
-        label="MP3 Upload",
+        label="Audio Upload",
     )
 
 
@@ -417,6 +424,89 @@ def run_output_phase(
     )
 
 
+def run_video_upload_phase(
+    video_path: Path,
+    output_dir: Path,
+    temp_dir: Path,
+    ready_audio_ids: list[str],
+    uploaded_video_ids: list[str],
+    video_index: int,
+    total_videos: int,
+    *,
+    total_phases: int = 5,
+) -> bool | None:
+    """Phase 5: Upload final video to Media Manager (only if audio is approved).
+    
+    Only uploads when:
+    1. The audio file_id is in ready_audio_ids (approved in UI)
+    2. The video hasn't been uploaded yet (not in uploaded_video_ids)
+    
+    Uploads with tags=["FB", "TT"] for Facebook and TikTok folders.
+    """
+    basename = video_path.stem
+    file_id = basename
+    title_path = get_title_path(temp_dir, basename)
+    
+    # Check if audio is approved (ready)
+    if file_id not in ready_audio_ids:
+        # Audio not approved yet - skip silently
+        return None
+    
+    # Check if video already uploaded
+    if file_id in uploaded_video_ids:
+        return None  # Already uploaded
+    
+    # Precondition: title must exist
+    if not title_path.exists():
+        return False
+    
+    # Find the output video file
+    output_basename = resolve_output_basename(temp_dir, basename)
+    output_path = output_dir / f"{output_basename}.mp4"
+    
+    if not output_path.exists():
+        return False
+    
+    # Upload
+    def _perform() -> None:
+        title = title_path.read_text(encoding='utf-8').strip()
+        video_size_mb = output_path.stat().st_size / (1024 * 1024)
+        
+        print(f"\n[5/{total_phases}] Uploading final video to Media Manager")
+        print(f"  File: {output_path.name}")
+        print(f"  Title: {title[:60]}{'...' if len(title) > 60 else ''}")
+        print(f"  Video size: {video_size_mb:.1f} MB")
+        print(f"  Tags: [FB, TT]")
+        
+        client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+        start_time = time.time()
+        try:
+            result = client.upload_video(file_id, title, output_path, tags=['FB', 'TT'])
+            elapsed = time.time() - start_time
+            if result:
+                print(f"  ✓ Video uploaded in {elapsed:.1f}s: {file_id}")
+            else:
+                print(f"  \033[91m✗ Video upload failed for {file_id}\033[0m")
+        finally:
+            client.close()
+    
+    return _run_phase_step(
+        video_path=video_path,
+        already_done=False,
+        already_done_message="",
+        precondition_ok=_MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL') is not None,
+        precondition_message=f"Media Manager not configured, skipping video upload for {video_path.name}.",
+        work_fn=_perform,
+        success_message=f"\n✓ Phase 5 (video upload) done: {video_path.name}",
+        failure_label="Phase 5",
+        phase_index=5,
+        total_phases=total_phases,
+        video_index=video_index,
+        total_videos=total_videos,
+        label="Video Upload",
+    )
+
+
 def run(args: argparse.Namespace | None = None) -> StartupContext:
     """Run the full three-phase media processing pipeline."""
     if args is None:
@@ -426,16 +516,16 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     temp_dir = startup.temp_dir
     videos = startup.videos
 
-    # MP3 Manager sync: fetch titles from API, update local .txt, trigger re-encodes
-    if _MP3_AVAILABLE and os.getenv('MP3_MANAGER_URL'):
-        print(f"\n[MP3 Manager] Syncing titles from server...")
+    # Media Manager two-way sync: fetch titles from API, update local .txt, trigger re-encodes
+    if _MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL'):
+        print(f"\n[Media Manager] Two-way sync: fetching titles from server...")
         try:
-            client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
+            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
             titles_dir = temp_dir / TITLE_DIR
             completed_dir = temp_dir / 'completed'
-            updated = sync_titles(client, titles_dir, completed_dir, startup.output_dir)
+            updated = sync_titles_from_api(client, titles_dir, completed_dir, startup.output_dir)
             if updated:
-                print(f"  [MP3 Manager] {len(updated)} title(s) updated from API:")
+                print(f"  [Media Manager] {len(updated)} title(s) updated from API:")
                 for file_id, old_title, new_title in updated:
                     old_short = old_title[:30] + '...' if len(old_title) > 30 else old_title
                     new_short = new_title[:30] + '...' if len(new_title) > 30 else new_title
@@ -443,11 +533,11 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                     print(f"      Old: '{old_short}'")
                     print(f"      New: '{new_short}'")
             else:
-                print(f"  [MP3 Manager] No title updates from server")
+                print(f"  [Media Manager] No title updates from server")
             client.close()
-            print(f"  [MP3 Manager] Sync complete")
+            print(f"  [Media Manager] Sync complete")
         except Exception as e:
-            print(f"  \033[91m[MP3 Manager] Sync failed (continuing): {e}\033[0m")
+            print(f"  \033[91m[Media Manager] Sync failed (continuing): {e}\033[0m")
 
     enc = startup.encoder
     print(f"Resolved encoder: {enc.name} ({enc.codec})")
@@ -465,18 +555,26 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     print(f"Temp: {startup.temp_dir}")
     print("-" * 60)
 
-    # Pre-fetch MP3 Manager uploaded files list for Phase 3 idempotency
-    uploaded_ids: list[str] = []
-    if _MP3_AVAILABLE and os.getenv('MP3_MANAGER_URL'):
+    # Pre-fetch Media Manager data for Phase 3 and 5 idempotency
+    uploaded_audio_ids: list[str] = []
+    uploaded_video_ids: list[str] = []
+    ready_audio_ids: list[str] = []
+    if _MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL'):
         try:
-            client = Mp3ApiClient(os.getenv('MP3_MANAGER_URL'))
-            uploaded_ids = get_uploaded_file_ids(client)
-            print(f"MP3 Manager: Fetched {len(uploaded_ids)} existing file(s) from server")
+            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+            # For Phase 3: check which audio files already uploaded
+            uploaded_audio_ids = get_uploaded_audio_ids(client)
+            print(f"Media Manager: Fetched {len(uploaded_audio_ids)} existing audio file(s) from server")
+            # For Phase 5: check which videos already uploaded and which audio is ready
+            uploaded_video_ids = get_uploaded_video_ids(client)
+            ready_audio_ids = get_ready_audio_ids(client)
+            print(f"Media Manager: Fetched {len(uploaded_video_ids)} existing video file(s)")
+            print(f"Media Manager: {len(ready_audio_ids)} audio file(s) marked as 'ready' for video upload")
             client.close()
         except Exception as e:
-            print(f"MP3 Manager: Failed to fetch file list (continuing): {e}")
+            print(f"Media Manager: Failed to fetch file list (continuing): {e}")
 
-    total_phases = 4
+    total_phases = 5
     phases = (
         _PipelinePhase(
             1,
@@ -505,11 +603,11 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         ),
         _PipelinePhase(
             3,
-            "MP3 Upload",
-            lambda video_file, vi, vn, tp: run_mp3_upload_phase(
+            "Audio Upload",
+            lambda video_file, vi, vn, tp: run_audio_upload_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
-                uploaded_ids=uploaded_ids,
+                uploaded_audio_ids=uploaded_audio_ids,
                 video_index=vi,
                 total_videos=vn,
                 total_phases=tp,
@@ -535,6 +633,20 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 enable_logo_overlay=startup.enable_logo_overlay,
                 title_y_fraction=getattr(args, 'title_y_fraction', None),
                 title_height_fraction=getattr(args, 'title_height_fraction', None),
+                total_phases=tp,
+            ),
+        ),
+        _PipelinePhase(
+            5,
+            "Video Upload",
+            lambda video_file, vi, vn, tp: run_video_upload_phase(
+                video_path=video_file,
+                output_dir=startup.output_dir,
+                temp_dir=temp_dir,
+                ready_audio_ids=ready_audio_ids,
+                uploaded_video_ids=uploaded_video_ids,
+                video_index=vi,
+                total_videos=vn,
                 total_phases=tp,
             ),
         ),

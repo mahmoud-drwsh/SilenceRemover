@@ -1,0 +1,16 @@
+[Unit]
+Description=Media Manager
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/lib/media-manager
+Environment=DATA_DIR=/var/lib/media-manager
+EnvironmentFile=/var/lib/media-manager/.env
+ExecStart=/var/lib/media-manager/venv/bin/uvicorn app:app --host 0.0.0.0 --port 8080
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

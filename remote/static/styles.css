@@ -1,4 +1,4 @@
-/* MP3 Manager SPA - 2-Row Layout with Native Audio Player */
+/* Media Manager SPA - 2-Row Layout with Native Media Player */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -58,6 +58,18 @@ body {
 .card.trashed {
   opacity: 0.7;
   background: #fafafa;
+}
+
+/* Video card styling */
+.card.video {
+  background: linear-gradient(135deg, #fff 0%, #f8fbff 100%);
+}
+
+.card.video .native-player {
+  height: auto;
+  max-height: 200px;
+  width: 100%;
+  border-radius: 6px;
 }
 
 /* Row 1: Native Audio Player + Action Buttons */

@@ -1,7 +1,7 @@
 // Translations for bilingual support (EN/AR)
 const TRANSLATIONS = {
   en: {
-    title: 'Audio Manager',
+    title: 'Media Manager',
     todo: 'TODO',
     ready: 'Ready',
     all: 'All',
@@ -20,10 +20,14 @@ const TRANSLATIONS = {
     cancel: 'Cancel',
     confirm: 'Confirm',
     playing: 'Playing',
-    paused: 'Paused'
+    paused: 'Paused',
+    video: 'Video',
+    audio: 'Audio',
+    no_files: 'No files',
+    more_actions: 'More actions'
   },
   ar: {
-    title: 'مدير الصوت',
+    title: 'مدير الوسائط',
     todo: 'قيد الانتظار',
     ready: 'جاهز',
     all: 'الكل',
@@ -42,7 +46,11 @@ const TRANSLATIONS = {
     cancel: 'إلغاء',
     confirm: 'تأكيد',
     playing: 'يعمل',
-    paused: 'متوقف'
+    paused: 'متوقف',
+    video: 'فيديو',
+    audio: 'صوت',
+    no_files: 'لا توجد ملفات',
+    more_actions: 'المزيد'
   }
 };
 
