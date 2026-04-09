@@ -57,6 +57,8 @@
         .btn { padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
         .btn-primary { background: #4a9eff; color: #fff; }
         .btn-secondary { background: #3a3a3a; color: #fff; }
+        .btn-ready { background: #2d5a2d; color: #fff; }  /* Dark green for ready state */
+        .btn-todo { background: #3a3a3a; color: #fff; }   /* Dark gray for todo state */
         .btn-danger { background: #ff4444; color: #fff; }
         .btn-menu { background: #3a3a3a; color: #fff; font-size: 1.2rem; padding: 0.5rem 1rem; }
         .context-menu { position: fixed; background: #2a2a2a; border: 1px solid #444; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 1000; min-width: 200px; max-width: 90vw; display: none; }
@@ -340,11 +342,11 @@
                 const buttons = [];
                 if (currentFilter !== 'ready') {
                     const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
-                    buttons.push(`<button class="btn btn-primary" onclick="confirmMoveToReady('${file.id}', '${safeTitle}')">✅ Ready</button>`);
+                    buttons.push(`<button class="btn btn-ready" onclick="confirmMoveToReady('${file.id}', '${safeTitle}')">✅ Ready</button>`);
                 }
                 if (currentFilter !== 'todo') {
                     const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
-                    buttons.push(`<button class="btn btn-secondary" onclick="confirmMoveToTodo('${file.id}', '${safeTitle}')">✏️ TODO</button>`);
+                    buttons.push(`<button class="btn btn-todo" onclick="confirmMoveToTodo('${file.id}', '${safeTitle}')">✏️ TODO</button>`);
                 }
                 actionsHtml = `${buttons.join('')}<div class="menu-container"><button class="btn btn-menu" onclick="toggleContextMenu('${file.id}', event)">⋮</button><div class="context-menu" id="menu-${file.id}"><div class="context-menu-item danger" onclick="confirmMoveToTrash('${file.id}'); hideContextMenu('${file.id}')">🗑️ Move to Trash</div></div></div>`;
             }
