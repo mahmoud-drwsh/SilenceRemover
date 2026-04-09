@@ -485,7 +485,6 @@ def run_video_upload_phase(
                 # Sort by modification time, most recent first
                 all_mp4_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
                 # Filter to reasonably recent files (within last 30 days)
-                import time
                 now = time.time()
                 recent_files = [
                     f for f in all_mp4_files 
