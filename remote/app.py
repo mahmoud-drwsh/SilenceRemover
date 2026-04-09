@@ -461,30 +461,32 @@ async def stream_file(token: str, project: str, id: str, request: Request):
     if 'trash' in tags:
         raise HTTPException(404, "File is in trash")
 
-    # Find the physical file
+    # Find the physical file - ONLY look for the expected type
     file_type = row['type']
-    for ext in MIME_TO_EXT.values():
-        file_path = STORAGE_DIR / file_type / f"{decoded_id}{ext}"
-        if file_path.exists():
-            # Use StreamingResponse with HTTP range support
-            from fastapi.responses import StreamingResponse
-            import aiofiles
-            
-            async def file_iterator():
-                async with aiofiles.open(file_path, 'rb') as f:
-                    while chunk := await f.read(8192):
-                        yield chunk
-            
-            return StreamingResponse(
-                file_iterator(),
-                media_type=row['mime_type'],
-                headers={
-                    "Accept-Ranges": "bytes",
-                    "Content-Disposition": f'inline; filename="{decoded_id}{ext}"'
-                }
-            )
-
-    raise HTTPException(404, "File content not found")
+    # Get the correct extension for this MIME type
+    ext = MIME_TO_EXT.get(row['mime_type'], '.bin')
+    file_path = STORAGE_DIR / file_type / f"{decoded_id}{ext}"
+    
+    if not file_path.exists():
+        raise HTTPException(404, f"File content not found: {decoded_id}{ext}")
+    
+    # Use StreamingResponse with HTTP range support
+    from fastapi.responses import StreamingResponse
+    import aiofiles
+    
+    async def file_iterator():
+        async with aiofiles.open(file_path, 'rb') as f:
+            while chunk := await f.read(8192):
+                yield chunk
+    
+    return StreamingResponse(
+        file_iterator(),
+        media_type=row['mime_type'],
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Disposition": f'inline; filename="{decoded_id}{ext}"'
+        }
+    )
 
 
 # API endpoints start with /api/ or /stream/
