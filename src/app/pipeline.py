@@ -463,34 +463,22 @@ def run_video_upload_phase(
     # Read title from source of truth (title.txt)
     title = title_path.read_text(encoding='utf-8').strip()
     
-    # Find output video file
-    # Videos are named after title at creation time, title may have been edited.
-    # Since filenames use titles (Arabic) not file_ids, we search by modification time
-    output_path = None
+    # Compute expected output filename based on current title
+    # Phase 4 creates: {sanitized_title}.mp4 (with _N suffix if duplicates)
+    output_basename = resolve_output_basename(title, output_dir)
+    output_path = output_dir / f"{output_basename}.mp4"
     
-    # Strategy 1: Look for file with current title name
-    current_basename = resolve_output_basename(title, output_dir)
-    candidate = output_dir / f"{current_basename}.mp4"
-    if candidate.exists():
-        output_path = candidate
-    else:
-        # Strategy 2: Find most recently modified .mp4 in output dir
-        # This finds the video created for this input (should be recent)
-        all_mp4 = list(output_dir.glob("*.mp4"))
-        if all_mp4:
-            # Sort by modification time, most recent first
-            all_mp4.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-            # Filter to files modified in last 24 hours (reasonable window)
-            now = time.time()
-            recent_files = [f for f in all_mp4 if (now - f.stat().st_mtime) < (24 * 60 * 60)]
-            if recent_files:
-                output_path = recent_files[0]
-    
-    if not output_path or not output_path.exists():
+    # Strict: file must exist with exact name derived from current title
+    if not output_path.exists():
         print(f"\n  [Error] Output file not found for {video_path.name}")
+        print(f"    Expected: {output_path.name}")
         print(f"    Title (from title.txt): {title[:50]}...")
         print(f"    Output dir: {output_dir}")
-        print(f"    Hint: Run Phase 4 to create output video")
+        print(f"    ")
+        print(f"    [CAUSE] Title was edited but video not re-created")
+        print(f"    [FIX] Delete completion marker and re-run Phase 4:")
+        print(f"          del temp\\completed\\{video_path.stem}")
+        print(f"    Then re-run the pipeline to re-encode with new title")
         return False
     
     # Upload
