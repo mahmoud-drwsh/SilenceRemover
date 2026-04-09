@@ -165,24 +165,12 @@ systemctl start caddy
 systemctl enable caddy
 ```
 
-### Deploy from Local Machine
-
-Use the deploy script to push code updates to your VPS:
+### Deploy to Server
 
 ```bash
-./deploy.sh <YOUR_SERVER_IP>
+# Sync files (preserves storage/ and *.db on server)
+rsync -avz --delete --exclude='.git' --exclude='storage/' --exclude='*.db' --exclude='*.log' --exclude='__pycache__/' --exclude='*.pyc' --exclude='.env' --exclude='venv/' ./ root@<SERVER_IP>:/var/lib/mp3-manager/
 ```
-
-**Setup SSH key first (one-time):**
-```bash
-ssh-copy-id root@<YOUR_SERVER_IP>
-```
-
-**What the script does:**
-- Syncs only changed files (preserves storage/ directory)
-- Prints current MP3_TOKEN from server
-- Restarts the mp3-manager service
-- Verifies deployment health
 
 ## API Endpoints
 
@@ -230,15 +218,21 @@ https://your-domain.com/interface/YOUR_TOKEN
 
 ```
 remote/
-├── app.py              # Main Flask application (full security version)
 ├── requirements.txt    # Python dependencies
 ├── Caddyfile          # HTTPS reverse proxy configuration
-├── deploy.sh          # SSH deployment script
+├── translations.json   # EN/AR UI translations
 ├── README.md          # This file
 ├── .gitignore         # Git exclusions
-├── storage/           # MP3 files (created on first run)
-└── database.db        # SQLite database (created on first run)
+└── static/            # Frontend SPA
+    ├── index.html
+    ├── app.js
+    ├── components.js
+    ├── api.js
+    ├── styles.css
+    └── i18n.js
 ```
+
+**VPS-only (not in git):** `app.py`, `storage/`, `database.db`
 
 ## Security Features
 
