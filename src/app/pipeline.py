@@ -461,7 +461,8 @@ def run_video_upload_phase(
         return False
     
     # Find the output video file
-    output_basename = resolve_output_basename(temp_dir, basename)
+    title = title_path.read_text(encoding='utf-8').strip()
+    output_basename = resolve_output_basename(title, output_dir)
     output_path = output_dir / f"{output_basename}.mp4"
     
     if not output_path.exists():
@@ -469,7 +470,6 @@ def run_video_upload_phase(
     
     # Upload
     def _perform() -> None:
-        title = title_path.read_text(encoding='utf-8').strip()
         video_size_mb = output_path.stat().st_size / (1024 * 1024)
         
         print(f"\n[5/{total_phases}] Uploading final video to Media Manager")
