@@ -272,10 +272,13 @@
             const title = file.title || file.id;
             const duration = file.duration ? formatDuration(file.duration) : '';
             const size = formatSize(file.file_size);
-            const streamUrl = `/${TOKEN}/${PROJECT}/stream/${file.id}`;
+            
+            // Audio and video have separate URLs with type parameter
+            const audioStreamUrl = `/${TOKEN}/${PROJECT}/stream/${file.id}?type=audio`;
+            const videoStreamUrl = `/${TOKEN}/${PROJECT}/stream/${file.id}?type=video`;
 
             if (isAudio) {
-                return renderAudioCard(file, streamUrl, duration, size);
+                return renderAudioCard(file, audioStreamUrl, duration, size);
             }
 
             // Video card
@@ -303,7 +306,7 @@
                 }
                 actionsHtml = `
                     <button class="btn btn-primary" onclick="playVideo('${file.id}', '${escapeHtml(title)}')">▶️ Play</button>
-                    <a href="${streamUrl}" class="btn btn-secondary" download>⬇️ Download</a>
+                    <a href="${videoStreamUrl}" class="btn btn-secondary" download>⬇️ Download</a>
                     <div class="menu-container">
                         <button class="btn btn-menu" onclick="toggleContextMenu('${file.id}', event)">⋮</button>
                         <div class="context-menu" id="menu-${file.id}">
@@ -633,7 +636,7 @@
 
         function playVideo(id, title) {
             const encodedId = encodeURIComponent(id);
-            const streamUrl = `/${TOKEN}/${PROJECT}/stream/${encodedId}`;
+            const streamUrl = `/${TOKEN}/${PROJECT}/stream/${encodedId}?type=video`;
 
             // Create full-page overlay
             const overlay = document.createElement('div');

@@ -437,10 +437,13 @@ def delete_file(token: str, project: str, id: str):
 
 
 @app.get("/{token}/{project}/stream/{id}")
-async def stream_file(token: str, project: str, id: str, request: Request):
+async def stream_file(token: str, project: str, id: str, request: Request, type: str = Query(default="video", enum=["audio", "video"])):
     verify_token(token)
     """
-    Stream a file by ID with HTTP range support for video playback.
+    Stream a file by ID with HTTP range support for video/audio playback.
+    
+    Query param 'type' determines whether to stream audio or video.
+    Default is 'video' for the video player.
     """
     # URL decode the ID (handles spaces and special characters)
     from urllib.parse import unquote
@@ -448,8 +451,8 @@ async def stream_file(token: str, project: str, id: str, request: Request):
     
     conn = get_db()
     row = conn.execute(
-        'SELECT type, mime_type, tags FROM files WHERE id = ? AND project = ?',
-        (decoded_id, project)
+        'SELECT type, mime_type, tags FROM files WHERE id = ? AND project = ? AND type = ?',
+        (decoded_id, project, type)
     ).fetchone()
     conn.close()
 
