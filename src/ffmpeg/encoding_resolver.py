@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
+import os
 
 from src.ffmpeg.probing import can_run_encoder, get_available_encoders
 
 
 _RESOLVED_ENCODER: VideoEncoderProfile | None = None
+_CACHE_FILE = Path(os.environ.get('ENCODER_CACHE_FILE', Path(__file__).parent.parent.parent / 'temp' / 'encoder' / 'resolved_encoder.txt'))
 
 
 @dataclass(frozen=True)
@@ -99,10 +102,42 @@ def _probe_encoder_profile(profile: VideoEncoderProfile) -> VideoEncoderProfile:
     )
 
 
+def _read_encoder_cache() -> VideoEncoderProfile | None:
+    """Read cached encoder from temp file."""
+    try:
+        if _CACHE_FILE.exists():
+            cached_name = _CACHE_FILE.read_text().strip()
+            for profile in _ENCODER_PROFILES:
+                if profile.name == cached_name:
+                    return profile
+    except Exception:
+        pass
+    return None
+
+
+def _write_encoder_cache(profile: VideoEncoderProfile) -> None:
+    """Write encoder name to temp file."""
+    try:
+        _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _CACHE_FILE.write_text(profile.name)
+    except Exception:
+        pass
+
+
 def resolve_video_encoder() -> VideoEncoderProfile:
-    """Resolve final video encoder with hardware priority: QSV → AMF → libx265 fallback."""
+    """Resolve final video encoder with hardware priority: QSV → AMF → libx265 fallback.
+    
+    Uses file-based cache to avoid re-probing on every run (for 24/7 operation).
+    """
     global _RESOLVED_ENCODER
     if _RESOLVED_ENCODER is not None:
+        return _RESOLVED_ENCODER
+    
+    # Try to read from cache first
+    cached = _read_encoder_cache()
+    if cached is not None:
+        _RESOLVED_ENCODER = cached
+        print(f"Using cached encoder: {cached.name}")
         return _RESOLVED_ENCODER
 
     available = _get_available_encoders()
@@ -112,6 +147,7 @@ def resolve_video_encoder() -> VideoEncoderProfile:
     if qsv_profile.codec in available:
         try:
             _RESOLVED_ENCODER = _probe_encoder_profile(qsv_profile)
+            _write_encoder_cache(_RESOLVED_ENCODER)
             print(f"Using hardware encoder: {qsv_profile.name}")
             return _RESOLVED_ENCODER
         except RuntimeError:
@@ -122,6 +158,7 @@ def resolve_video_encoder() -> VideoEncoderProfile:
     if amf_profile.codec in available:
         try:
             _RESOLVED_ENCODER = _probe_encoder_profile(amf_profile)
+            _write_encoder_cache(_RESOLVED_ENCODER)
             print(f"Using hardware encoder: {amf_profile.name}")
             return _RESOLVED_ENCODER
         except RuntimeError:
@@ -137,6 +174,7 @@ def resolve_video_encoder() -> VideoEncoderProfile:
 
     try:
         _RESOLVED_ENCODER = _probe_encoder_profile(libx265_profile)
+        _write_encoder_cache(_RESOLVED_ENCODER)
         print(f"Using software encoder: {libx265_profile.name}")
     except RuntimeError as exc:
         raise RuntimeError(
