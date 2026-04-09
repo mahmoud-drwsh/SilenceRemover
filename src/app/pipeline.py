@@ -260,6 +260,7 @@ def run_audio_upload_phase(
     uploaded_audio_ids: list[str],
     video_index: int,
     total_videos: int,
+    media_manager_enabled: bool,
     *,
     total_phases: int = 5,
 ) -> bool | None:
@@ -433,6 +434,7 @@ def run_video_upload_phase(
     uploaded_video_ids: list[str],
     video_index: int,
     total_videos: int,
+    media_manager_enabled: bool,
     *,
     total_phases: int = 5,
 ) -> bool | None:
@@ -629,6 +631,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 uploaded_audio_ids=uploaded_audio_ids,
                 video_index=vi,
                 total_videos=vn,
+                media_manager_enabled=media_manager_enabled,
                 total_phases=tp,
             ),
         ),
@@ -667,6 +670,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 video_index=vi,
                 total_videos=vn,
                 total_phases=tp,
+                media_manager_enabled=media_manager_enabled,
             ),
         ),
     )
