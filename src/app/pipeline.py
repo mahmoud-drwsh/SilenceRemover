@@ -311,8 +311,8 @@ def run_audio_upload_phase(
         video_path=video_path,
         already_done=False,
         already_done_message="",
-        precondition_ok=_MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL') is not None,
-        precondition_message=f"Media Manager not configured, skipping audio upload for {video_path.name}.",
+        precondition_ok=media_manager_enabled,
+        precondition_message=f"Media Manager not enabled, skipping audio upload for {video_path.name}.",
         work_fn=_perform,
         success_message=f"\n✓ Phase 3 (audio upload) done: {video_path.name}",
         failure_label="Phase 3",
@@ -508,8 +508,8 @@ def run_video_upload_phase(
         video_path=video_path,
         already_done=False,
         already_done_message="",
-        precondition_ok=_MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL') is not None,
-        precondition_message=f"Media Manager not configured, skipping video upload for {video_path.name}.",
+        precondition_ok=media_manager_enabled,
+        precondition_message=f"Media Manager not enabled, skipping video upload for {video_path.name}.",
         work_fn=_perform,
         success_message=f"\n✓ Phase 5 (video upload) done: {video_path.name}",
         failure_label="Phase 5",
@@ -531,7 +531,12 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     videos = startup.videos
 
     # Media Manager two-way sync: fetch titles from API, update local .txt, trigger re-encodes
-    if _MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL'):
+    media_manager_enabled = (
+        getattr(args, "enable_media_manager", False) and
+        _MEDIA_MANAGER_AVAILABLE and
+        os.getenv('MEDIA_MANAGER_URL')
+    )
+    if media_manager_enabled:
         print(f"\n[Media Manager] Two-way sync: fetching titles from server...")
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
@@ -573,7 +578,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     uploaded_audio_ids: list[str] = []
     uploaded_video_ids: list[str] = []
     ready_audio_ids: list[str] = []
-    if _MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL'):
+    if media_manager_enabled:
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
             # For Phase 3: check which audio files already uploaded

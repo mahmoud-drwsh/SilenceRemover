@@ -144,4 +144,13 @@ def parse_args() -> argparse.Namespace:
             "Default is 1/6 (0.167)."
         ),
     )
+    parser.add_argument(
+        "--enable-media-manager",
+        action="store_true",
+        help=(
+            "Enable Media Manager integration for 5-phase workflow: "
+            "audio upload, title sync, and video delivery. "
+            "Requires MEDIA_MANAGER_URL environment variable."
+        ),
+    )
     return parser.parse_args()
