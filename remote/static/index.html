@@ -709,14 +709,11 @@
                 object-fit: contain;
             `;
             video.controls = true;
-            video.autoplay = true;
-
-            // Source element
-            const source = document.createElement('source');
-            source.src = streamUrl;
-            source.type = 'video/mp4';
-
-            video.appendChild(source);
+            video.playsInline = true;
+            video.preload = 'metadata';
+            
+            // Set source directly (works better for streaming)
+            video.src = streamUrl;
             videoContainer.appendChild(video);
             overlay.appendChild(header);
             overlay.appendChild(videoContainer);
@@ -747,13 +744,39 @@
             // Add to DOM
             document.body.appendChild(overlay);
 
+            // Check HEVC support
+            const canPlayHevc = video.canPlayType('video/mp4; codecs="hvc1"') || 
+                               video.canPlayType('video/mp4; codecs="hev1"');
+            
+            if (!canPlayHevc) {
+                videoContainer.innerHTML = `
+                    <div style="color: #fff; text-align: center; padding: 2rem;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">🎬</div>
+                        <div style="font-size: 1.2rem; margin-bottom: 0.5rem;">HEVC Video</div>
+                        <div style="color: #888; font-size: 0.9rem; margin-bottom: 1rem;">
+                            Your browser cannot play HEVC/H.265 videos directly.
+                        </div>
+                        <a href="${streamUrl}" download 
+                           style="display: inline-block; background: #4a9eff; color: #fff; 
+                                  padding: 0.75rem 1.5rem; border-radius: 4px; text-decoration: none;">
+                            📥 Download Video
+                        </a>
+                    </div>
+                `;
+                return;
+            }
+            
             // Handle video errors
-            video.addEventListener('error', () => {
+            video.addEventListener('error', (e) => {
+                console.error('Video error:', video.error);
                 videoContainer.innerHTML = `
                     <div style="color: #fff; text-align: center; padding: 2rem;">
                         <div style="font-size: 3rem; margin-bottom: 1rem;">⚠️</div>
-                        <div style="font-size: 1.2rem; margin-bottom: 0.5rem;">Unable to play video</div>
-                        <div style="color: #888; font-size: 0.9rem;">The video may be in an unsupported format or unavailable</div>
+                        <div style="font-size: 1.2rem; margin-bottom: 0.5rem;">Video Error</div>
+                        <div style="color: #888; font-size: 0.9rem;">
+                            Code: ${video.error ? video.error.code : 'unknown'}<br>
+                            Check console for details
+                        </div>
                     </div>
                 `;
             });
