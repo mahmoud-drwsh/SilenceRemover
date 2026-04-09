@@ -296,13 +296,25 @@ def run_audio_upload_phase(
         print(f"  Audio snippet: {snippet_size_mb:.1f} MB")
         print(f"  Tags: [todo] (for review)")
         
+        # Progress callback
+        last_percent = -1
+        def progress_callback(uploaded: int, total: int) -> None:
+            nonlocal last_percent
+            percent = int(uploaded * 100 / total)
+            if percent != last_percent and percent % 20 == 0:  # Update every 20% for smaller files
+                mb_uploaded = uploaded / (1024 * 1024)
+                print(f"  Upload progress: {percent}% ({mb_uploaded:.1f}/{snippet_size_mb:.1f} MB)")
+                last_percent = percent
+        
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         start_time = time.time()
         try:
-            result = client.upload_audio(file_id, title, snippet_path, tags=['todo'])
+            result = client.upload_audio(file_id, title, snippet_path, tags=['todo'],
+                                         progress_callback=progress_callback)
             elapsed = time.time() - start_time
+            speed_mbps = snippet_size_mb / elapsed if elapsed > 0 else 0
             if result:
-                print(f"  ✓ Uploaded in {elapsed:.1f}s: {file_id}")
+                print(f"  ✓ Uploaded in {elapsed:.1f}s ({speed_mbps:.1f} MB/s)")
             else:
                 print(f"  \033[91m✗ Upload failed for {file_id}\033[0m")
         finally:
@@ -487,6 +499,7 @@ def run_video_upload_phase(
     # Upload
     def _perform() -> None:
         video_size_mb = output_path.stat().st_size / (1024 * 1024)
+        total_bytes = output_path.stat().st_size
         
         print(f"\n[5/{total_phases}] Uploading final video to Media Manager")
         print(f"  File: {output_path.name}")
@@ -494,13 +507,25 @@ def run_video_upload_phase(
         print(f"  Video size: {video_size_mb:.1f} MB")
         print(f"  Tags: [FB, TT]")
         
+        # Progress callback
+        last_percent = -1
+        def progress_callback(uploaded: int, total: int) -> None:
+            nonlocal last_percent
+            percent = int(uploaded * 100 / total)
+            if percent != last_percent and percent % 10 == 0:  # Update every 10%
+                mb_uploaded = uploaded / (1024 * 1024)
+                print(f"  Upload progress: {percent}% ({mb_uploaded:.1f}/{video_size_mb:.1f} MB)")
+                last_percent = percent
+        
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         start_time = time.time()
         try:
-            result = client.upload_video(file_id, title, output_path, tags=['FB', 'TT'])
+            result = client.upload_video(file_id, title, output_path, tags=['FB', 'TT'], 
+                                        progress_callback=progress_callback)
             elapsed = time.time() - start_time
+            speed_mbps = video_size_mb / elapsed if elapsed > 0 else 0
             if result:
-                print(f"  ✓ Video uploaded in {elapsed:.1f}s: {file_id}")
+                print(f"  ✓ Video uploaded in {elapsed:.1f}s ({speed_mbps:.1f} MB/s)")
             else:
                 print(f"  \033[91m✗ Video upload failed for {file_id}\033[0m")
         finally:

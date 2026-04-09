@@ -85,7 +85,8 @@ class MediaManagerClient:
         except Exception:
             return False
     
-    def upload_audio(self, file_id: str, title: str, audio_path: Path, tags: list = None) -> bool:
+    def upload_audio(self, file_id: str, title: str, audio_path: Path, tags: list = None,
+                     progress_callback: callable = None) -> bool:
         """Upload audio snippet with title and tags.
         
         Args:
@@ -93,14 +94,39 @@ class MediaManagerClient:
             title: Title/caption for the audio
             audio_path: Path to audio file
             tags: List of tags (default: ["todo"])
+            progress_callback: Optional callback(uploaded_bytes, total_bytes) for progress updates
         
         Returns True on success.
         """
         tags = tags or ['todo']
         
         try:
-            with open(audio_path, 'rb') as f:
-                files = {'file': (f'{file_id}.ogg', f, 'audio/ogg')}
+            total_size = audio_path.stat().st_size
+            
+            # Progress-tracking file wrapper
+            class ProgressFile:
+                def __init__(self, file_path, callback, total):
+                    self._file = open(file_path, 'rb')
+                    self._callback = callback
+                    self._total = total
+                    self._uploaded = 0
+                
+                def read(self, size=-1):
+                    data = self._file.read(size)
+                    if data:
+                        self._uploaded += len(data)
+                        if self._callback:
+                            self._callback(self._uploaded, self._total)
+                    return data
+                
+                def __enter__(self):
+                    return self
+                
+                def __exit__(self, *args):
+                    self._file.close()
+            
+            with ProgressFile(audio_path, progress_callback, total_size) as pf:
+                files = {'file': (f'{file_id}.ogg', pf, 'audio/ogg')}
                 data = {
                     'id': file_id,
                     'title': title,
@@ -116,7 +142,8 @@ class MediaManagerClient:
         except Exception as e:
             raise MediaManagerError(f"Audio upload failed for {file_id}: {e}")
     
-    def upload_video(self, file_id: str, title: str, video_path: Path, tags: list = None) -> bool:
+    def upload_video(self, file_id: str, title: str, video_path: Path, tags: list = None, 
+                     progress_callback: callable = None) -> bool:
         """Upload final video with title and tags.
         
         Args:
@@ -124,6 +151,7 @@ class MediaManagerClient:
             title: Title/caption for the video
             video_path: Path to video file
             tags: List of tags (default: ["FB", "TT"])
+            progress_callback: Optional callback(uploaded_bytes, total_bytes) for progress updates
         
         Returns True on success.
         """
@@ -136,8 +164,32 @@ class MediaManagerClient:
             elif video_path.suffix == '.webm':
                 mime_type = 'video/webm'
             
-            with open(video_path, 'rb') as f:
-                files = {'file': (video_path.name, f, mime_type)}
+            total_size = video_path.stat().st_size
+            
+            # Progress-tracking file wrapper
+            class ProgressFile:
+                def __init__(self, file_path, callback, total):
+                    self._file = open(file_path, 'rb')
+                    self._callback = callback
+                    self._total = total
+                    self._uploaded = 0
+                
+                def read(self, size=-1):
+                    data = self._file.read(size)
+                    if data:
+                        self._uploaded += len(data)
+                        if self._callback:
+                            self._callback(self._uploaded, self._total)
+                    return data
+                
+                def __enter__(self):
+                    return self
+                
+                def __exit__(self, *args):
+                    self._file.close()
+            
+            with ProgressFile(video_path, progress_callback, total_size) as pf:
+                files = {'file': (video_path.name, pf, mime_type)}
                 data = {
                     'id': file_id,
                     'title': title,
