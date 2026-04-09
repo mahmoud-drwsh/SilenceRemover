@@ -20,6 +20,7 @@ ssh "$SERVER" "mkdir -p $REMOTE_DIR"
 rsync -avz --delete \
     --exclude='.git' \
     --exclude='.DS_Store' \
+    --exclude='.env' \
     --exclude='data/' \
     --exclude='venv/' \
     --exclude='__pycache__/' \
@@ -36,6 +37,14 @@ ssh "$SERVER" "
     if [ ! -d 'venv' ]; then
         echo 'Creating virtual environment...'
         python3 -m venv venv
+    fi
+    
+    # Ensure .env exists with MEDIA_TOKEN
+    if [ ! -f '.env' ]; then
+        echo 'Creating .env with MEDIA_TOKEN...'
+        TOKEN=$(openssl rand -hex 16 2>/dev/null || cat /dev/urandom | tr -dc 'a-z0-9' | head -c 32)
+        echo "MEDIA_TOKEN=$TOKEN" > .env
+        echo "Generated token: $TOKEN"
     fi
     
     # Install dependencies
