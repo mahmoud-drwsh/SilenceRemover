@@ -9,13 +9,13 @@ An automated video processing tool that removes silence segments, transcribes au
 - **AI Transcription**: Builds a silence-removed snippet (capped at `SNIPPET_MAX_DURATION_SEC`, 180s / 3 minutes by default), encodes it as Ogg/Opus, and transcribes via OpenRouter (default model: `google/gemini-3.1-flash-lite-preview`)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
-- **Video encoding**: Final MP4 video prefers **`hevc_qsv`** (Intel Quick Sync HEVC) using ICQ (`-global_quality 20`, `-preset slow`) plus extended BRC, lookahead (`-extbrc 1`, `-look_ahead_depth 20`), adaptive I/B placement, and `-forced_idr 1` for steadier quality and seeking. On QSV runs, command assembly applies conservative QSV device flags (`-init_hw_device qsv`, `-filter_hw_device`) and retries once on the generic path if initialization fails at runtime. If `hevc_qsv` is not listed by FFmpeg, startup falls back to **`libx265`** (`-crf 24`, `-preset slow`). If `hevc_qsv` is listed but probe encode fails, startup fails fast so the QSV runtime/build issue can be fixed explicitly.
+- **Video encoding**: Final MP4 video prefers **`hevc_qsv`** (Intel Quick Sync HEVC) using ICQ (`-global_quality 19`, `-preset medium`, `-g 250`). On QSV runs, command assembly applies conservative QSV device flags (`-init_hw_device qsv`, `-filter_hw_device`) and retries once on the generic path if initialization fails at runtime. If `hevc_qsv` is not available, the pipeline tries **`hevc_amf`** (AMD hardware encoding with `-rc qvbr -qvbr_quality_level 18 -g 250`). If both hardware encoders are unavailable, startup falls back to **`libx265`** (`-crf 30`, `-preset medium`). If hardware encoders are listed but probe encode fails, startup fails fast so the runtime/build issue can be fixed explicitly. All profiles use `-tag:v hvc1 -movflags +faststart` for compatibility.
 - **FFmpeg Centralization**: Consolidates command building, execution, probing, and filter graph generation under the new `src/ffmpeg` package.
 
 ## Requirements
 
 - **Python**: 3.11 or higher
-- **FFmpeg & FFprobe**: Must be on your PATH. Prefer an FFmpeg build with **`hevc_qsv`** plus Intel Quick Sync runtime support for the primary encoder path; also include **`libx265`** for fallback when QSV is unavailable.
+- **FFmpeg & FFprobe**: Must be on your PATH. Prefer an FFmpeg build with **`hevc_qsv`** (Intel Quick Sync) plus Intel runtime support for the primary encoder path. If you have an AMD GPU with Radeon graphics, **`hevc_amf`** provides hardware acceleration. Also include **`libx265`** for software fallback when hardware encoders are unavailable.
 - **OpenRouter API Key**: Required for transcription and title generation (get one at [openrouter.ai](https://openrouter.ai))
 - **Dependencies**: Managed via `pyproject.toml` (installed automatically). Transcription and title generation use the official [OpenRouter Python SDK](https://openrouter.ai/docs/sdks/python).
 
@@ -56,9 +56,19 @@ TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_or_channel_id
 ```
 
-The message includes pipeline progress (phase 3/3 and video index/total), the input filename, title, and output `.mp4` basename. Text is capped at Telegram’s **4096** character limit. Failures are logged to stderr and **do not** fail the encode.
+The message includes pipeline progress (phase 3/3 and video index/total), the input filename, title, and output `.mp4` basename. Text is capped at Telegram's **4096** character limit. Failures are logged to stderr and **do not** fail the encode.
 
 Optional: `TELEGRAM_API_BASE` overrides the API host (default `https://api.telegram.org`), e.g. for a self-hosted Bot API server. Treat the bot token as a **secret**.
+
+### MP3 Manager (optional)
+
+For integration with an external MP3 Manager service, set the full URL including token and project path:
+
+```env
+MP3_MANAGER_URL=https://your-server.com/TOKEN/your-project/
+```
+
+This enables: (1) API fetch → local title.txt sync + re-encode trigger at pipeline start, and (2) auto-upload snippet + AI title after Phase 2 if not on server.
 
 ## Usage
 
@@ -201,6 +211,8 @@ output/                    # Sibling to input-directory
       ├── title_overlays/  # Rendered title PNGs for FFmpeg
       ├── fonts/           # Cached Google Fonts for title rendering
       ├── scripts/         # Temporary ffmpeg filter_complex scripts (cleaned up automatically)
+      ├── silence/         # Silence detection cache
+      ├── processing/      # Video processing intermediates
       └── ...
 ```
 
@@ -228,6 +240,12 @@ The main code lives under `src/` and `packages/`:
 
 - `src/core`: shared constants, config loading, path utilities, and CLI utilities.
 - `src/media`: silence detection and final trim rendering (`trim_single_video`).
+- `src/app`: high-level pipeline orchestration (`run` entrypoint).
+- `src/ffmpeg`: centralized FFmpeg command construction, probing, execution, filter-graph helpers, and `silence_removed_runner` (shared encode orchestration for silence-removed audio/video paths).
+- `src/startup`: startup bootstrap and runtime context assembly.
+
+### Black Box Packages (`packages/`)
+
 - `packages/sr_trim_plan/`: shared trim-policy black box (`TrimPlan`, `build_trim_plan`) for snippet + final trim.
 - `packages/sr_snippet/`: silence-removed transcription snippet audio (`create_silence_removed_snippet`; import as `sr_snippet`).
 - `packages/sr_transcription/`: audio transcription API using OpenRouter (import as `sr_transcription`).
@@ -235,9 +253,13 @@ The main code lives under `src/` and `packages/`:
 - `packages/sr_title_overlay/`: Pillow/Google Fonts PNG title strip for FFmpeg burn-in (import as `sr_title_overlay`).
 - `packages/openrouter_transport/`: shared OpenRouter transport layer (import as `openrouter_transport`).
 - `packages/sr_telegram_notify/`: optional Phase 3 Telegram text notifications (`notify_final_encoding_started`, `notify_final_output_ready`; import as `sr_telegram_notify`).
-- `src/app`: high-level pipeline orchestration (`run` entrypoint).
-- `src/ffmpeg`: centralized FFmpeg command construction, probing, execution, filter-graph helpers, and `silence_removed_runner` (shared encode orchestration for silence-removed audio/video paths).
-- `src/startup`: startup bootstrap and runtime context assembly.
+- `packages/sr_filename/`: filename sanitization utilities (import as `sr_filename`).
+- `packages/sr_ffmpeg_cmd_builder/`: FFmpeg/FFprobe command builders (import as `sr_ffmpeg_cmd_builder`).
+- `packages/sr_filter_graph/`: FFmpeg filter graph construction (import as `sr_filter_graph`).
+- `packages/sr_mp3_manager/`: MP3 Manager API client for title sync (import as `sr_mp3_manager`).
+- `packages/sr_progress_formatter/`: FFmpeg progress output formatting (import as `sr_progress_formatter`).
+- `packages/sr_silence_detection/`: silence detection and interval processing (import as `sr_silence_detection`).
+- `packages/sr_threshold_selection/`: threshold selection algorithms (import as `sr_threshold_selection`).
 
 ## Error Handling
 
