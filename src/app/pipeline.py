@@ -461,12 +461,27 @@ def run_video_upload_phase(
         return False
     
     # Find the output video file
+    # The video was created by Phase 4 with a name based on the title at that time.
+    # If the title was edited via two-way sync, we need to search flexibly.
     title = title_path.read_text(encoding='utf-8').strip()
+    
+    # First try: file named after current title
     output_basename = resolve_output_basename(title, output_dir)
     output_path = output_dir / f"{output_basename}.mp4"
     
+    # If not found, search for any .mp4 file matching the file_id/basename pattern
+    # This handles cases where title was edited after video creation
     if not output_path.exists():
-        return False
+        # Search for files like: basename.mp4, basename_1.mp4, etc.
+        pattern = f"{file_id}*.mp4"
+        matching_files = list(output_dir.glob(pattern))
+        
+        if matching_files:
+            # Use the most recently modified matching file
+            output_path = max(matching_files, key=lambda p: p.stat().st_mtime)
+        else:
+            # No matching file found
+            return False
     
     # Upload
     def _perform() -> None:
