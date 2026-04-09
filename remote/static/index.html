@@ -630,7 +630,8 @@
         }
 
         function playVideo(id, title) {
-            const streamUrl = `/${TOKEN}/${PROJECT}/stream/${id}`;
+            const encodedId = encodeURIComponent(id);
+            const streamUrl = `/${TOKEN}/${PROJECT}/stream/${encodedId}`;
 
             // Create full-page overlay
             const overlay = document.createElement('div');
@@ -758,7 +759,8 @@
 
         async function updateTags(id, tags) {
             try {
-                const res = await fetch(`${API_BASE}/files/${id}`, {
+                const encodedId = encodeURIComponent(id);
+                const res = await fetch(`${API_BASE}/files/${encodedId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ tags })
