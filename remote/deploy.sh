@@ -17,14 +17,16 @@ echo "Deploying to $SERVER..."
 # 1. Ensure remote directory exists and sync files
 ssh "$SERVER" "mkdir -p $REMOTE_DIR"
 
-rsync -avz --delete \
+rsync -avz \
     --exclude='.git' \
     --exclude='.DS_Store' \
     --exclude='.env' \
     --exclude='data/' \
+    --exclude='storage/' \
     --exclude='venv/' \
     --exclude='__pycache__/' \
     --exclude='*.pyc' \
+    --exclude='database.db' \
     ./ "$SERVER:$REMOTE_DIR/"
 
 echo "✓ Files synced"
