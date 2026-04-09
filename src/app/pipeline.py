@@ -464,8 +464,9 @@ def run_video_upload_phase(
     title = title_path.read_text(encoding='utf-8').strip()
     
     # Compute expected output filename based on current title
-    # Phase 4 creates: {sanitized_title}.mp4 (with _N suffix if duplicates)
-    output_basename = resolve_output_basename(title, output_dir)
+    # Phase 4 creates: {sanitized_title}.mp4 (first occurrence, no _N suffix)
+    from sr_filename import sanitize_filename
+    output_basename = sanitize_filename(title)
     output_path = output_dir / f"{output_basename}.mp4"
     
     # Strict: file must exist with exact name derived from current title
