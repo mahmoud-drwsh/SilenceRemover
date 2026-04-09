@@ -461,21 +461,32 @@ def run_video_upload_phase(
         return False
     
     # Read title from source of truth (title.txt)
-    # Output file path is deterministic based on title
     title = title_path.read_text(encoding='utf-8').strip()
     
-    # Compute expected output filename from title
-    # This must match exactly what Phase 4 creates
-    output_basename = resolve_output_basename(title, output_dir)
-    output_path = output_dir / f"{output_basename}.mp4"
+    # Find output video file
+    # Videos are named after title at creation time, but title may have been edited.
+    # Search for files matching the file_id pattern (should contain original basename)
+    output_path = None
     
-    # Strict check: file must exist at the exact expected path
-    if not output_path.exists():
+    # Strategy 1: Look for file with current title name
+    current_basename = resolve_output_basename(title, output_dir)
+    candidate = output_dir / f"{current_basename}.mp4"
+    if candidate.exists():
+        output_path = candidate
+    else:
+        # Strategy 2: Search for any .mp4 containing file_id
+        # This handles title edits - finds video created with old title
+        matching_files = list(output_dir.glob(f"*{file_id}*.mp4"))
+        if matching_files:
+            # Use most recently modified
+            output_path = max(matching_files, key=lambda p: p.stat().st_mtime)
+    
+    if not output_path or not output_path.exists():
         print(f"\n  [Error] Output file not found for {video_path.name}")
-        print(f"    Expected: {output_path.name}")
+        print(f"    Searched for: *{file_id}*.mp4")
         print(f"    Title (from title.txt): {title[:50]}...")
         print(f"    Output dir: {output_dir}")
-        print(f"    Hint: If title was edited, video may have old name. Re-run Phase 4.")
+        print(f"    Hint: Run Phase 4 to create output video")
         return False
     
     # Upload
