@@ -8,11 +8,15 @@ from .api import MediaManagerClient
 def get_uploaded_audio_ids(client: MediaManagerClient) -> List[str]:
     """Fetch list of already uploaded audio file IDs from server.
     
+    Includes trashed files so we don't attempt to re-upload them.
     Returns empty list on error (fail-safe for upload decisions).
     """
     try:
-        files = client.get_audio_files()
-        return [f.get('id') for f in files if f.get('id')]
+        # Fetch both active and trashed files
+        active_files = client.get_audio_files()
+        trashed_files = client.get_audio_files(tags='trash')
+        all_files = active_files + trashed_files
+        return [f.get('id') for f in all_files if f.get('id')]
     except Exception:
         return []
 
@@ -20,11 +24,15 @@ def get_uploaded_audio_ids(client: MediaManagerClient) -> List[str]:
 def get_uploaded_video_ids(client: MediaManagerClient) -> List[str]:
     """Fetch list of already uploaded video file IDs from server.
     
+    Includes trashed files so we don't attempt to re-upload them.
     Returns empty list on error (fail-safe for upload decisions).
     """
     try:
-        files = client.get_video_files()
-        return [f.get('id') for f in files if f.get('id')]
+        # Fetch both active and trashed files
+        active_files = client.get_video_files()
+        trashed_files = client.get_video_files(tags='trash')
+        all_files = active_files + trashed_files
+        return [f.get('id') for f in all_files if f.get('id')]
     except Exception:
         return []
 
