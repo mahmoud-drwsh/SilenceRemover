@@ -19,8 +19,9 @@ from contextlib import asynccontextmanager
 from typing import List, Optional, Literal
 
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+import aiofiles
 from pydantic import BaseModel
 
 # Config
@@ -436,20 +437,24 @@ def delete_file(token: str, project: str, id: str):
 
 
 @app.get("/{token}/{project}/stream/{id}")
-def stream_file(token: str, project: str, id: str):
+async def stream_file(token: str, project: str, id: str, request: Request):
     verify_token(token)
     """
-    Stream a file by ID.
+    Stream a file by ID with HTTP range support for video playback.
     """
+    # URL decode the ID (handles spaces and special characters)
+    from urllib.parse import unquote
+    decoded_id = unquote(id)
+    
     conn = get_db()
     row = conn.execute(
         'SELECT type, mime_type, tags FROM files WHERE id = ? AND project = ?',
-        (id, project)
+        (decoded_id, project)
     ).fetchone()
     conn.close()
 
     if not row:
-        raise HTTPException(404, f"File '{id}' not found")
+        raise HTTPException(404, f"File '{decoded_id}' not found")
 
     # Don't stream trashed files
     tags = json.loads(row['tags'])
@@ -459,12 +464,24 @@ def stream_file(token: str, project: str, id: str):
     # Find the physical file
     file_type = row['type']
     for ext in MIME_TO_EXT.values():
-        file_path = STORAGE_DIR / file_type / f"{id}{ext}"
+        file_path = STORAGE_DIR / file_type / f"{decoded_id}{ext}"
         if file_path.exists():
-            return FileResponse(
-                file_path,
+            # Use StreamingResponse with HTTP range support
+            from fastapi.responses import StreamingResponse
+            import aiofiles
+            
+            async def file_iterator():
+                async with aiofiles.open(file_path, 'rb') as f:
+                    while chunk := await f.read(8192):
+                        yield chunk
+            
+            return StreamingResponse(
+                file_iterator(),
                 media_type=row['mime_type'],
-                filename=f"{id}{ext}"
+                headers={
+                    "Accept-Ranges": "bytes",
+                    "Content-Disposition": f'inline; filename="{decoded_id}{ext}"'
+                }
             )
 
     raise HTTPException(404, "File content not found")
