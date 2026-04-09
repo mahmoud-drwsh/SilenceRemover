@@ -274,8 +274,9 @@
             const size = formatSize(file.file_size);
             
             // Audio and video have separate URLs with type parameter
-            const audioStreamUrl = `/${TOKEN}/${PROJECT}/stream/${file.id}?type=audio`;
-            const videoStreamUrl = `/${TOKEN}/${PROJECT}/stream/${file.id}?type=video`;
+            const encodedId = encodeURIComponent(file.id);
+            const audioStreamUrl = `/${TOKEN}/${PROJECT}/stream/${encodedId}?type=audio`;
+            const videoStreamUrl = `/${TOKEN}/${PROJECT}/stream/${encodedId}?type=video`;
 
             if (isAudio) {
                 return renderAudioCard(file, audioStreamUrl, duration, size);
@@ -305,7 +306,7 @@
                     menuItem = `<div class="context-menu-item danger" onclick="confirmRemoveFromFolder('${file.id}', '${safeTitle}', 'TikTok'); hideContextMenu('${file.id}')">📱 Remove from TikTok</div>`;
                 }
                 actionsHtml = `
-                    <button class="btn btn-primary" onclick="playVideo('${file.id}', '${escapeHtml(title)}')">▶️ Play</button>
+                    <button class="btn btn-primary" onclick="playVideo('${encodedId}', '${escapeHtml(title)}')">▶️ Play</button>
                     <a href="${videoStreamUrl}" class="btn btn-secondary" download>⬇️ Download</a>
                     <div class="menu-container">
                         <button class="btn btn-menu" onclick="toggleContextMenu('${file.id}', event)">⋮</button>
