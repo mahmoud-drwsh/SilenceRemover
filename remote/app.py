@@ -473,22 +473,11 @@ async def stream_file(token: str, project: str, id: str, request: Request, type:
     if not file_path.exists():
         raise HTTPException(404, f"File content not found: {decoded_id}{ext}")
     
-    # Use StreamingResponse with HTTP range support
-    from fastapi.responses import StreamingResponse
-    import aiofiles
-    
-    async def file_iterator():
-        async with aiofiles.open(file_path, 'rb') as f:
-            while chunk := await f.read(8192):
-                yield chunk
-    
-    return StreamingResponse(
-        file_iterator(),
+    # Use FileResponse (handles HTTP range requests for seeking)
+    return FileResponse(
+        file_path,
         media_type=row['mime_type'],
-        headers={
-            "Accept-Ranges": "bytes",
-            "Content-Disposition": f'inline; filename="{decoded_id}{ext}"'
-        }
+        filename=f"{decoded_id}{ext}"
     )
 
 
