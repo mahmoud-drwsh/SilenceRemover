@@ -28,7 +28,6 @@ from src.core.paths import (
     mark_completed,
     resolve_output_basename,
 )
-from sr_filename import sanitize_filename
 from src.startup import StartupContext, build_startup_context
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile
 from sr_snippet import create_silence_removed_snippet
@@ -461,52 +460,23 @@ def run_video_upload_phase(
     if not title_path.exists():
         return False
     
-    # Find the output video file
-    # The video was created by Phase 4 with a name based on the title at that time.
-    # If the title was edited via two-way sync, we need to search flexibly.
+    # Read title from source of truth (title.txt)
+    # Output file path is deterministic based on title
     title = title_path.read_text(encoding='utf-8').strip()
     
-    # First try: file named after current title
+    # Compute expected output filename from title
+    # This must match exactly what Phase 4 creates
     output_basename = resolve_output_basename(title, output_dir)
     output_path = output_dir / f"{output_basename}.mp4"
     
-    # If not found, search more broadly
+    # Strict check: file must exist at the exact expected path
     if not output_path.exists():
-        # Strategy 1: Search for files with sanitized title as prefix
-        # (handles title changes - old file had different title)
-        sanitized = sanitize_filename(title)
-        matching_files = list(output_dir.glob(f"{sanitized}*.mp4"))
-        
-        # Strategy 2: If still not found, search ALL mp4 files
-        # and use the most recently created one (heuristic)
-        if not matching_files:
-            all_mp4_files = list(output_dir.glob("*.mp4"))
-            if all_mp4_files:
-                # Sort by modification time, most recent first
-                all_mp4_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-                # Filter to reasonably recent files (within last 30 days)
-                now = time.time()
-                recent_files = [
-                    f for f in all_mp4_files 
-                    if (now - f.stat().st_mtime) < (30 * 24 * 60 * 60)
-                ]
-                if recent_files:
-                    matching_files = recent_files[:10]  # Top 10 most recent
-        
-        if matching_files:
-            # Use the most recently modified matching file
-            output_path = max(matching_files, key=lambda p: p.stat().st_mtime)
-            print(f"  [Debug] Found output file via fallback search: {output_path.name}")
-        else:
-            # No matching file found - log for debugging
-            print(f"\n  [Debug] No output file found for {video_path.name}")
-            print(f"    Looked for: {output_basename}.mp4")
-            print(f"    Title: {title[:50]}...")
-            print(f"    Output dir exists: {output_dir.exists()}")
-            if output_dir.exists():
-                mp4_count = len(list(output_dir.glob("*.mp4")))
-                print(f"    Total .mp4 files in output dir: {mp4_count}")
-            return False
+        print(f"\n  [Error] Output file not found for {video_path.name}")
+        print(f"    Expected: {output_path.name}")
+        print(f"    Title (from title.txt): {title[:50]}...")
+        print(f"    Output dir: {output_dir}")
+        print(f"    Hint: If title was edited, video may have old name. Re-run Phase 4.")
+        return False
     
     # Upload
     def _perform() -> None:
