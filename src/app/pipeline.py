@@ -28,6 +28,7 @@ from src.core.paths import (
     mark_completed,
     resolve_output_basename,
 )
+from sr_filename import sanitize_filename
 from src.startup import StartupContext, build_startup_context
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile
 from sr_snippet import create_silence_removed_snippet
@@ -464,8 +465,7 @@ def run_video_upload_phase(
     title = title_path.read_text(encoding='utf-8').strip()
     
     # Compute expected output filename based on current title
-    # Phase 4 creates: {sanitized_title}.mp4 (first occurrence, no _N suffix)
-    from sr_filename import sanitize_filename
+    # Phase 4 creates: {sanitized_title}.mp4 (exact match, no suffix)
     output_basename = sanitize_filename(title)
     output_path = output_dir / f"{output_basename}.mp4"
     
