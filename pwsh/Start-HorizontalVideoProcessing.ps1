@@ -1,2 +1,2 @@
 Set-Location C:\Users\user\scripts\SilenceRemover
-uv run python main.py C:\Users\user\Videos\raw\
+uv run python main.py C:\Users\user\Videos\raw\ --enable-media-manager
