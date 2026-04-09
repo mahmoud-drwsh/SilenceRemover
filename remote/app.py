@@ -231,7 +231,7 @@ def list_files(
         SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at
         FROM files
         WHERE {where_clause}
-        ORDER BY created_at DESC
+        ORDER BY created_at ASC
         ''',
         params
     ).fetchall()
