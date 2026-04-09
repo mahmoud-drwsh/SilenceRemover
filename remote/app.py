@@ -107,7 +107,7 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.executescript('''
         CREATE TABLE IF NOT EXISTS files (
-            id TEXT PRIMARY KEY,
+            id TEXT NOT NULL,
             project TEXT NOT NULL,
             type TEXT NOT NULL,
             title TEXT,
@@ -115,7 +115,8 @@ def init_db():
             duration INTEGER DEFAULT 0,
             file_size INTEGER DEFAULT 0,
             mime_type TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id, type, project)
         );
         CREATE INDEX IF NOT EXISTS idx_project ON files(project);
         CREATE INDEX IF NOT EXISTS idx_type ON files(type);
@@ -271,14 +272,14 @@ async def upload_file(
     """
     conn = get_db()
 
-    # Check if ID already exists
+    # Check if ID+TYPE combination already exists (allows same ID for audio vs video)
     existing = conn.execute(
-        'SELECT id FROM files WHERE id = ? AND project = ?',
-        (id, project)
+        'SELECT id FROM files WHERE id = ? AND project = ? AND type = ?',
+        (id, project, type)
     ).fetchone()
     if existing:
         conn.close()
-        raise HTTPException(409, f"File with id '{id}' already exists")
+        raise HTTPException(409, f"File with id '{id}' and type '{type}' already exists")
 
     # Parse and validate tags
     try:

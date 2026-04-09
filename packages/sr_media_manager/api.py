@@ -77,8 +77,9 @@ class MediaManagerClient:
             raise MediaManagerError(f"Failed to fetch video files: {e}")
     
     def check_exists(self, file_id: str, file_type: str = 'audio') -> bool:
-        """Check if file exists on server by ID."""
+        """Check if file exists on server by ID and type."""
         try:
+            # Check specific type (audio vs video can share same ID)
             files = self.get_audio_files() if file_type == 'audio' else self.get_video_files()
             return any(f.get('id') == file_id for f in files)
         except Exception:
