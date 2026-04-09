@@ -464,8 +464,8 @@ def run_video_upload_phase(
     title = title_path.read_text(encoding='utf-8').strip()
     
     # Find output video file
-    # Videos are named after title at creation time, but title may have been edited.
-    # Search for files matching the file_id pattern (should contain original basename)
+    # Videos are named after title at creation time, title may have been edited.
+    # Since filenames use titles (Arabic) not file_ids, we search by modification time
     output_path = None
     
     # Strategy 1: Look for file with current title name
@@ -474,16 +474,20 @@ def run_video_upload_phase(
     if candidate.exists():
         output_path = candidate
     else:
-        # Strategy 2: Search for any .mp4 containing file_id
-        # This handles title edits - finds video created with old title
-        matching_files = list(output_dir.glob(f"*{file_id}*.mp4"))
-        if matching_files:
-            # Use most recently modified
-            output_path = max(matching_files, key=lambda p: p.stat().st_mtime)
+        # Strategy 2: Find most recently modified .mp4 in output dir
+        # This finds the video created for this input (should be recent)
+        all_mp4 = list(output_dir.glob("*.mp4"))
+        if all_mp4:
+            # Sort by modification time, most recent first
+            all_mp4.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            # Filter to files modified in last 24 hours (reasonable window)
+            now = time.time()
+            recent_files = [f for f in all_mp4 if (now - f.stat().st_mtime) < (24 * 60 * 60)]
+            if recent_files:
+                output_path = recent_files[0]
     
     if not output_path or not output_path.exists():
         print(f"\n  [Error] Output file not found for {video_path.name}")
-        print(f"    Searched for: *{file_id}*.mp4")
         print(f"    Title (from title.txt): {title[:50]}...")
         print(f"    Output dir: {output_dir}")
         print(f"    Hint: Run Phase 4 to create output video")
