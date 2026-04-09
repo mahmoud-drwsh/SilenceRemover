@@ -9,5 +9,6 @@ uv run python main.py C:\Users\user\Videos\vertical\raw\ `
     --noise-threshold -40 `
     --enable-title-overlay `
     --enable-logo-overlay `
+    --enable-media-manager `
     --title-y-fraction $TitleYFraction `
     --title-height-fraction $TitleHeightFraction
