@@ -99,15 +99,24 @@ class MediaManagerClient:
             - (True, False): Video exists but title differs (will overwrite)
         """
         try:
-            # Query with both id and title filter
-            url = self._url(f'/api/files?type=video&id={file_id}&title={title}')
+            # Query with check_id and check_title for pre-flight endpoint
+            from urllib.parse import quote
+            encoded_title = quote(title, safe='')
+            url = self._url(f'/api/files?type=video&check_id={file_id}&check_title={encoded_title}')
             resp = self._client.get(url)
             resp.raise_for_status()
             files = resp.json()
 
-            if files:
-                # Found with matching title
-                return (True, True)
+            if files and len(files) > 0:
+                # Check if server indicated a match with same title
+                file_info = files[0]
+                if file_info.get('exists') and not file_info.get('would_overwrite', True):
+                    # exists=True and would_overwrite=False means same title
+                    return (True, True)
+                if file_info.get('exists') and file_info.get('would_overwrite'):
+                    # exists=True and would_overwrite=True means different title
+                    return (True, False)
+                # Fall through to check_exists for backward compatibility
 
             # No match with this title - check if file exists at all
             exists = self.check_exists(file_id, file_type='video')
