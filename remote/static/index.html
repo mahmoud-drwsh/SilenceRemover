@@ -114,7 +114,8 @@
         /* Responsive */
         @media (max-width: 600px) {
             .file-card { flex-direction: column; align-items: stretch; }
-            .file-actions { justify-content: flex-end; }
+            .file-actions { justify-content: stretch; width: 100%; }
+            .file-actions .btn-primary, .file-actions .btn-secondary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
             audio { width: 100%; }
         }
     </style>
