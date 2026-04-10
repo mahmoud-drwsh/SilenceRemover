@@ -44,35 +44,28 @@ def _overlay_suffix_after_concat(
     """
     has_title = title_overlay_y is not None
     has_logo = _has_logo_overlay(logo_enabled)
-    print(f"[DEBUG FILTER] _overlay_suffix_after_concat: has_title={has_title}, has_logo={has_logo}, logo_enabled={logo_enabled}")
     if not has_title and not has_logo:
-        print("[DEBUG FILTER] Both title and logo disabled - returning empty suffix")
         return ""
     parts: list[str] = []
     base_label = "outv"
     logo_stream_idx = 2 if has_title else 1
-    print(f"[DEBUG FILTER] logo_stream_idx={logo_stream_idx} (has_title={has_title})")
     if has_logo:
         m = int(logo_margin_px)
         aa = float(logo_alpha)
         logo_out = "outv_logo"
-        logo_filter = (
+        parts.append(
             f"[{logo_stream_idx}:v]format=rgba,colorchannelmixer=aa={aa}"
             f"[ov_logo];"
             f"[{base_label}][ov_logo]overlay=W-w-{m}:{m}:shortest=1[{logo_out}]"
         )
-        parts.append(logo_filter)
-        print(f"[DEBUG FILTER] Added logo filter: [{logo_stream_idx}:v]... -> [{logo_out}]")
         base_label = logo_out
     if has_title:
         oy = int(title_overlay_y)  # type: ignore[arg-type]
         title_out = "outv_title"
-        title_filter = f"[1:v]format=rgba[ov_title];[{base_label}][ov_title]overlay=0:{oy}:shortest=1[{title_out}]"
-        parts.append(title_filter)
-        print(f"[DEBUG FILTER] Added title filter: [1:v]... -> [{title_out}] at y={oy}")
+        parts.append(
+            f"[1:v]format=rgba[ov_title];[{base_label}][ov_title]overlay=0:{oy}:shortest=1[{title_out}]"
+        )
         base_label = title_out
     # Normalize the post-overlay graph to a QSV-friendly software format.
     parts.append(f"[{base_label}]format=nv12[outv]")
-    result = ";" + ";".join(parts)
-    print(f"[DEBUG FILTER] Final suffix length: {len(result)} chars")
-    return result
+    return ";" + ";".join(parts)
