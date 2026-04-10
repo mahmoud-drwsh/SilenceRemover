@@ -174,6 +174,16 @@ def trim_single_video(
 
     use_logo = enable_logo_overlay and DEFAULT_LOGO_PATH.is_file()
     logo_path_resolved = DEFAULT_LOGO_PATH if use_logo else None
+    
+    # DEBUG: Logo overlay decision
+    print(f"[DEBUG LOGO] enable_logo_overlay={enable_logo_overlay}")
+    print(f"[DEBUG LOGO] DEFAULT_LOGO_PATH={DEFAULT_LOGO_PATH}")
+    print(f"[DEBUG LOGO] DEFAULT_LOGO_PATH.exists()={DEFAULT_LOGO_PATH.exists()}")
+    print(f"[DEBUG LOGO] DEFAULT_LOGO_PATH.is_file()={DEFAULT_LOGO_PATH.is_file()}")
+    print(f"[DEBUG LOGO] use_logo={use_logo}")
+    print(f"[DEBUG LOGO] logo_path_resolved={logo_path_resolved}")
+    print(f"[DEBUG LOGO] title_path={title_path}")
+    print(f"[DEBUG LOGO] enable_title_overlay={enable_title_overlay}")
 
     if plan.should_copy_input and title_path is None and not use_logo:
         copied_output_file = _copy_input_video(
@@ -212,25 +222,37 @@ def trim_single_video(
 
     if (title_path is not None and enable_title_overlay) or use_logo:
         video_width, video_height = probe_video_dimensions(input_file)
+        print(f"[DEBUG LOGO] Entered overlay prep block - video={video_width}x{video_height}")
         if use_logo:
             try:
                 _lw, _lh = probe_video_dimensions(DEFAULT_LOGO_PATH)
+                print(f"[DEBUG LOGO] Logo dimensions: {_lw}x{_lh}")
                 probe_ffmpeg_can_decode_image_frame(DEFAULT_LOGO_PATH)
+                print(f"[DEBUG LOGO] Logo decode probe: SUCCESS")
             except (OSError, RuntimeError, ValueError) as exc:
+                print(f"[DEBUG LOGO] Logo validation FAILED: {exc}")
                 print(f"Warning: Skipping logo overlay ({DEFAULT_LOGO_PATH}): {exc}")
                 use_logo = False
                 logo_path_resolved = None
             else:
                 logo_target_w = max(1, int(video_width * LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO))
+                print(f"[DEBUG LOGO] Logo target width: {logo_target_w}")
                 try:
+                    prescaled_path = _get_prescaled_logo_path(
+                        temp_dir=temp_dir_resolved, target_width_px=logo_target_w
+                    )
+                    print(f"[DEBUG LOGO] Prescaled logo path: {prescaled_path}")
+                    print(f"[DEBUG LOGO] Prescaled exists: {prescaled_path.exists()}")
                     logo_path_resolved = _ensure_prescaled_logo(
                         source_logo_path=DEFAULT_LOGO_PATH,
-                        output_logo_path=_get_prescaled_logo_path(
-                            temp_dir=temp_dir_resolved, target_width_px=logo_target_w
-                        ),
+                        output_logo_path=prescaled_path,
                         target_width_px=logo_target_w,
                     )
+                    print(f"[DEBUG LOGO] Pre-scale SUCCESS: {logo_path_resolved}")
+                    print(f"[DEBUG LOGO] Final logo_path_resolved: {logo_path_resolved}")
+                    print(f"[DEBUG LOGO] Final logo_path_resolved.exists(): {logo_path_resolved.exists()}")
                 except RuntimeError as exc:
+                    print(f"[DEBUG LOGO] Pre-scale FAILED: {exc}")
                     print(f"Warning: Skipping logo overlay pre-scale ({DEFAULT_LOGO_PATH}): {exc}")
                     use_logo = False
                     logo_path_resolved = None
@@ -308,17 +330,23 @@ def trim_single_video(
         return _run_minimal_encode(use_hw_path=False)
 
     burn_in = title_overlay_path is not None or use_logo
+    print(f"[DEBUG LOGO] burn_in={burn_in} (title_overlay_path={title_overlay_path}, use_logo={use_logo})")
 
     def _graph_with_optional_burn_in(segs: list[tuple[float, float]], oy: int | None) -> str:
         oy_eff = oy if title_overlay_path is not None else None
+        print(f"[DEBUG LOGO] Building filter graph - oy_eff={oy_eff}, use_logo={use_logo}")
         kw = dict(
             logo_enabled=use_logo,
             logo_margin_px=LOGO_OVERLAY_MARGIN_PX,
             logo_alpha=LOGO_OVERLAY_ALPHA,
         )
         if input_has_audio:
-            return build_video_audio_concat_filter_graph_with_title_overlay(segs, oy_eff, **kw)
-        return build_video_lavfi_audio_concat_filter_graph_with_title_overlay(segs, oy_eff, **kw)
+            graph = build_video_audio_concat_filter_graph_with_title_overlay(segs, oy_eff, **kw)
+        else:
+            graph = build_video_lavfi_audio_concat_filter_graph_with_title_overlay(segs, oy_eff, **kw)
+        # Print first 500 chars of filter graph for debugging
+        print(f"[DEBUG LOGO] Filter graph (first 500 chars): {graph[:500]}...")
+        return graph
 
     if burn_in:
         filter_builder = _graph_with_optional_burn_in
@@ -359,27 +387,42 @@ def trim_single_video(
             
             progress_formatter.format_and_print(metrics, size_bytes)
 
-        result_path = run_silence_removed_media(
-            input_file=input_file,
-            output_file=processing_output,
-            temp_dir=temp_dir_resolved,
-            segments_to_keep=segments_to_keep,
-            build_filter_graph=filter_builder,
-            build_command=lambda in_file, out_file, filter_script: build_final_trim_command(
+        def _build_ffmpeg_command(in_file, out_file, filter_script):
+            logo_path_for_cmd = logo_path_resolved if use_logo else None
+            print(f"[DEBUG LOGO] Building FFmpeg command:")
+            print(f"[DEBUG LOGO]   - title_overlay_path={title_overlay_path}")
+            print(f"[DEBUG LOGO]   - logo_path={logo_path_for_cmd}")
+            print(f"[DEBUG LOGO]   - use_logo={use_logo}")
+            cmd = build_final_trim_command(
                 input_file=in_file,
                 output_file=processing_output,  # FFmpeg writes to processing
                 filter_script_path=filter_script,
                 encoder=encoder,
                 title_overlay_path=title_overlay_path,
                 title_overlay_y=banner_top,
-                logo_path=logo_path_resolved if use_logo else None,
+                logo_path=logo_path_for_cmd,
                 extra_silent_audio_lavfi=use_lavfi_silent_audio,
                 source_metadata_filename=(
                     in_file.name if (title_overlay_path is not None or use_logo) else None
                 ),
                 max_output_seconds=max_output_seconds,
                 use_qsv_hardware_path=use_hw_path,
-            ),
+            )
+            # Print inputs section of command
+            inputs = []
+            for i, arg in enumerate(cmd):
+                if arg == '-i' and i + 1 < len(cmd):
+                    inputs.append(cmd[i + 1])
+            print(f"[DEBUG LOGO] FFmpeg inputs: {inputs}")
+            return cmd
+        
+        result_path = run_silence_removed_media(
+            input_file=input_file,
+            output_file=processing_output,
+            temp_dir=temp_dir_resolved,
+            segments_to_keep=segments_to_keep,
+            build_filter_graph=filter_builder,
+            build_command=_build_ffmpeg_command,
             expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
             on_progress=_on_progress,
             command_label=f"{encoder.codec} encode",
