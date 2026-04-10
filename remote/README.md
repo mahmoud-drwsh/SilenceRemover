@@ -55,18 +55,24 @@ remote/
     └── index.html          # Self-contained SPA (all-in-one)
 ```
 
-**VPS storage structure:**
+**VPS storage structure (project-prefixed):**
 ```
 /var/lib/media-manager/
 ├── .env                    # Token (auto-generated)
 ├── database.db             # SQLite database
 ├── storage/                # File storage
-│   ├── audio/              # Audio files
-│   │   └── {id}.ogg
-│   └── video/              # Video files
-│       └── {id}.mp4
+│   ├── audio/              # Audio files by project
+│   │   ├── {project}/
+│   │   │   └── {id}.ogg
+│   │   └── ...
+│   └── video/              # Video files by project
+│       ├── {project}/
+│       │   └── {id}.mp4
+│       └── ...
 └── venv/                   # Python environment
 ```
+
+Projects are isolated both in the database (via `project` column) and on disk (via subdirectory). This allows the same file ID to exist in different projects without collision.
 
 ## API Endpoints
 
@@ -294,3 +300,23 @@ If upgrading from the old Flask-based `mp3-manager`:
    ```bash
    curl http://localhost:8080/$TOKEN/ihya/api/files
    ```
+
+## Migration to Project-Prefixed Storage
+
+If you have files in the old flat structure (pre-project subdirectories):
+
+```bash
+# 1. Check what would be migrated (dry run)
+python3 scripts/migrate_project_storage.py
+
+# 2. Backup and migrate
+python3 scripts/migrate_project_storage.py --execute
+
+# 3. Verify files are accessible
+./scripts/test-api.sh
+```
+
+The app supports **dual-path mode** during migration:
+- **New uploads** go to `storage/{type}/{project}/`
+- **Existing files** are found in either location (old or new)
+- **Zero downtime** - service works during migration

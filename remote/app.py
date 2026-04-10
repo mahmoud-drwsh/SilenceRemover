@@ -106,6 +106,17 @@ def init_db():
     (STORAGE_DIR / 'video').mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    
+    # Create project subdirectories for existing projects (dual-path support)
+    try:
+        projects = conn.execute('SELECT DISTINCT project FROM files').fetchall()
+        for row in projects:
+            (STORAGE_DIR / 'audio' / row['project']).mkdir(parents=True, exist_ok=True)
+            (STORAGE_DIR / 'video' / row['project']).mkdir(parents=True, exist_ok=True)
+    except sqlite3.OperationalError:
+        # Table doesn't exist yet (first run), will be created below
+        pass
     conn.executescript('''
         CREATE TABLE IF NOT EXISTS files (
             id TEXT NOT NULL,
@@ -141,6 +152,65 @@ def get_mime_type(file_path: Path) -> str:
 def get_file_extension(mime_type: str) -> str:
     """Get file extension for MIME type."""
     return MIME_TO_EXT.get(mime_type, '.bin')
+
+
+def sanitize_filename(name: str) -> str:
+    r"""Sanitize a string for use as a filesystem filename.
+    
+    Removes reserved filesystem characters (/ \ : * ? " < > |) and control chars.
+    Falls back to empty string if result is empty (caller should handle fallback).
+    """
+    if not name:
+        return ""
+    # Remove control chars and reserved filesystem characters
+    reserved = '/\\:*?"<>|'
+    cleaned = "".join(c for c in name if c not in "\0\n\r\t" and c not in reserved)
+    cleaned = " ".join(cleaned.split()).strip()  # Collapse multiple spaces
+    return cleaned[:200]  # Limit length to avoid filesystem limits
+
+
+def sanitize_file_id(file_id: str) -> str:
+    r"""Sanitize file ID to prevent path traversal attacks.
+    
+    Removes path traversal characters (.., /, \, null bytes) from file IDs.
+    Limits length to prevent filesystem issues.
+    
+    Args:
+        file_id: The file ID to sanitize
+        
+    Returns:
+        Sanitized file ID safe for filesystem operations
+    """
+    if not file_id:
+        return ""
+    # Remove path traversal and dangerous characters
+    cleaned = file_id.replace('..', '').replace('/', '').replace('\\', '').replace('\0', '')
+    # Remove other potentially dangerous characters
+    cleaned = cleaned.replace(':', '').replace('*', '').replace('?', '').replace('"', '')
+    cleaned = cleaned.replace('<', '').replace('>', '').replace('|', '')
+    return cleaned[:200]  # Limit length
+
+
+def resolve_file_path(file_type: str, project: str, file_id: str, ext: str) -> Path:
+    """
+    Resolve file path with dual-path compatibility.
+    
+    NEW structure: storage/{type}/{project}/{id}.{ext}
+    OLD structure: storage/{type}/{id}.{ext} (legacy, pre-migration)
+    
+    Returns new path if it exists, otherwise falls back to old path.
+    Always returns new path for new uploads (doesn't check existence).
+    """
+    new_path = STORAGE_DIR / file_type / project / f"{file_id}{ext}"
+    old_path = STORAGE_DIR / file_type / f"{file_id}{ext}"
+    
+    # Prefer new path if it exists, fall back to old path for legacy files
+    if new_path.exists():
+        return new_path
+    if old_path.exists():
+        return old_path
+    # Neither exists - return new path (for upload/create operations)
+    return new_path
 
 
 def parse_tags(tags_param: Optional[str]) -> Optional[List[str]]:
@@ -231,7 +301,7 @@ def list_files(
         SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at
         FROM files
         WHERE {where_clause}
-        ORDER BY created_at ASC
+        ORDER BY id ASC
         ''',
         params
     ).fetchall()
@@ -271,6 +341,11 @@ async def upload_file(
     - type: 'audio' or 'video'
     - tags: JSON array string (e.g., '["todo"]' for audio, '["FB","TT"]' for video)
     """
+    # Sanitize file ID to prevent path traversal
+    id = sanitize_file_id(id)
+    if not id:
+        raise HTTPException(400, "Invalid file ID")
+    
     conn = get_db()
 
     # Check if ID+TYPE combination already exists (allows same ID for audio vs video)
@@ -299,8 +374,9 @@ async def upload_file(
     if not tag_list or tag_list == []:
         tag_list = ['all']
 
-    # Save file to storage
-    storage_subdir = STORAGE_DIR / type
+    # Save file to storage (project-prefixed path)
+    storage_subdir = STORAGE_DIR / type / project
+    storage_subdir.mkdir(parents=True, exist_ok=True)
     content = await file.read()
 
     if len(content) > MAX_FILE_SIZE:
@@ -350,7 +426,8 @@ def update_file(
     token: str,
     project: str,
     id: str,
-    request: UpdateFileRequest
+    request: UpdateFileRequest,
+    type: Literal['audio', 'video'] = Query(..., description="File type (audio or video) - required for safety")
 ):
     verify_token(token)
     """
@@ -358,18 +435,25 @@ def update_file(
 
     For audio: Only fixed tags allowed (todo, ready, all, trash, delivered)
     For video: Any tags allowed
+    
+    Query param 'type' is ALWAYS required to prevent accidental updates.
     """
+    # Sanitize file ID to prevent path traversal
+    id = sanitize_file_id(id)
+    if not id:
+        raise HTTPException(400, "Invalid file ID")
+    
     conn = get_db()
 
-    # Check file exists
+    # Check file exists with the specified type
     row = conn.execute(
-        'SELECT type FROM files WHERE id = ? AND project = ?',
-        (id, project)
+        'SELECT type FROM files WHERE id = ? AND project = ? AND type = ?',
+        (id, project, type)
     ).fetchone()
 
     if not row:
         conn.close()
-        raise HTTPException(404, f"File '{id}' not found")
+        raise HTTPException(404, f"File '{id}' of type '{type}' not found")
 
     # Validate tags based on type
     tags = request.tags
@@ -380,16 +464,16 @@ def update_file(
     if not tags or tags == []:
         tags = ['all']
 
-    # Update tags and optionally title
+    # Update tags and optionally title - include type to ensure we update the right row
     if request.title is not None:
         conn.execute(
-            'UPDATE files SET tags = ?, title = ? WHERE id = ? AND project = ?',
-            (json.dumps(tags), request.title, id, project)
+            'UPDATE files SET tags = ?, title = ? WHERE id = ? AND project = ? AND type = ?',
+            (json.dumps(tags), request.title, id, project, row['type'])
         )
     else:
         conn.execute(
-            'UPDATE files SET tags = ? WHERE id = ? AND project = ?',
-            (json.dumps(tags), id, project)
+            'UPDATE files SET tags = ? WHERE id = ? AND project = ? AND type = ?',
+            (json.dumps(tags), id, project, row['type'])
         )
     conn.commit()
     conn.close()
@@ -398,38 +482,56 @@ def update_file(
 
 
 @app.delete("/{token}/{project}/api/files/{id}")
-def delete_file(token: str, project: str, id: str):
+def delete_file(
+    token: str,
+    project: str,
+    id: str,
+    type: Literal['audio', 'video'] = Query(..., description="File type (audio or video) - required for safety")
+):
     verify_token(token)
     """
     Delete a file permanently (only allowed for trashed files).
+    
+    Query param 'type' is ALWAYS required to prevent accidental deletion.
     """
+    # Sanitize file ID to prevent path traversal
+    id = sanitize_file_id(id)
+    if not id:
+        raise HTTPException(400, "Invalid file ID")
+    
     conn = get_db()
 
-    # Check file exists and is trashed
+    # Check file exists and is trashed with the specified type
     row = conn.execute(
-        'SELECT type, tags FROM files WHERE id = ? AND project = ?',
-        (id, project)
+        'SELECT type, tags, mime_type FROM files WHERE id = ? AND project = ? AND type = ?',
+        (id, project, type)
     ).fetchone()
 
     if not row:
         conn.close()
-        raise HTTPException(404, f"File '{id}' not found")
+        raise HTTPException(404, f"File '{id}' of type '{type}' not found")
 
     tags = json.loads(row['tags'])
     if 'trash' not in tags:
         conn.close()
         raise HTTPException(400, "Only trashed files can be deleted. Add 'trash' tag first.")
 
-    # Delete physical file
+    # Delete physical file (dual-path: check both new and old locations)
     file_type = row['type']
-    for ext in MIME_TO_EXT.values():
-        file_path = STORAGE_DIR / file_type / f"{id}{ext}"
-        if file_path.exists():
-            file_path.unlink()
-            break
+    ext = get_file_extension(row['mime_type'])
+    file_path = resolve_file_path(file_type, project, id, ext)
+    if file_path.exists():
+        file_path.unlink()
+    else:
+        # Fallback: try all extensions (for legacy files where mime_type might be wrong)
+        for ext in MIME_TO_EXT.values():
+            legacy_path = STORAGE_DIR / file_type / f"{id}{ext}"
+            if legacy_path.exists():
+                legacy_path.unlink()
+                break
 
-    # Delete from database
-    conn.execute('DELETE FROM files WHERE id = ? AND project = ?', (id, project))
+    # Delete from database - include type to ensure we delete the correct row
+    conn.execute('DELETE FROM files WHERE id = ? AND project = ? AND type = ?', (id, project, file_type))
     conn.commit()
     conn.close()
 
@@ -437,21 +539,23 @@ def delete_file(token: str, project: str, id: str):
 
 
 @app.get("/{token}/{project}/stream/{id}")
-async def stream_file(token: str, project: str, id: str, request: Request, type: str = Query(default="video", enum=["audio", "video"])):
+async def stream_file(token: str, project: str, id: str, request: Request, type: Literal['audio', 'video'] = Query(..., description="File type (audio or video) - required for safety")):
     verify_token(token)
     """
     Stream a file by ID with HTTP range support for video/audio playback.
     
-    Query param 'type' determines whether to stream audio or video.
-    Default is 'video' for the video player.
+    Query param 'type' is REQUIRED to prevent streaming wrong file type.
     """
     # URL decode the ID (handles spaces and special characters)
     from urllib.parse import unquote
     decoded_id = unquote(id)
     
+    # Sanitize file ID to prevent path traversal
+    decoded_id = sanitize_file_id(decoded_id)
+    
     conn = get_db()
     row = conn.execute(
-        'SELECT type, mime_type, tags FROM files WHERE id = ? AND project = ? AND type = ?',
+        'SELECT type, mime_type, tags, title FROM files WHERE id = ? AND project = ? AND type = ?',
         (decoded_id, project, type)
     ).fetchone()
     conn.close()
@@ -464,20 +568,28 @@ async def stream_file(token: str, project: str, id: str, request: Request, type:
     if 'trash' in tags:
         raise HTTPException(404, "File is in trash")
 
-    # Find the physical file - ONLY look for the expected type
+    # Find the physical file - dual-path support (new location preferred)
     file_type = row['type']
     # Get the correct extension for this MIME type
     ext = MIME_TO_EXT.get(row['mime_type'], '.bin')
-    file_path = STORAGE_DIR / file_type / f"{decoded_id}{ext}"
+    file_path = resolve_file_path(file_type, project, decoded_id, ext)
     
     if not file_path.exists():
         raise HTTPException(404, f"File content not found: {decoded_id}{ext}")
+    
+    # Determine download filename: use title (sanitized) if available, otherwise use ID
+    title = row['title'] or ""
+    safe_title = sanitize_filename(title)
+    if safe_title:
+        download_filename = f"{safe_title}{ext}"
+    else:
+        download_filename = f"{decoded_id}{ext}"
     
     # Use FileResponse (handles HTTP range requests for seeking)
     return FileResponse(
         file_path,
         media_type=row['mime_type'],
-        filename=f"{decoded_id}{ext}"
+        filename=download_filename
     )
 
 

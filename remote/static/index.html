@@ -81,6 +81,22 @@
         .confirm-proceed { background: #ff4444; color: #fff; }
         .confirm-proceed.secondary { background: #4a9eff; }
 
+        /* Folder Selection Modal */
+        .folder-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 1rem; }
+        .folder-overlay.show { display: flex; }
+        .folder-modal { background: #2a2a2a; border-radius: 8px; max-width: 400px; width: 100%; padding: 1.5rem; }
+        .folder-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; color: #fff; text-align: center; }
+        .folder-subtitle { font-size: 0.9rem; color: #aaa; margin-bottom: 1rem; text-align: center; }
+        .folder-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.5rem; }
+        .folder-option { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: #3a3a3a; border-radius: 6px; cursor: pointer; transition: background 0.2s; }
+        .folder-option:hover { background: #4a4a4a; }
+        .folder-option input[type="checkbox"] { width: 20px; height: 20px; accent-color: #4a9eff; cursor: pointer; }
+        .folder-option label { flex: 1; color: #fff; cursor: pointer; font-size: 0.95rem; }
+        .folder-actions { display: flex; gap: 0.75rem; }
+        .folder-actions button { flex: 1; padding: 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.95rem; }
+        .folder-cancel { background: #3a3a3a; color: #fff; }
+        .folder-save { background: #4a9eff; color: #fff; }
+
         .empty { text-align: center; padding: 3rem; color: #666; }
         .loading { text-align: center; padding: 2rem; color: #888; }
         .error { text-align: center; padding: 2rem; color: #ff4444; }
@@ -123,13 +139,43 @@
         </div>
     </div>
 
+    <!-- Add to Folder Modal -->
+    <div id="folder-overlay" class="folder-overlay">
+        <div class="folder-modal">
+            <div class="folder-title" id="folder-title">Add to Folders</div>
+            <div class="folder-subtitle" id="folder-subtitle">Select folders for this video</div>
+            <div class="folder-list" id="folder-list">
+                <!-- Folders populated dynamically -->
+            </div>
+            <div class="folder-actions">
+                <button class="folder-cancel" onclick="closeFolderModal()">Cancel</button>
+                <button class="folder-save" onclick="saveFolderSelection()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // Type constants for safety
+        const TYPE_AUDIO = 'audio';
+        const TYPE_VIDEO = 'video';
+
         // Parse URL path to get token, project, section, and folder
         // URL format: /TOKEN/PROJECT/audio or /TOKEN/PROJECT/videos/FB
         const pathParts = window.location.pathname.split('/').filter(p => p);
         const TOKEN = pathParts[0];
         const PROJECT = pathParts[1] || 'test-project';
         const API_BASE = `/${TOKEN}/${PROJECT}/api`;
+
+        // Utility: Escape string for safe use in JavaScript context (onclick handlers, etc.)
+        function escapeJs(str) {
+            if (!str) return '';
+            return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+        }
+
+        // Utility: Get type constant based on current section
+        function getCurrentType() {
+            return currentSection === TYPE_AUDIO ? TYPE_AUDIO : TYPE_VIDEO;
+        }
 
         // Parse path for section and folder
         // Format: /TOKEN/PROJECT/audio/todo or /TOKEN/PROJECT/videos/FB
@@ -273,9 +319,9 @@
             const duration = file.duration ? formatDuration(file.duration) : '';
             const size = formatSize(file.file_size);
             
-            // Audio and video have separate URLs with type parameter
-            const audioStreamUrl = `/${TOKEN}/${PROJECT}/stream/${file.id}?type=audio`;
-            const videoStreamUrl = `/${TOKEN}/${PROJECT}/stream/${file.id}?type=video`;
+            // Audio and video have separate URLs with type parameter (file.id is URL-encoded)
+            const audioStreamUrl = `/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.id)}?type=${TYPE_AUDIO}`;
+            const videoStreamUrl = `/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.id)}?type=${TYPE_VIDEO}`;
 
             if (isAudio) {
                 return renderAudioCard(file, audioStreamUrl, duration, size);
@@ -283,32 +329,36 @@
 
             // Video card
             const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
+            const safeId = escapeJs(file.id);  // Escape file ID for JavaScript context
             let actionsHtml = '';
 
             if (currentFilter === 'trash') {
                 // In trash view: show restore + delete buttons
                 actionsHtml = `
-                    <button class="btn btn-secondary" onclick="confirmRestore('${file.id}', '${safeTitle}')">♻️ Restore to All</button>
-                    <button class="btn btn-danger" onclick="confirmDeletePermanently('${file.id}', '${safeTitle}')">🗑️ Delete Permanently</button>
+                    <button class="btn btn-secondary" onclick="confirmRestore('${safeId}', '${safeTitle}')">♻️ Restore to All</button>
+                    <button class="btn btn-danger" onclick="confirmDeletePermanently('${safeId}', '${safeTitle}')">🗑️ Delete Permanently</button>
                 `;
             } else {
                 // Normal view: play/download + context-aware menu
                 let menuItem = '';
                 if (currentFilter === 'all') {
-                    // In ALL folder: show Move to Trash
-                    menuItem = `<div class="context-menu-item danger" onclick="confirmMoveToTrash('${file.id}'); hideContextMenu('${file.id}')">🗑️ Move to Trash</div>`;
+                    // In ALL folder: show Add to Folder + Move to Trash
+                    menuItem = `
+                        <div class="context-menu-item" onclick="openFolderModal('${safeId}', '${safeTitle}'); hideContextMenu('${safeId}')">📁 Add to Folder</div>
+                        <div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div>
+                    `;
                 } else if (currentFilter === 'FB') {
                     // In Facebook folder: show Remove from Facebook
-                    menuItem = `<div class="context-menu-item danger" onclick="confirmRemoveFromFolder('${file.id}', '${safeTitle}', 'Facebook'); hideContextMenu('${file.id}')">📘 Remove from Facebook</div>`;
+                    menuItem = `<div class="context-menu-item danger" onclick="confirmRemoveFromFolder('${safeId}', '${safeTitle}', 'Facebook'); hideContextMenu('${safeId}')">📘 Remove from Facebook</div>`;
                 } else if (currentFilter === 'TT') {
                     // In TikTok folder: show Remove from TikTok
-                    menuItem = `<div class="context-menu-item danger" onclick="confirmRemoveFromFolder('${file.id}', '${safeTitle}', 'TikTok'); hideContextMenu('${file.id}')">📱 Remove from TikTok</div>`;
+                    menuItem = `<div class="context-menu-item danger" onclick="confirmRemoveFromFolder('${safeId}', '${safeTitle}', 'TikTok'); hideContextMenu('${safeId}')">📱 Remove from TikTok</div>`;
                 }
                 actionsHtml = `
-                    <button class="btn btn-primary" onclick="playVideo('${file.id}', '${escapeHtml(title)}')">▶️ Play</button>
+                    <button class="btn btn-primary" onclick="playVideo('${safeId}', '${escapeHtml(title)}')">▶️ Play</button>
                     <a href="${videoStreamUrl}" class="btn btn-secondary" download>⬇️ Download</a>
                     <div class="menu-container">
-                        <button class="btn btn-menu" onclick="toggleContextMenu('${file.id}', event)">⋮</button>
+                        <button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button>
                         <div class="context-menu" id="menu-${file.id}">
                             ${menuItem}
                         </div>
@@ -320,7 +370,7 @@
                 <div class="file-card">
                     <div class="file-info">
                         <div class="file-title">${escapeHtml(title)}</div>
-                        <div class="file-meta">${duration} ${size ? '• ' + size : ''}</div>
+                        <div class="file-meta">${duration} ${size ? '• ' + size : ''} • <span style="color: #666; font-size: 0.75rem;">${escapeHtml(file.id)}</span></div>
                     </div>
                     <div class="file-actions">${actionsHtml}</div>
                 </div>
@@ -330,6 +380,7 @@
         function renderAudioCard(file, streamUrl, duration, size) {
             const title = file.title || file.id;
             const tagsJson = JSON.stringify(file.tags).replace(/"/g, '&quot;');
+            const safeId = escapeJs(file.id);  // Escape file ID for JavaScript context
 
             let actionsHtml = '';
 
@@ -337,29 +388,32 @@
                 // In trash view: show restore + delete buttons
                 const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
                 actionsHtml = `
-                    <button class="btn btn-secondary" onclick="confirmRestore('${file.id}', '${safeTitle}')">♻️ Restore to All</button>
-                    <button class="btn btn-danger" onclick="confirmDeletePermanently('${file.id}', '${safeTitle}')">🗑️ Delete Permanently</button>
+                    <button class="btn btn-secondary" onclick="confirmRestore('${safeId}', '${safeTitle}')">♻️ Restore to All</button>
+                    <button class="btn btn-danger" onclick="confirmDeletePermanently('${safeId}', '${safeTitle}')">🗑️ Delete Permanently</button>
                 `;
             } else {
                 // Normal view: ready/todo buttons + menu (all with confirmation)
                 const buttons = [];
                 if (currentFilter !== 'ready') {
                     const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
-                    buttons.push(`<button class="btn btn-ready" onclick="confirmMoveToReady('${file.id}', '${safeTitle}')">✅ Ready</button>`);
+                    buttons.push(`<button class="btn btn-ready" onclick="confirmMoveToReady('${safeId}', '${safeTitle}')">✅ Ready</button>`);
                 }
                 if (currentFilter !== 'todo') {
                     const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
-                    buttons.push(`<button class="btn btn-todo" onclick="confirmMoveToTodo('${file.id}', '${safeTitle}')">✏️ TODO</button>`);
+                    buttons.push(`<button class="btn btn-todo" onclick="confirmMoveToTodo('${safeId}', '${safeTitle}')">✏️ TODO</button>`);
                 }
-                actionsHtml = `${buttons.join('')}<div class="menu-container"><button class="btn btn-menu" onclick="toggleContextMenu('${file.id}', event)">⋮</button><div class="context-menu" id="menu-${file.id}"><div class="context-menu-item danger" onclick="confirmMoveToTrash('${file.id}'); hideContextMenu('${file.id}')">🗑️ Move to Trash</div></div></div>`;
+                actionsHtml = `${buttons.join('')}<div class="menu-container"><button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${file.id}"><div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div></div></div>`;
             }
 
-            return `<div class="file-card audio-card" data-id="${file.id}" data-tags="${tagsJson}"><div class="audio-row"><div class="audio-player"><audio controls preload="none"><source src="${streamUrl}" type="${file.mime_type}"></audio></div></div><div class="audio-title-edit"><textarea data-file-id="${file.id}" placeholder="Title..." oninput="debouncedTitleUpdate(this)">${escapeHtml(title)}</textarea><div class="save-status" id="status-${file.id}"></div></div><div class="audio-actions">${actionsHtml}</div></div>`;
+            return `<div class="file-card audio-card" data-id="${file.id}" data-tags="${tagsJson}"><div class="audio-row"><div class="audio-player"><audio controls preload="none"><source src="${streamUrl}" type="${file.mime_type}"></audio></div></div><div class="audio-title-edit"><textarea data-file-id="${file.id}" placeholder="Title..." oninput="debouncedTitleUpdate(this)">${escapeHtml(title)}</textarea><div style="color: #666; font-size: 0.7rem; margin-top: 2px;">${escapeHtml(file.id)}</div><div class="save-status" id="status-${file.id}"></div></div><div class="audio-actions">${actionsHtml}</div></div>`;
         }
 
         async function deleteFile(fileId) {
             try {
-                const res = await fetch(`${API_BASE}/files/${fileId}`, { method: 'DELETE' });
+                // Determine type based on current section
+                const type = getCurrentType();
+                const encodedId = encodeURIComponent(fileId);
+                const res = await fetch(`${API_BASE}/files/${encodedId}?type=${type}`, { method: 'DELETE' });
                 if (!res.ok) throw new Error(await res.text());
                 loadFiles();
             } catch (err) {
@@ -495,7 +549,9 @@
             const currentTags = JSON.parse(card?.dataset.tags || '["todo"]');
 
             try {
-                const res = await fetch(`${API_BASE}/files/${fileId}`, {
+                // Use encodeURIComponent and add type=audio since this is audio-only
+                const encodedId = encodeURIComponent(fileId);
+                const res = await fetch(`${API_BASE}/files/${encodedId}?type=${TYPE_AUDIO}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ tags: currentTags, title: title })
@@ -546,12 +602,14 @@
 
         // Actions that need confirmation
         function confirmMoveToTrash(fileId) {
+            // Determine type based on current section
+            const type = getCurrentType();
             showConfirmModal(
                 '🗑️ Move to Trash?',
                 'This file will be moved to trash. You can restore it later.',
                 'Move to Trash',
                 false,
-                () => updateTags(fileId, ['trash'])
+                () => updateTags(fileId, ['trash'], type)
             );
         }
 
@@ -569,7 +627,7 @@
         async function removeTagFromFile(fileId, tagToRemove) {
             try {
                 // Get current file info
-                const res = await fetch(`${API_BASE}/files?type=video`);
+                const res = await fetch(`${API_BASE}/files?type=${TYPE_VIDEO}`);
                 const files = await res.json();
                 const file = files.find(f => f.id === fileId);
                 
@@ -583,8 +641,8 @@
                     newTags.push('all');
                 }
                 
-                // Update tags
-                await updateTags(fileId, newTags);
+                // Update tags - pass TYPE_VIDEO since this is video-only function
+                await updateTags(fileId, newTags, TYPE_VIDEO);
             } catch (err) {
                 alert('Error: ' + err.message);
             }
@@ -597,7 +655,7 @@
                 `"${escapeHtml(displayTitle)}" will be moved to the Ready folder.`,
                 'Mark Ready',
                 true,
-                () => updateTags(fileId, ['ready'])
+                () => updateTags(fileId, ['ready'], TYPE_AUDIO)
             );
         }
 
@@ -608,18 +666,22 @@
                 `"${escapeHtml(displayTitle)}" will be moved to the TODO folder.`,
                 'Mark TODO',
                 true,
-                () => updateTags(fileId, ['todo'])
+                () => updateTags(fileId, ['todo'], TYPE_AUDIO)
             );
         }
 
         function confirmRestore(fileId, title) {
             const displayTitle = title || fileId;
+            // Determine type based on current section
+            const type = getCurrentType();
+            // Audio restores to 'todo', video restores to 'all'
+            const restoreTag = type === TYPE_AUDIO ? 'todo' : 'all';
             showConfirmModal(
                 '♻️ Restore from Trash?',
                 `"${escapeHtml(displayTitle)}" will be restored to the All folder.`,
                 'Restore',
                 true,
-                () => updateTags(fileId, ['todo'])
+                () => updateTags(fileId, [restoreTag], type)
             );
         }
 
@@ -635,7 +697,7 @@
         }
 
         function playVideo(id, title) {
-            const streamUrl = `/${TOKEN}/${PROJECT}/stream/${id}?type=video`;
+            const streamUrl = `/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(id)}?type=${TYPE_VIDEO}`;
 
             // Create full-page overlay
             const overlay = document.createElement('div');
@@ -758,10 +820,17 @@
             });
         }
 
-        async function updateTags(id, tags) {
+        async function updateTags(id, tags, type) {
+            // Type is REQUIRED - throw error if not provided
+            if (!type) {
+                throw new Error('Type parameter is required (audio or video)');
+            }
+            
             try {
                 const encodedId = encodeURIComponent(id);
-                const res = await fetch(`${API_BASE}/files/${encodedId}`, {
+                // Always include type parameter for safety
+                const url = `${API_BASE}/files/${encodedId}?type=${type}`;
+                const res = await fetch(url, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ tags })
@@ -772,6 +841,75 @@
                 loadFiles();
             } catch (err) {
                 alert('Error: ' + err.message);
+            }
+        }
+
+        // Folder modal state
+        let currentFolderFileId = null;
+        let currentFolderFileTitle = null;
+        const AVAILABLE_FOLDERS = [
+            { id: 'FB', name: '📘 Facebook', color: '#4a9eff' },
+            { id: 'TT', name: '📱 TikTok', color: '#ff6b9d' },
+            { id: 'YT', name: '📺 YouTube', color: '#ff4444' },
+            { id: 'IG', name: '📸 Instagram', color: '#e1306c' }
+        ];
+
+        async function openFolderModal(fileId, title) {
+            currentFolderFileId = fileId;
+            currentFolderFileTitle = title;
+            
+            // Get current file tags
+            try {
+                const res = await fetch(`${API_BASE}/files?type=${TYPE_VIDEO}`);
+                const files = await res.json();
+                const file = files.find(f => f.id === fileId);
+                const currentTags = file ? file.tags : [];
+                
+                // Build folder list with checkboxes
+                const folderList = document.getElementById('folder-list');
+                folderList.innerHTML = AVAILABLE_FOLDERS.map(folder => {
+                    const isChecked = currentTags.includes(folder.id) ? 'checked' : '';
+                    return `
+                        <div class="folder-option">
+                            <input type="checkbox" id="folder-${folder.id}" value="${folder.id}" ${isChecked}>
+                            <label for="folder-${folder.id}">${folder.name}</label>
+                        </div>
+                    `;
+                }).join('');
+                
+                // Update title
+                document.getElementById('folder-title').textContent = 'Add to Folders';
+                document.getElementById('folder-subtitle').textContent = 
+                    title ? `"${escapeHtml(title)}"` : fileId;
+                
+                // Show modal
+                document.getElementById('folder-overlay').classList.add('show');
+            } catch (err) {
+                alert('Error loading file info: ' + err.message);
+            }
+        }
+
+        function closeFolderModal() {
+            document.getElementById('folder-overlay').classList.remove('show');
+            currentFolderFileId = null;
+            currentFolderFileTitle = null;
+        }
+
+        async function saveFolderSelection() {
+            if (!currentFolderFileId) return;
+            
+            // Get selected folders
+            const checkboxes = document.querySelectorAll('#folder-list input[type="checkbox"]:checked');
+            const selectedFolders = Array.from(checkboxes).map(cb => cb.value);
+            
+            // Always include 'all' as base tag, plus selected folders
+            const newTags = ['all', ...selectedFolders];
+            
+            try {
+                await updateTags(currentFolderFileId, newTags, TYPE_VIDEO);
+                closeFolderModal();
+            } catch (err) {
+                alert('Error saving folders: ' + err.message);
             }
         }
 
@@ -805,10 +943,11 @@
             showSection(section, folder, isStrict);
         });
 
-        // ESC key to close modal
+        // ESC key to close modals
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 closeConfirmModal();
+                closeFolderModal();
             }
         });
 
