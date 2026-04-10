@@ -327,7 +327,7 @@ def run_audio_upload_phase(
         already_done=False,
         already_done_message="",
         precondition_ok=media_manager_enabled,
-        precondition_message=f"Media Manager not enabled, skipping audio upload for {video_path.name}.",
+        precondition_message=None,  # Silenced - expected when Media Manager disabled
         work_fn=_perform,
         success_message=f"\n✓ Phase 3 (audio upload) done: {video_path.name}",
         failure_label="Phase 3",
@@ -540,7 +540,7 @@ def run_video_upload_phase(
         already_done=False,
         already_done_message="",
         precondition_ok=media_manager_enabled,
-        precondition_message=f"Media Manager not enabled, skipping video upload for {video_path.name}.",
+        precondition_message=None,  # Silenced - expected when Media Manager disabled
         work_fn=_perform,
         success_message=f"\n✓ Phase 5 (video upload) done: {video_path.name}",
         failure_label="Phase 5",
