@@ -110,20 +110,28 @@ class MediaManagerClient:
             if files and len(files) > 0:
                 # Check if server indicated a match with same title
                 file_info = files[0]
-                if file_info.get('exists') and not file_info.get('would_overwrite', True):
+                exists = file_info.get('exists', False)
+                would_overwrite = file_info.get('would_overwrite')
+                
+                # Debug: print what server returned (remove after fixing)
+                print(f"[DEBUG] check_video_exists: id={file_id}, exists={exists}, would_overwrite={would_overwrite}")
+                
+                if exists and would_overwrite is False:
                     # exists=True and would_overwrite=False means same title
                     return (True, True)
-                if file_info.get('exists') and file_info.get('would_overwrite'):
+                if exists and would_overwrite is True:
                     # exists=True and would_overwrite=True means different title
                     return (True, False)
                 # Fall through to check_exists for backward compatibility
 
             # No match with this title - check if file exists at all
             exists = self.check_exists(file_id, file_type='video')
+            print(f"[DEBUG] Falling back to check_exists: id={file_id}, exists={exists}")
             return (exists, False)
 
-        except Exception:
+        except Exception as e:
             # Fail open - assume doesn't exist to allow upload attempt
+            print(f"[DEBUG] check_video_exists exception: {e}")
             return (False, False)
 
     def upload_audio(self, file_id: str, title: str, audio_path: Path, tags: list = None,
