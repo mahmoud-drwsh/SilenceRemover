@@ -38,8 +38,10 @@
         .tag.trash { background: #ff4444; }
         .tag.ready { background: #2d5a2d; color: #fff; }
         .tag.todo { background: #ffaa00; }
-        .file-actions { display: flex; gap: 0.5rem; flex: 1; min-width: 0; }
-        .file-actions button, .file-actions a.btn { flex: 1; padding: 0.5rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; text-decoration: none; }
+        .file-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+        .file-actions button, .file-actions a.btn { padding: 0.5rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; white-space: nowrap; text-align: center; text-decoration: none; }
+        .file-actions .btn-primary, .file-actions .btn-secondary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .file-actions .btn-menu { flex-shrink: 0; padding: 0.5rem 0.75rem; min-width: 44px; }
 
         /* Audio card - zero spacing, compact layout */
         .audio-card { display: block; padding: 0.25rem; }
