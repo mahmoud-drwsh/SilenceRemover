@@ -252,7 +252,8 @@ def list_files(
     token: str,
     project: str,
     type: Optional[Literal['audio', 'video']] = Query(None, description="Filter by type"),
-    tags: Optional[str] = Query(None, description="Comma-separated tags (AND logic)")
+    tags: Optional[str] = Query(None, description="Comma-separated tags (AND logic)"),
+    sort: Optional[Literal['asc', 'desc']] = Query('asc', description="Sort order: asc or desc")
 ):
     verify_token(token)
     """
@@ -261,6 +262,7 @@ def list_files(
     - No tags: Returns all files except those with 'trash' tag
     - tags=trash: Returns only trashed files
     - tags=FB,TT: Returns files with BOTH tags (AND logic)
+    - sort=asc|desc: Sort by ID ascending (default) or descending
     """
     conn = get_db()
     tag_list = parse_tags(tags)
@@ -295,13 +297,15 @@ def list_files(
         params.append('%"trash"%')
 
     where_clause = " AND ".join(conditions)
+    # Validate sort direction to prevent SQL injection
+    sort_direction = 'ASC' if sort == 'asc' else 'DESC'
 
     rows = conn.execute(
         f'''
         SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at
         FROM files
         WHERE {where_clause}
-        ORDER BY id ASC
+        ORDER BY id {sort_direction}
         ''',
         params
     ).fetchall()
