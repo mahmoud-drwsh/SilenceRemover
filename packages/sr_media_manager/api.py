@@ -224,7 +224,9 @@ class MediaManagerClient:
         # Pre-flight check if requested
         if skip_if_exists_with_title:
             exists, title_matches = self.check_video_exists(file_id, title)
+            print(f"[DEBUG] upload_video pre-flight: id={file_id}, exists={exists}, title_matches={title_matches}")
             if exists and title_matches:
+                print(f"[DEBUG] SKIPPING upload for {file_id} - same title found")
                 # Silent skip - no terminal clutter
                 return {
                     'success': True,
@@ -233,6 +235,7 @@ class MediaManagerClient:
                     'overwritten': False,
                     'error': None
                 }
+            print(f"[DEBUG] CONTINUING upload for {file_id} - will upload/overwrite")
             # If exists but title differs, continue to upload (overwrite)
 
         try:
