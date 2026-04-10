@@ -498,6 +498,19 @@ def run_video_upload_phase(
         print(f"    Then re-run the pipeline to re-encode with new title")
         return False
     
+    # Pre-flight check: silently skip if video already on server with same title
+    if media_manager_enabled:
+        try:
+            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+            exists, title_matches = client.check_video_exists(file_id, title)
+            client.close()
+            if exists and title_matches:
+                # Silent skip - no terminal output
+                return None
+        except Exception:
+            # Fail open - continue to upload attempt
+            pass
+    
     # Upload
     def _perform() -> None:
         video_size_mb = output_path.stat().st_size / (1024 * 1024)

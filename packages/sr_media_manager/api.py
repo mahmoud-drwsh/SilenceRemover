@@ -113,9 +113,6 @@ class MediaManagerClient:
                 exists = file_info.get('exists', False)
                 would_overwrite = file_info.get('would_overwrite')
                 
-                # Debug: print what server returned (remove after fixing)
-                print(f"[DEBUG] check_video_exists: id={file_id}, exists={exists}, would_overwrite={would_overwrite}")
-                
                 if exists and would_overwrite is False:
                     # exists=True and would_overwrite=False means same title
                     return (True, True)
@@ -126,12 +123,10 @@ class MediaManagerClient:
 
             # No match with this title - check if file exists at all
             exists = self.check_exists(file_id, file_type='video')
-            print(f"[DEBUG] Falling back to check_exists: id={file_id}, exists={exists}")
             return (exists, False)
 
-        except Exception as e:
+        except Exception:
             # Fail open - assume doesn't exist to allow upload attempt
-            print(f"[DEBUG] check_video_exists exception: {e}")
             return (False, False)
 
     def upload_audio(self, file_id: str, title: str, audio_path: Path, tags: list = None,
@@ -224,9 +219,7 @@ class MediaManagerClient:
         # Pre-flight check if requested
         if skip_if_exists_with_title:
             exists, title_matches = self.check_video_exists(file_id, title)
-            print(f"[DEBUG] upload_video pre-flight: id={file_id}, exists={exists}, title_matches={title_matches}")
             if exists and title_matches:
-                print(f"[DEBUG] SKIPPING upload for {file_id} - same title found")
                 # Silent skip - no terminal clutter
                 return {
                     'success': True,
@@ -235,7 +228,6 @@ class MediaManagerClient:
                     'overwritten': False,
                     'error': None
                 }
-            print(f"[DEBUG] CONTINUING upload for {file_id} - will upload/overwrite")
             # If exists but title differs, continue to upload (overwrite)
 
         try:
