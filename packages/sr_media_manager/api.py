@@ -84,7 +84,39 @@ class MediaManagerClient:
             return any(f.get('id') == file_id for f in files)
         except Exception:
             return False
-    
+
+    def check_video_exists(self, file_id: str, title: str) -> tuple[bool, bool]:
+        """Check if video exists and if title matches.
+
+        Args:
+            file_id: Video identifier
+            title: Expected title to compare
+
+        Returns:
+            tuple(exists, title_matches)
+            - (False, False): Video not on server
+            - (True, True): Video exists with same title
+            - (True, False): Video exists but title differs (will overwrite)
+        """
+        try:
+            # Query with both id and title filter
+            url = self._url(f'/api/files?type=video&id={file_id}&title={title}')
+            resp = self._client.get(url)
+            resp.raise_for_status()
+            files = resp.json()
+
+            if files:
+                # Found with matching title
+                return (True, True)
+
+            # No match with this title - check if file exists at all
+            exists = self.check_exists(file_id, file_type='video')
+            return (exists, False)
+
+        except Exception:
+            # Fail open - assume doesn't exist to allow upload attempt
+            return (False, False)
+
     def upload_audio(self, file_id: str, title: str, audio_path: Path, tags: list = None,
                      progress_callback: callable = None) -> bool:
         """Upload audio snippet with title and tags.
@@ -142,30 +174,59 @@ class MediaManagerClient:
         except Exception as e:
             raise MediaManagerError(f"Audio upload failed for {file_id}: {e}")
     
-    def upload_video(self, file_id: str, title: str, video_path: Path, tags: list = None, 
-                     progress_callback: callable = None) -> bool:
+    def upload_video(
+        self,
+        file_id: str,
+        title: str,
+        video_path: Path,
+        tags: list = None,
+        progress_callback: callable = None,
+        skip_if_exists_with_title: bool = False
+    ) -> dict:
         """Upload final video with title and tags.
-        
+
         Args:
             file_id: Unique identifier (usually video basename)
             title: Title/caption for the video
             video_path: Path to video file
             tags: List of tags (default: ["FB", "TT"])
             progress_callback: Optional callback(uploaded_bytes, total_bytes) for progress updates
-        
-        Returns True on success.
+            skip_if_exists_with_title: If True, check existence+title before upload to avoid unnecessary transfers
+
+        Returns:
+            {
+                'success': bool,
+                'uploaded': bool,      # Bytes were actually transferred
+                'skipped': bool,       # Existed with same title, not uploaded
+                'overwritten': bool,   # Server replaced existing file
+                'error': str or None
+            }
         """
         tags = tags or ['FB', 'TT']
-        
+
+        # Pre-flight check if requested
+        if skip_if_exists_with_title:
+            exists, title_matches = self.check_video_exists(file_id, title)
+            if exists and title_matches:
+                # Silent skip - no terminal clutter
+                return {
+                    'success': True,
+                    'uploaded': False,
+                    'skipped': True,
+                    'overwritten': False,
+                    'error': None
+                }
+            # If exists but title differs, continue to upload (overwrite)
+
         try:
             mime_type = 'video/mp4'
             if video_path.suffix == '.mov':
                 mime_type = 'video/quicktime'
             elif video_path.suffix == '.webm':
                 mime_type = 'video/webm'
-            
+
             total_size = video_path.stat().st_size
-            
+
             # Progress-tracking file wrapper
             class ProgressFile:
                 def __init__(self, file_path, callback, total):
@@ -173,7 +234,7 @@ class MediaManagerClient:
                     self._callback = callback
                     self._total = total
                     self._uploaded = 0
-                
+
                 def read(self, size=-1):
                     data = self._file.read(size)
                     if data:
@@ -181,13 +242,13 @@ class MediaManagerClient:
                         if self._callback:
                             self._callback(self._uploaded, self._total)
                     return data
-                
+
                 def __enter__(self):
                     return self
-                
+
                 def __exit__(self, *args):
                     self._file.close()
-            
+
             with ProgressFile(video_path, progress_callback, total_size) as pf:
                 files = {'file': (video_path.name, pf, mime_type)}
                 data = {
@@ -201,9 +262,29 @@ class MediaManagerClient:
                     data=data,
                     files=files
                 )
-            return resp.status_code in (200, 201, 409)
+                resp.raise_for_status()
+
+                response_json = resp.json()
+                overwritten = response_json.get('overwritten', False) if isinstance(response_json, dict) else False
+
+                if overwritten:
+                    print(f"[Media Manager] Video {file_id} overwritten on server")
+
+                return {
+                    'success': True,
+                    'uploaded': True,
+                    'skipped': False,
+                    'overwritten': overwritten,
+                    'error': None
+                }
         except Exception as e:
-            raise MediaManagerError(f"Video upload failed for {file_id}: {e}")
+            return {
+                'success': False,
+                'uploaded': False,
+                'skipped': False,
+                'overwritten': False,
+                'error': str(e)
+            }
     
     def update_tags(self, file_id: str, tags: list) -> bool:
         """Update file tags."""

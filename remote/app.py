@@ -93,6 +93,7 @@ class UploadResponse(BaseModel):
     ok: bool
     id: str
     type: str
+    overwritten: bool = False
 
 
 def init_db():
@@ -228,6 +229,13 @@ def validate_audio_tags(tags: List[str]) -> List[str]:
     return tags
 
 
+def normalize_title(title: Optional[str]) -> str:
+    """Normalize title for comparison: strip whitespace, treat None as empty string."""
+    if title is None:
+        return ""
+    return title.strip()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
@@ -253,7 +261,9 @@ def list_files(
     project: str,
     type: Optional[Literal['audio', 'video']] = Query(None, description="Filter by type"),
     tags: Optional[str] = Query(None, description="Comma-separated tags (AND logic)"),
-    sort: Optional[Literal['asc', 'desc']] = Query('asc', description="Sort order: asc or desc")
+    sort: Optional[Literal['asc', 'desc']] = Query('asc', description="Sort order: asc or desc"),
+    check_id: Optional[str] = Query(None, description="Pre-flight: check specific ID for existence"),
+    check_title: Optional[str] = Query(None, description="Pre-flight: check if title matches (requires check_id)")
 ):
     verify_token(token)
     """
@@ -263,8 +273,82 @@ def list_files(
     - tags=trash: Returns only trashed files
     - tags=FB,TT: Returns files with BOTH tags (AND logic)
     - sort=asc|desc: Sort by ID ascending (default) or descending
+    - check_id: Pre-flight check for specific ID (returns single-item list if exists)
+    - check_id + check_title: Returns match info indicating if overwrite would occur
     """
     conn = get_db()
+    
+    # Pre-flight check mode: check_id provided
+    if check_id:
+        # Sanitize check_id
+        check_id = sanitize_file_id(check_id)
+        if not check_id:
+            conn.close()
+            raise HTTPException(400, "Invalid check_id")
+        
+        # Query specific ID+project+type (type is required for pre-flight)
+        if not type:
+            conn.close()
+            raise HTTPException(400, "Type parameter is required when using check_id")
+        
+        row = conn.execute(
+            '''SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at 
+               FROM files WHERE id = ? AND project = ? AND type = ?''',
+            (check_id, project, type)
+        ).fetchone()
+        conn.close()
+        
+        if row:
+            existing_title = normalize_title(row['title'])
+            
+            # If check_title provided, determine match/overwrite status
+            if check_title is not None:
+                check_title_normalized = normalize_title(check_title)
+                would_overwrite = (existing_title != check_title_normalized)
+                
+                # Return with match info
+                response = FileResponseModel(
+                    id=row['id'],
+                    project=row['project'],
+                    type=row['type'],
+                    title=row['title'],
+                    tags=json.loads(row['tags']),
+                    duration=row['duration'],
+                    file_size=row['file_size'],
+                    mime_type=row['mime_type'],
+                    created_at=row['created_at']
+                )
+                # Add extra fields via JSONResponse
+                return JSONResponse(content=[{
+                    **response.model_dump(),
+                    "exists": True,
+                    "would_overwrite": would_overwrite,
+                    "existing_title": existing_title,
+                    "provided_title": check_title_normalized
+                }])
+            
+            # No check_title, just return the file info
+            return [FileResponseModel(
+                id=row['id'],
+                project=row['project'],
+                type=row['type'],
+                title=row['title'],
+                tags=json.loads(row['tags']),
+                duration=row['duration'],
+                file_size=row['file_size'],
+                mime_type=row['mime_type'],
+                created_at=row['created_at']
+            )]
+        else:
+            # ID not found - return empty list with not_found info
+            return JSONResponse(content=[{
+                "exists": False,
+                "id": check_id,
+                "type": type,
+                "project": project
+            }])
+    
+    # Normal list mode (no check_id)
     tag_list = parse_tags(tags)
 
     # Build query
@@ -280,7 +364,7 @@ def list_files(
         if 'trash' in tag_list:
             # Specifically looking for trash - show only trash tag
             conditions.append("tags LIKE ?")
-            params.append('%"trash"%')
+            params.append('"%trash%"')
             # Add other tags if any
             for tag in tag_list:
                 if tag != 'trash':
@@ -294,7 +378,7 @@ def list_files(
     else:
         # No tags specified (ALL tab) - exclude trash only, include empty tags
         conditions.append("tags NOT LIKE ?")
-        params.append('%"trash"%')
+        params.append('"%trash%"')
 
     where_clause = " AND ".join(conditions)
     # Validate sort direction to prevent SQL injection
@@ -344,6 +428,14 @@ async def upload_file(
     - id: Unique identifier (filename without extension recommended)
     - type: 'audio' or 'video'
     - tags: JSON array string (e.g., '["todo"]' for audio, '["FB","TT"]' for video)
+    
+    Video overwrite behavior:
+    - Same title → 409 CONFLICT
+    - Different title → overwrite (delete old, insert new)
+    - Returns "overwritten": true in response
+    
+    Audio behavior:
+    - Always 409 on duplicate (strict, no overwrite)
     """
     # Sanitize file ID to prevent path traversal
     id = sanitize_file_id(id)
@@ -351,15 +443,46 @@ async def upload_file(
         raise HTTPException(400, "Invalid file ID")
     
     conn = get_db()
-
-    # Check if ID+TYPE combination already exists (allows same ID for audio vs video)
+    overwritten = False
+    
+    # Check if ID+TYPE+PROJECT combination already exists with full details
     existing = conn.execute(
-        'SELECT id FROM files WHERE id = ? AND project = ? AND type = ?',
+        'SELECT id, title, mime_type, file_size, duration FROM files WHERE id = ? AND project = ? AND type = ?',
         (id, project, type)
     ).fetchone()
+    
     if existing:
-        conn.close()
-        raise HTTPException(409, f"File with id '{id}' and type '{type}' already exists")
+        # Audio: always 409 (strict, no overwrite)
+        if type == 'audio':
+            conn.close()
+            raise HTTPException(409, f"Audio file with id '{id}' already exists")
+        
+        # Video: compare titles to determine overwrite
+        old_title = normalize_title(existing['title'])
+        new_title = normalize_title(title)
+        
+        if old_title == new_title:
+            # Same title → 409 CONFLICT
+            conn.close()
+            raise HTTPException(409, "Video with same title already exists")
+        else:
+            # Different title → OVERWRITE
+            print(f"[OVERWRITE] Video '{id}': title changed from '{old_title}' to '{new_title}'")
+            
+            # Delete old physical file
+            old_ext = get_file_extension(existing['mime_type'])
+            old_path = resolve_file_path(type, project, id, old_ext)
+            if old_path.exists():
+                try:
+                    old_path.unlink()
+                    print(f"[OVERWRITE] Deleted old file: {old_path}")
+                except Exception as e:
+                    print(f"[OVERWRITE WARNING] Failed to delete old file {old_path}: {e}")
+            
+            # Delete from database
+            conn.execute('DELETE FROM files WHERE id = ? AND project = ? AND type = ?', (id, project, type))
+            conn.commit()
+            overwritten = True
 
     # Parse and validate tags
     try:
@@ -422,7 +545,7 @@ async def upload_file(
     conn.commit()
     conn.close()
 
-    return UploadResponse(ok=True, id=id, type=type)
+    return UploadResponse(ok=True, id=id, type=type, overwritten=overwritten)
 
 
 @app.put("/{token}/{project}/api/files/{id}")

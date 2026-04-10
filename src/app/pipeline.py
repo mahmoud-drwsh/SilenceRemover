@@ -523,15 +523,24 @@ def run_video_upload_phase(
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         start_time = time.time()
         try:
-            result = client.upload_video(file_id, title, output_path, tags=['FB', 'TT'], 
-                                        progress_callback=progress_callback)
+            result = client.upload_video(
+                file_id, title, output_path, tags=['FB', 'TT'],
+                progress_callback=progress_callback,
+                skip_if_exists_with_title=True
+            )
             elapsed = time.time() - start_time
             speed_mbps = video_size_mb / elapsed if elapsed > 0 else 0
-            if result:
-                # \n to move to new line after progress bar
-                print(f"\n  ✓ Video uploaded in {elapsed:.1f}s ({speed_mbps:.1f} MB/s)")
+            if result.get('success'):
+                # Only print when overwritten to keep terminal clean
+                if result.get('overwritten'):
+                    print(f"\n  ✓ Video uploaded (overwrote previous) in {elapsed:.1f}s ({speed_mbps:.1f} MB/s)")
+                elif result.get('skipped'):
+                    print()  # Just move to new line after progress bar, no message
+                else:
+                    print()  # Just move to new line after progress bar, no message
             else:
-                print(f"\n  \033[91m✗ Video upload failed for {file_id}\033[0m")
+                error_msg = result.get('error', 'Unknown error')
+                print(f"\n  \033[91m✗ Video upload failed for {file_id}: {error_msg}\033[0m")
         finally:
             client.close()
     

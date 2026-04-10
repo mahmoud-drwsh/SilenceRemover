@@ -14,6 +14,7 @@ from .upload import (
     get_uploaded_audio_ids,
     get_uploaded_video_ids,
     check_uploaded,
+    check_uploaded_with_title,
 )
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     'get_uploaded_audio_ids',
     'get_uploaded_video_ids',
     'check_uploaded',
+    'check_uploaded_with_title',
 ]
 
 # Backwards compatibility alias for old import name
