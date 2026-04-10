@@ -469,9 +469,9 @@ def run_video_upload_phase(
         # Audio not approved yet - skip silently
         return None
     
-    # Check if video already uploaded
-    if file_id in uploaded_video_ids:
-        return None  # Already uploaded
+    # Note: We no longer check uploaded_video_ids here.
+    # The upload_video() function with skip_if_exists_with_title=True
+    # will handle title-aware skipping/overwriting efficiently.
     
     # Precondition: title must exist
     if not title_path.exists():
