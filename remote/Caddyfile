@@ -1,25 +1,26 @@
-# Caddyfile for MP3 Manager SPA
+# Caddyfile for Media Manager SPA
 # Replace YOUR_DOMAIN with your actual domain
 
 YOUR_DOMAIN {
-    # Static files served directly by Caddy (zero Flask CPU)
-    handle_path /static/* {
-        root * /var/lib/mp3-manager/static
-        file_server
-        header Cache-Control "public, max-age=86400"
+    header {
+        Referrer-Policy "same-origin"
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
     }
     
-    # API endpoints go to Flask
+    # === MEDIA MANAGER (port 8080) - Everything proxied, token required ===
+    # API routes
     handle_path /api/* {
         reverse_proxy localhost:8080
     }
     
-    # Audio streaming
+    # Stream routes
     handle_path /stream/* {
         reverse_proxy localhost:8080
     }
     
-    # Everything else (SPA routes) goes to Flask (serves index.html)
+    # All other routes (static files, SPA) - go to FastAPI with token auth
     reverse_proxy localhost:8080
     
     # Automatic HTTPS (Caddy handles certificates)

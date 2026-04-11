@@ -364,7 +364,7 @@ def list_files(
         if 'trash' in tag_list:
             # Specifically looking for trash - show only trash tag
             conditions.append("tags LIKE ?")
-            params.append('"%trash%"')
+            params.append('%"trash"%')
             # Add other tags if any
             for tag in tag_list:
                 if tag != 'trash':
@@ -378,7 +378,7 @@ def list_files(
     else:
         # No tags specified (ALL tab) - exclude trash only, include empty tags
         conditions.append("tags NOT LIKE ?")
-        params.append('"%trash%"')
+        params.append('%"trash"%')
 
     where_clause = " AND ".join(conditions)
     # Validate sort direction to prevent SQL injection
@@ -719,6 +719,22 @@ async def stream_file(token: str, project: str, id: str, request: Request, type:
         filename=download_filename
     )
 
+
+
+
+@app.get("/{token}/{project}/static/{filepath:path}")
+def serve_static(token: str, project: str, filepath: str):
+    """Serve static files (JS/CSS) with token authentication."""
+    verify_token(token)
+    static_file = Path(__file__).parent / 'static' / filepath
+    # Security: ensure path doesn't escape static directory
+    try:
+        static_file.resolve().relative_to((Path(__file__).parent / 'static').resolve())
+    except ValueError:
+        raise HTTPException(403, "Invalid path")
+    if not static_file.exists():
+        raise HTTPException(404, "File not found")
+    return FileResponse(static_file)
 
 # API endpoints start with /api/ or /stream/
 # Everything else serves the SPA (for client-side routing)

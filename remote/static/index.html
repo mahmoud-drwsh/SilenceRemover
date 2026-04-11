@@ -28,8 +28,8 @@
 
         /* Bottom navigation - fixed at bottom */
         #bottom-nav { background: #2a2a2a; border-top: 1px solid #333; padding: 0.75rem; flex-shrink: 0; }
-        .filter-tabs { display: flex; gap: 0.5rem; }
-        .filter-tabs button { flex: 1; padding: 0.75rem 0.5rem; border: none; background: #333; color: #fff; border-radius: 4px; cursor: pointer; font-size: 0.9rem; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .filter-tabs { display: flex; gap: 0.35rem; }
+        .filter-tabs button { flex: 1; padding: 0.6rem 0.4rem; border: none; background: #333; color: #fff; border-radius: 4px; cursor: pointer; font-size: 0.9rem; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .filter-tabs button.active { background: #4a9eff; }
 
         /* File list */
@@ -54,9 +54,9 @@
         .audio-card { display: block; padding: 0.25rem; }
         .audio-row { display: flex; gap: 0.25rem; align-items: center; margin: 0; padding: 0; }
         .audio-player { flex: 1; margin: 0; padding: 0; }
-        .audio-player audio { width: 100%; height: 28px; margin: 0; padding: 0; display: block; }
+        .audio-player audio { width: 100%; height: 32px; margin: 0; padding: 0; display: block; }
         .audio-title-edit { width: 100%; margin: 0.25rem 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
-        .audio-title-edit textarea { width: 100%; background: #1a1a1a; border: 1px solid #444; color: #fff; padding: 0.25rem; border-radius: 4px; font-family: inherit; font-size: 0.85rem; resize: none; min-height: 36px; margin: 0; display: block; line-height: 1.2; vertical-align: top; }
+        .audio-title-edit textarea { width: 100%; background: #1a1a1a; border: 1px solid #444; color: #fff; padding: 0.25rem; border-radius: 4px; font-family: inherit; font-size: 0.85rem; resize: none; min-height: 36px; margin: 0; display: block; line-height: 1.2; vertical-align: top; unicode-bidi: plaintext; }
         .audio-title-edit textarea:focus { outline: none; border-color: #4a9eff; }
         .save-status { font-size: 0.65rem; color: #888; height: auto; min-height: 0; margin: 0; padding: 0; line-height: 1; }
         .save-status.saved { color: #44ff44; }
@@ -66,6 +66,7 @@
         .btn { padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
         .btn-primary { background: #4a9eff; color: #fff; }
         .btn-secondary { background: #3a3a3a; color: #fff; }
+        .btn-secondary.btn-downloaded { background: #2d5a2d; color: #fff; opacity: 0.85; }
         .btn-ready { background: #2d5a2d; color: #fff; }  /* Dark green for ready state */
         .btn-todo { background: #3a3a3a; color: #fff; }   /* Dark gray for todo state */
         .btn-danger { background: #ff4444; color: #fff; }
@@ -120,7 +121,38 @@
             .file-actions .btn-primary, .file-actions .btn-secondary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
             audio { width: 100%; }
         }
-    </style>
+    /* === MOBILE IMPROVEMENTS === */
+@media (max-width: 480px) {
+    html { font-size: 18px; }
+    body { gap: 0.5rem; }
+    header { padding: 0.75rem; gap: 0.75rem; }
+    header h1 { font-size: 1.1rem; }
+    .section-tabs button { padding: 0.6rem 0.8rem; font-size: 0.95rem; min-height: 44px; }
+    .sort-toggle { padding: 0.6rem; min-height: 44px; min-width: 44px; }
+    #bottom-nav { padding: 0.4rem; }
+    .filter-tabs button { padding: 0.55rem 0.35rem; font-size: 0.75rem; min-height: 48px; border-radius: 8px; }
+    main { padding: 0.5rem; }
+    .file-list { gap: 0.35rem; }
+    .file-card { padding: 0.5rem; gap: 0.35rem; border-radius: 8px; }
+    .file-icon { width: 56px; height: 56px; font-size: 1.75rem; }
+    .file-title { font-size: 1rem; }
+    .file-meta { font-size: 0.9rem; }
+    .tag { padding: 0.3rem 0.7rem; font-size: 0.85rem; border-radius: 6px; }
+    .file-actions button, .file-actions a.btn { padding: 0.6rem 1rem; font-size: 0.95rem; min-height: 44px; min-width: 44px; border-radius: 8px; }
+    .audio-card { padding: 0.5rem; }
+    .audio-player audio { height: 40px; }
+    .audio-title-edit textarea { font-size: 1rem; padding: 0.5rem; min-height: 44px; unicode-bidi: plaintext; }
+    .audio-actions button { min-height: 40px; font-size: 0.9rem; }
+    .context-menu { position: fixed; left: 50% !important; top: 50% !important; transform: translate(-50%, -50%); width: 90vw; max-width: 300px; border-radius: 12px; }
+    .context-menu-item { padding: 1rem; font-size: 1rem; }
+    .confirm-modal, .folder-modal { width: 90vw; max-width: none; margin: 1rem; padding: 1.5rem; }
+    .confirm-title, .folder-title { font-size: 1.25rem; }
+    .confirm-message { font-size: 1rem; }
+    .confirm-actions button, .folder-actions button { padding: 1rem; font-size: 1rem; min-height: 48px; }
+}
+@media (max-width: 360px) { html { font-size: 16px; } }
+@media (min-width: 481px) and (max-width: 768px) { html { font-size: 17px; } .file-card { padding: 1rem; } .filter-tabs button { min-height: 46px; } }
+</style>
 </head>
 <body>
     <header>
@@ -322,6 +354,8 @@
 
         async function loadFiles() {
             const content = document.getElementById('content');
+            const label = getTabLabel(currentFilter);
+            document.querySelector('header h1').innerHTML = `📁 ${label}`;
             content.innerHTML = '<div class="loading">Loading...</div>';
 
             try {
@@ -342,10 +376,16 @@
 
                 if (files.length === 0) {
                     content.innerHTML = `<div class="empty">No ${currentSection} files ${currentFilter !== 'all' ? `with "${currentFilter}" tag` : ''}</div>`;
+                    const label = getTabLabel(currentFilter);
+                    document.querySelector('header h1').innerHTML = `📁 ${label} (0)`;
                     return;
                 }
 
                 content.innerHTML = `<div class="file-list">${files.map(f => renderFileCard(f)).join('')}</div>`;
+                
+                // Update header with count
+                const label = getTabLabel(currentFilter);
+                document.querySelector('header h1').innerHTML = `📁 ${label} (${files.length})`;
             } catch (err) {
                 content.innerHTML = `<div class="error">Error: ${err.message}</div>`;
             }
@@ -392,9 +432,14 @@
                     // In TikTok folder: show Remove from TikTok
                     menuItem = `<div class="context-menu-item danger" onclick="confirmRemoveFromFolder('${safeId}', '${safeTitle}', 'TikTok'); hideContextMenu('${safeId}')">📱 Remove from TikTok</div>`;
                 }
+                const dlKey = 'dl-' + '${safeId}';
+                const isDownloaded = sessionStorage.getItem(dlKey);
+                const dlClass = isDownloaded ? 'btn btn-secondary btn-downloaded' : 'btn btn-secondary';
+                const dlText = isDownloaded ? '✓ Downloaded' : '⬇️ Download';
+                
                 actionsHtml = `
                     <button class="btn btn-primary" onclick="playVideo('${safeId}', '${escapeHtml(title)}')">▶️ Play</button>
-                    <a href="${videoStreamUrl}" class="btn btn-secondary" download>⬇️ Download</a>
+                    <a href="${videoStreamUrl}" class="${dlClass}" download id="dl-btn-${safeId}" onclick="sessionStorage.setItem('dl-' + '${safeId}', '1'); this.classList.add('btn-downloaded'); this.textContent='✓ Downloaded';">${dlText}</a>
                     <div class="menu-container">
                         <button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button>
                         <div class="context-menu" id="menu-${file.id}">
@@ -443,7 +488,7 @@
                 actionsHtml = `${buttons.join('')}<div class="menu-container"><button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${file.id}"><div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div></div></div>`;
             }
 
-            return `<div class="file-card audio-card" data-id="${file.id}" data-tags="${tagsJson}"><div class="audio-row"><div class="audio-player"><audio controls preload="none"><source src="${streamUrl}" type="${file.mime_type}"></audio></div></div><div class="audio-title-edit"><textarea data-file-id="${file.id}" placeholder="Title..." oninput="debouncedTitleUpdate(this)">${escapeHtml(title)}</textarea><div style="color: #666; font-size: 0.7rem; margin-top: 2px;">${escapeHtml(file.id)}</div><div class="save-status" id="status-${file.id}"></div></div><div class="audio-actions">${actionsHtml}</div></div>`;
+            return `<div class="file-card audio-card" data-id="${file.id}" data-tags="${tagsJson}"><div class="audio-row"><div class="audio-player"><audio controls preload="none"><source src="${streamUrl}" type="${file.mime_type}"></audio></div></div><div class="audio-title-edit"><textarea data-file-id="${file.id}" placeholder="Title..." dir="auto" oninput="debouncedTitleUpdate(this)">${escapeHtml(title)}</textarea><div style="color: #666; font-size: 0.7rem; margin-top: 2px;">${escapeHtml(file.id)}</div><div class="save-status" id="status-${file.id}"></div></div><div class="audio-actions">${actionsHtml}</div></div>`;
         }
 
         async function deleteFile(fileId) {
