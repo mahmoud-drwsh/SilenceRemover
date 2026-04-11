@@ -1,15 +1,62 @@
 #!/bin/bash
 # Deploy Media Manager to server and auto-install service
-# Usage: ./deploy.sh user@server
+# Usage: ./deploy.sh [--sync-only] user@server
+#
+# IMPORTANT SAFETY GUARANTEE:
+#   This script NEVER deletes files on the remote server - ever.
+#   Even if you delete files locally, they will NOT be deleted on the server.
+#   Remote file deletions must be done manually via SSH.
+#
+# Options:
+#   --sync-only    Sync files without restarting the service (safe deploy)
+#                  Use this to update code and restart manually later.
 
 set -e
 
-SERVER="${1:-}"
+# Parse arguments
+SYNC_ONLY=false
+SERVER=""
+
+for arg in "$@"; do
+    case $arg in
+        --sync-only)
+            SYNC_ONLY=true
+            shift
+            ;;
+        -*)
+            echo "Unknown option: $arg"
+            echo "Usage: ./deploy.sh [--sync-only] root@myserver.com"
+            exit 1
+            ;;
+        *)
+            SERVER="$arg"
+            ;;
+    esac
+done
+
 REMOTE_DIR="/var/lib/media-manager"
 
 if [ -z "$SERVER" ]; then
-    echo "Usage: ./deploy.sh root@myserver.com"
+    echo "Usage: ./deploy.sh [--sync-only] root@myserver.com"
+    echo ""
+    echo "Options:"
+    echo "  --sync-only    Sync files without restarting the service"
+    echo "                 (restart manually with: systemctl restart media-manager)"
+    echo ""
+    echo "SAFETY: This script NEVER deletes remote files."
+    echo "        Local deletions will NOT propagate to the server."
     exit 1
+fi
+
+echo "════════════════════════════════════════════════════════════════"
+echo "  SAFETY MODE: NO FILES WILL BE DELETED ON REMOTE SERVER"
+echo "  Local deletions will NOT propagate - manual cleanup required"
+echo "════════════════════════════════════════════════════════════════"
+echo ""
+
+if [ "$SYNC_ONLY" = true ]; then
+    echo "MODE: Sync-only (no service restart)"
+    echo ""
 fi
 
 echo "Deploying to $SERVER..."
@@ -17,7 +64,16 @@ echo "Deploying to $SERVER..."
 # 1. Ensure remote directory exists and sync files
 ssh "$SERVER" "mkdir -p $REMOTE_DIR"
 
+echo ""
+echo "Syncing files with DELETION PROTECTION..."
+echo "  Default rsync behavior: NO files deleted on remote"
+echo ""
+
+# Sync - rsync defaults to NOT deleting files (safe for older versions)
+# --ignore-errors       Continue even if some files fail (safer)
+# -v                    Verbose to show what's happening
 rsync -avz \
+    --ignore-errors \
     --exclude='.git' \
     --exclude='.DS_Store' \
     --exclude='.env' \
@@ -29,9 +85,11 @@ rsync -avz \
     --exclude='database.db' \
     ./ "$SERVER:$REMOTE_DIR/"
 
-echo "✓ Files synced"
+echo ""
+echo "✓ Sync complete - NO files were deleted on remote server"
+echo ""
 
-# 2. Install dependencies and service
+# 2. Install dependencies (safe to do while running)
 ssh "$SERVER" "
     cd $REMOTE_DIR
     
@@ -44,14 +102,14 @@ ssh "$SERVER" "
     # Ensure .env exists with MEDIA_TOKEN
     if [ ! -f '.env' ]; then
         echo 'Creating .env with MEDIA_TOKEN...'
-        TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(16))" 2>/dev/null || head /dev/urandom | tr -dc a-z0-9 | head -c 32)
-        echo "MEDIA_TOKEN=$TOKEN" > .env
-        echo "Generated token: $TOKEN"
+        TOKEN=\$(python3 -c 'import secrets; print(secrets.token_hex(16))' 2>/dev/null || head /dev/urandom | tr -dc a-z0-9 | head -c 32)
+        echo 'MEDIA_TOKEN='\$TOKEN > .env
+        echo 'Generated token: '\$TOKEN
     fi
     
-    # Install dependencies
-    echo 'Installing dependencies...'
-    venv/bin/pip install -r requirements.txt
+    # Install dependencies (can be done while service is running)
+    echo 'Installing/updating dependencies...'
+    venv/bin/pip install -r requirements.txt >/dev/null 2>&1 && echo 'Dependencies up to date'
     
     # Install systemd service if not already installed
     if [ ! -f /etc/systemd/system/media-manager.service ]; then
@@ -60,17 +118,40 @@ ssh "$SERVER" "
     fi
 "
 
-# 3. Start/restart the service
-ssh "$SERVER" "systemctl daemon-reload && systemctl restart media-manager"
-echo "✓ Service restarted"
+# 3. Restart service (unless --sync-only)
+if [ "$SYNC_ONLY" = true ]; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════════"
+    echo "  SYNC-ONLY DEPLOY COMPLETE"
+    echo "════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Files synced to: $REMOTE_DIR"
+    echo "Remote deletions: NONE (safety preserved)"
+    echo "Service status:   $(ssh "$SERVER" 'systemctl is-active media-manager 2>/dev/null || echo "unknown"')"
+    echo ""
+    echo "The service is still running the OLD code."
+    echo "New code is synced but NOT active."
+    echo ""
+    echo "To activate new code, restart manually:"
+    echo "  ssh $SERVER 'systemctl restart media-manager'"
+    echo ""
+    exit 0
+fi
 
-# 4. Wait a moment for service to initialize and get token
+# Full deploy with restart
+ssh "$SERVER" "systemctl daemon-reload && systemctl restart media-manager"
+echo "✓ Service restarted with new code"
+
+# Wait a moment for service to initialize and get token
 sleep 2
 
 echo ""
 echo "========================================"
 echo "Media Manager deployed successfully!"
 echo "========================================"
+echo ""
+echo "SAFETY REMINDER: No files were deleted on the remote server."
+echo "If you need to clean up old files, do it manually via SSH."
 echo ""
 
 # Get and display the token
