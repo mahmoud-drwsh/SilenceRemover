@@ -43,11 +43,13 @@ remote/
 ├── README.md               # This file
 ├── .gitignore              # Git exclusions
 ├── scripts/                # Helper scripts
-│   ├── local.sh            # Run locally
+│   ├── local.sh            # Run locally (dev server)
+│   ├── start.sh            # Start manually on VPS
 │   ├── migrate_db.py       # Database migration (old → new schema)
+│   ├── migrate_project_storage.py  # Migrate flat → project-prefixed storage
 │   ├── test_migration.py   # Test migration script
 │   ├── install-service.sh  # Install systemd service
-│   ├── test-api.sh         # API test suite
+│   ├── test-api.sh         # API test suite (bash)
 │   ├── test-api.py         # API test suite (Python)
 │   ├── list-db.sh          # View database
 │   └── generate-test-media.sh  # Create test files
@@ -74,15 +76,31 @@ remote/
 
 Projects are isolated both in the database (via `project` column) and on disk (via subdirectory). This allows the same file ID to exist in different projects without collision.
 
+## Query Parameters for GET /api/files
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | `audio` \| `video` | Filter by file type |
+| `tags` | comma-separated | AND logic - files must have ALL specified tags |
+| `sort` | `asc` (default) \| `desc` | Sort order by ID |
+| `check_id` | string | Pre-flight: check if specific ID exists |
+| `check_title` | string | Pre-flight: compare title (requires `check_id`) |
+
+**Pre-flight check example:**
+```bash
+# Check if audio exists and compare titles (returns would_overwrite flag)
+curl "https://your-domain.com/$TOKEN/ihya/api/files?type=audio&check_id=lesson-001&check_title=New Title"
+```
+
 ## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/<token>/<project>/api/files?type=audio\|video&tags=...` | GET | List files (optional filters) |
 | `/<token>/<project>/api/files` | POST | Upload audio/video |
-| `/<token>/<project>/api/files/<id>` | PUT | Update file tags/title |
-| `/<token>/<project>/api/files/<id>` | DELETE | Delete file permanently |
-| `/<token>/<project>/stream/<id>` | GET | Stream file |
+| `/<token>/<project>/api/files/<id>?type=audio\|video` | PUT | Update file tags/title (**type required**) |
+| `/<token>/<project>/api/files/<id>?type=audio\|video` | DELETE | Delete file permanently (**type required**) |
+| `/<token>/<project>/stream/<id>?type=audio\|video` | GET | Stream file (**type required**) |
 
 ## Migration from Old (Flask) Schema
 
@@ -145,6 +163,8 @@ nano /etc/caddy/Caddyfile
 systemctl start caddy
 systemctl enable caddy
 ```
+
+**Note:** The Media Manager uses token-prefixed paths (`/{token}/{project}/api/...`). The fallback `reverse_proxy` directive handles all routes—specific `/api/*` and `/stream/*` handlers in this example are optional since the FastAPI app validates tokens internally.
 
 ### Deploy and Start
 
@@ -237,8 +257,8 @@ curl -X POST https://your-domain.com/$TOKEN/ihya/api/files \
   -F "tags=[\"FB\", \"TT\"]" \
   -F "file=@output.mp4"
 
-# Mark audio as ready
-curl -X PUT https://your-domain.com/$TOKEN/ihya/api/files/video-basename \
+# Mark audio as ready (type parameter is required)
+curl -X PUT "https://your-domain.com/$TOKEN/ihya/api/files/video-basename?type=audio" \
   -H "Content-Type: application/json" \
   -d '{"tags": ["ready"]}'
 
