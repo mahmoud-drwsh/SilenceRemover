@@ -17,6 +17,9 @@
         .section-tabs button.active { background: #4a9eff; }
         .sort-toggle { background: #333; border: none; color: #fff; padding: 0.5rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 1rem; display: flex; align-items: center; gap: 0.25rem; }
         .sort-toggle:hover { background: #4a4a4a; }
+        .section-toggle { background: #333; border: none; color: #fff; padding: 0.5rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 1rem; display: none; align-items: center; gap: 0.25rem; margin-right: 0.5rem; }
+        .section-toggle:hover { background: #4a4a4a; }
+        .section-toggle.admin-visible { display: flex; }
 
         /* Main content area - scrollable */
         main { flex: 1; overflow-y: auto; padding: 1rem; max-width: 1200px; margin: 0 auto; width: 100%; box-sizing: border-box; }
@@ -157,8 +160,11 @@
 <body>
     <header>
         <h1>📁 Media Manager</h1>
+        <button id="section-toggle" class="section-toggle" onclick="toggleSection()" title="Switch section">
+            <span id="section-icon">🎵</span> <span id="section-label">Audio</span>
+        </button>
         <button id="sort-toggle" class="sort-toggle" onclick="toggleSort()" title="Toggle sort order">
-            <span id="sort-icon">🔼</span>
+            <span id="sort-label">Oldest</span>
         </button>
     </header>
 
@@ -273,6 +279,8 @@
             if (filter && filter !== 'all') {
                 path += `/${filter}`;
             }
+            // Preserve hash fragment (e.g., #admin)
+            path += window.location.hash;
             window.history.replaceState(null, '', path);
         }
 
@@ -282,6 +290,8 @@
             if (folder && folder !== 'all') {
                 path += `/${folder}`;
             }
+            // Preserve hash fragment (e.g., #admin)
+            path += window.location.hash;
             window.history.pushState(null, '', path);
             // Manually trigger update since pushState doesn't fire popstate
             const { section, folder: newFolder } = parsePath();
@@ -289,21 +299,76 @@
             showSection(section, newFolder, isStrict);
         }
 
+        function toggleSection() {
+            const newSection = currentSection === 'audio' ? 'video' : 'audio';
+            const newFolder = newSection === 'audio' ? 'todo' : 'all';
+            switchToFolderForSection(newSection, newFolder);
+        }
+
+        function switchToFolderForSection(section, folder) {
+            const sectionName = section === 'video' ? 'videos' : section;
+            let path = `/${TOKEN}/${PROJECT}/${sectionName}`;
+            if (folder && folder !== 'all') {
+                path += `/${folder}`;
+            }
+            // Preserve hash fragment (e.g., #admin)
+            path += window.location.hash;
+            window.history.pushState(null, '', path);
+            const { section: newSection, folder: newFolder } = parsePath();
+            const isStrict = newFolder !== null && !['all', 'trash'].includes(newFolder);
+            updateSectionButton(newSection);
+            showSection(newSection, newFolder, isStrict);
+        }
+
+        function updateSectionButton(section) {
+            const icon = document.getElementById('section-icon');
+            const label = document.getElementById('section-label');
+            const btn = document.getElementById('section-toggle');
+            const isAdmin = window.location.hash.includes('admin');
+            
+            if (section === 'audio') {
+                icon.textContent = '🎵';
+                label.textContent = 'Audio';
+            } else {
+                icon.textContent = '📹';
+                label.textContent = 'Video';
+            }
+            
+            // Show/hide section toggle based on admin mode
+            if (isAdmin) {
+                btn.classList.add('admin-visible');
+            } else {
+                btn.classList.remove('admin-visible');
+            }
+        }
+
         function renderTabs() {
             const container = document.getElementById('filter-tabs');
+            const isAdmin = window.location.hash.includes('admin');
 
-            // In strict isolation mode (URL has specific folder like /videos/FB), hide the tabs entirely
-            if (strictIsolation) {
+            // Video section: show tabs only in admin mode
+            if (currentSection === 'video' && !isAdmin) {
                 container.style.display = 'none';
                 document.getElementById('bottom-nav').style.display = 'none';
                 return;
             }
 
-            // Show tabs normally
+            // Strict isolation mode (specific folder URL): hide unless admin
+            if (strictIsolation && !isAdmin) {
+                container.style.display = 'none';
+                document.getElementById('bottom-nav').style.display = 'none';
+                return;
+            }
+
+            // Show tabs normally (audio always, video only with #admin)
             container.style.display = 'flex';
             document.getElementById('bottom-nav').style.display = 'block';
 
-            const tabs = currentSection === 'audio' ? AUDIO_TABS : VIDEO_TABS;
+            // Filter out 'all' and 'trash' unless in admin mode
+            const adminOnlyTabs = ['all', 'trash'];
+            const baseTabs = currentSection === 'audio' ? AUDIO_TABS : VIDEO_TABS;
+            const tabs = isAdmin ? baseTabs : baseTabs.filter(tab => !adminOnlyTabs.includes(tab));
+
             container.innerHTML = tabs.map(tab => {
                 const isActive = tab === currentFilter;
                 const label = getTabLabel(tab);
@@ -339,8 +404,8 @@
         }
 
         function updateSortButton() {
-            const icon = document.getElementById('sort-icon');
-            icon.textContent = currentSort === 'asc' ? '🔼' : '🔽';
+            const label = document.getElementById('sort-label');
+            label.textContent = currentSort === 'asc' ? 'Oldest' : 'Newest';
         }
 
         function initSortPreference() {
@@ -1039,7 +1104,13 @@
             initSortPreference();
             const { section, folder } = parsePath();
             const isStrict = folder !== null && !['all', 'trash'].includes(folder);
+            updateSectionButton(section);
             showSection(section, folder, isStrict);
+        });
+
+        // Re-render tabs when URL hash changes (for #admin toggle)
+        window.addEventListener('hashchange', () => {
+            renderTabs();
         });
     </script>
 </body>
