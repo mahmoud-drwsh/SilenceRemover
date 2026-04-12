@@ -98,3 +98,20 @@ def notify_final_output_ready(
         title=title,
     )
     _telegram_send_if_configured(f"✅ {body}")
+
+
+def notify_audio_uploaded(
+    *,
+    video_index: int,
+    total_videos: int,
+    input_name: str,
+    title: str,
+) -> None:
+    """Notify that audio snippet was uploaded to Media Manager (Phase 3)."""
+    body = _progress_body(
+        video_index=video_index,
+        total_videos=total_videos,
+        input_name=input_name,
+        title=title,
+    )
+    _telegram_send_if_configured(f"🎵 Audio uploaded: {body}")
