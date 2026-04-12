@@ -153,4 +153,14 @@ def parse_args() -> argparse.Namespace:
             "Requires MEDIA_MANAGER_URL environment variable."
         ),
     )
+    parser.add_argument(
+        "--skip-shorter-than",
+        type=_positive_float,
+        default=10.0,
+        help=(
+            "Minimum video duration in seconds (Phase 0). Videos shorter than this "
+            "are moved to input/ignored/ and skipped. Default: 10.0. "
+            "Skipped in quick-test mode."
+        ),
+    )
     return parser.parse_args()

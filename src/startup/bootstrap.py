@@ -30,6 +30,7 @@ class StartupContext:
     encoder: VideoEncoderProfile
     enable_title_overlay: bool
     enable_logo_overlay: bool
+    skip_shorter_than: float  # Phase 0: minimum video duration threshold
 
 
 def build_startup_context(args: Namespace) -> StartupContext:
@@ -79,4 +80,5 @@ def build_startup_context(args: Namespace) -> StartupContext:
         encoder=selected_encoder,
         enable_title_overlay=getattr(args, "enable_title_overlay", False),
         enable_logo_overlay=getattr(args, "enable_logo_overlay", False),
+        skip_shorter_than=getattr(args, "skip_shorter_than", 10.0),
     )

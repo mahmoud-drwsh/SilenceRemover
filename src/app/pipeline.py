@@ -708,7 +708,26 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     print(f"Temp: {startup.temp_dir}")
     print("-" * 60)
 
-    total_phases = 5
+    # PHASE 0: Filter short videos (skip if quick test mode)
+    videos = startup.videos
+    if not quick_test_enabled:
+        from src.core.video_filter import filter_short_videos
+        print(f"[0/6] Filtering videos shorter than {startup.skip_shorter_than}s...")
+        videos, ignored = filter_short_videos(
+            videos=videos,
+            input_dir=startup.input_dir,
+            min_duration_sec=startup.skip_shorter_than,
+            total_phases=6,
+        )
+        print(f"[0/6] Complete: {len(videos)} videos kept, {len(ignored)} moved to ignored/")
+    else:
+        print(f"[0/6] Skipped (quick test mode)")
+    
+    if not videos:
+        print("\nNo videos to process after filtering.")
+        return startup
+
+    total_phases = 6
     phases = (
         _PipelinePhase(
             1,
