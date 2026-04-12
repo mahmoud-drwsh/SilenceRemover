@@ -287,8 +287,8 @@ def run_audio_upload_phase(
         print(f"[3/{total_phases}] Fetching audio list from server...")
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            all_audio = client.get_audio_files()
-            # Count ALL audio files (including trash - they were already uploaded)
+            # Include trash files - they were already uploaded and should be skipped
+            all_audio = client.get_audio_files(include_trash=True)
             uploaded_ids = {f.get('id') for f in all_audio if f.get('id')}
             _audio_upload_cache[cache_key] = uploaded_ids
             client.close()

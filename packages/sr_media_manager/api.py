@@ -47,11 +47,12 @@ class MediaManagerClient:
         base = f"/projects/{self.token}/{self.project}{endpoint}"
         return urljoin(self.base_url, base)
     
-    def get_audio_files(self, tags: str = None) -> list[dict]:
+    def get_audio_files(self, tags: str = None, include_trash: bool = False) -> list[dict]:
         """Fetch audio files from API.
         
         Args:
             tags: Optional tag filter (e.g., "ready", "todo", "trash")
+            include_trash: If True, include trashed files even when no tag filter (default: False)
         
         Returns: [{"id": "...", "title": "...", "tags": [...], ...}, ...]
         """
@@ -59,6 +60,8 @@ class MediaManagerClient:
             url = self._url('/api/files?type=audio')
             if tags:
                 url += f'&tags={tags}'
+            if include_trash:
+                url += '&include_trash=true'
             resp = self._client.get(url)
             resp.raise_for_status()
             return resp.json()
