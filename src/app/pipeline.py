@@ -288,10 +288,14 @@ def run_audio_upload_phase(
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
             all_audio = client.get_audio_files()
-            uploaded_ids = {f.get('id') for f in all_audio if f.get('id')}
+            # Only count files NOT in trash (files in trash should be re-uploaded)
+            uploaded_ids = {
+                f.get('id') for f in all_audio 
+                if f.get('id') and 'trash' not in f.get('tags', [])
+            }
             _audio_upload_cache[cache_key] = uploaded_ids
             client.close()
-            print(f"[3/{total_phases}] Found {len(uploaded_ids)} uploaded audio files")
+            print(f"[3/{total_phases}] Found {len(uploaded_ids)} active audio files (excludes trash)")
         except Exception as e:
             print(f"[3/{total_phases}] \033[91mFailed to fetch audio list: {e}\033[0m")
             _audio_upload_cache[cache_key] = set()  # Empty set on failure
