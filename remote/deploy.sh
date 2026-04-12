@@ -99,12 +99,23 @@ ssh "$SERVER" "
         python3 -m venv venv
     fi
     
-    # Ensure .env exists with MEDIA_TOKEN
+    # Ensure .env exists with required tokens
     if [ ! -f '.env' ]; then
-        echo 'Creating .env with MEDIA_TOKEN...'
-        TOKEN=\$(python3 -c 'import secrets; print(secrets.token_hex(16))' 2>/dev/null || head /dev/urandom | tr -dc a-z0-9 | head -c 32)
-        echo 'MEDIA_TOKEN='\$TOKEN > .env
-        echo 'Generated token: '\$TOKEN
+        echo 'Creating .env with tokens...'
+        MEDIA_TOKEN=\$(python3 -c 'import secrets; print(secrets.token_hex(16))' 2>/dev/null || head /dev/urandom | tr -dc a-z0-9 | head -c 32)
+        ADMIN_TOKEN=\$(python3 -c 'import secrets; print(secrets.token_hex(16))' 2>/dev/null || head /dev/urandom | tr -dc a-z0-9 | head -c 32)
+        echo 'MEDIA_TOKEN='\$MEDIA_TOKEN > .env
+        echo 'ADMIN_TOKEN='\$ADMIN_TOKEN >> .env
+        echo 'Generated MEDIA_TOKEN: '\$MEDIA_TOKEN
+        echo 'Generated ADMIN_TOKEN: '\$ADMIN_TOKEN
+    else
+        # Ensure ADMIN_TOKEN exists in existing .env (for upgrades)
+        if ! grep -q '^ADMIN_TOKEN=' .env; then
+            echo 'Adding ADMIN_TOKEN to existing .env...'
+            ADMIN_TOKEN=\$(python3 -c 'import secrets; print(secrets.token_hex(16))' 2>/dev/null || head /dev/urandom | tr -dc a-z0-9 | head -c 32)
+            echo 'ADMIN_TOKEN='\$ADMIN_TOKEN >> .env
+            echo 'Generated ADMIN_TOKEN: '\$ADMIN_TOKEN
+        fi
     fi
     
     # Install dependencies (can be done while service is running)
@@ -154,21 +165,30 @@ echo "SAFETY REMINDER: No files were deleted on the remote server."
 echo "If you need to clean up old files, do it manually via SSH."
 echo ""
 
-# Get and display the token
-TOKEN=$(ssh "$SERVER" "cat $REMOTE_DIR/.env 2>/dev/null | grep MEDIA_TOKEN | cut -d= -f2" || echo "")
+# Get and display the tokens
+MEDIA_TOKEN=$(ssh "$SERVER" "cat $REMOTE_DIR/.env 2>/dev/null | grep MEDIA_TOKEN | cut -d= -f2" || echo "")
+ADMIN_TOKEN=$(ssh "$SERVER" "cat $REMOTE_DIR/.env 2>/dev/null | grep ADMIN_TOKEN | cut -d= -f2" || echo "")
 
-if [ -n "$TOKEN" ]; then
-    echo "Your token:"
+if [ -n "$MEDIA_TOKEN" ]; then
+    echo "Your MEDIA_TOKEN:"
+    echo "  $MEDIA_TOKEN"
     echo ""
-    echo "  $TOKEN"
+    echo "Project URLs:"
+    echo "  https://$SERVER/projects/\$MEDIA_TOKEN/<project>/"
+    echo "  https://$SERVER/projects/\$MEDIA_TOKEN/test-project/"
     echo ""
-    echo "Access URLs:"
-    echo "  https://$SERVER/\$TOKEN/<project>/"
-    echo "  https://$SERVER/\$TOKEN/test-project/"
 else
-    echo "Token not yet generated. First run may be initializing."
+    echo "MEDIA_TOKEN not yet generated. First run may be initializing."
     echo "Check with: ssh $SERVER 'cat $REMOTE_DIR/.env'"
 fi
 
-echo ""
+if [ -n "$ADMIN_TOKEN" ]; then
+    echo "Your ADMIN_TOKEN:"
+    echo "  $ADMIN_TOKEN"
+    echo ""
+    echo "Admin Dashboard:"
+    echo "  https://$SERVER/admin/\$ADMIN_TOKEN/"
+    echo ""
+fi
+
 echo "Service status: ssh $SERVER 'systemctl status media-manager'"
