@@ -281,9 +281,13 @@ def run_audio_upload_phase(
     if not snippet_path.exists():
         return False
     
+    # Early exit if Media Manager disabled - skip silently
+    if not media_manager_enabled:
+        return None
+    
     # Bulk fetch all audio files once at phase start (first call)
     cache_key = str(temp_dir)  # Unique per pipeline run
-    if media_manager_enabled and cache_key not in _audio_upload_cache:
+    if cache_key not in _audio_upload_cache:
         print(f"[3/{total_phases}] Fetching audio list from server...")
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
@@ -503,9 +507,13 @@ def run_video_upload_phase(
     basename = video_path.stem
     file_id = basename
     
+    # Early exit if Media Manager disabled - skip silently
+    if not media_manager_enabled:
+        return None
+    
     # Bulk fetch all ready audio and uploaded videos once at phase start (first call)
     cache_key = str(temp_dir)  # Unique per pipeline run
-    if media_manager_enabled and cache_key not in _video_upload_cache:
+    if cache_key not in _video_upload_cache:
         print(f"[5/{total_phases}] Fetching ready audio list from server...")
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
@@ -519,7 +527,7 @@ def run_video_upload_phase(
             _video_upload_cache[cache_key] = {}  # Empty dict on failure
     
     # Bulk fetch all uploaded videos once at phase start (first call)
-    if media_manager_enabled and cache_key not in _video_existence_cache:
+    if cache_key not in _video_existence_cache:
         print(f"[5/{total_phases}] Fetching video list from server...")
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
