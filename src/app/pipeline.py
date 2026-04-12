@@ -476,6 +476,8 @@ def run_output_phase(
 
 # Module-level cache for Phase 5 bulk fetch (cleared after phase completes)
 _video_upload_cache: dict[str, dict[str, str]] = {}
+# Cache for video existence check
+_video_existence_cache: dict[str, set[str]] = {}
 
 
 def run_video_upload_phase(
@@ -501,7 +503,7 @@ def run_video_upload_phase(
     basename = video_path.stem
     file_id = basename
     
-    # Bulk fetch all ready audio files once at phase start (first call)
+    # Bulk fetch all ready audio and uploaded videos once at phase start (first call)
     cache_key = str(temp_dir)  # Unique per pipeline run
     if media_manager_enabled and cache_key not in _video_upload_cache:
         print(f"[5/{total_phases}] Fetching ready audio list from server...")
@@ -515,9 +517,24 @@ def run_video_upload_phase(
         except Exception as e:
             print(f"[5/{total_phases}] \033[91mFailed to fetch ready audio list: {e}\033[0m")
             _video_upload_cache[cache_key] = {}  # Empty dict on failure
-        # Clear cache at end of phase (last file)
+    
+    # Bulk fetch all uploaded videos once at phase start (first call)
+    if media_manager_enabled and cache_key not in _video_existence_cache:
+        print(f"[5/{total_phases}] Fetching video list from server...")
+        try:
+            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+            all_videos = client.get_video_files()
+            uploaded_video_ids = {f.get('id') for f in all_videos if f.get('id')}
+            _video_existence_cache[cache_key] = uploaded_video_ids
+            client.close()
+            print(f"[5/{total_phases}] Found {len(uploaded_video_ids)} uploaded video files")
+        except Exception as e:
+            print(f"[5/{total_phases}] \033[91mFailed to fetch video list: {e}\033[0m")
+            _video_existence_cache[cache_key] = set()  # Empty set on failure
+        # Clear caches at end of phase (last file)
         if video_index == total_videos:
             _video_upload_cache.pop(cache_key, None)
+            _video_existence_cache.pop(cache_key, None)
     
     # Fast local lookup (no API call)
     ready_dict = _video_upload_cache.get(cache_key, {})
@@ -549,18 +566,9 @@ def run_video_upload_phase(
         print(f"    Then re-run the pipeline to re-encode with new title")
         return False
     
-    # Pre-flight check: skip if video already on server with same title
-    already_uploaded = False
-    if media_manager_enabled:
-        try:
-            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            exists, title_matches = client.check_video_exists(file_id, approved_title)
-            client.close()
-            if exists and title_matches:
-                already_uploaded = True
-        except Exception:
-            # Fail open - continue to upload attempt
-            pass
+    # Fast local lookup: skip if video already uploaded (no API call)
+    uploaded_video_ids = _video_existence_cache.get(cache_key, set())
+    already_uploaded = file_id in uploaded_video_ids
     
     if already_uploaded:
         # Update same line with status, then clear at end
