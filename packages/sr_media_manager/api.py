@@ -26,12 +26,19 @@ class MediaManagerClient:
         self.base_url = f"{parsed.scheme}://{parsed.netloc}"
         
         # Extract token and project from path
+        # URL format: https://host/projects/TOKEN/PROJECT/ or https://host/TOKEN/PROJECT/
         path_parts = parsed.path.strip('/').split('/')
-        if len(path_parts) < 2:
-            raise ValueError(f"URL must contain token/project: {full_url}")
         
-        self.token = path_parts[0]
-        self.project = path_parts[1]
+        # Skip 'projects' prefix if present (new URL format)
+        if len(path_parts) >= 3 and path_parts[0] == 'projects':
+            self.token = path_parts[1]
+            self.project = path_parts[2]
+        elif len(path_parts) >= 2:
+            # Legacy format without /projects/ prefix
+            self.token = path_parts[0]
+            self.project = path_parts[1]
+        else:
+            raise ValueError(f"URL must contain token/project: {full_url}")
         
         self._client = httpx.Client(timeout=DEFAULT_TIMEOUT)
     
