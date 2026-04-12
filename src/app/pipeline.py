@@ -249,6 +249,10 @@ def run_title_phase(
     )
 
 
+# Module-level cache for Phase 3 bulk fetch (cleared after phase completes)
+_audio_upload_cache: dict[str, set[str]] = {}
+
+
 def run_audio_upload_phase(
     video_path: Path,
     temp_dir: Path,
@@ -261,7 +265,7 @@ def run_audio_upload_phase(
     """Phase 3: Upload audio snippet to Media Manager for review.
     
     Uploads with tags=["todo"] so it appears in the TODO folder for review.
-    Checks API per-file to avoid re-uploading existing files.
+    Bulk fetches all audio files once at phase start for fast local lookup.
     Shows real-time status for all files (uploaded or skipped).
     """
     basename = video_path.stem
@@ -277,27 +281,34 @@ def run_audio_upload_phase(
     if not snippet_path.exists():
         return False
     
-    # Check if already uploaded using per-file API call
-    already_uploaded = False
-    if media_manager_enabled:
-        # Show checking status on single line that updates in-place
-        short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
-        print(f"\r[3/{total_phases}] [{video_index}/{total_videos}] Checking: {short_name}\033[K", end='', flush=True)
+    # Bulk fetch all audio files once at phase start (first call)
+    cache_key = str(temp_dir)  # Unique per pipeline run
+    if media_manager_enabled and cache_key not in _audio_upload_cache:
+        print(f"[3/{total_phases}] Fetching audio list from server...")
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            exists, _ = client.check_audio_exists(file_id)
+            all_audio = client.get_audio_files()
+            uploaded_ids = {f.get('id') for f in all_audio if f.get('id')}
+            _audio_upload_cache[cache_key] = uploaded_ids
             client.close()
-            if exists:
-                already_uploaded = True
-        except Exception:
-            # Fail open - continue to upload attempt
-            pass
+            print(f"[3/{total_phases}] Found {len(uploaded_ids)} uploaded audio files")
+        except Exception as e:
+            print(f"[3/{total_phases}] \033[91mFailed to fetch audio list: {e}\033[0m")
+            _audio_upload_cache[cache_key] = set()  # Empty set on failure
+        # Clear cache at end of phase (last file)
+        if video_index == total_videos:
+            _audio_upload_cache.pop(cache_key, None)
+    
+    # Fast local lookup (no API call)
+    uploaded_ids = _audio_upload_cache.get(cache_key, set())
+    already_uploaded = file_id in uploaded_ids
     
     if already_uploaded:
-        # Update same line with status, then clear at end
+        # Show status on single line that updates in-place
+        short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
         print(f"\r[3/{total_phases}] [{video_index}/{total_videos}] {short_name} \033[90m✓ uploaded\033[0m\033[K", end='', flush=True)
         if video_index == total_videos:
-            print()  # New line only at end of phase
+            print()  # New line at phase end
         return None
     
     # Upload
@@ -462,6 +473,10 @@ def run_output_phase(
     )
 
 
+# Module-level cache for Phase 5 bulk fetch (cleared after phase completes)
+_video_upload_cache: dict[str, dict[str, str]] = {}
+
+
 def run_video_upload_phase(
     video_path: Path,
     output_dir: Path,
@@ -478,39 +493,42 @@ def run_video_upload_phase(
     1. The audio file_id is approved (has "ready" tag on server)
     2. A matching video file exists in output_dir
     
+    Bulk fetches ready audio once at phase start for fast local lookup.
     Uses the APPROVED TITLE from the server (not local title.txt).
     Uploads with tags=["FB", "TT"] for Facebook and TikTok folders.
     """
     basename = video_path.stem
     file_id = basename
     
-    # Check if audio is approved (ready) and get approved title from API
-    approved_title: str | None = None
-    short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
-    
-    if media_manager_enabled:
-        # Show checking status on single line that updates in-place
-        print(f"\r[5/{total_phases}] [{video_index}/{total_videos}] Checking: {short_name}\033[K", end='', flush=True)
+    # Bulk fetch all ready audio files once at phase start (first call)
+    cache_key = str(temp_dir)  # Unique per pipeline run
+    if media_manager_enabled and cache_key not in _video_upload_cache:
+        print(f"[5/{total_phases}] Fetching ready audio list from server...")
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            is_ready, api_title = client.get_ready_audio_with_title(file_id)
+            ready_audio = client.get_audio_files(tags='ready')
+            ready_dict = {f.get('id'): f.get('title', '') for f in ready_audio if f.get('id')}
+            _video_upload_cache[cache_key] = ready_dict
             client.close()
-            if not is_ready:
-                # Audio not approved yet - update line with status
-                print(f"\r[5/{total_phases}] [{video_index}/{total_videos}] {short_name} \033[90m⏸ not ready\033[0m\033[K", end='', flush=True)
-                if video_index == total_videos:
-                    print()  # New line only at end of phase
-                return None
-            approved_title = api_title
-        except Exception:
-            # Fail open - continue to attempt (will likely fail in _perform)
-            pass
-    
-    # No approved title from API - cannot proceed
-    if not approved_title:
-        print(f"\r[5/{total_phases}] [{video_index}/{total_videos}] {short_name} \033[90m⏸ no approval\033[0m\033[K", end='', flush=True)
+            print(f"[5/{total_phases}] Found {len(ready_dict)} ready audio files")
+        except Exception as e:
+            print(f"[5/{total_phases}] \033[91mFailed to fetch ready audio list: {e}\033[0m")
+            _video_upload_cache[cache_key] = {}  # Empty dict on failure
+        # Clear cache at end of phase (last file)
         if video_index == total_videos:
-            print()  # New line only at end of phase
+            _video_upload_cache.pop(cache_key, None)
+    
+    # Fast local lookup (no API call)
+    ready_dict = _video_upload_cache.get(cache_key, {})
+    approved_title = ready_dict.get(file_id)
+    
+    short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
+    
+    if not approved_title:
+        # Audio not approved yet - show status
+        print(f"\r[5/{total_phases}] [{video_index}/{total_videos}] {short_name} \033[90m⏸ not ready\033[0m\033[K", end='', flush=True)
+        if video_index == total_videos:
+            print()  # New line at phase end
         return None
     
     # Compute expected output filename based on APPROVED title
