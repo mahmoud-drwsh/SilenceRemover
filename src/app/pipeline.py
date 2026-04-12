@@ -262,6 +262,7 @@ def run_audio_upload_phase(
     
     Uploads with tags=["todo"] so it appears in the TODO folder for review.
     Checks API per-file to avoid re-uploading existing files.
+    Shows real-time status for all files (uploaded or skipped).
     """
     basename = video_path.stem
     file_id = basename  # Use basename without extension as the ID
@@ -276,17 +277,27 @@ def run_audio_upload_phase(
     if not snippet_path.exists():
         return False
     
+    # Show checking status (in-place for first file, then update)
+    short_name = video_path.name[:50] + "..." if len(video_path.name) > 50 else video_path.name
+    print(f"\r[{video_index}/{total_videos}] Checking audio: {short_name}\033[K", end='', flush=True)
+    
     # Check if already uploaded using per-file API call
+    already_uploaded = False
     if media_manager_enabled:
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
             exists, _ = client.check_audio_exists(file_id)
             client.close()
             if exists:
-                return None  # Silent skip - already uploaded
+                already_uploaded = True
         except Exception:
             # Fail open - continue to upload attempt
             pass
+    
+    if already_uploaded:
+        # Clear the line and show skipped status
+        print(f"\r[{video_index}/{total_videos}] Audio: {short_name} \033[90m✓ already uploaded\033[0m")
+        return None
     
     # Upload
     def _perform() -> None:
@@ -472,6 +483,10 @@ def run_video_upload_phase(
     basename = video_path.stem
     file_id = basename
     
+    # Show checking status (in-place for first file, then update)
+    short_name = video_path.name[:50] + "..." if len(video_path.name) > 50 else video_path.name
+    print(f"\r[{video_index}/{total_videos}] Checking video: {short_name}\033[K", end='', flush=True)
+    
     # Check if audio is approved (ready) and get approved title from API
     approved_title: str | None = None
     if media_manager_enabled:
@@ -480,7 +495,8 @@ def run_video_upload_phase(
             is_ready, api_title = client.get_ready_audio_with_title(file_id)
             client.close()
             if not is_ready:
-                # Audio not approved yet - skip silently
+                # Audio not approved yet - show status and skip
+                print(f"\r[{video_index}/{total_videos}] Video: {short_name} \033[90m⏸ audio not approved\033[0m")
                 return None
             approved_title = api_title
         except Exception:
@@ -489,6 +505,7 @@ def run_video_upload_phase(
     
     # No approved title from API - cannot proceed
     if not approved_title:
+        print(f"\r[{video_index}/{total_videos}] Video: {short_name} \033[90m⏸ cannot check approval\033[0m")
         return None
     
     # Compute expected output filename based on APPROVED title
@@ -508,18 +525,23 @@ def run_video_upload_phase(
         print(f"    Then re-run the pipeline to re-encode with new title")
         return False
     
-    # Pre-flight check: silently skip if video already on server with same title
+    # Pre-flight check: skip if video already on server with same title
+    already_uploaded = False
     if media_manager_enabled:
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
             exists, title_matches = client.check_video_exists(file_id, approved_title)
             client.close()
             if exists and title_matches:
-                # Silent skip - no terminal output
-                return None
+                already_uploaded = True
         except Exception:
             # Fail open - continue to upload attempt
             pass
+    
+    if already_uploaded:
+        # Clear the line and show skipped status
+        print(f"\r[{video_index}/{total_videos}] Video: {short_name} \033[90m✓ already uploaded\033[0m")
+        return None
     
     # Upload
     def _perform() -> None:
