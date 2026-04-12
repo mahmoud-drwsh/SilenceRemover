@@ -60,7 +60,6 @@ CREATE TABLE files (
 2. Reviewer listens, edits title if needed
 3. Reviewer clicks READY tab → adds `tags: ["ready"]`
 4. Phase 5 finds ready audio, uploads matching video
-5. Optional: mark audio as delivered (adds `tags: ["delivered"]`)
 
 ### Sync Behavior
 - **Two-way sync**: Pipeline ↔ Manager
@@ -170,9 +169,7 @@ Body: {
     tags: ["FB", "TT"]
 }
 
-# 3. Optional: Mark audio as delivered
-PUT /api/files/{id}
-Body: {tags: ["ready", "delivered"]}
+
 ```
 
 ### Startup Sync (Two-Way, Audio Only)

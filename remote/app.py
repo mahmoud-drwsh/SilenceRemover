@@ -68,7 +68,7 @@ MIME_TO_EXT = {
 }
 
 # Audio tags (fixed)
-AUDIO_TAGS = {'todo', 'ready', 'all', 'trash', 'delivered'}
+AUDIO_TAGS = {'todo', 'ready', 'all', 'trash'}
 
 
 # Pydantic models
@@ -560,7 +560,7 @@ def update_file(
     """
     Update file tags and/or title.
 
-    For audio: Only fixed tags allowed (todo, ready, all, trash, delivered)
+    For audio: Only fixed tags allowed (todo, ready, all, trash)
     For video: Any tags allowed
     
     Query param 'type' is ALWAYS required to prevent accidental updates.

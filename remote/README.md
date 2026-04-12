@@ -224,7 +224,6 @@ The Media Manager uses **tags** for virtual folder organization:
 - `ready` - Approved, ready for video delivery (Ready folder)
 - `all` - Default tag for all audio
 - `trash` - Deleted items (Trash folder)
-- `delivered` - Video has been delivered
 
 ### Video Tags (Freeform)
 - `FB` - Facebook folder
