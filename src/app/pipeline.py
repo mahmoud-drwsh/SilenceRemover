@@ -32,7 +32,7 @@ from sr_filename import sanitize_filename
 from src.startup import StartupContext, build_startup_context
 from src.ffmpeg.encoding_resolver import VideoEncoderProfile
 from sr_snippet import create_silence_removed_snippet
-from sr_telegram_notify import notify_audio_uploaded, notify_final_output_ready
+from sr_telegram_notify import notify_audio_uploaded, notify_final_output_ready, notify_video_uploaded
 from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
 from src.media.trim import trim_single_video
@@ -632,6 +632,14 @@ def run_video_upload_phase(
                     print()  # Just move to new line after progress bar, no message
                 else:
                     print()  # Just move to new line after progress bar, no message
+                # Telegram notification for video upload (only if actually uploaded, not skipped)
+                if not result.get('skipped'):
+                    notify_video_uploaded(
+                        video_index=video_index,
+                        total_videos=total_videos,
+                        input_name=video_path.name,
+                        title=approved_title,
+                    )
             else:
                 error_msg = result.get('error', 'Unknown error')
                 print(f"\n  \033[91m✗ Video upload failed for {file_id}: {error_msg}\033[0m")
