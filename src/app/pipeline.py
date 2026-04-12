@@ -277,13 +277,12 @@ def run_audio_upload_phase(
     if not snippet_path.exists():
         return False
     
-    # Show checking status (in-place for first file, then update)
-    short_name = video_path.name[:50] + "..." if len(video_path.name) > 50 else video_path.name
-    print(f"\r[{video_index}/{total_videos}] Checking audio: {short_name}\033[K", end='', flush=True)
-    
     # Check if already uploaded using per-file API call
     already_uploaded = False
     if media_manager_enabled:
+        # Show checking status on single line that updates in-place
+        short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
+        print(f"\r[3/{total_phases}] [{video_index}/{total_videos}] Checking: {short_name}\033[K", end='', flush=True)
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
             exists, _ = client.check_audio_exists(file_id)
@@ -295,8 +294,10 @@ def run_audio_upload_phase(
             pass
     
     if already_uploaded:
-        # Clear the line and show skipped status
-        print(f"\r[{video_index}/{total_videos}] Audio: {short_name} \033[90m✓ already uploaded\033[0m")
+        # Update same line with status, then clear at end
+        print(f"\r[3/{total_phases}] [{video_index}/{total_videos}] {short_name} \033[90m✓ uploaded\033[0m\033[K", end='', flush=True)
+        if video_index == total_videos:
+            print()  # New line only at end of phase
         return None
     
     # Upload
@@ -483,20 +484,22 @@ def run_video_upload_phase(
     basename = video_path.stem
     file_id = basename
     
-    # Show checking status (in-place for first file, then update)
-    short_name = video_path.name[:50] + "..." if len(video_path.name) > 50 else video_path.name
-    print(f"\r[{video_index}/{total_videos}] Checking video: {short_name}\033[K", end='', flush=True)
-    
     # Check if audio is approved (ready) and get approved title from API
     approved_title: str | None = None
+    short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
+    
     if media_manager_enabled:
+        # Show checking status on single line that updates in-place
+        print(f"\r[5/{total_phases}] [{video_index}/{total_videos}] Checking: {short_name}\033[K", end='', flush=True)
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
             is_ready, api_title = client.get_ready_audio_with_title(file_id)
             client.close()
             if not is_ready:
-                # Audio not approved yet - show status and skip
-                print(f"\r[{video_index}/{total_videos}] Video: {short_name} \033[90m⏸ audio not approved\033[0m")
+                # Audio not approved yet - update line with status
+                print(f"\r[5/{total_phases}] [{video_index}/{total_videos}] {short_name} \033[90m⏸ not ready\033[0m\033[K", end='', flush=True)
+                if video_index == total_videos:
+                    print()  # New line only at end of phase
                 return None
             approved_title = api_title
         except Exception:
@@ -505,7 +508,9 @@ def run_video_upload_phase(
     
     # No approved title from API - cannot proceed
     if not approved_title:
-        print(f"\r[{video_index}/{total_videos}] Video: {short_name} \033[90m⏸ cannot check approval\033[0m")
+        print(f"\r[5/{total_phases}] [{video_index}/{total_videos}] {short_name} \033[90m⏸ no approval\033[0m\033[K", end='', flush=True)
+        if video_index == total_videos:
+            print()  # New line only at end of phase
         return None
     
     # Compute expected output filename based on APPROVED title
@@ -539,8 +544,10 @@ def run_video_upload_phase(
             pass
     
     if already_uploaded:
-        # Clear the line and show skipped status
-        print(f"\r[{video_index}/{total_videos}] Video: {short_name} \033[90m✓ already uploaded\033[0m")
+        # Update same line with status, then clear at end
+        print(f"\r[5/{total_phases}] [{video_index}/{total_videos}] {short_name} \033[90m✓ uploaded\033[0m\033[K", end='', flush=True)
+        if video_index == total_videos:
+            print()  # New line only at end of phase
         return None
     
     # Upload
