@@ -717,6 +717,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             videos=videos,
             input_dir=startup.input_dir,
             min_duration_sec=startup.skip_shorter_than,
+            temp_dir=temp_dir,
             total_phases=6,
         )
         print(f"[0/6] Complete: {len(videos)} videos kept, {len(ignored)} moved to ignored/")

@@ -37,6 +37,7 @@ def filter_short_videos(
     input_dir: Path,
     min_duration_sec: float = 10.0,
     *,
+    temp_dir: Path | None = None,
     total_phases: int = 6,
 ) -> tuple[list[Path], list[Path]]:
     """Filter out videos shorter than min_duration_sec.
@@ -45,6 +46,7 @@ def filter_short_videos(
         videos: List of video paths to check
         input_dir: Input directory (for creating ignored/ subfolder)
         min_duration_sec: Minimum duration in seconds (default: 10.0)
+        temp_dir: Temp directory (for checking completed/ markers to skip ffprobe)
         total_phases: Total phases count (for progress display)
         
     Returns:
@@ -53,7 +55,9 @@ def filter_short_videos(
     Behavior:
         - Creates input/ignored/ at startup if doesn't exist
         - For each video:
-            - Shows progress: [0/6] [15/276] Checking: filename.mp4 (12.5s)
+            - Check if completed marker exists (temp/completed/{basename}.txt)
+            - If completed: skip ffprobe, keep video (fast path)
+            - If not completed: ffprobe duration check
             - If duration < min_duration_sec:
                 - Move file to input/ignored/
                 - Show: [0/6] [15/276] filename.mp4 (8.2s) → ignored/
@@ -78,10 +82,23 @@ def filter_short_videos(
     if total_videos == 0:
         return kept_videos, ignored_videos
     
+    # Check for completed markers directory
+    completed_dir = temp_dir / 'completed' if temp_dir else None
+    
     for i, video_path in enumerate(videos_to_check, 1):
         # Show checking status on single line
         short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
         print(f"\r[0/{total_phases}] [{i}/{total_videos}] Checking: {short_name}\033[K", end='', flush=True)
+        
+        # Fast path: check if video was already processed (skip ffprobe)
+        basename = video_path.stem
+        if completed_dir and (completed_dir / f"{basename}.txt").exists():
+            # Already processed, skip ffprobe and keep it
+            print(f"\r[0/{total_phases}] [{i}/{total_videos}] {short_name} \033[90m✓ already processed\033[0m\033[K", end='', flush=True)
+            if i == total_videos:
+                print()  # New line at end
+            kept_videos.append(video_path)
+            continue
         
         duration = get_video_duration(video_path)
         
