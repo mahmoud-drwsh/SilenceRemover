@@ -12,8 +12,8 @@ DEFAULT_TIMEOUT = 30.0
 class MediaManagerClient:
     """HTTP client for Media Manager API.
     
-    URL format: https://host/token/project/
-    Example: https://example.com/TOKEN/PROJECT/
+    URL format: https://host/projects/token/project/
+    Example: https://example.com/projects/TOKEN/PROJECT/
     """
     
     def __init__(self, full_url: str = None):
@@ -36,8 +36,8 @@ class MediaManagerClient:
         self._client = httpx.Client(timeout=DEFAULT_TIMEOUT)
     
     def _url(self, endpoint: str) -> str:
-        """Build full API URL."""
-        base = f"/{self.token}/{self.project}{endpoint}"
+        """Build full API URL with /projects/ prefix."""
+        base = f"/projects/{self.token}/{self.project}{endpoint}"
         return urljoin(self.base_url, base)
     
     def get_audio_files(self, tags: str = None) -> list[dict]:
@@ -84,6 +84,64 @@ class MediaManagerClient:
             return any(f.get('id') == file_id for f in files)
         except Exception:
             return False
+
+    def check_audio_exists(self, file_id: str) -> tuple[bool, str | None]:
+        """Check if audio file exists and get its title.
+
+        Args:
+            file_id: Audio file identifier
+
+        Returns:
+            tuple(exists, title)
+            - (False, None): Audio not on server
+            - (True, title): Audio exists with title
+        """
+        try:
+            from urllib.parse import quote
+            url = self._url(f'/api/files?type=audio&check_id={quote(file_id, safe="")}')
+            resp = self._client.get(url)
+            resp.raise_for_status()
+            files = resp.json()
+
+            if files and len(files) > 0:
+                file_info = files[0]
+                exists = file_info.get('exists', True)  # Default True if returned
+                title = file_info.get('title', '')
+                return (exists, title if exists else None)
+
+            return (False, None)
+        except Exception:
+            # Fail open - assume doesn't exist
+            return (False, None)
+
+    def get_ready_audio_with_title(self, file_id: str) -> tuple[bool, str | None]:
+        """Check if audio is marked as ready and get its approved title.
+
+        Args:
+            file_id: Audio file identifier
+
+        Returns:
+            tuple(is_ready, approved_title)
+            - (False, None): Audio not ready or not found
+            - (True, title): Audio is ready with approved title
+        """
+        try:
+            from urllib.parse import quote
+            url = self._url(f'/api/files?type=audio&tags=ready&check_id={quote(file_id, safe="")}')
+            resp = self._client.get(url)
+            resp.raise_for_status()
+            files = resp.json()
+
+            if files and len(files) > 0:
+                file_info = files[0]
+                exists = file_info.get('exists', True)
+                title = file_info.get('title', '')
+                return (exists, title if exists else None)
+
+            return (False, None)
+        except Exception:
+            # Fail-safe: not ready
+            return (False, None)
 
     def check_video_exists(self, file_id: str, title: str) -> tuple[bool, bool]:
         """Check if video exists and if title matches.

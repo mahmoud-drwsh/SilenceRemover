@@ -13,21 +13,32 @@
 
 ## 2. Backend (FastAPI)
 
-### Endpoints (5 total)
+### Project Endpoints (5 total)
+
+Base path: `/projects/{token}/{project}/`
 
 ```
-GET  /api/files?type=audio|video&tags=tag1,tag2  - List files
-POST /api/files                                  - Upload
-PUT  /api/files/{id}                             - Update tags
-DEL  /api/files/{id}                             - Delete (trash only)
-GET  /stream/{id}                                - Stream
+GET  /projects/{token}/{project}/api/files?type=audio|video&tags=tag1,tag2  - List files
+POST /projects/{token}/{project}/api/files                                  - Upload
+PUT  /projects/{token}/{project}/api/files/{id}                             - Update tags
+DEL  /projects/{token}/{project}/api/files/{id}                             - Delete (trash only)
+GET  /projects/{token}/{project}/stream/{id}                                - Stream
+```
+
+### Admin Endpoints (2 total)
+
+Base path: `/admin/{admin_token}/`
+
+```
+GET  /admin/{admin_token}/api/projects  - List all projects with stats
+GET  /admin/{admin_token}/             - Admin dashboard SPA
 ```
 
 ### Database Schema
 
 ```sql
 CREATE TABLE files (
-    id TEXT PRIMARY KEY,        -- filename with extension
+    id TEXT NOT NULL,           -- filename with extension
     project TEXT NOT NULL,
     type TEXT NOT NULL,         -- 'audio' | 'video'
     title TEXT,
@@ -35,7 +46,8 @@ CREATE TABLE files (
     duration INTEGER,
     file_size INTEGER,
     mime_type TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id, type, project)  -- Composite key allows same ID in different projects
 );
 ```
 
@@ -63,7 +75,7 @@ CREATE TABLE files (
 
 ### Sync Behavior
 - **Two-way sync**: Pipeline ↔ Manager
-- Startup: `GET /api/files?type=audio`
+- Startup: `GET /projects/{token}/{project}/api/files?type=audio`
 - Compare API title to local .txt
 - Update if different → delete completed marker → trigger re-encode
 
@@ -136,7 +148,7 @@ CREATE TABLE files (
 
 ### Phase 3: Audio Upload (Review)
 ```python
-POST /api/files
+POST /projects/{token}/{project}/api/files
 Body: {
     file: <snippet.ogg>,
     id: "video-basename",
@@ -154,13 +166,13 @@ Body: {
 ### Phase 5: Video Delivery (Ready Only)
 ```python
 # 1. Query ready audio files
-GET /api/files?type=audio&tags=ready
+GET /projects/{token}/{project}/api/files?type=audio&tags=ready
 
 # 2. For each ready audio:
 #    - Find matching local video file (by basename/title)
 #    - Upload to Media Manager
 
-POST /api/files
+POST /projects/{token}/{project}/api/files
 Body: {
     file: <final.mp4>,
     id: "video-basename",
@@ -175,7 +187,7 @@ Body: {
 ### Startup Sync (Two-Way, Audio Only)
 ```python
 # Before processing any videos
-GET /api/files?type=audio
+GET /projects/{token}/{project}/api/files?type=audio
 
 # For each audio from API:
 # - Compare API title to local title.txt

@@ -21,7 +21,9 @@ A secure, lightweight FastAPI application for audio and video file management wi
 ./scripts/local.sh
 ```
 
-Access: `http://localhost:8080/$MEDIA_TOKEN/test-project/`
+**Project Access:** `http://localhost:8080/projects/$MEDIA_TOKEN/test-project/`
+
+**Admin Dashboard:** `http://localhost:8080/admin/$ADMIN_TOKEN/`
 
 ### Deploy to VPS
 
@@ -29,7 +31,7 @@ Access: `http://localhost:8080/$MEDIA_TOKEN/test-project/`
 ./deploy.sh root@myserver.com
 ```
 
-Outputs your token and URLs automatically.
+Outputs your tokens and URLs automatically.
 
 ## File Structure
 
@@ -89,18 +91,20 @@ Projects are isolated both in the database (via `project` column) and on disk (v
 **Pre-flight check example:**
 ```bash
 # Check if audio exists and compare titles (returns would_overwrite flag)
-curl "https://your-domain.com/$TOKEN/ihya/api/files?type=audio&check_id=lesson-001&check_title=New Title"
+curl "https://your-domain.com/projects/$TOKEN/ihya/api/files?type=audio&check_id=lesson-001&check_title=New Title"
 ```
 
 ## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/<token>/<project>/api/files?type=audio\|video&tags=...` | GET | List files (optional filters) |
-| `/<token>/<project>/api/files` | POST | Upload audio/video |
-| `/<token>/<project>/api/files/<id>?type=audio\|video` | PUT | Update file tags/title (**type required**) |
-| `/<token>/<project>/api/files/<id>?type=audio\|video` | DELETE | Delete file permanently (**type required**) |
-| `/<token>/<project>/stream/<id>?type=audio\|video` | GET | Stream file (**type required**) |
+| `/projects/<token>/<project>/api/files?type=audio\|video&tags=...` | GET | List files (optional filters) |
+| `/projects/<token>/<project>/api/files` | POST | Upload audio/video |
+| `/projects/<token>/<project>/api/files/<id>?type=audio\|video` | PUT | Update file tags/title (**type required**) |
+| `/projects/<token>/<project>/api/files/<id>?type=audio\|video` | DELETE | Delete file permanently (**type required**) |
+| `/projects/<token>/<project>/stream/<id>?type=audio\|video` | GET | Stream file (**type required**) |
+| `/admin/<admin_token>/api/projects` | GET | Admin: List all projects with stats |
+| `/admin/<admin_token>/` | GET | Admin dashboard SPA |
 
 ## Migration from Old (Flask) Schema
 
@@ -146,17 +150,14 @@ apt-get install -y caddy
 nano /etc/caddy/Caddyfile
 # Add:
 # your-domain.com {
+#     # Static files (optional optimization)
 #     handle_path /static/* {
 #         root * /var/lib/media-manager/static
 #         file_server
 #         header Cache-Control "public, max-age=86400"
 #     }
-#     handle_path /api/* {
-#         reverse_proxy localhost:8080
-#     }
-#     handle_path /stream/* {
-#         reverse_proxy localhost:8080
-#     }
+#     
+#     # All API, stream, and SPA routes go to the backend
 #     reverse_proxy localhost:8080
 # }
 
@@ -164,7 +165,7 @@ systemctl start caddy
 systemctl enable caddy
 ```
 
-**Note:** The Media Manager uses token-prefixed paths (`/{token}/{project}/api/...`). The fallback `reverse_proxy` directive handles all routes—specific `/api/*` and `/stream/*` handlers in this example are optional since the FastAPI app validates tokens internally.
+**Note:** The Media Manager uses `/projects/{token}/{project}/` as the base path for all project routes. The simple `reverse_proxy` directive handles all routes—no need for specific path handlers.
 
 ### Deploy and Start
 
@@ -211,9 +212,11 @@ python3 scripts/test_migration.py
 
 ## Environment Variables
 
-- `MEDIA_TOKEN` - Authentication token (auto-generated on first run)
+- `MEDIA_TOKEN` - Project authentication token (auto-generated on first run)
+- `ADMIN_TOKEN` - Admin dashboard authentication token (auto-generated on first run)
 - `DATA_DIR` - Data directory (default: `/var/lib/media-manager`)
-- `PROJECT_NAME` - Default project name (default: 'default')
+
+**Required tokens for startup:** Both `MEDIA_TOKEN` and `ADMIN_TOKEN` must be set.
 
 ## Tag-Based Workflow
 
@@ -241,7 +244,7 @@ The Media Manager uses **tags** for virtual folder organization:
 
 ```bash
 # Upload audio (Phase 3)
-curl -X POST https://your-domain.com/$TOKEN/ihya/api/files \
+curl -X POST https://your-domain.com/projects/$TOKEN/ihya/api/files \
   -F "id=video-basename" \
   -F "title=The AI Generated Title" \
   -F "type=audio" \
@@ -249,7 +252,7 @@ curl -X POST https://your-domain.com/$TOKEN/ihya/api/files \
   -F "file=@snippet.ogg"
 
 # Upload video (Phase 5)
-curl -X POST https://your-domain.com/$TOKEN/ihya/api/files \
+curl -X POST https://your-domain.com/projects/$TOKEN/ihya/api/files \
   -F "id=video-basename" \
   -F "title=The AI Generated Title" \
   -F "type=video" \
@@ -257,15 +260,18 @@ curl -X POST https://your-domain.com/$TOKEN/ihya/api/files \
   -F "file=@output.mp4"
 
 # Mark audio as ready (type parameter is required)
-curl -X PUT "https://your-domain.com/$TOKEN/ihya/api/files/video-basename?type=audio" \
+curl -X PUT "https://your-domain.com/projects/$TOKEN/ihya/api/files/video-basename?type=audio" \
   -H "Content-Type: application/json" \
   -d '{"tags": ["ready"]}'
 
 # List ready audio
-curl "https://your-domain.com/$TOKEN/ihya/api/files?type=audio&tags=ready"
+curl "https://your-domain.com/projects/$TOKEN/ihya/api/files?type=audio&tags=ready"
 
 # List all files
-curl "https://your-domain.com/$TOKEN/ihya/api/files"
+curl "https://your-domain.com/projects/$TOKEN/ihya/api/files"
+
+# Admin: List all projects with stats
+curl "https://your-domain.com/admin/$ADMIN_TOKEN/api/projects"
 ```
 
 ## SilenceRemover Integration
@@ -273,7 +279,7 @@ curl "https://your-domain.com/$TOKEN/ihya/api/files"
 Set `MEDIA_MANAGER_URL` in your SilenceRemover `.env`:
 
 ```bash
-MEDIA_MANAGER_URL=https://your-domain.com/TOKEN/ihya/
+MEDIA_MANAGER_URL=https://your-domain.com/projects/TOKEN/ihya/
 ```
 
 This enables:
@@ -317,7 +323,7 @@ If upgrading from the old Flask-based `mp3-manager`:
 
 5. **Verify:**
    ```bash
-   curl http://localhost:8080/$TOKEN/ihya/api/files
+   curl http://localhost:8080/projects/$TOKEN/ihya/api/files
    ```
 
 ## Migration to Project-Prefixed Storage

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Media Manager Admin</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            background: #1a1a1a; 
+            color: #fff; 
+            display: flex; 
+            flex-direction: column; 
+        }
+
+        /* Header */
+        header { 
+            background: #2a2a2a; 
+            padding: 1rem; 
+            border-bottom: 1px solid #333; 
+            display: flex; 
+            gap: 1rem; 
+            align-items: center; 
+            flex-shrink: 0; 
+        }
+        header h1 { font-size: 1.2rem; flex: 1; }
+        .refresh-btn { 
+            background: #333; 
+            border: none; 
+            color: #fff; 
+            padding: 0.5rem 1rem; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 0.9rem;
+        }
+        .refresh-btn:hover { background: #4a4a4a; }
+
+        /* Main content */
+        main { 
+            flex: 1; 
+            overflow-y: auto; 
+            padding: 1rem; 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            width: 100%; 
+        }
+
+        /* Stats summary */
+        .stats-summary {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+        }
+        .summary-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        .summary-label {
+            font-size: 0.75rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .summary-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #4a9eff;
+        }
+
+        /* Project grid */
+        .project-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1rem;
+        }
+
+        /* Project card */
+        .project-card {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 1rem;
+            border: 1px solid #333;
+            transition: border-color 0.2s, transform 0.1s;
+        }
+        .project-card:hover {
+            border-color: #4a9eff;
+        }
+        .project-name {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: #fff;
+        }
+        .project-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .stat-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.9rem;
+        }
+        .stat-icon {
+            width: 20px;
+            text-align: center;
+        }
+        .stat-breakdown {
+            display: flex;
+            gap: 0.75rem;
+            margin-left: auto;
+            font-size: 0.85rem;
+        }
+        .stat-tag {
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+        .tag-todo { background: #ffaa00; color: #000; }
+        .tag-ready { background: #2d5a2d; color: #fff; }
+        .tag-trash { background: #ff4444; color: #fff; }
+        .project-meta {
+            font-size: 0.8rem;
+            color: #888;
+            margin-bottom: 1rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid #333;
+        }
+        .open-btn {
+            width: 100%;
+            padding: 0.75rem;
+            background: #4a9eff;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: 500;
+            text-decoration: none;
+            display: block;
+            text-align: center;
+        }
+        .open-btn:hover {
+            background: #3a8eef;
+        }
+
+        /* Loading and empty states */
+        .loading, .empty, .error {
+            text-align: center;
+            padding: 3rem;
+            color: #888;
+        }
+        .error { color: #ff4444; }
+
+        /* Mobile */
+        @media (max-width: 480px) {
+            main { padding: 0.75rem; }
+            .project-grid {
+                grid-template-columns: 1fr;
+            }
+            .stats-summary {
+                gap: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🛡️ Media Manager Admin</h1>
+        <button class="refresh-btn" onclick="loadProjects()">🔄 Refresh</button>
+    </header>
+
+    <main>
+        <div id="content">
+            <div class="loading">Loading projects...</div>
+        </div>
+    </main>
+
+    <script>
+        // Parse URL to get admin token
+        // Format: /admin/{admin_token}/
+        const pathParts = window.location.pathname.split('/').filter(p => p);
+        const ADMIN_TOKEN = pathParts[1];  // pathParts[0] = 'admin'
+        const API_BASE = `/admin/${ADMIN_TOKEN}/api`;
+
+        let mediaToken = null;
+
+        async function loadProjects() {
+            const content = document.getElementById('content');
+            content.innerHTML = '<div class="loading">Loading projects...</div>';
+
+            try {
+                const res = await fetch(`${API_BASE}/projects`);
+                if (!res.ok) {
+                    if (res.status === 401) {
+                        throw new Error('Invalid admin token');
+                    }
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+
+                const data = await res.json();
+                mediaToken = data.media_token;
+                renderProjects(data.projects);
+            } catch (err) {
+                content.innerHTML = `<div class="error">Error: ${err.message}</div>`;
+            }
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function formatTimeAgo(timestamp) {
+            if (!timestamp) return 'Never';
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diff = Math.floor((now - date) / 1000);
+
+            if (diff < 60) return 'Just now';
+            if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + ' hours ago';
+            if (diff < 604800) return Math.floor(diff / 86400) + ' days ago';
+            return date.toLocaleDateString();
+        }
+
+        function renderProjects(projects) {
+            const content = document.getElementById('content');
+
+            if (projects.length === 0) {
+                content.innerHTML = '<div class="empty">No projects found</div>';
+                return;
+            }
+
+            // Calculate totals
+            let totalAudio = 0, totalVideo = 0, totalStorage = 0;
+            projects.forEach(p => {
+                totalAudio += p.audio.total;
+                totalVideo += p.video.total;
+                totalStorage += p.storage_bytes;
+            });
+
+            const summaryHtml = `
+                <div class="stats-summary">
+                    <div class="summary-item">
+                        <div class="summary-label">Projects</div>
+                        <div class="summary-value">${projects.length}</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Total Audio</div>
+                        <div class="summary-value">${totalAudio}</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Total Video</div>
+                        <div class="summary-value">${totalVideo}</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Storage</div>
+                        <div class="summary-value">${formatBytes(totalStorage)}</div>
+                    </div>
+                </div>
+            `;
+
+            const gridHtml = projects.map(p => {
+                const audio = p.audio;
+                const video = p.video;
+                const projectUrl = `/projects/${mediaToken}/${p.project}/audio`;
+                
+                return `
+                    <div class="project-card">
+                        <div class="project-name">📁 ${escapeHtml(p.project)}</div>
+                        
+                        <div class="project-stats">
+                            <div class="stat-row">
+                                <span class="stat-icon">🎵</span>
+                                <span>Audio: <strong>${audio.total}</strong></span>
+                                <div class="stat-breakdown">
+                                    ${audio.todo > 0 ? `<span class="stat-tag tag-todo">${audio.todo} todo</span>` : ''}
+                                    ${audio.ready > 0 ? `<span class="stat-tag tag-ready">${audio.ready} ready</span>` : ''}
+                                    ${audio.trash > 0 ? `<span class="stat-tag tag-trash">${audio.trash} trash</span>` : ''}
+                                </div>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-icon">🎬</span>
+                                <span>Video: <strong>${video.total}</strong></span>
+                            </div>
+                        </div>
+                        
+                        <div class="project-meta">
+                            💾 ${formatBytes(p.storage_bytes)} • 🕒 ${formatTimeAgo(p.last_updated)}
+                        </div>
+                        
+                        <a href="${projectUrl}" class="open-btn" target="_blank">🚀 Open Project</a>
+                    </div>
+                `;
+            }).join('');
+
+            content.innerHTML = summaryHtml + `<div class="project-grid">${gridHtml}</div>`;
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        // Load on startup
+        loadProjects();
+    </script>
+</body>
+</html>

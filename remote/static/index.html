@@ -211,11 +211,12 @@
         const TYPE_VIDEO = 'video';
 
         // Parse URL path to get token, project, section, and folder
-        // URL format: /TOKEN/PROJECT/audio or /TOKEN/PROJECT/videos/FB
+        // URL format: /projects/TOKEN/PROJECT/audio or /projects/TOKEN/PROJECT/videos/FB
         const pathParts = window.location.pathname.split('/').filter(p => p);
-        const TOKEN = pathParts[0];
-        const PROJECT = pathParts[1] || 'test-project';
-        const API_BASE = `/${TOKEN}/${PROJECT}/api`;
+        // Skip 'projects' prefix: parts[0] = 'projects', parts[1] = TOKEN, parts[2] = PROJECT
+        const TOKEN = pathParts[1];
+        const PROJECT = pathParts[2] || 'test-project';
+        const API_BASE = `/projects/${TOKEN}/${PROJECT}/api`;
 
         // Utility: Escape string for safe use in JavaScript context (onclick handlers, etc.)
         function escapeJs(str) {
@@ -229,20 +230,20 @@
         }
 
         // Parse path for section and folder
-        // Format: /TOKEN/PROJECT/audio/todo or /TOKEN/PROJECT/videos/FB
+        // Format: /projects/TOKEN/PROJECT/audio/todo or /projects/TOKEN/PROJECT/videos/FB
         function parsePath() {
             const path = window.location.pathname;
             const parts = path.split('/').filter(p => p);
             
-            // parts[0] = TOKEN, parts[1] = PROJECT
-            // parts[2] = section (audio, video, videos)
-            let section = parts[2] || 'audio';
+            // Skip 'projects' prefix: parts[1] = TOKEN, parts[2] = PROJECT
+            // parts[3] = section (audio, video, videos)
+            let section = parts[3] || 'audio';
             
             // Normalize video/videos to video
             if (section === 'videos') section = 'video';
             
-            // parts[3] = folder/filter (optional)
-            const folder = parts[3] || null;
+            // parts[4] = folder/filter (optional)
+            const folder = parts[4] || null;
             
             return { section, folder };
         }
@@ -275,7 +276,7 @@
         function updateURL(filter) {
             if (strictIsolation) return; // Don't modify URL in strict mode
             const sectionName = currentSection === 'video' ? 'videos' : currentSection;
-            let path = `/${TOKEN}/${PROJECT}/${sectionName}`;
+            let path = `/projects/${TOKEN}/${PROJECT}/${sectionName}`;
             if (filter && filter !== 'all') {
                 path += `/${filter}`;
             }
@@ -286,7 +287,7 @@
 
         function switchToFolder(folder) {
             const sectionName = currentSection === 'video' ? 'videos' : currentSection;
-            let path = `/${TOKEN}/${PROJECT}/${sectionName}`;
+            let path = `/projects/${TOKEN}/${PROJECT}/${sectionName}`;
             if (folder && folder !== 'all') {
                 path += `/${folder}`;
             }
@@ -307,7 +308,7 @@
 
         function switchToFolderForSection(section, folder) {
             const sectionName = section === 'video' ? 'videos' : section;
-            let path = `/${TOKEN}/${PROJECT}/${sectionName}`;
+            let path = `/projects/${TOKEN}/${PROJECT}/${sectionName}`;
             if (folder && folder !== 'all') {
                 path += `/${folder}`;
             }
@@ -463,8 +464,8 @@
             const size = formatSize(file.file_size);
             
             // Audio and video have separate URLs with type parameter (file.id is URL-encoded)
-            const audioStreamUrl = `/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.id)}?type=${TYPE_AUDIO}`;
-            const videoStreamUrl = `/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.id)}?type=${TYPE_VIDEO}`;
+            const audioStreamUrl = `/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.id)}?type=${TYPE_AUDIO}`;
+            const videoStreamUrl = `/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.id)}?type=${TYPE_VIDEO}`;
 
             if (isAudio) {
                 return renderAudioCard(file, audioStreamUrl, duration, size);
@@ -845,7 +846,7 @@
         }
 
         function playVideo(id, title) {
-            const streamUrl = `/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(id)}?type=${TYPE_VIDEO}`;
+            const streamUrl = `/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(id)}?type=${TYPE_VIDEO}`;
 
             // Create full-page overlay
             const overlay = document.createElement('div');

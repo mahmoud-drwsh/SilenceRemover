@@ -4,9 +4,9 @@ Media Manager Backend
 FastAPI service for audio/video file management with tag-based organization.
 
 Environment variables:
-    MEDIA_TOKEN - Authentication token (required)
+    MEDIA_TOKEN - Authentication token for projects (required)
+    ADMIN_TOKEN - Authentication token for admin dashboard (required)
     DATA_DIR - Where to store db and files (default: /var/lib/media-manager)
-    PROJECT_NAME - Project identifier (default: 'default')
 """
 
 import os
@@ -26,11 +26,11 @@ from pydantic import BaseModel
 
 # Config
 TOKEN = os.environ.get('MEDIA_TOKEN')
+ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN')
 DATA_DIR = Path(os.environ.get('DATA_DIR', '/var/lib/media-manager'))
 STORAGE_DIR = DATA_DIR / 'storage'
 DB_PATH = DATA_DIR / 'database.db'
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
-PROJECT_NAME = os.environ.get('PROJECT_NAME', 'default')
 
 # Audio MIME types
 AUDIO_MIME = {
@@ -242,6 +242,8 @@ async def lifespan(app: FastAPI):
     init_db()
     if not TOKEN:
         raise RuntimeError("MEDIA_TOKEN environment variable not set")
+    if not ADMIN_TOKEN:
+        raise RuntimeError("ADMIN_TOKEN environment variable not set")
     yield
 
 
@@ -249,13 +251,21 @@ app = FastAPI(title="Media Manager", lifespan=lifespan)
 
 
 def verify_token(token: str):
-    """Verify the provided token matches expected."""
+    """Verify the provided token matches expected MEDIA_TOKEN."""
     if token != TOKEN:
         raise HTTPException(401, "Invalid token")
 
 
+def verify_admin_token(admin_token: str):
+    """Verify the provided token matches expected ADMIN_TOKEN."""
+    if not ADMIN_TOKEN:
+        raise HTTPException(500, "ADMIN_TOKEN not configured on server")
+    if admin_token != ADMIN_TOKEN:
+        raise HTTPException(401, "Invalid admin token")
+
+
 # API Endpoints
-@app.get("/{token}/{project}/api/files", response_model=List[FileResponseModel])
+@app.get("/projects/{token}/{project}/api/files", response_model=List[FileResponseModel])
 def list_files(
     token: str,
     project: str,
@@ -411,7 +421,7 @@ def list_files(
     ]
 
 
-@app.post("/{token}/{project}/api/files", response_model=UploadResponse)
+@app.post("/projects/{token}/{project}/api/files", response_model=UploadResponse)
 async def upload_file(
     token: str,
     project: str,
@@ -548,7 +558,7 @@ async def upload_file(
     return UploadResponse(ok=True, id=id, type=type, overwritten=overwritten)
 
 
-@app.put("/{token}/{project}/api/files/{id}")
+@app.put("/projects/{token}/{project}/api/files/{id}")
 def update_file(
     token: str,
     project: str,
@@ -608,7 +618,7 @@ def update_file(
     return {"ok": True, "id": id, "tags": tags, "title": request.title}
 
 
-@app.delete("/{token}/{project}/api/files/{id}")
+@app.delete("/projects/{token}/{project}/api/files/{id}")
 def delete_file(
     token: str,
     project: str,
@@ -665,7 +675,7 @@ def delete_file(
     return {"ok": True, "id": id, "deleted": True}
 
 
-@app.get("/{token}/{project}/stream/{id}")
+@app.get("/projects/{token}/{project}/stream/{id}")
 async def stream_file(token: str, project: str, id: str, request: Request, type: Literal['audio', 'video'] = Query(..., description="File type (audio or video) - required for safety")):
     verify_token(token)
     """
@@ -722,7 +732,7 @@ async def stream_file(token: str, project: str, id: str, request: Request, type:
 
 
 
-@app.get("/{token}/{project}/static/{filepath:path}")
+@app.get("/projects/{token}/{project}/static/{filepath:path}")
 def serve_static(token: str, project: str, filepath: str):
     """Serve static files (JS/CSS) with token authentication."""
     verify_token(token)
@@ -736,10 +746,10 @@ def serve_static(token: str, project: str, filepath: str):
         raise HTTPException(404, "File not found")
     return FileResponse(static_file)
 
-# API endpoints start with /api/ or /stream/
+# API endpoints start with /projects/ or /admin/
 # Everything else serves the SPA (for client-side routing)
-@app.get("/{token}/{project}/")
-@app.get("/{token}/{project}/{path:path}")
+@app.get("/projects/{token}/{project}/")
+@app.get("/projects/{token}/{project}/{path:path}")
 def serve_spa(token: str, project: str, path: str = ""):
     """
     Serve the SPA for all routes.
@@ -749,6 +759,74 @@ def serve_spa(token: str, project: str, path: str = ""):
     verify_token(token)
     static_path = Path(__file__).parent / 'static' / 'index.html'
     return FileResponse(static_path)
+
+
+# Admin Dashboard Endpoints
+@app.get("/admin/{admin_token}/api/projects")
+def list_admin_projects(admin_token: str):
+    """
+    Admin endpoint: List all projects with aggregated stats.
+    
+    Returns per-project stats:
+    - Audio counts: todo, ready, trash, total
+    - Video total count
+    - Total storage bytes
+    - Last updated timestamp
+    """
+    verify_admin_token(admin_token)
+    
+    conn = get_db()
+    
+    # Aggregate query for project stats
+    rows = conn.execute('''
+        SELECT 
+            project,
+            COUNT(CASE WHEN type='audio' THEN 1 END) as audio_total,
+            SUM(CASE WHEN type='audio' AND tags LIKE '%"todo"%' THEN 1 ELSE 0 END) as audio_todo,
+            SUM(CASE WHEN type='audio' AND tags LIKE '%"ready"%' THEN 1 ELSE 0 END) as audio_ready,
+            SUM(CASE WHEN type='audio' AND tags LIKE '%"trash"%' THEN 1 ELSE 0 END) as audio_trash,
+            COUNT(CASE WHEN type='video' THEN 1 END) as video_total,
+            COALESCE(SUM(file_size), 0) as total_bytes,
+            MAX(created_at) as last_updated
+        FROM files 
+        GROUP BY project
+        ORDER BY project
+    ''').fetchall()
+    conn.close()
+    
+    projects = []
+    for row in rows:
+        projects.append({
+            "project": row['project'],
+            "audio": {
+                "todo": row['audio_todo'] or 0,
+                "ready": row['audio_ready'] or 0,
+                "trash": row['audio_trash'] or 0,
+                "total": row['audio_total'] or 0
+            },
+            "video": {
+                "total": row['video_total'] or 0
+            },
+            "storage_bytes": row['total_bytes'] or 0,
+            "last_updated": row['last_updated']
+        })
+    
+    return {
+        "media_token": TOKEN,  # Include media token so admin UI can construct project URLs
+        "projects": projects
+    }
+
+
+@app.get("/admin/{admin_token}/")
+@app.get("/admin/{admin_token}/{path:path}")
+def serve_admin(admin_token: str, path: str = ""):
+    """
+    Serve the admin dashboard SPA.
+    All admin routes lead to the same HTML (client-side routing).
+    """
+    verify_admin_token(admin_token)
+    admin_path = Path(__file__).parent / 'static' / 'admin.html'
+    return FileResponse(admin_path)
 
 
 if __name__ == '__main__':

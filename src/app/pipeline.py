@@ -42,11 +42,6 @@ try:
     from sr_media_manager import (
         MediaManagerClient,
         sync_titles_from_api,
-        get_ready_audio_ids,
-        ensure_audio_uploaded,
-        ensure_video_uploaded,
-        get_uploaded_audio_ids,
-        get_uploaded_video_ids,
     )
     _MEDIA_MANAGER_AVAILABLE = True
 except ImportError:
@@ -257,7 +252,6 @@ def run_title_phase(
 def run_audio_upload_phase(
     video_path: Path,
     temp_dir: Path,
-    uploaded_audio_ids: list[str],
     video_index: int,
     total_videos: int,
     media_manager_enabled: bool,
@@ -267,7 +261,7 @@ def run_audio_upload_phase(
     """Phase 3: Upload audio snippet to Media Manager for review.
     
     Uploads with tags=["todo"] so it appears in the TODO folder for review.
-    Uses pre-fetched uploaded_audio_ids list to avoid re-uploading existing files.
+    Checks API per-file to avoid re-uploading existing files.
     """
     basename = video_path.stem
     file_id = basename  # Use basename without extension as the ID
@@ -278,9 +272,21 @@ def run_audio_upload_phase(
     if not title_path.exists():
         return False
     
-    # Check if already uploaded using pre-fetched list
-    if file_id in uploaded_audio_ids:
-        return None  # Silent skip
+    # Precondition: snippet must exist
+    if not snippet_path.exists():
+        return False
+    
+    # Check if already uploaded using per-file API call
+    if media_manager_enabled:
+        try:
+            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+            exists, _ = client.check_audio_exists(file_id)
+            client.close()
+            if exists:
+                return None  # Silent skip - already uploaded
+        except Exception:
+            # Fail open - continue to upload attempt
+            pass
     
     # Upload
     def _perform() -> None:
@@ -444,8 +450,6 @@ def run_video_upload_phase(
     video_path: Path,
     output_dir: Path,
     temp_dir: Path,
-    ready_audio_ids: list[str],
-    uploaded_video_ids: list[str],
     video_index: int,
     total_videos: int,
     media_manager_enabled: bool,
@@ -455,44 +459,46 @@ def run_video_upload_phase(
     """Phase 5: Upload final video to Media Manager (only if audio is approved).
     
     Only uploads when:
-    1. The audio file_id is in ready_audio_ids (approved in UI)
-    2. The video hasn't been uploaded yet (not in uploaded_video_ids)
+    1. The audio file_id is approved (has "ready" tag on server)
+    2. A matching video file exists in output_dir
     
+    Uses the APPROVED TITLE from the server (not local title.txt).
     Uploads with tags=["FB", "TT"] for Facebook and TikTok folders.
     """
     basename = video_path.stem
     file_id = basename
-    title_path = get_title_path(temp_dir, basename)
     
-    # Check if audio is approved (ready)
-    if file_id not in ready_audio_ids:
-        # Audio not approved yet - skip silently
+    # Check if audio is approved (ready) and get approved title from API
+    approved_title: str | None = None
+    if media_manager_enabled:
+        try:
+            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+            is_ready, api_title = client.get_ready_audio_with_title(file_id)
+            client.close()
+            if not is_ready:
+                # Audio not approved yet - skip silently
+                return None
+            approved_title = api_title
+        except Exception:
+            # Fail open - continue to attempt (will likely fail in _perform)
+            pass
+    
+    # No approved title from API - cannot proceed
+    if not approved_title:
         return None
     
-    # Note: We no longer check uploaded_video_ids here.
-    # The upload_video() function with skip_if_exists_with_title=True
-    # will handle title-aware skipping/overwriting efficiently.
-    
-    # Precondition: title must exist
-    if not title_path.exists():
-        return False
-    
-    # Read title from source of truth (title.txt)
-    title = title_path.read_text(encoding='utf-8').strip()
-    
-    # Compute expected output filename based on current title
-    # Phase 4 creates: {sanitized_title}.mp4 (exact match, no suffix)
-    output_basename = sanitize_filename(title)
+    # Compute expected output filename based on APPROVED title
+    output_basename = sanitize_filename(approved_title)
     output_path = output_dir / f"{output_basename}.mp4"
     
-    # Strict: file must exist with exact name derived from current title
+    # Strict: file must exist with exact name derived from approved title
     if not output_path.exists():
         print(f"\n  [Error] Output file not found for {video_path.name}")
         print(f"    Expected: {output_path.name}")
-        print(f"    Title (from title.txt): {title[:50]}...")
+        print(f"    Approved title (from API): {approved_title[:50]}...")
         print(f"    Output dir: {output_dir}")
         print(f"    ")
-        print(f"    [CAUSE] Title was edited but video not re-created")
+        print(f"    [CAUSE] Title was edited in UI but video not re-created")
         print(f"    [FIX] Delete completion marker and re-run Phase 4:")
         print(f"          del temp\\completed\\{video_path.stem}")
         print(f"    Then re-run the pipeline to re-encode with new title")
@@ -502,7 +508,7 @@ def run_video_upload_phase(
     if media_manager_enabled:
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            exists, title_matches = client.check_video_exists(file_id, title)
+            exists, title_matches = client.check_video_exists(file_id, approved_title)
             client.close()
             if exists and title_matches:
                 # Silent skip - no terminal output
@@ -518,7 +524,7 @@ def run_video_upload_phase(
         
         print(f"\n[5/{total_phases}] Uploading final video to Media Manager")
         print(f"  File: {output_path.name}")
-        print(f"  Title: {title[:60]}{'...' if len(title) > 60 else ''}")
+        print(f"  Title (from API): {approved_title[:60]}{'...' if len(approved_title) > 60 else ''}")
         print(f"  Video size: {video_size_mb:.1f} MB")
         print(f"  Tags: [FB, TT]")
         
@@ -537,7 +543,7 @@ def run_video_upload_phase(
         start_time = time.time()
         try:
             result = client.upload_video(
-                file_id, title, output_path, tags=['FB', 'TT'],
+                file_id, approved_title, output_path, tags=['FB', 'TT'],
                 progress_callback=progress_callback,
                 skip_if_exists_with_title=True
             )
@@ -627,25 +633,6 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     print(f"Temp: {startup.temp_dir}")
     print("-" * 60)
 
-    # Pre-fetch Media Manager data for Phase 3 and 5 idempotency
-    uploaded_audio_ids: list[str] = []
-    uploaded_video_ids: list[str] = []
-    ready_audio_ids: list[str] = []
-    if media_manager_enabled:
-        try:
-            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            # For Phase 3: check which audio files already uploaded
-            uploaded_audio_ids = get_uploaded_audio_ids(client)
-            print(f"Media Manager: Fetched {len(uploaded_audio_ids)} existing audio file(s) from server")
-            # For Phase 5: check which videos already uploaded and which audio is ready
-            uploaded_video_ids = get_uploaded_video_ids(client)
-            ready_audio_ids = get_ready_audio_ids(client)
-            print(f"Media Manager: Fetched {len(uploaded_video_ids)} existing video file(s)")
-            print(f"Media Manager: {len(ready_audio_ids)} audio file(s) marked as 'ready' for video upload")
-            client.close()
-        except Exception as e:
-            print(f"Media Manager: Failed to fetch file list (continuing): {e}")
-
     total_phases = 5
     phases = (
         _PipelinePhase(
@@ -679,7 +666,6 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             lambda video_file, vi, vn, tp: run_audio_upload_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
-                uploaded_audio_ids=uploaded_audio_ids,
                 video_index=vi,
                 total_videos=vn,
                 media_manager_enabled=media_manager_enabled,
@@ -716,8 +702,6 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 video_path=video_file,
                 output_dir=startup.output_dir,
                 temp_dir=temp_dir,
-                ready_audio_ids=ready_audio_ids,
-                uploaded_video_ids=uploaded_video_ids,
                 video_index=vi,
                 total_videos=vn,
                 total_phases=tp,
