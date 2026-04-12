@@ -324,7 +324,11 @@ def run_audio_upload_phase(
                 # \n to move to new line after progress bar
                 print(f"\n  ✓ Uploaded in {elapsed:.1f}s ({speed_mbps:.1f} MB/s)")
             else:
-                print(f"\n  \033[91m✗ Upload failed for {file_id}\033[0m")
+                print(f"\n  \033[91m✗ Upload failed for {file_id} (server rejected)\033[0m")
+        except Exception as e:
+            # Show actual error details
+            print(f"\n  \033[91m✗ Upload error for {file_id}: {e}\033[0m")
+            raise  # Re-raise to trigger failure handling
         finally:
             client.close()
     

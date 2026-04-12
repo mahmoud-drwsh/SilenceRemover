@@ -240,8 +240,17 @@ class MediaManagerClient:
                     data=data,
                     files=files
                 )
-            return resp.status_code in (200, 201, 409)
+            if resp.status_code not in (200, 201, 409):
+                # Include response body for debugging
+                try:
+                    body = resp.text[:200]  # First 200 chars
+                except Exception:
+                    body = "<could not read response>"
+                raise MediaManagerError(f"Server returned {resp.status_code}: {body}")
+            return True
         except Exception as e:
+            if isinstance(e, MediaManagerError):
+                raise
             raise MediaManagerError(f"Audio upload failed for {file_id}: {e}")
     
     def upload_video(
