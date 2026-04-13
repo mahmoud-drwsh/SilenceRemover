@@ -320,9 +320,6 @@ def run_audio_upload_phase(
             print(f"[3/{total_phases}] Failed to fetch: {e}")
             _server_state_cache[cache_key] = ServerState()
     
-    if video_index == total_videos:
-        _server_state_cache.pop(cache_key, None)
-    
     state = _server_state_cache.get(cache_key, ServerState())
     
     # Debug: show server state stats on first video
@@ -412,6 +409,10 @@ def run_audio_upload_phase(
         total_videos=total_videos,
         label="Audio Upload",
     )
+    
+    # Clear cache after processing last video
+    if video_index == total_videos:
+        _server_state_cache.pop(cache_key, None)
 
 
 def run_output_phase(
