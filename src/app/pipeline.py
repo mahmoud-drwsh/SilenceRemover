@@ -412,11 +412,38 @@ def run_output_phase(
     precondition_message = None
     chosen_basename: str | None = None
     title_text = ""
+    cache_key = str(temp_dir)
 
+    if cache_key not in _pending_video_cache:
+        if _MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL'):
+            try:
+                client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+                pending_videos = client.get_video_files(tags='pending')
+                pending_dict = {v.get('id'): v.get('title', '') for v in pending_videos if v.get('id')}
+                _pending_video_cache[cache_key] = pending_dict
+                client.close()
+            except Exception:
+                _pending_video_cache[cache_key] = {}
+        else:
+            _pending_video_cache[cache_key] = {}
+        if cache_key not in _pending_skips:
+            _pending_skips[cache_key] = 0
+        if cache_key not in _pending_uploads:
+            _pending_uploads[cache_key] = 0
+    
+    # Check if we need to do anything
     already_done = is_completed(temp_dir, basename)
-    if already_done:
-        # Silent skip - counted at phase level
-        return None
+    pending_dict = _pending_video_cache.get(cache_key, {})
+    pending_title = pending_dict.get(basename)
+    
+    # If video already done AND already uploaded with matching title, skip entirely
+    if already_done and pending_title is not None:
+        # Already done and uploaded - check if title matches
+        if title_path.exists():
+            current_title = title_path.read_text(encoding="utf-8").strip()
+            if current_title == pending_title:
+                # Fully up to date - skip
+                return None
     
     if not is_transcript_done(temp_dir, basename):
         precondition_ok = False
@@ -434,24 +461,6 @@ def run_output_phase(
         else:
             chosen_basename = resolve_output_basename(title_text, output_dir)
 
-        # Bulk fetch pending videos once at phase start (first call)
-    cache_key = str(temp_dir)
-    if cache_key not in _pending_video_cache:
-        if _MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL'):
-            try:
-                client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-                pending_videos = client.get_video_files(tags='pending')
-                pending_dict = {v.get('id'): v.get('title', '') for v in pending_videos if v.get('id')}
-                _pending_video_cache[cache_key] = pending_dict
-                client.close()
-            except Exception:
-                _pending_video_cache[cache_key] = {}
-        else:
-            _pending_video_cache[cache_key] = {}
-        if cache_key not in _pending_skips:
-            _pending_skips[cache_key] = 0
-        if cache_key not in _pending_uploads:
-            _pending_uploads[cache_key] = 0
     if video_index == total_videos:
         upload_count = _pending_uploads.pop(cache_key, 0)
         skip_count = _pending_skips.pop(cache_key, 0)
