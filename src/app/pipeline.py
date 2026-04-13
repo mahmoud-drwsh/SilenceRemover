@@ -340,7 +340,12 @@ def run_audio_upload_phase(
             result = client.upload_audio(file_id, title_text, snippet_path, tags=['todo'])
             if result:
                 print(f"\n[3/{total_phases}] Uploaded: {video_path.name}")
-                notify_audio_uploaded(video_index, total_videos, video_path.name, title_text)
+                notify_audio_uploaded(
+                    video_index=video_index,
+                    total_videos=total_videos,
+                    input_name=video_path.name,
+                    title=title_text,
+                )
         finally:
             client.close()
     
