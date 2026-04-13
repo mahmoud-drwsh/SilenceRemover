@@ -302,7 +302,7 @@ def run_audio_upload_phase(
         print(f"[3/{total_phases}] Fetching audio list from server...")
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            all_audio = client.get_audio_files(tags='all')
+            all_audio = client.get_audio_files()
             state = ServerState()
             for audio in all_audio:
                 aid = audio.get('id')
@@ -508,7 +508,7 @@ def run_pending_upload_phase(
     if cache_key not in _server_state_cache:
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            all_videos = client.get_video_files(tags='all')
+            all_videos = client.get_video_files()
             state = ServerState()
             for video in all_videos:
                 vid = video.get('id')
@@ -598,7 +598,7 @@ def run_video_upload_phase(
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
             ready_audio = client.get_audio_files(tags='ready')
-            all_videos = client.get_video_files(tags='all')
+            all_videos = client.get_video_files()
             state = ServerState()
             for audio in ready_audio:
                 aid = audio.get('id')
