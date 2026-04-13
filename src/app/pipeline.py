@@ -434,6 +434,23 @@ def run_output_phase(
         else:
             chosen_basename = resolve_output_basename(title_text, output_dir)
 
+        # Bulk fetch pending videos once at phase start (first call)
+    cache_key = str(temp_dir)
+    if cache_key not in _pending_video_cache:
+        if _MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL'):
+            try:
+                client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+                pending_videos = client.get_video_files(tags='pending')
+                pending_dict = {v.get('id'): v.get('title', '') for v in pending_videos if v.get('id')}
+                _pending_video_cache[cache_key] = pending_dict
+                client.close()
+            except Exception:
+                _pending_video_cache[cache_key] = {}
+        else:
+            _pending_video_cache[cache_key] = {}
+    if video_index == total_videos:
+        _pending_video_cache.pop(cache_key, None)
+
     def _perform() -> None:
         assert chosen_basename is not None
         print(
@@ -460,35 +477,30 @@ def run_output_phase(
         )
         
         # Upload to Media Manager with pending tag for immediate backup (Phase 4)
-        if _MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL'):
+        file_id = video_path.stem
+        pending_dict = _pending_video_cache.get(cache_key, {})
+        pending_exists = file_id in pending_dict
+        
+        if _MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL') and not pending_exists:
             try:
                 client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-                file_id = video_path.stem
                 
-                pending_videos = client.get_video_files(tags='pending')
-                pending_exists = any(v.get('id') == file_id for v in pending_videos)
-                
-                if not pending_exists:
-                    print(f"  Uploading pending video to Media Manager...")
-                    result = client.upload_video(
-                        file_id=file_id,
-                        title=title_text,
-                        video_path=output_mp4,
-                        tags=['pending'],
-                        skip_if_exists_with_title=False
-                    )
-                    if result.get('success'):
-                        print(f"  ✓ Pending video uploaded")
-                    else:
-                        error = result.get('error', 'Unknown error')
-                        print(f"  ⚠ Pending upload failed: {error}")
+                print(f"  Uploading pending video to Media Manager...")
+                result = client.upload_video(
+                    file_id=file_id,
+                    title=title_text,
+                    video_path=output_mp4,
+                    tags=['pending'],
+                    skip_if_exists_with_title=False
+                )
+                if result.get('success'):
+                    print(f"  ✓ Pending video uploaded")
                 else:
-                    # Already exists, skip silently
-                    pass
+                    error = result.get('error', 'Unknown error')
+                    print(f"  ⚠ Pending upload failed: {error}")
                     
                 client.close()
             except Exception as e:
-                # Log error but don't block pipeline
                 print(f"  ⚠ Pending upload error: {e}")
         
         notify_final_output_ready(
@@ -519,8 +531,9 @@ def run_output_phase(
     )
 
 
-# Module-level cache for Phase 5 bulk fetch (cleared after phase completes)
+# Module-level caches for bulk fetch (cleared after phase completes)
 _video_upload_cache: dict[str, dict[str, str]] = {}
+_pending_video_cache: dict[str, dict[str, str]] = {}
 
 
 def run_video_upload_phase(
@@ -567,6 +580,19 @@ def run_video_upload_phase(
         if video_index == total_videos:
             _video_upload_cache.pop(cache_key, None)
     
+    # Bulk fetch pending videos once at phase start (first call)
+    if cache_key not in _pending_video_cache:
+        try:
+            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+            pending_videos = client.get_video_files(tags='pending')
+            pending_dict = {v.get('id'): v.get('title', '') for v in pending_videos if v.get('id')}
+            _pending_video_cache[cache_key] = pending_dict
+            client.close()
+        except Exception:
+            _pending_video_cache[cache_key] = {}
+    if video_index == total_videos:
+        _pending_video_cache.pop(cache_key, None)
+    
     # Fast local lookup (no API call)
     ready_dict = _video_upload_cache.get(cache_key, {})
     approved_title = ready_dict.get(file_id)
@@ -598,24 +624,17 @@ def run_video_upload_phase(
         return False
     
     # Check for pending video and handle smart approval
+    pending_dict = _pending_video_cache.get(cache_key, {})
+    pending_title = pending_dict.get(file_id)
+    
     def _perform() -> None:
         video_size_mb = output_path.stat().st_size / (1024 * 1024)
         
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         
         try:
-            pending_videos = client.get_video_files(tags='pending')
-            pending_video = None
-            for v in pending_videos:
-                if v.get('id') == file_id:
-                    pending_video = v
-                    break
-            
-            if pending_video:
-                pending_title = pending_video.get('title', '')
-                
+            if pending_title is not None:
                 if pending_title == approved_title:
-                    # Same title: Just update tags from pending to FB/TT
                     print(f"\n[5/{total_phases}] Publishing video (title unchanged)")
                     success = client.update_tags(file_id, ['FB', 'TT'])
                     if success:
@@ -631,17 +650,15 @@ def run_video_upload_phase(
                     client.close()
                     return
                 else:
-                    # Different title: Must re-upload (title burned in video)
                     print(f"\n[5/{total_phases}] Title changed, re-uploading video")
                     print(f"  Old: {pending_title[:50]}...")
                     print(f"  New: {approved_title[:50]}...")
-                    # Delete old pending video first
                     try:
                         client._client.delete(
                             client._url(f'/api/files/{file_id}?type=video')
                         )
                     except:
-                        pass  # Continue even if delete fails
+                        pass
             
             print(f"\n[5/{total_phases}] Uploading final video to Media Manager")
             print(f"  File: {output_path.name}")
