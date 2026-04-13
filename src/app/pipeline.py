@@ -324,6 +324,13 @@ def run_audio_upload_phase(
         print(f"[3/{total_phases}] Server state: {len(state.audio_dict)} audio, "
               f"{len(state.audio_trash_ids)} in trash")
     
+    # Debug specific file
+    if file_id == '2026-04-13 09-09-01-vertical':
+        in_trash = file_id in state.audio_trash_ids
+        in_dict = file_id in state.audio_dict
+        print(f"[3/{total_phases}] DEBUG: Checking {file_id}")
+        print(f"[3/{total_phases}] DEBUG: in_trash={in_trash}, in_dict={in_dict}")
+    
     if file_id in state.audio_trash_ids:
         short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
         print(f"\r[3/{total_phases}] [{video_index}/{total_videos}] {short_name} ✓ skip (trash)\033[K", end='', flush=True)
