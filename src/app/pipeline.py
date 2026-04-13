@@ -450,10 +450,14 @@ def run_output_phase(
             _pending_video_cache[cache_key] = {}
         if cache_key not in _pending_skips:
             _pending_skips[cache_key] = 0
+        if cache_key not in _pending_uploads:
+            _pending_uploads[cache_key] = 0
     if video_index == total_videos:
+        upload_count = _pending_uploads.pop(cache_key, 0)
         skip_count = _pending_skips.pop(cache_key, 0)
-        if skip_count > 0:
-            print(f"  [{skip_count} pending video(s) already up-to-date (skipped)]")
+        total_processed = upload_count + skip_count
+        if total_processed > 0:
+            print(f"\n[4/{total_phases}] Phase 4 Summary: {upload_count} uploaded, {skip_count} skipped")
         _pending_video_cache.pop(cache_key, None)
 
     def _perform() -> None:
@@ -491,7 +495,6 @@ def run_output_phase(
                 client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
                 
                 if pending_title is None:
-                    print(f"  Uploading pending video to Media Manager...")
                     result = client.upload_video(
                         file_id=file_id,
                         title=title_text,
@@ -500,7 +503,7 @@ def run_output_phase(
                         skip_if_exists_with_title=False
                     )
                     if result.get('success'):
-                        print(f"  ✓ Pending video uploaded")
+                        _pending_uploads[cache_key] = _pending_uploads.get(cache_key, 0) + 1
                     else:
                         error = result.get('error', 'Unknown error')
                         print(f"  ⚠ Pending upload failed: {error}")
@@ -522,7 +525,7 @@ def run_output_phase(
                         skip_if_exists_with_title=False
                     )
                     if result.get('success'):
-                        print(f"  ✓ Pending video re-uploaded")
+                        _pending_uploads[cache_key] = _pending_uploads.get(cache_key, 0) + 1
                     else:
                         error = result.get('error', 'Unknown error')
                         print(f"  ⚠ Pending re-upload failed: {error}")
@@ -551,7 +554,7 @@ def run_output_phase(
         precondition_ok=precondition_ok,
         precondition_message=precondition_message,
         work_fn=_perform,
-        success_message=f"\n✓ Phase 4 (output) done: {video_path.name}",
+        success_message="",
         failure_label="Phase 4",
         phase_index=4,
         total_phases=total_phases,
@@ -564,8 +567,10 @@ def run_output_phase(
 # Module-level caches for bulk fetch (cleared after phase completes)
 _video_upload_cache: dict[str, dict[str, str]] = {}
 _pending_video_cache: dict[str, dict[str, str]] = {}
-# Module-level counters for skipped uploads (cleared after phase completes)
+# Module-level counters for upload tracking (cleared after phase completes)
+_pending_uploads: dict[str, int] = {}
 _pending_skips: dict[str, int] = {}
+_publish_uploads: dict[str, int] = {}
 _publish_skips: dict[str, int] = {}
 
 
@@ -625,10 +630,14 @@ def run_video_upload_phase(
             _pending_video_cache[cache_key] = {}
     if cache_key not in _publish_skips:
         _publish_skips[cache_key] = 0
+    if cache_key not in _publish_uploads:
+        _publish_uploads[cache_key] = 0
     if video_index == total_videos:
+        upload_count = _publish_uploads.pop(cache_key, 0)
         skip_count = _publish_skips.pop(cache_key, 0)
-        if skip_count > 0:
-            print(f"  [{skip_count} video(s) already published (skipped)]")
+        total_processed = upload_count + skip_count
+        if total_processed > 0:
+            print(f"\n[5/{total_phases}] Phase 5 Summary: {upload_count} published, {skip_count} skipped")
         _pending_video_cache.pop(cache_key, None)
     
     # Fast local lookup (no API call)
@@ -680,10 +689,9 @@ def run_video_upload_phase(
             
             if pending_title is not None:
                 if pending_title == approved_title:
-                    print(f"\n[5/{total_phases}] Publishing video (title unchanged)")
                     success = client.update_tags(file_id, ['FB', 'TT'])
                     if success:
-                        print(f"  ✓ Video published (tags updated)")
+                        _publish_uploads[cache_key] = _publish_uploads.get(cache_key, 0) + 1
                         notify_video_uploaded(
                             video_index=video_index,
                             total_videos=total_videos,
@@ -691,7 +699,7 @@ def run_video_upload_phase(
                             title=approved_title,
                         )
                     else:
-                        print(f"  ✗ Failed to update tags")
+                        print(f"\n  ✗ Failed to update tags for {file_id}")
                     client.close()
                     return
                 else:
@@ -711,14 +719,12 @@ def run_video_upload_phase(
             print(f"  Video size: {video_size_mb:.1f} MB")
             print(f"  Tags: [FB, TT]")
             
-            # Progress callback - single line that updates in place
             last_percent = -1
             def progress_callback(uploaded: int, total: int) -> None:
                 nonlocal last_percent
                 percent = int(uploaded * 100 / total)
                 if percent != last_percent:
                     mb_uploaded = uploaded / (1024 * 1024)
-                    # Use \r to overwrite same line, \033[K to clear to end
                     print(f"\r  Uploading: {percent}% ({mb_uploaded:.1f}/{video_size_mb:.1f} MB)\033[K", end='', flush=True)
                     last_percent = percent
             
@@ -731,15 +737,14 @@ def run_video_upload_phase(
             elapsed = time.time() - start_time
             speed_mbps = video_size_mb / elapsed if elapsed > 0 else 0
             if result.get('success'):
-                # Only print when overwritten to keep terminal clean
                 if result.get('overwritten'):
                     print(f"\n  ✓ Video uploaded (overwrote previous) in {elapsed:.1f}s ({speed_mbps:.1f} MB/s)")
                 elif result.get('skipped'):
-                    print()  # Just move to new line after progress bar, no message
+                    print()
                 else:
-                    print()  # Just move to new line after progress bar, no message
-                # Telegram notification for video upload (only if actually uploaded, not skipped)
+                    print()
                 if not result.get('skipped'):
+                    _publish_uploads[cache_key] = _publish_uploads.get(cache_key, 0) + 1
                     notify_video_uploaded(
                         video_index=video_index,
                         total_videos=total_videos,
@@ -757,9 +762,9 @@ def run_video_upload_phase(
         already_done=False,
         already_done_message="",
         precondition_ok=media_manager_enabled,
-        precondition_message=None,  # Silenced - expected when Media Manager disabled
+        precondition_message=None,
         work_fn=_perform,
-        success_message=f"\n✓ Phase 5 (video upload) done: {video_path.name}",
+        success_message="",
         failure_label="Phase 5",
         phase_index=5,
         total_phases=total_phases,
