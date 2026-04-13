@@ -26,7 +26,6 @@ from src.core.paths import (
     is_title_done,
     is_transcript_done,
     mark_completed,
-    resolve_output_basename,
 )
 from sr_filename import sanitize_filename
 from src.startup import StartupContext, build_startup_context
@@ -401,7 +400,7 @@ def run_output_phase(
     if not title_text:
         return None
     
-    chosen_basename = resolve_output_basename(title_text, output_dir)
+    chosen_basename = sanitize_filename(title_text)
 
     def _perform() -> None:
         print(f"\n[4/{total_phases}] Creating final output: {video_path.name} -> {chosen_basename}.mp4")
@@ -479,7 +478,7 @@ def run_pending_upload_phase(
     if not title_text:
         return None
     
-    output_basename = resolve_output_basename(title_text, output_dir)
+    output_basename = sanitize_filename(title_text)
     output_path = output_dir / f"{output_basename}.mp4"
     
     if not media_manager_enabled:
@@ -585,7 +584,7 @@ def run_video_upload_phase(
     if not local_title:
         return None
     
-    output_basename = resolve_output_basename(local_title, output_dir)
+    output_basename = sanitize_filename(local_title)
     output_path = output_dir / f"{output_basename}.mp4"
     
     if not media_manager_enabled:
