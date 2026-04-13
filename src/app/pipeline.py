@@ -248,23 +248,40 @@ def run_title_phase(
     )
 
 
-# Unified server state cache for all server phases (cleared after each phase)
-@dataclass
-class ServerState:
-    """Unified server state fetched once per phase."""
-    # Phase 3: Audio
-    audio_dict: dict[str, tuple[str, list]] = field(default_factory=dict)  # id -> (title, tags)
-    audio_trash_ids: set[str] = field(default_factory=set)
+@dataclass(frozen=True)
+class ServerDataCache:
+    """Unified server data fetched once at pipeline start."""
+    audio_files: dict[str, dict]
+    video_files: dict[str, dict]
+    audio_trash_ids: frozenset[str]
+    video_trash_ids: frozenset[str]
+    ready_audio_ids: frozenset[str]
     
-    # Phase 5 & 6: Video
-    video_dict: dict[str, tuple[str, list]] = field(default_factory=dict)  # id -> (title, tags)
-    video_trash_ids: set[str] = field(default_factory=set)
+    @property
+    def audio_count(self) -> int:
+        return len(self.audio_files)
     
-    # Phase 6 only
-    ready_audio_dict: dict[str, str] = field(default_factory=dict)  # id -> title
+    @property
+    def video_count(self) -> int:
+        return len(self.video_files)
+    
+    def get_audio(self, file_id: str) -> dict | None:
+        return self.audio_files.get(file_id)
+    
+    def get_video(self, file_id: str) -> dict | None:
+        return self.video_files.get(file_id)
+    
+    def is_audio_trash(self, file_id: str) -> bool:
+        return file_id in self.audio_trash_ids
+    
+    def is_video_trash(self, file_id: str) -> bool:
+        return file_id in self.video_trash_ids
+    
+    def is_audio_ready(self, file_id: str) -> bool:
+        return file_id in self.ready_audio_ids
 
 
-_server_state_cache: dict[str, ServerState] = {}
+_server_data_cache: ServerDataCache | None = None
 
 
 def run_audio_upload_phase(
@@ -272,7 +289,7 @@ def run_audio_upload_phase(
     temp_dir: Path,
     video_index: int,
     total_videos: int,
-    media_manager_enabled: bool,
+    server_cache: ServerDataCache | None,
     *,
     total_phases: int = 7,
 ) -> bool | None:
@@ -291,61 +308,19 @@ def run_audio_upload_phase(
     if not title_text:
         return None
     
-    if not media_manager_enabled:
+    if not server_cache:
         return None
     
-    cache_key = str(temp_dir)
-    if cache_key not in _server_state_cache:
-        print(f"[3/{total_phases}] Fetching audio list from server...")
-        try:
-            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            all_audio = client.get_audio_files(include_trash=True)
-            state = ServerState()
-            trash_count = 0
-            for audio in all_audio:
-                aid = audio.get('id')
-                if aid:
-                    state.audio_dict[aid] = (audio.get('title', ''), audio.get('tags', []))
-                    tags = audio.get('tags', [])
-                    if isinstance(tags, list) and 'trash' in tags:
-                        state.audio_trash_ids.add(aid)
-                        trash_count += 1
-                        if aid == '2026-04-13 09-09-01-vertical':
-                            print(f"[3/{total_phases}] DEBUG: Added {aid} to trash (tags={tags})")
-            print(f"[3/{total_phases}] DEBUG: Processed {len(all_audio)} files, {trash_count} in trash")
-            _server_state_cache[cache_key] = state
-            client.close()
-            print(f"[3/{total_phases}] Found {len(state.audio_dict)} audio files")
-        except Exception as e:
-            print(f"[3/{total_phases}] Failed to fetch: {e}")
-            _server_state_cache[cache_key] = ServerState()
-    
-    state = _server_state_cache.get(cache_key, ServerState())
-    
-    # Debug: show server state stats on first video
-    if video_index == 1:
-        print(f"[3/{total_phases}] Server state: {len(state.audio_dict)} audio, "
-              f"{len(state.audio_trash_ids)} in trash")
-    
-    # Debug specific file
-    if file_id == '2026-04-13 09-09-01-vertical':
-        in_trash = file_id in state.audio_trash_ids
-        in_dict = file_id in state.audio_dict
-        print(f"[3/{total_phases}] DEBUG: Checking {file_id}")
-        print(f"[3/{total_phases}] DEBUG: in_trash={in_trash}, in_dict={in_dict}")
-        print(f"[3/{total_phases}] DEBUG: file_id repr={repr(file_id)}")
-        print(f"[3/{total_phases}] DEBUG: trash_ids sample={list(state.audio_trash_ids)[:3]}")
-    
-    if file_id in state.audio_trash_ids:
+    if server_cache.is_audio_trash(file_id):
         short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
         print(f"\r[3/{total_phases}] [{video_index}/{total_videos}] {short_name} ✓ skip (trash)\033[K", end='', flush=True)
         if video_index == total_videos:
             print()
         return None
     
-    if file_id in state.audio_dict:
-        server_title, _ = state.audio_dict[file_id]
-        # Strip whitespace for comparison (server may have trailing spaces)
+    audio = server_cache.get_audio(file_id)
+    if audio:
+        server_title = audio.get('title', '')
         if server_title.strip() == title_text.strip():
             short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
             print(f"\r[3/{total_phases}] [{video_index}/{total_videos}] {short_name} ✓ uploaded\033[K", end='', flush=True)
@@ -398,7 +373,7 @@ def run_audio_upload_phase(
         video_path=video_path,
         already_done=False,
         already_done_message="",
-        precondition_ok=media_manager_enabled,
+        precondition_ok=True,
         precondition_message=None,
         work_fn=_perform,
         success_message=f"\n✓ Phase 3 (audio upload) done: {video_path.name}",
@@ -409,10 +384,6 @@ def run_audio_upload_phase(
         total_videos=total_videos,
         label="Audio Upload",
     )
-    
-    # Clear cache after processing last video
-    if video_index == total_videos:
-        _server_state_cache.pop(cache_key, None)
 
 
 def run_output_phase(
@@ -512,7 +483,7 @@ def run_pending_upload_phase(
     temp_dir: Path,
     video_index: int,
     total_videos: int,
-    media_manager_enabled: bool,
+    server_cache: ServerDataCache | None,
     *,
     total_phases: int = 7,
 ) -> bool | None:
@@ -533,33 +504,8 @@ def run_pending_upload_phase(
     output_basename = sanitize_filename(title_text)
     output_path = output_dir / f"{output_basename}.mp4"
     
-    if not media_manager_enabled:
+    if not server_cache:
         return None
-    
-    cache_key = str(temp_dir)
-    if cache_key not in _server_state_cache:
-        try:
-            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            all_videos = client.get_video_files()
-            state = ServerState()
-            for video in all_videos:
-                vid = video.get('id')
-                if vid:
-                    state.video_dict[vid] = (video.get('title', ''), video.get('tags', []))
-                    if 'trash' in video.get('tags', []):
-                        state.video_trash_ids.add(vid)
-            _server_state_cache[cache_key] = state
-            client.close()
-            print(f"[5/{total_phases}] Fetched {len(state.video_dict)} videos from server "
-                  f"({len(state.video_trash_ids)} in trash)")
-        except Exception as e:
-            print(f"[5/{total_phases}] Warning: Failed to fetch server state: {e}")
-            _server_state_cache[cache_key] = ServerState()
-    
-    if video_index == total_videos:
-        _server_state_cache.pop(cache_key, None)
-    
-    state = _server_state_cache.get(cache_key, ServerState())
     
     def _show_progress(status: str) -> None:
         short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
@@ -567,13 +513,14 @@ def run_pending_upload_phase(
         if video_index == total_videos:
             print()
     
-    if file_id in state.video_trash_ids:
+    if server_cache.is_video_trash(file_id):
         _show_progress("✓ skip (trash)")
         return None
     
-    if file_id in state.video_dict:
-        server_title, server_tags = state.video_dict[file_id]
-        # Strip whitespace for comparison (server may have trailing spaces)
+    video = server_cache.get_video(file_id)
+    if video:
+        server_title = video.get('title', '')
+        server_tags = video.get('tags', [])
         if server_title.strip() == title_text.strip():
             if 'pending' in server_tags:
                 _show_progress("✓ skip (pending)")
@@ -643,7 +590,7 @@ def run_video_upload_phase(
     temp_dir: Path,
     video_index: int,
     total_videos: int,
-    media_manager_enabled: bool,
+    server_cache: ServerDataCache | None,
     *,
     total_phases: int = 7,
 ) -> bool | None:
@@ -664,39 +611,8 @@ def run_video_upload_phase(
     output_basename = sanitize_filename(local_title)
     output_path = output_dir / f"{output_basename}.mp4"
     
-    if not media_manager_enabled:
+    if not server_cache:
         return None
-    
-    cache_key = str(temp_dir)
-    if cache_key not in _server_state_cache:
-        try:
-            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            ready_audio = client.get_audio_files(tags='ready')
-            all_videos = client.get_video_files()
-            state = ServerState()
-            for audio in ready_audio:
-                aid = audio.get('id')
-                if aid:
-                    state.ready_audio_dict[aid] = audio.get('title', '')
-            for video in all_videos:
-                vid = video.get('id')
-                if vid:
-                    state.video_dict[vid] = (video.get('title', ''), video.get('tags', []))
-                    if 'trash' in video.get('tags', []):
-                        state.video_trash_ids.add(vid)
-            _server_state_cache[cache_key] = state
-            client.close()
-            print(f"[6/{total_phases}] Fetched {len(state.ready_audio_dict)} ready audio, "
-                  f"{len(state.video_dict)} videos from server "
-                  f"({len(state.video_trash_ids)} in trash)")
-        except Exception as e:
-            print(f"[6/{total_phases}] Warning: Failed to fetch server state: {e}")
-            _server_state_cache[cache_key] = ServerState()
-    
-    if video_index == total_videos:
-        _server_state_cache.pop(cache_key, None)
-    
-    state = _server_state_cache.get(cache_key, ServerState())
     
     def _show_progress(status: str) -> None:
         short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
@@ -704,17 +620,18 @@ def run_video_upload_phase(
         if video_index == total_videos:
             print()
     
-    if file_id not in state.ready_audio_dict:
+    if not server_cache.is_audio_ready(file_id):
         _show_progress("✓ skip (audio not ready)")
         return None
     
-    if file_id in state.video_trash_ids:
+    if server_cache.is_video_trash(file_id):
         _show_progress("✓ skip (trash)")
         return None
     
-    if file_id in state.video_dict:
-        server_title, server_tags = state.video_dict[file_id]
-        # Strip whitespace for comparison (server may have trailing spaces)
+    video = server_cache.get_video(file_id)
+    if video:
+        server_title = video.get('title', '')
+        server_tags = video.get('tags', [])
         if server_title.strip() == local_title.strip():
             if 'FB' in server_tags or 'TT' in server_tags:
                 _show_progress("✓ skip (published)")
@@ -741,11 +658,8 @@ def run_video_upload_phase(
                 nonlocal upload_start_time, last_uploaded
                 elapsed = time.time() - upload_start_time
                 if elapsed > 0:
-                    # Calculate speed from last chunk (instantaneous) and overall
                     bytes_since_last = uploaded_bytes - last_uploaded
-                    instant_speed = bytes_since_last / elapsed if elapsed > 0 else 0
                     overall_speed = uploaded_bytes / elapsed
-                    # Use overall speed for display (smoother)
                     speed_mbps = overall_speed / (1024 * 1024)
                     percent = (uploaded_bytes / total_bytes) * 100 if total_bytes > 0 else 0
                     short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
@@ -821,6 +735,59 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         except Exception as e:
             print(f"  \033[91m[Media Manager] Sync failed (continuing): {e}\033[0m")
 
+    # Fetch all server data once for all phases
+    server_cache = None
+    if media_manager_enabled:
+        try:
+            print(f"\n[Media Manager] Fetching server state...")
+            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+            try:
+                all_audio = client.get_audio_files(include_trash=True)
+                all_videos = client.get_video_files()
+                
+                audio_files = {}
+                audio_trash = set()
+                ready_audio = set()
+                
+                for audio in all_audio:
+                    aid = audio.get('id')
+                    if aid:
+                        audio_files[aid] = audio
+                        tags = audio.get('tags', [])
+                        if isinstance(tags, list):
+                            if 'trash' in tags:
+                                audio_trash.add(aid)
+                            if 'ready' in tags:
+                                ready_audio.add(aid)
+                
+                video_files = {}
+                video_trash = set()
+                
+                for video in all_videos:
+                    vid = video.get('id')
+                    if vid:
+                        video_files[vid] = video
+                        tags = video.get('tags', [])
+                        if isinstance(tags, list) and 'trash' in tags:
+                            video_trash.add(vid)
+                
+                server_cache = ServerDataCache(
+                    audio_files=audio_files,
+                    video_files=video_files,
+                    audio_trash_ids=frozenset(audio_trash),
+                    video_trash_ids=frozenset(video_trash),
+                    ready_audio_ids=frozenset(ready_audio),
+                )
+                
+                print(f"[Media Manager] Cached: {len(audio_files)} audio "
+                      f"({len(audio_trash)} trash, {len(ready_audio)} ready), "
+                      f"{len(video_files)} video ({len(video_trash)} trash)")
+            finally:
+                client.close()
+        except Exception as e:
+            print(f"\033[91m[Media Manager] Failed to fetch server state: {e}\033[0m")
+            server_cache = None
+
     enc = startup.encoder
     print(f"Resolved encoder: {enc.name} ({enc.codec})")
     quick_test_enabled = bool(getattr(args, "quick_test", False))
@@ -892,7 +859,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 temp_dir=temp_dir,
                 video_index=vi,
                 total_videos=vn,
-                media_manager_enabled=media_manager_enabled,
+                server_cache=server_cache,
                 total_phases=tp,
             ),
         ),
@@ -928,8 +895,8 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 temp_dir=temp_dir,
                 video_index=vi,
                 total_videos=vn,
+                server_cache=server_cache,
                 total_phases=tp,
-                media_manager_enabled=media_manager_enabled,
             ),
         ),
         _PipelinePhase(
@@ -941,8 +908,8 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 temp_dir=temp_dir,
                 video_index=vi,
                 total_videos=vn,
+                server_cache=server_cache,
                 total_phases=tp,
-                media_manager_enabled=media_manager_enabled,
             ),
         ),
     )
