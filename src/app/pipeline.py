@@ -301,12 +301,18 @@ def run_audio_upload_phase(
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
             all_audio = client.get_audio_files(include_trash=True)
             state = ServerState()
+            trash_count = 0
             for audio in all_audio:
                 aid = audio.get('id')
                 if aid:
                     state.audio_dict[aid] = (audio.get('title', ''), audio.get('tags', []))
-                    if 'trash' in audio.get('tags', []):
+                    tags = audio.get('tags', [])
+                    if isinstance(tags, list) and 'trash' in tags:
                         state.audio_trash_ids.add(aid)
+                        trash_count += 1
+                        if aid == '2026-04-13 09-09-01-vertical':
+                            print(f"[3/{total_phases}] DEBUG: Added {aid} to trash (tags={tags})")
+            print(f"[3/{total_phases}] DEBUG: Processed {len(all_audio)} files, {trash_count} in trash")
             _server_state_cache[cache_key] = state
             client.close()
             print(f"[3/{total_phases}] Found {len(state.audio_dict)} audio files")
