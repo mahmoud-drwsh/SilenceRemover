@@ -23,11 +23,9 @@ from src.core.paths import (
     get_title_path,
     get_transcript_path,
     is_completed,
-    is_completed_with_title,
     is_title_done,
     is_transcript_done,
     mark_completed,
-    compute_title_hash,
     resolve_output_basename,
 )
 from sr_filename import sanitize_filename
@@ -389,39 +387,24 @@ def run_output_phase(
     """Phase 4: Full video trim with title-based output filename."""
     basename = video_path.stem
     title_path = get_title_path(temp_dir, basename)
-    precondition_ok = True
-    precondition_message = None
-    chosen_basename: str | None = None
-    title_text = ""
-    current_title_hash: str | None = None
-
-    already_done, stored_title_hash = is_completed_with_title(temp_dir, basename)
+    
+    if is_completed(temp_dir, basename):
+        return None
     
     if not is_transcript_done(temp_dir, basename):
-        precondition_ok = False
-        precondition_message = (
-            f"\033[91mNo transcript for {video_path.name}, skipping output phase.\033[0m"
-        )
-    elif not title_path.exists():
-        precondition_ok = False
-        precondition_message = f"\033[91mNo title for {video_path.name}, skipping output phase.\033[0m"
-    else:
-        title_text = title_path.read_text(encoding="utf-8").strip()
-        if not title_text:
-            precondition_ok = False
-            precondition_message = f"\033[91mEmpty title for {video_path.name}, skipping output phase.\033[0m"
-        else:
-            chosen_basename = resolve_output_basename(title_text, output_dir)
-            current_title_hash = compute_title_hash(title_text)
-            
-            if already_done and stored_title_hash == current_title_hash:
-                return None
+        return None
+    
+    if not title_path.exists():
+        return None
+    
+    title_text = title_path.read_text(encoding="utf-8").strip()
+    if not title_text:
+        return None
+    
+    chosen_basename = resolve_output_basename(title_text, output_dir)
 
     def _perform() -> None:
-        assert chosen_basename is not None
-        print(
-            f"\n[4/{total_phases}] Creating final output: {video_path.name} -> {chosen_basename}.mp4"
-        )
+        print(f"\n[4/{total_phases}] Creating final output: {video_path.name} -> {chosen_basename}.mp4")
         output_mp4 = (output_dir / f"{chosen_basename}.mp4").resolve()
         trim_single_video(
             input_file=video_path,
@@ -450,7 +433,7 @@ def run_output_phase(
             title=title_text,
             output_mp4=output_mp4,
         )
-        mark_completed(temp_dir, basename, current_title_hash)
+        mark_completed(temp_dir, basename)
 
     return _run_phase_step(
         video_path=video_path,
