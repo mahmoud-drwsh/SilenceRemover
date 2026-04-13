@@ -915,6 +915,8 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     )
 
     for phase in phases:
+        # Ensure clean line before starting new phase (handles previous phase's last video progress)
+        print()
         success, skipped, failed = _run_phase(videos=videos, phase=phase, total_phases=len(phases))
         # Phase summary
         summary_parts = []
