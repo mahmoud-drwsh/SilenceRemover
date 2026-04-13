@@ -37,11 +37,12 @@ from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
 from src.media.trim import trim_single_video
 
-# Optional Media Manager integration for title sync and upload (Phases 3 and 5)
+# Optional Media Manager integration for title sync and upload (Phases 3, 4, and 5)
 try:
     from sr_media_manager import (
         MediaManagerClient,
         sync_titles_from_api,
+        ensure_video_uploaded,
     )
     _MEDIA_MANAGER_AVAILABLE = True
 except ImportError:
@@ -457,6 +458,38 @@ def run_output_phase(
             title_height_fraction=title_height_fraction,
             temp_dir=temp_dir,
         )
+        
+        # Upload to Media Manager with pending tag for immediate backup (Phase 4)
+        if _MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL'):
+            try:
+                client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+                file_id = video_path.stem
+                
+                exists, title_matches = client.check_video_exists(file_id, title_text)
+                
+                if not exists:
+                    print(f"  Uploading pending video to Media Manager...")
+                    result = ensure_video_uploaded(
+                        client,
+                        file_id,
+                        title_text,
+                        output_mp4,
+                        optimize=False
+                    )
+                    if result.get('success'):
+                        print(f"  ✓ Pending video uploaded")
+                    else:
+                        error = result.get('error', 'Unknown error')
+                        print(f"  ⚠ Pending upload failed: {error}")
+                else:
+                    # Already exists, skip silently
+                    pass
+                    
+                client.close()
+            except Exception as e:
+                # Log error but don't block pipeline
+                print(f"  ⚠ Pending upload error: {e}")
+        
         notify_final_output_ready(
             phase_index=4,
             total_phases=total_phases,
@@ -592,31 +625,70 @@ def run_video_upload_phase(
             print()  # New line only at end of phase
         return None
     
-    # Upload
+    # Check for pending video and handle smart approval
     def _perform() -> None:
         video_size_mb = output_path.stat().st_size / (1024 * 1024)
-        total_bytes = output_path.stat().st_size
-        
-        print(f"\n[5/{total_phases}] Uploading final video to Media Manager")
-        print(f"  File: {output_path.name}")
-        print(f"  Title (from API): {approved_title[:60]}{'...' if len(approved_title) > 60 else ''}")
-        print(f"  Video size: {video_size_mb:.1f} MB")
-        print(f"  Tags: [FB, TT]")
-        
-        # Progress callback - single line that updates in place
-        last_percent = -1
-        def progress_callback(uploaded: int, total: int) -> None:
-            nonlocal last_percent
-            percent = int(uploaded * 100 / total)
-            if percent != last_percent:
-                mb_uploaded = uploaded / (1024 * 1024)
-                # Use \r to overwrite same line, \033[K to clear to end
-                print(f"\r  Uploading: {percent}% ({mb_uploaded:.1f}/{video_size_mb:.1f} MB)\033[K", end='', flush=True)
-                last_percent = percent
         
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-        start_time = time.time()
+        
         try:
+            pending_videos = client.get_video_files(tags='pending')
+            pending_video = None
+            for v in pending_videos:
+                if v.get('id') == file_id:
+                    pending_video = v
+                    break
+            
+            if pending_video:
+                pending_title = pending_video.get('title', '')
+                
+                if pending_title == approved_title:
+                    # Same title: Just update tags from pending to FB/TT
+                    print(f"\n[5/{total_phases}] Publishing video (title unchanged)")
+                    success = client.update_tags(file_id, ['FB', 'TT'])
+                    if success:
+                        print(f"  ✓ Video published (tags updated)")
+                        notify_video_uploaded(
+                            video_index=video_index,
+                            total_videos=total_videos,
+                            input_name=video_path.name,
+                            title=approved_title,
+                        )
+                    else:
+                        print(f"  ✗ Failed to update tags")
+                    client.close()
+                    return
+                else:
+                    # Different title: Must re-upload (title burned in video)
+                    print(f"\n[5/{total_phases}] Title changed, re-uploading video")
+                    print(f"  Old: {pending_title[:50]}...")
+                    print(f"  New: {approved_title[:50]}...")
+                    # Delete old pending video first
+                    try:
+                        client._client.delete(
+                            client._url(f'/api/files/{file_id}?type=video')
+                        )
+                    except:
+                        pass  # Continue even if delete fails
+            
+            print(f"\n[5/{total_phases}] Uploading final video to Media Manager")
+            print(f"  File: {output_path.name}")
+            print(f"  Title (from API): {approved_title[:60]}{'...' if len(approved_title) > 60 else ''}")
+            print(f"  Video size: {video_size_mb:.1f} MB")
+            print(f"  Tags: [FB, TT]")
+            
+            # Progress callback - single line that updates in place
+            last_percent = -1
+            def progress_callback(uploaded: int, total: int) -> None:
+                nonlocal last_percent
+                percent = int(uploaded * 100 / total)
+                if percent != last_percent:
+                    mb_uploaded = uploaded / (1024 * 1024)
+                    # Use \r to overwrite same line, \033[K to clear to end
+                    print(f"\r  Uploading: {percent}% ({mb_uploaded:.1f}/{video_size_mb:.1f} MB)\033[K", end='', flush=True)
+                    last_percent = percent
+            
+            start_time = time.time()
             result = client.upload_video(
                 file_id, approved_title, output_path, tags=['FB', 'TT'],
                 progress_callback=progress_callback,
