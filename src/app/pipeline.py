@@ -567,6 +567,7 @@ def run_output_phase(
 # Module-level caches for bulk fetch (cleared after phase completes)
 _video_upload_cache: dict[str, dict[str, str]] = {}
 _pending_video_cache: dict[str, dict[str, str]] = {}
+_published_video_cache: dict[str, dict[str, str]] = {}
 # Module-level counters for upload tracking (cleared after phase completes)
 _pending_uploads: dict[str, int] = {}
 _pending_skips: dict[str, int] = {}
@@ -628,6 +629,22 @@ def run_video_upload_phase(
             client.close()
         except Exception:
             _pending_video_cache[cache_key] = {}
+    
+    # Bulk fetch published videos once at phase start (first call)
+    if cache_key not in _published_video_cache:
+        try:
+            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+            # Fetch videos with FB or TT tags (published videos)
+            fb_videos = client.get_video_files(tags='FB')
+            tt_videos = client.get_video_files(tags='TT')
+            published_dict = {}
+            for v in fb_videos + tt_videos:
+                if v.get('id'):
+                    published_dict[v.get('id')] = v.get('title', '')
+            _published_video_cache[cache_key] = published_dict
+            client.close()
+        except Exception:
+            _published_video_cache[cache_key] = {}
     if cache_key not in _publish_skips:
         _publish_skips[cache_key] = 0
     if cache_key not in _publish_uploads:
@@ -639,6 +656,7 @@ def run_video_upload_phase(
         if total_processed > 0:
             print(f"\n[5/{total_phases}] Phase 5 Summary: {upload_count} published, {skip_count} skipped")
         _pending_video_cache.pop(cache_key, None)
+        _published_video_cache.pop(cache_key, None)
     
     # Fast local lookup (no API call)
     ready_dict = _video_upload_cache.get(cache_key, {})
@@ -670,16 +688,12 @@ def run_video_upload_phase(
         print(f"    Then re-run the pipeline to re-encode with new title")
         return False
     
-    # Check if already published with correct title (early skip to avoid header spam)
-    try:
-        client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-        exists, title_matches = client.check_video_exists(file_id, approved_title)
-        client.close()
-        if exists and title_matches:
-            _publish_skips[cache_key] = _publish_skips.get(cache_key, 0) + 1
-            return None
-    except:
-        pass  # Continue to normal processing if check fails
+    # Check if already published with correct title (using cache - O(1) lookup)
+    published_dict = _published_video_cache.get(cache_key, {})
+    published_title = published_dict.get(file_id)
+    if published_title == approved_title:
+        _publish_skips[cache_key] = _publish_skips.get(cache_key, 0) + 1
+        return None
     
     # Check for pending video and handle smart approval
     pending_dict = _pending_video_cache.get(cache_key, {})
