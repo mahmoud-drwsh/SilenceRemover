@@ -26,7 +26,7 @@ TITLE_CANDIDATES_PROMPT_TEMPLATE = """\
 Generate exactly {candidate_count} distinct YouTube video titles in Arabic from the transcript below. Each title must be in Arabic.
 
 Output format (required):
-- Output only a single JSON array of exactly {candidate_count} strings, e.g. ["title1","title2","title3"].
+- Output only a single JSON array of exactly {candidate_count} strings, e.g. ["title1","title2","title3","title4","title5"].
 - No markdown, no code fences, no commentary before or after the array—only valid JSON.
 - Each string must be a single line (no newline characters inside a title).
 - All {candidate_count} titles must be different from each other.

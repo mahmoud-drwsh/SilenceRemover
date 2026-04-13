@@ -193,6 +193,7 @@ def _select_title_by_scores(
     """Pick candidate with highest combined score; tie-break with _selection_sort_key."""
     if not candidates or len(scores) != len(candidates):
         return ""
+
     combined = [v + c for v, c in scores]
     best = max(combined)
     tie_indices = [i for i, s in enumerate(combined) if s == best]
@@ -310,9 +311,7 @@ def generate_title_with_openrouter(
             file=sys.stderr,
         )
 
-    raw_title = _select_title_by_scores(
-        title_source_transcript, candidates, score_rows
-    )
+    raw_title = _select_title_by_scores(title_source_transcript, candidates, score_rows)
 
     if not raw_title:
         print("Title selection produced empty result.", file=sys.stderr)
@@ -350,9 +349,7 @@ def generate_title_from_transcript(
         )
     # Use the full transcript for the title step; the prompt instructs the model
     # to extract from the early speech portion of the transcript.
-    title_text = generate_title_with_openrouter(
-        api_key, transcript, model=model, log_dir=log_dir
-    )
+    title_text = generate_title_with_openrouter(api_key, transcript, model=model, log_dir=log_dir)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(title_text, encoding="utf-8")
