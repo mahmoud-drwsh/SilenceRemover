@@ -255,7 +255,7 @@
 
         // Fixed tabs per section
         const AUDIO_TABS = ['todo', 'ready', 'all', 'trash'];
-        const VIDEO_TABS = ['FB', 'TT', 'all', 'trash'];
+        const VIDEO_TABS = ['FB', 'TT', 'all', 'trash', 'pending'];
 
         function showSection(section, folder = null, isStrict = false) {
             currentSection = section;
@@ -366,7 +366,7 @@
             document.getElementById('bottom-nav').style.display = 'block';
 
             // Filter out 'all' and 'trash' unless in admin mode
-            const adminOnlyTabs = ['all', 'trash'];
+            const adminOnlyTabs = ['all', 'trash', 'pending'];
             const baseTabs = currentSection === 'audio' ? AUDIO_TABS : VIDEO_TABS;
             const tabs = isAdmin ? baseTabs : baseTabs.filter(tab => !adminOnlyTabs.includes(tab));
 
@@ -384,7 +384,8 @@
                 'all': '📋 All',
                 'trash': '🗑️ Trash',
                 'FB': '📘 Facebook',
-                'TT': '📱 TikTok'
+                'TT': '📱 TikTok',
+                'pending': '⏳ Pending'
             };
             return labels[tab] || tab;
         }
