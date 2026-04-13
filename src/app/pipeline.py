@@ -330,6 +330,8 @@ def run_audio_upload_phase(
         in_dict = file_id in state.audio_dict
         print(f"[3/{total_phases}] DEBUG: Checking {file_id}")
         print(f"[3/{total_phases}] DEBUG: in_trash={in_trash}, in_dict={in_dict}")
+        print(f"[3/{total_phases}] DEBUG: file_id repr={repr(file_id)}")
+        print(f"[3/{total_phases}] DEBUG: trash_ids sample={list(state.audio_trash_ids)[:3]}")
     
     if file_id in state.audio_trash_ids:
         short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
