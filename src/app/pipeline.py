@@ -328,10 +328,10 @@ def run_audio_upload_phase(
                 print()
             return None
         else:
-            print(f"[3/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+            print(f"\n[3/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
                   f"UPLOAD (title mismatch: server='{server_title[:30]}...' local='{title_text[:30]}...')")
     else:
-        print(f"[3/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: UPLOAD (not on server)")
+        print(f"\n[3/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: UPLOAD (not on server)")
     
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
@@ -528,14 +528,14 @@ def run_pending_upload_phase(
             if 'FB' in server_tags or 'TT' in server_tags:
                 _show_progress("✓ skip (published)")
                 return None
-            print(f"[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+            print(f"\n[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
                   f"UPLOAD (exists but tags={server_tags})")
         else:
-            print(f"[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+            print(f"\n[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
                   f"UPLOAD (title mismatch: server='{server_title[:30]}...' "
                   f"local='{title_text[:30]}...')")
     else:
-        print(f"[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+        print(f"\n[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
               f"UPLOAD (not on server)")
     
     def _perform() -> None:
@@ -637,14 +637,14 @@ def run_video_upload_phase(
                 _show_progress("✓ skip (published)")
                 return None
             if 'pending' in server_tags:
-                print(f"[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+                print(f"\n[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
                       f"PUBLISH (currently pending)")
         else:
-            print(f"[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+            print(f"\n[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
                   f"PUBLISH (title mismatch: server='{server_title[:30]}...' "
                   f"local='{local_title[:30]}...')")
     else:
-        print(f"[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+        print(f"\n[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
               f"PUBLISH (not on server yet)")
     
     def _perform() -> None:
