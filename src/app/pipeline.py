@@ -521,8 +521,7 @@ def run_pending_upload_phase(
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
-            overwrite = file_id in state.video_dict
-            client.upload_video(file_id, title_text, output_path, tags=['pending'], overwrite=overwrite)
+            client.upload_video(file_id, title_text, output_path, tags=['pending'])
             print(f"\n[5/{total_phases}] Staged to pending: {output_path.name}")
         finally:
             client.close()
@@ -618,8 +617,7 @@ def run_video_upload_phase(
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
-            overwrite = file_id in state.video_dict
-            client.upload_video(file_id, local_title, output_path, tags=['FB', 'TT'], overwrite=overwrite)
+            client.upload_video(file_id, local_title, output_path, tags=['FB', 'TT'])
             print(f"\n[6/{total_phases}] Published: {output_path.name}")
         finally:
             client.close()
