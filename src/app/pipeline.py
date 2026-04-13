@@ -479,25 +479,50 @@ def run_output_phase(
         # Upload to Media Manager with pending tag for immediate backup (Phase 4)
         file_id = video_path.stem
         pending_dict = _pending_video_cache.get(cache_key, {})
-        pending_exists = file_id in pending_dict
+        pending_title = pending_dict.get(file_id)
         
-        if _MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL') and not pending_exists:
+        if _MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL'):
             try:
                 client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
                 
-                print(f"  Uploading pending video to Media Manager...")
-                result = client.upload_video(
-                    file_id=file_id,
-                    title=title_text,
-                    video_path=output_mp4,
-                    tags=['pending'],
-                    skip_if_exists_with_title=False
-                )
-                if result.get('success'):
-                    print(f"  ✓ Pending video uploaded")
+                if pending_title is None:
+                    print(f"  Uploading pending video to Media Manager...")
+                    result = client.upload_video(
+                        file_id=file_id,
+                        title=title_text,
+                        video_path=output_mp4,
+                        tags=['pending'],
+                        skip_if_exists_with_title=False
+                    )
+                    if result.get('success'):
+                        print(f"  ✓ Pending video uploaded")
+                    else:
+                        error = result.get('error', 'Unknown error')
+                        print(f"  ⚠ Pending upload failed: {error}")
+                elif pending_title != title_text:
+                    print(f"  Title changed, re-uploading pending video...")
+                    print(f"    Old: {pending_title[:50]}...")
+                    print(f"    New: {title_text[:50]}...")
+                    try:
+                        client._client.delete(
+                            client._url(f'/api/files/{file_id}?type=video')
+                        )
+                    except:
+                        pass
+                    result = client.upload_video(
+                        file_id=file_id,
+                        title=title_text,
+                        video_path=output_mp4,
+                        tags=['pending'],
+                        skip_if_exists_with_title=False
+                    )
+                    if result.get('success'):
+                        print(f"  ✓ Pending video re-uploaded")
+                    else:
+                        error = result.get('error', 'Unknown error')
+                        print(f"  ⚠ Pending re-upload failed: {error}")
                 else:
-                    error = result.get('error', 'Unknown error')
-                    print(f"  ⚠ Pending upload failed: {error}")
+                    pass
                     
                 client.close()
             except Exception as e:
