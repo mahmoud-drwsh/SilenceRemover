@@ -469,6 +469,9 @@ def run_pending_upload_phase(
     file_id = basename
     title_path = get_title_path(temp_dir, basename)
     
+    if not is_completed(temp_dir, basename):
+        return None
+    
     if not title_path.exists():
         return None
     
@@ -478,9 +481,6 @@ def run_pending_upload_phase(
     
     output_basename = resolve_output_basename(title_text, output_dir)
     output_path = output_dir / f"{output_basename}.mp4"
-    
-    if not output_path.exists():
-        return None
     
     if not media_manager_enabled:
         return None
@@ -558,6 +558,9 @@ def run_video_upload_phase(
     file_id = basename
     title_path = get_title_path(temp_dir, basename)
     
+    if not is_completed(temp_dir, basename):
+        return None
+    
     if not title_path.exists():
         return None
     
@@ -567,9 +570,6 @@ def run_video_upload_phase(
     
     output_basename = resolve_output_basename(local_title, output_dir)
     output_path = output_dir / f"{output_basename}.mp4"
-    
-    if not output_path.exists():
-        return None
     
     if not media_manager_enabled:
         return None
