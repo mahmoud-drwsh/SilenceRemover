@@ -1,5 +1,6 @@
 """Path construction and tracking utilities."""
 
+import hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -30,21 +31,21 @@ __all__ = [
     "is_transcript_done",
     "is_title_done",
     "is_completed",
+    "is_completed_with_title",
     "mark_completed",
+    "compute_title_hash",
     "resolve_output_basename",
     "get_processing_video_path",
 ]
 
 
 def sibling_dir(base_dir: Path, name: str) -> Path:
-    """Create a sibling directory to base_dir."""
     d = base_dir.parent / name
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def create_temp_subdirs(temp_dir: Path) -> None:
-    """Create subdirectories in temp directory."""
     for subdir in [
         SNIPPET_DIR,
         TRANSCRIPT_DIR,
@@ -60,37 +61,30 @@ def create_temp_subdirs(temp_dir: Path) -> None:
 
 
 def get_snippet_path(temp_dir: Path, basename: str) -> Path:
-    """Path to snippet audio file (first 3 min, silence-removed)."""
     return temp_dir / SNIPPET_DIR / f"{basename}{AUDIO_FILE_EXT}"
 
 
 def get_transcript_path(temp_dir: Path, basename: str) -> Path:
-    """Path to transcript text file."""
     return temp_dir / TRANSCRIPT_DIR / f"{basename}{TEXT_FILE_EXT}"
 
 
 def get_title_path(temp_dir: Path, basename: str) -> Path:
-    """Path to title text file."""
     return temp_dir / TITLE_DIR / f"{basename}{TEXT_FILE_EXT}"
 
 
 def get_font_cache_path(temp_dir: Path) -> Path:
-    """Path to downloaded font cache directory."""
     return temp_dir / FONTS_DIR
 
 
 def get_title_overlay_path(temp_dir: Path, basename: str) -> Path:
-    """Path to generated title overlay PNG."""
     return temp_dir / TITLE_OVERLAYS_DIR / f"{basename}.png"
 
 
 def get_completed_path(temp_dir: Path, basename: str) -> Path:
-    """Path to completed timestamp file."""
     return temp_dir / COMPLETED_DIR / f"{basename}{TEXT_FILE_EXT}"
 
 
 def is_transcript_done(temp_dir: Path, basename: str) -> bool:
-    """True when transcript file exists and has non-whitespace content."""
     path = get_transcript_path(temp_dir, basename)
     if not path.exists():
         return False
@@ -101,25 +95,39 @@ def is_transcript_done(temp_dir: Path, basename: str) -> bool:
 
 
 def is_title_done(temp_dir: Path, basename: str) -> bool:
-    """Check if title generation is already done."""
     return get_title_path(temp_dir, basename).exists()
 
 
 def is_completed(temp_dir: Path, basename: str) -> bool:
-    """Check if video processing is already completed."""
     return get_completed_path(temp_dir, basename).exists()
 
 
-def mark_completed(temp_dir: Path, basename: str) -> None:
-    """Mark video as completed with timestamp."""
+def is_completed_with_title(temp_dir: Path, basename: str) -> tuple[bool, str | None]:
+    path = get_completed_path(temp_dir, basename)
+    if not path.exists():
+        return (False, None)
+    try:
+        lines = path.read_text(encoding="utf-8").strip().split('\n')
+        if len(lines) >= 2:
+            return (True, lines[1])
+        return (True, None)
+    except (OSError, UnicodeDecodeError):
+        return (False, None)
+
+
+def compute_title_hash(title_text: str) -> str:
+    return hashlib.sha256(title_text.encode('utf-8')).hexdigest()[:16]
+
+
+def mark_completed(temp_dir: Path, basename: str, title_hash: str | None = None) -> None:
     path = get_completed_path(temp_dir, basename)
     path.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().isoformat()
-    path.write_text(timestamp, encoding="utf-8")
+    content = f"{timestamp}\n{title_hash or ''}"
+    path.write_text(content, encoding="utf-8")
 
 
 def resolve_output_basename(title: str, output_dir: Path) -> str:
-    """Sanitize title and resolve duplicate (Title.mp4, Title_1.mp4, ...). Returns basename without extension."""
     base = sanitize_filename(title)
     candidate = base
     k = 0
@@ -130,16 +138,4 @@ def resolve_output_basename(title: str, output_dir: Path) -> str:
 
 
 def get_processing_video_path(temp_dir: Path, basename: str) -> Path:
-    """Get processing video path during encoding (temp/processing/{basename}.mp4).
-    
-    Uses proper .mp4 extension so FFmpeg can auto-detect muxer format.
-    File is written here during encoding, then renamed to final output on success.
-    
-    Args:
-        temp_dir: The temp directory root (e.g., output/temp)
-        basename: Video basename without extension
-        
-    Returns:
-        Path to processing file (e.g., output/temp/processing/Final.mp4)
-    """
     return temp_dir / VIDEO_PROCESSING_DIR / f"{basename}.mp4"

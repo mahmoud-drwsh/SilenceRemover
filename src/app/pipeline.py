@@ -7,7 +7,7 @@ import os
 import sys
 import time
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -23,9 +23,11 @@ from src.core.paths import (
     get_title_path,
     get_transcript_path,
     is_completed,
+    is_completed_with_title,
     is_title_done,
     is_transcript_done,
     mark_completed,
+    compute_title_hash,
     resolve_output_basename,
 )
 from sr_filename import sanitize_filename
@@ -249,8 +251,23 @@ def run_title_phase(
     )
 
 
-# Module-level cache for Phase 3 bulk fetch (cleared after phase completes)
-_audio_upload_cache: dict[str, set[str]] = {}
+# Unified server state cache for all server phases (cleared after each phase)
+@dataclass
+class ServerState:
+    """Unified server state fetched once per phase."""
+    # Phase 3: Audio
+    audio_dict: dict[str, tuple[str, list]] = field(default_factory=dict)  # id -> (title, tags)
+    audio_trash_ids: set[str] = field(default_factory=set)
+    
+    # Phase 5 & 6: Video
+    video_dict: dict[str, tuple[str, list]] = field(default_factory=dict)  # id -> (title, tags)
+    video_trash_ids: set[str] = field(default_factory=set)
+    
+    # Phase 6 only
+    ready_audio_dict: dict[str, str] = field(default_factory=dict)  # id -> title
+
+
+_server_state_cache: dict[str, ServerState] = {}
 
 
 def run_audio_upload_phase(
@@ -260,110 +277,70 @@ def run_audio_upload_phase(
     total_videos: int,
     media_manager_enabled: bool,
     *,
-    total_phases: int = 5,
+    total_phases: int = 7,
 ) -> bool | None:
-    """Phase 3: Upload audio snippet to Media Manager for review.
-    
-    Uploads with tags=["todo"] so it appears in the TODO folder for review.
-    Bulk fetches all audio files once at phase start for fast local lookup.
-    Shows real-time status for all files (uploaded or skipped).
-    """
     basename = video_path.stem
-    file_id = basename  # Use basename without extension as the ID
+    file_id = basename
     title_path = get_title_path(temp_dir, basename)
     snippet_path = get_snippet_path(temp_dir, basename)
     
-    # Precondition: title must exist
     if not title_path.exists():
-        return False
+        return None
     
-    # Precondition: snippet must exist
     if not snippet_path.exists():
-        return False
+        return None
     
-    # Early exit if Media Manager disabled - skip silently
+    title_text = title_path.read_text(encoding='utf-8').strip()
+    if not title_text:
+        return None
+    
     if not media_manager_enabled:
         return None
     
-    # Bulk fetch all audio files once at phase start (first call)
-    cache_key = str(temp_dir)  # Unique per pipeline run
-    if cache_key not in _audio_upload_cache:
+    cache_key = str(temp_dir)
+    if cache_key not in _server_state_cache:
         print(f"[3/{total_phases}] Fetching audio list from server...")
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            # Include trash files - they were already uploaded and should be skipped
-            all_audio = client.get_audio_files(include_trash=True)
-            uploaded_ids = {f.get('id') for f in all_audio if f.get('id')}
-            _audio_upload_cache[cache_key] = uploaded_ids
+            all_audio = client.get_audio_files(tags='all')
+            state = ServerState()
+            for audio in all_audio:
+                aid = audio.get('id')
+                if aid:
+                    state.audio_dict[aid] = (audio.get('title', ''), audio.get('tags', []))
+                    if 'trash' in audio.get('tags', []):
+                        state.audio_trash_ids.add(aid)
+            _server_state_cache[cache_key] = state
             client.close()
-            print(f"[3/{total_phases}] Found {len(uploaded_ids)} uploaded audio files")
+            print(f"[3/{total_phases}] Found {len(state.audio_dict)} audio files")
         except Exception as e:
-            print(f"[3/{total_phases}] \033[91mFailed to fetch audio list: {e}\033[0m")
-            _audio_upload_cache[cache_key] = set()  # Empty set on failure
-        # Clear cache at end of phase (last file)
-        if video_index == total_videos:
-            _audio_upload_cache.pop(cache_key, None)
+            print(f"[3/{total_phases}] Failed to fetch: {e}")
+            _server_state_cache[cache_key] = ServerState()
     
-    # Fast local lookup (no API call)
-    uploaded_ids = _audio_upload_cache.get(cache_key, set())
-    already_uploaded = file_id in uploaded_ids
+    if video_index == total_videos:
+        _server_state_cache.pop(cache_key, None)
     
-    if already_uploaded:
-        # Show status on single line that updates in-place
-        short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
-        print(f"\r[3/{total_phases}] [{video_index}/{total_videos}] {short_name} \033[90m✓ uploaded\033[0m\033[K", end='', flush=True)
-        if video_index == total_videos:
-            print()  # New line at phase end
+    state = _server_state_cache.get(cache_key, ServerState())
+    
+    if file_id in state.audio_trash_ids:
         return None
     
-    # Upload
+    if file_id in state.audio_dict:
+        server_title, _ = state.audio_dict[file_id]
+        if server_title == title_text:
+            short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
+            print(f"\r[3/{total_phases}] [{video_index}/{total_videos}] {short_name} ✓ uploaded\033[K", end='', flush=True)
+            if video_index == total_videos:
+                print()
+            return None
+    
     def _perform() -> None:
-        title = title_path.read_text(encoding='utf-8').strip()
-        if not title:
-            raise ValueError(f"Empty title for {video_path.name}")
-        
-        snippet_size_mb = snippet_path.stat().st_size / (1024 * 1024) if snippet_path.exists() else 0
-        
-        print(f"\n[3/{total_phases}] Uploading audio to Media Manager")
-        print(f"  File: {video_path.name}")
-        print(f"  Title: {title[:60]}{'...' if len(title) > 60 else ''}")
-        print(f"  Audio snippet: {snippet_size_mb:.1f} MB")
-        print(f"  Tags: [todo] (for review)")
-        
-        # Progress callback - single line that updates in place
-        last_percent = -1
-        def progress_callback(uploaded: int, total: int) -> None:
-            nonlocal last_percent
-            percent = int(uploaded * 100 / total)
-            if percent != last_percent:
-                mb_uploaded = uploaded / (1024 * 1024)
-                # Use \r to overwrite same line, \033[K to clear to end
-                print(f"\r  Uploading: {percent}% ({mb_uploaded:.1f}/{snippet_size_mb:.1f} MB)\033[K", end='', flush=True)
-                last_percent = percent
-        
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-        start_time = time.time()
         try:
-            result = client.upload_audio(file_id, title, snippet_path, tags=['todo'],
-                                         progress_callback=progress_callback)
-            elapsed = time.time() - start_time
-            speed_mbps = snippet_size_mb / elapsed if elapsed > 0 else 0
+            result = client.upload_audio(file_id, title_text, snippet_path, tags=['todo'])
             if result:
-                # \n to move to new line after progress bar
-                print(f"\n  ✓ Uploaded in {elapsed:.1f}s ({speed_mbps:.1f} MB/s)")
-                # Telegram notification for audio upload
-                notify_audio_uploaded(
-                    video_index=video_index,
-                    total_videos=total_videos,
-                    input_name=video_path.name,
-                    title=title,
-                )
-            else:
-                print(f"\n  \033[91m✗ Upload failed for {file_id} (server rejected)\033[0m")
-        except Exception as e:
-            # Show actual error details
-            print(f"\n  \033[91m✗ Upload error for {file_id}: {e}\033[0m")
-            raise  # Re-raise to trigger failure handling
+                print(f"\n[3/{total_phases}] Uploaded: {video_path.name}")
+                notify_audio_uploaded(video_index, total_videos, video_path.name, title_text)
         finally:
             client.close()
     
@@ -372,7 +349,7 @@ def run_audio_upload_phase(
         already_done=False,
         already_done_message="",
         precondition_ok=media_manager_enabled,
-        precondition_message=None,  # Silenced - expected when Media Manager disabled
+        precondition_message=None,
         work_fn=_perform,
         success_message=f"\n✓ Phase 3 (audio upload) done: {video_path.name}",
         failure_label="Phase 3",
@@ -411,11 +388,9 @@ def run_output_phase(
     precondition_message = None
     chosen_basename: str | None = None
     title_text = ""
+    current_title_hash: str | None = None
 
-    already_done = is_completed(temp_dir, basename)
-    if already_done:
-        # Silent skip - counted at phase level
-        return None
+    already_done, stored_title_hash = is_completed_with_title(temp_dir, basename)
     
     if not is_transcript_done(temp_dir, basename):
         precondition_ok = False
@@ -432,6 +407,12 @@ def run_output_phase(
             precondition_message = f"\033[91mEmpty title for {video_path.name}, skipping output phase.\033[0m"
         else:
             chosen_basename = resolve_output_basename(title_text, output_dir)
+            current_title_hash = compute_title_hash(title_text)
+            
+            if already_done and stored_title_hash == current_title_hash:
+                output_mp4 = (output_dir / f"{chosen_basename}.mp4")
+                if output_mp4.exists():
+                    return None
 
     def _perform() -> None:
         assert chosen_basename is not None
@@ -466,7 +447,7 @@ def run_output_phase(
             title=title_text,
             output_mp4=output_mp4,
         )
-        mark_completed(temp_dir, basename)
+        mark_completed(temp_dir, basename, current_title_hash)
 
     return _run_phase_step(
         video_path=video_path,
@@ -485,10 +466,96 @@ def run_output_phase(
     )
 
 
-# Module-level cache for Phase 5 bulk fetch (cleared after phase completes)
-_video_upload_cache: dict[str, dict[str, str]] = {}
-# Cache for video existence check
-_video_existence_cache: dict[str, set[str]] = {}
+
+
+
+def run_pending_upload_phase(
+    video_path: Path,
+    output_dir: Path,
+    temp_dir: Path,
+    video_index: int,
+    total_videos: int,
+    media_manager_enabled: bool,
+    *,
+    total_phases: int = 7,
+) -> bool | None:
+    basename = video_path.stem
+    file_id = basename
+    title_path = get_title_path(temp_dir, basename)
+    
+    if not title_path.exists():
+        return None
+    
+    title_text = title_path.read_text(encoding='utf-8').strip()
+    if not title_text:
+        return None
+    
+    output_basename = resolve_output_basename(title_text, output_dir)
+    output_path = output_dir / f"{output_basename}.mp4"
+    
+    if not output_path.exists():
+        return None
+    
+    if not media_manager_enabled:
+        return None
+    
+    cache_key = str(temp_dir)
+    if cache_key not in _server_state_cache:
+        try:
+            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+            all_videos = client.get_video_files(tags='all')
+            state = ServerState()
+            for video in all_videos:
+                vid = video.get('id')
+                if vid:
+                    state.video_dict[vid] = (video.get('title', ''), video.get('tags', []))
+                    if 'trash' in video.get('tags', []):
+                        state.video_trash_ids.add(vid)
+            _server_state_cache[cache_key] = state
+            client.close()
+        except Exception:
+            _server_state_cache[cache_key] = ServerState()
+    
+    if video_index == total_videos:
+        _server_state_cache.pop(cache_key, None)
+    
+    state = _server_state_cache.get(cache_key, ServerState())
+    
+    if file_id in state.video_trash_ids:
+        return None
+    
+    if file_id in state.video_dict:
+        server_title, server_tags = state.video_dict[file_id]
+        if server_title == title_text:
+            if 'pending' in server_tags:
+                return None
+            if 'FB' in server_tags or 'TT' in server_tags:
+                return None
+    
+    def _perform() -> None:
+        client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+        try:
+            overwrite = file_id in state.video_dict
+            client.upload_video(file_id, title_text, output_path, tags=['pending'], overwrite=overwrite)
+            print(f"\n[5/{total_phases}] Staged to pending: {output_path.name}")
+        finally:
+            client.close()
+    
+    return _run_phase_step(
+        video_path=video_path,
+        already_done=False,
+        already_done_message="",
+        precondition_ok=media_manager_enabled,
+        precondition_message=None,
+        work_fn=_perform,
+        success_message=f"\n✓ Phase 5 (stage) done: {video_path.name}",
+        failure_label="Phase 5",
+        phase_index=5,
+        total_phases=total_phases,
+        video_index=video_index,
+        total_videos=total_videos,
+        label="Stage to Pending",
+    )
 
 
 def run_video_upload_phase(
@@ -499,150 +566,75 @@ def run_video_upload_phase(
     total_videos: int,
     media_manager_enabled: bool,
     *,
-    total_phases: int = 5,
+    total_phases: int = 7,
 ) -> bool | None:
-    """Phase 5: Upload final video to Media Manager (only if audio is approved).
-    
-    Only uploads when:
-    1. The audio file_id is approved (has "ready" tag on server)
-    2. A matching video file exists in output_dir
-    
-    Bulk fetches ready audio once at phase start for fast local lookup.
-    Uses the APPROVED TITLE from the server (not local title.txt).
-    Uploads with tags=["FB", "TT"] for Facebook and TikTok folders.
-    """
     basename = video_path.stem
     file_id = basename
+    title_path = get_title_path(temp_dir, basename)
     
-    # Early exit if Media Manager disabled - skip silently
+    if not title_path.exists():
+        return None
+    
+    local_title = title_path.read_text(encoding='utf-8').strip()
+    if not local_title:
+        return None
+    
+    output_basename = resolve_output_basename(local_title, output_dir)
+    output_path = output_dir / f"{output_basename}.mp4"
+    
+    if not output_path.exists():
+        return None
+    
     if not media_manager_enabled:
         return None
     
-    # Bulk fetch all ready audio and uploaded videos once at phase start (first call)
-    cache_key = str(temp_dir)  # Unique per pipeline run
-    if cache_key not in _video_upload_cache:
-        print(f"[5/{total_phases}] Fetching ready audio list from server...")
+    cache_key = str(temp_dir)
+    if cache_key not in _server_state_cache:
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
             ready_audio = client.get_audio_files(tags='ready')
-            ready_dict = {f.get('id'): f.get('title', '') for f in ready_audio if f.get('id')}
-            _video_upload_cache[cache_key] = ready_dict
+            all_videos = client.get_video_files(tags='all')
+            state = ServerState()
+            for audio in ready_audio:
+                aid = audio.get('id')
+                if aid:
+                    state.ready_audio_dict[aid] = audio.get('title', '')
+            for video in all_videos:
+                vid = video.get('id')
+                if vid:
+                    state.video_dict[vid] = (video.get('title', ''), video.get('tags', []))
+                    if 'trash' in video.get('tags', []):
+                        state.video_trash_ids.add(vid)
+            _server_state_cache[cache_key] = state
             client.close()
-            print(f"[5/{total_phases}] Found {len(ready_dict)} ready audio files")
-        except Exception as e:
-            print(f"[5/{total_phases}] \033[91mFailed to fetch ready audio list: {e}\033[0m")
-            _video_upload_cache[cache_key] = {}  # Empty dict on failure
+        except Exception:
+            _server_state_cache[cache_key] = ServerState()
     
-    # Bulk fetch all uploaded videos once at phase start (first call)
-    if cache_key not in _video_existence_cache:
-        print(f"[5/{total_phases}] Fetching video list from server...")
-        try:
-            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            all_videos = client.get_video_files()
-            uploaded_video_ids = {f.get('id') for f in all_videos if f.get('id')}
-            _video_existence_cache[cache_key] = uploaded_video_ids
-            client.close()
-            print(f"[5/{total_phases}] Found {len(uploaded_video_ids)} uploaded video files")
-        except Exception as e:
-            print(f"[5/{total_phases}] \033[91mFailed to fetch video list: {e}\033[0m")
-            _video_existence_cache[cache_key] = set()  # Empty set on failure
-        # Clear caches at end of phase (last file)
-        if video_index == total_videos:
-            _video_upload_cache.pop(cache_key, None)
-            _video_existence_cache.pop(cache_key, None)
+    if video_index == total_videos:
+        _server_state_cache.pop(cache_key, None)
     
-    # Fast local lookup (no API call)
-    ready_dict = _video_upload_cache.get(cache_key, {})
-    approved_title = ready_dict.get(file_id)
+    state = _server_state_cache.get(cache_key, ServerState())
     
-    short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
-    
-    if not approved_title:
-        # Audio not approved yet - show status
-        print(f"\r[5/{total_phases}] [{video_index}/{total_videos}] {short_name} \033[90m⏸ not ready\033[0m\033[K", end='', flush=True)
-        if video_index == total_videos:
-            print()  # New line at phase end
+    if file_id not in state.ready_audio_dict:
         return None
     
-    # Compute expected output filename based on APPROVED title
-    output_basename = sanitize_filename(approved_title)
-    output_path = output_dir / f"{output_basename}.mp4"
-    
-    # Strict: file must exist with exact name derived from approved title
-    if not output_path.exists():
-        print(f"\n  [Error] Output file not found for {video_path.name}")
-        print(f"    Expected: {output_path.name}")
-        print(f"    Approved title (from API): {approved_title[:50]}...")
-        print(f"    Output dir: {output_dir}")
-        print(f"    ")
-        print(f"    [CAUSE] Title was edited in UI but video not re-created")
-        print(f"    [FIX] Delete completion marker and re-run Phase 4:")
-        print(f"          del temp\\completed\\{video_path.stem}")
-        print(f"    Then re-run the pipeline to re-encode with new title")
-        return False
-    
-    # Fast local lookup: skip if video already uploaded (no API call)
-    uploaded_video_ids = _video_existence_cache.get(cache_key, set())
-    already_uploaded = file_id in uploaded_video_ids
-    
-    if already_uploaded:
-        # Update same line with status, then clear at end
-        print(f"\r[5/{total_phases}] [{video_index}/{total_videos}] {short_name} \033[90m✓ uploaded\033[0m\033[K", end='', flush=True)
-        if video_index == total_videos:
-            print()  # New line only at end of phase
+    if file_id in state.video_trash_ids:
         return None
     
-    # Upload
+    if file_id in state.video_dict:
+        server_title, server_tags = state.video_dict[file_id]
+        if server_title == local_title:
+            if 'FB' in server_tags or 'TT' in server_tags:
+                return None
+            if 'pending' in server_tags:
+                pass
+    
     def _perform() -> None:
-        video_size_mb = output_path.stat().st_size / (1024 * 1024)
-        total_bytes = output_path.stat().st_size
-        
-        print(f"\n[5/{total_phases}] Uploading final video to Media Manager")
-        print(f"  File: {output_path.name}")
-        print(f"  Title (from API): {approved_title[:60]}{'...' if len(approved_title) > 60 else ''}")
-        print(f"  Video size: {video_size_mb:.1f} MB")
-        print(f"  Tags: [FB, TT]")
-        
-        # Progress callback - single line that updates in place
-        last_percent = -1
-        def progress_callback(uploaded: int, total: int) -> None:
-            nonlocal last_percent
-            percent = int(uploaded * 100 / total)
-            if percent != last_percent:
-                mb_uploaded = uploaded / (1024 * 1024)
-                # Use \r to overwrite same line, \033[K to clear to end
-                print(f"\r  Uploading: {percent}% ({mb_uploaded:.1f}/{video_size_mb:.1f} MB)\033[K", end='', flush=True)
-                last_percent = percent
-        
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-        start_time = time.time()
         try:
-            result = client.upload_video(
-                file_id, approved_title, output_path, tags=['FB', 'TT'],
-                progress_callback=progress_callback,
-                skip_if_exists_with_title=True
-            )
-            elapsed = time.time() - start_time
-            speed_mbps = video_size_mb / elapsed if elapsed > 0 else 0
-            if result.get('success'):
-                # Only print when overwritten to keep terminal clean
-                if result.get('overwritten'):
-                    print(f"\n  ✓ Video uploaded (overwrote previous) in {elapsed:.1f}s ({speed_mbps:.1f} MB/s)")
-                elif result.get('skipped'):
-                    print()  # Just move to new line after progress bar, no message
-                else:
-                    print()  # Just move to new line after progress bar, no message
-                # Telegram notification for video upload (only if actually uploaded, not skipped)
-                if not result.get('skipped'):
-                    notify_video_uploaded(
-                        video_index=video_index,
-                        total_videos=total_videos,
-                        input_name=video_path.name,
-                        title=approved_title,
-                    )
-            else:
-                error_msg = result.get('error', 'Unknown error')
-                print(f"\n  \033[91m✗ Video upload failed for {file_id}: {error_msg}\033[0m")
+            overwrite = file_id in state.video_dict
+            client.upload_video(file_id, local_title, output_path, tags=['FB', 'TT'], overwrite=overwrite)
+            print(f"\n[6/{total_phases}] Published: {output_path.name}")
         finally:
             client.close()
     
@@ -651,15 +643,15 @@ def run_video_upload_phase(
         already_done=False,
         already_done_message="",
         precondition_ok=media_manager_enabled,
-        precondition_message=None,  # Silenced - expected when Media Manager disabled
+        precondition_message=None,
         work_fn=_perform,
-        success_message=f"\n✓ Phase 5 (video upload) done: {video_path.name}",
-        failure_label="Phase 5",
-        phase_index=5,
+        success_message=f"\n✓ Phase 6 (publish) done: {video_path.name}",
+        failure_label="Phase 6",
+        phase_index=6,
         total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
-        label="Video Upload",
+        label="Publish Video",
     )
 
 
@@ -720,23 +712,23 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     videos = startup.videos
     if not quick_test_enabled:
         from src.core.video_filter import filter_short_videos
-        print(f"[0/6] Filtering videos shorter than {startup.skip_shorter_than}s...")
+        print(f"[0/7] Filtering videos shorter than {startup.skip_shorter_than}s...")
         videos, ignored = filter_short_videos(
             videos=videos,
             input_dir=startup.input_dir,
             min_duration_sec=startup.skip_shorter_than,
             temp_dir=temp_dir,
-            total_phases=6,
+            total_phases=7,
         )
-        print(f"[0/6] Complete: {len(videos)} videos kept, {len(ignored)} moved to ignored/")
+        print(f"[0/7] Complete: {len(videos)} videos kept, {len(ignored)} moved to ignored/")
     else:
-        print(f"[0/6] Skipped (quick test mode)")
+        print(f"[0/7] Skipped (quick test mode)")
     
     if not videos:
         print("\nNo videos to process after filtering.")
         return startup
 
-    total_phases = 6
+    total_phases = 7
     phases = (
         _PipelinePhase(
             1,
@@ -800,7 +792,20 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         ),
         _PipelinePhase(
             5,
-            "Video Upload",
+            "Stage to Pending",
+            lambda video_file, vi, vn, tp: run_pending_upload_phase(
+                video_path=video_file,
+                output_dir=startup.output_dir,
+                temp_dir=temp_dir,
+                video_index=vi,
+                total_videos=vn,
+                total_phases=tp,
+                media_manager_enabled=media_manager_enabled,
+            ),
+        ),
+        _PipelinePhase(
+            6,
+            "Publish Video",
             lambda video_file, vi, vn, tp: run_video_upload_phase(
                 video_path=video_file,
                 output_dir=startup.output_dir,

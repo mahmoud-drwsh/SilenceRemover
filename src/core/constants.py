@@ -18,7 +18,7 @@ AUDIO_BITRATE = "192k"
 EDGE_SILENCE_KEEP_SEC = 0.2
 
 # --- Edge scan defaults ---
-EDGE_RESCAN_THRESHOLD_DB = -55.0
+EDGE_RESCAN_THRESHOLD_DB = -40.0
 EDGE_RESCAN_MIN_DURATION_SEC = 0.01
 
 # --- Non-target mode defaults ---

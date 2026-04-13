@@ -115,7 +115,7 @@ def detect_edge_only_cached(
     input_file: Path,
     temp_dir: Path | None,
     basename: str,
-    edge_noise_threshold: float = -55.0,  # EDGE_RESCAN_THRESHOLD_DB
+    edge_noise_threshold: float = -40.0,  # EDGE_RESCAN_THRESHOLD_DB
     edge_min_duration: float = 0.01,      # EDGE_RESCAN_MIN_DURATION_SEC
     edge_keep_seconds: float = 0.2,      # EDGE_SILENCE_KEEP_SEC
     duration_sec: float | None = None,

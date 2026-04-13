@@ -392,7 +392,7 @@ def list_files(
         if not include_trash:
             conditions.append("tags NOT LIKE ?")
             params.append('"%"trash"%"')
-        if not include_pending:
+        if not include_pending and 'pending' not in (tag_list or []):
             conditions.append("tags NOT LIKE ?")
             params.append('"%"pending"%"')
 
