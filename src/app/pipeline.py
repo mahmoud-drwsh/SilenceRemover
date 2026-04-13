@@ -299,7 +299,7 @@ def run_audio_upload_phase(
         print(f"[3/{total_phases}] Fetching audio list from server...")
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            all_audio = client.get_audio_files()
+            all_audio = client.get_audio_files(include_trash=True)
             state = ServerState()
             for audio in all_audio:
                 aid = audio.get('id')
