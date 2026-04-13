@@ -448,7 +448,12 @@ def run_output_phase(
                 _pending_video_cache[cache_key] = {}
         else:
             _pending_video_cache[cache_key] = {}
+        if cache_key not in _pending_skips:
+            _pending_skips[cache_key] = 0
     if video_index == total_videos:
+        skip_count = _pending_skips.pop(cache_key, 0)
+        if skip_count > 0:
+            print(f"  [{skip_count} pending video(s) already up-to-date (skipped)]")
         _pending_video_cache.pop(cache_key, None)
 
     def _perform() -> None:
@@ -522,7 +527,7 @@ def run_output_phase(
                         error = result.get('error', 'Unknown error')
                         print(f"  ⚠ Pending re-upload failed: {error}")
                 else:
-                    pass
+                    _pending_skips[cache_key] = _pending_skips.get(cache_key, 0) + 1
                     
                 client.close()
             except Exception as e:
@@ -559,6 +564,9 @@ def run_output_phase(
 # Module-level caches for bulk fetch (cleared after phase completes)
 _video_upload_cache: dict[str, dict[str, str]] = {}
 _pending_video_cache: dict[str, dict[str, str]] = {}
+# Module-level counters for skipped uploads (cleared after phase completes)
+_pending_skips: dict[str, int] = {}
+_publish_skips: dict[str, int] = {}
 
 
 def run_video_upload_phase(
@@ -615,7 +623,12 @@ def run_video_upload_phase(
             client.close()
         except Exception:
             _pending_video_cache[cache_key] = {}
+    if cache_key not in _publish_skips:
+        _publish_skips[cache_key] = 0
     if video_index == total_videos:
+        skip_count = _publish_skips.pop(cache_key, 0)
+        if skip_count > 0:
+            print(f"  [{skip_count} video(s) already published (skipped)]")
         _pending_video_cache.pop(cache_key, None)
     
     # Fast local lookup (no API call)
@@ -658,6 +671,13 @@ def run_video_upload_phase(
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         
         try:
+            # Check if already published with correct title
+            exists, title_matches = client.check_video_exists(file_id, approved_title)
+            if exists and title_matches:
+                _publish_skips[cache_key] = _publish_skips.get(cache_key, 0) + 1
+                client.close()
+                return
+            
             if pending_title is not None:
                 if pending_title == approved_title:
                     print(f"\n[5/{total_phases}] Publishing video (title unchanged)")
