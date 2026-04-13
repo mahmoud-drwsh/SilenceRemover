@@ -633,22 +633,25 @@ def run_video_upload_phase(
     
     state = _server_state_cache.get(cache_key, ServerState())
     
+    def _show_progress(status: str) -> None:
+        short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
+        print(f"\r[6/{total_phases}] [{video_index}/{total_videos}] {short_name} {status}\033[K", end='', flush=True)
+        if video_index == total_videos:
+            print()
+    
     if file_id not in state.ready_audio_dict:
-        print(f"[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
-              f"SKIP (audio not ready)")
+        _show_progress("✓ skip (audio not ready)")
         return None
     
     if file_id in state.video_trash_ids:
-        print(f"[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
-              f"SKIP (in trash)")
+        _show_progress("✓ skip (trash)")
         return None
     
     if file_id in state.video_dict:
         server_title, server_tags = state.video_dict[file_id]
         if server_title == local_title:
             if 'FB' in server_tags or 'TT' in server_tags:
-                print(f"[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
-                      f"SKIP (already published)")
+                _show_progress("✓ skip (published)")
                 return None
             if 'pending' in server_tags:
                 print(f"[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
@@ -664,8 +667,37 @@ def run_video_upload_phase(
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
-            client.upload_video(file_id, local_title, output_path, tags=['FB', 'TT'])
-            print(f"\n[6/{total_phases}] Published: {output_path.name}")
+            total_size = output_path.stat().st_size
+            upload_start_time = time.time()
+            last_uploaded = 0
+            
+            def _upload_progress(uploaded_bytes: int, total_bytes: int) -> None:
+                nonlocal upload_start_time, last_uploaded
+                elapsed = time.time() - upload_start_time
+                if elapsed > 0:
+                    # Calculate speed from last chunk (instantaneous) and overall
+                    bytes_since_last = uploaded_bytes - last_uploaded
+                    instant_speed = bytes_since_last / elapsed if elapsed > 0 else 0
+                    overall_speed = uploaded_bytes / elapsed
+                    # Use overall speed for display (smoother)
+                    speed_mbps = overall_speed / (1024 * 1024)
+                    percent = (uploaded_bytes / total_bytes) * 100 if total_bytes > 0 else 0
+                    short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
+                    print(f"\r[6/{total_phases}] [{video_index}/{total_videos}] {short_name} "
+                          f"↑ {percent:5.1f}% {speed_mbps:5.2f} MB/s\033[K", end='', flush=True)
+                    last_uploaded = uploaded_bytes
+                    upload_start_time = time.time()
+            
+            result = client.upload_video(
+                file_id, local_title, output_path, 
+                tags=['FB', 'TT'], 
+                progress_callback=_upload_progress
+            )
+            
+            if result.get('skipped'):
+                _show_progress("✓ skip (already on server)")
+            else:
+                print(f"\n[6/{total_phases}] Published: {output_path.name}")
         finally:
             client.close()
     
