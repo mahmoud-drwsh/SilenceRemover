@@ -274,7 +274,8 @@ def list_files(
     sort: Optional[Literal['asc', 'desc']] = Query('asc', description="Sort order: asc or desc"),
     check_id: Optional[str] = Query(None, description="Pre-flight: check specific ID for existence"),
     check_title: Optional[str] = Query(None, description="Pre-flight: check if title matches (requires check_id)"),
-    include_trash: bool = Query(False, description="Include trashed files in results (default: false)")
+    include_trash: bool = Query(False, description="Include trashed files in results (default: false)"),
+    include_pending: bool = Query(False, description="Include pending review files in results (default: false)")
 ):
     verify_token(token)
     """
@@ -387,10 +388,13 @@ def list_files(
                 conditions.append("tags LIKE ?")
                 params.append(f'%"{tag}"%')
     else:
-        # No tags specified (ALL tab) - exclude trash by default, unless include_trash=true
+        # No tags specified (ALL tab) - exclude trash and pending by default
         if not include_trash:
             conditions.append("tags NOT LIKE ?")
-            params.append('%"trash"%')
+            params.append('"%"trash"%"')
+        if not include_pending:
+            conditions.append("tags NOT LIKE ?")
+            params.append('"%"pending"%"')
 
     where_clause = " AND ".join(conditions)
     # Validate sort direction to prevent SQL injection
