@@ -343,7 +343,28 @@ def run_audio_upload_phase(
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
-            result = client.upload_audio(file_id, title_text, snippet_path, tags=['todo'])
+            total_size = snippet_path.stat().st_size
+            upload_start_time = time.time()
+            last_uploaded = 0
+            
+            def _upload_progress(uploaded_bytes: int, total_bytes: int) -> None:
+                nonlocal upload_start_time, last_uploaded
+                elapsed = time.time() - upload_start_time
+                if elapsed > 0:
+                    overall_speed = uploaded_bytes / elapsed
+                    speed_mbps = overall_speed / (1024 * 1024)
+                    percent = (uploaded_bytes / total_bytes) * 100 if total_bytes > 0 else 0
+                    short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
+                    print(f"\r[3/{total_phases}] [{video_index}/{total_videos}] {short_name} "
+                          f"↑ {percent:5.1f}% {speed_mbps:5.2f} MB/s\033[K", end='', flush=True)
+                    last_uploaded = uploaded_bytes
+                    upload_start_time = time.time()
+            
+            result = client.upload_audio(
+                file_id, title_text, snippet_path, 
+                tags=['todo'],
+                progress_callback=_upload_progress
+            )
             if result:
                 print(f"\n[3/{total_phases}] Uploaded: {video_path.name}")
                 notify_audio_uploaded(
@@ -550,7 +571,28 @@ def run_pending_upload_phase(
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
-            client.upload_video(file_id, title_text, output_path, tags=['pending'])
+            total_size = output_path.stat().st_size
+            upload_start_time = time.time()
+            last_uploaded = 0
+            
+            def _upload_progress(uploaded_bytes: int, total_bytes: int) -> None:
+                nonlocal upload_start_time, last_uploaded
+                elapsed = time.time() - upload_start_time
+                if elapsed > 0:
+                    overall_speed = uploaded_bytes / elapsed
+                    speed_mbps = overall_speed / (1024 * 1024)
+                    percent = (uploaded_bytes / total_bytes) * 100 if total_bytes > 0 else 0
+                    short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
+                    print(f"\r[5/{total_phases}] [{video_index}/{total_videos}] {short_name} "
+                          f"↑ {percent:5.1f}% {speed_mbps:5.2f} MB/s\033[K", end='', flush=True)
+                    last_uploaded = uploaded_bytes
+                    upload_start_time = time.time()
+            
+            client.upload_video(
+                file_id, title_text, output_path, 
+                tags=['pending'],
+                progress_callback=_upload_progress
+            )
             print(f"\n[5/{total_phases}] Staged to pending: {output_path.name}")
         finally:
             client.close()
