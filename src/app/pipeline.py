@@ -436,15 +436,6 @@ def run_output_phase(
     pending_dict = _pending_video_cache.get(cache_key, {})
     pending_title = pending_dict.get(basename)
     
-    # If video already done AND already uploaded with matching title, skip entirely
-    if already_done and pending_title is not None:
-        # Already done and uploaded - check if title matches
-        if title_path.exists():
-            current_title = title_path.read_text(encoding="utf-8").strip()
-            if current_title == pending_title:
-                # Fully up to date - skip
-                return None
-    
     if not is_transcript_done(temp_dir, basename):
         precondition_ok = False
         precondition_message = (
@@ -460,7 +451,13 @@ def run_output_phase(
             precondition_message = f"\033[91mEmpty title for {video_path.name}, skipping output phase.\033[0m"
         else:
             chosen_basename = resolve_output_basename(title_text, output_dir)
-
+    
+    if already_done:
+        output_mp4 = (output_dir / f"{chosen_basename}.mp4").resolve()
+        if output_mp4.exists():
+            if pending_title is not None and pending_title == title_text:
+                return None
+    
     if video_index == total_videos:
         upload_count = _pending_uploads.pop(cache_key, 0)
         skip_count = _pending_skips.pop(cache_key, 0)
@@ -471,11 +468,15 @@ def run_output_phase(
 
     def _perform() -> None:
         assert chosen_basename is not None
-        print(
-            f"\n[4/{total_phases}] Creating final output: {video_path.name} -> {chosen_basename}.mp4"
-        )
         output_mp4 = (output_dir / f"{chosen_basename}.mp4").resolve()
-        trim_single_video(
+        
+        if already_done and output_mp4.exists():
+            pass
+        else:
+            print(
+                f"\n[4/{total_phases}] Creating final output: {video_path.name} -> {chosen_basename}.mp4"
+            )
+            trim_single_video(
             input_file=video_path,
             output_dir=output_dir,
             noise_threshold=noise_threshold,
