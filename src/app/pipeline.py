@@ -499,7 +499,10 @@ def run_pending_upload_phase(
                         state.video_trash_ids.add(vid)
             _server_state_cache[cache_key] = state
             client.close()
-        except Exception:
+            print(f"[5/{total_phases}] Fetched {len(state.video_dict)} videos from server "
+                  f"({len(state.video_trash_ids)} in trash)")
+        except Exception as e:
+            print(f"[5/{total_phases}] Warning: Failed to fetch server state: {e}")
             _server_state_cache[cache_key] = ServerState()
     
     if video_index == total_videos:
@@ -508,15 +511,30 @@ def run_pending_upload_phase(
     state = _server_state_cache.get(cache_key, ServerState())
     
     if file_id in state.video_trash_ids:
+        print(f"[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+              f"SKIP (in trash)")
         return None
     
     if file_id in state.video_dict:
         server_title, server_tags = state.video_dict[file_id]
         if server_title == title_text:
             if 'pending' in server_tags:
+                print(f"[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+                      f"SKIP (already pending)")
                 return None
             if 'FB' in server_tags or 'TT' in server_tags:
+                print(f"[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+                      f"SKIP (already published)")
                 return None
+            print(f"[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+                  f"UPLOAD (exists but tags={server_tags})")
+        else:
+            print(f"[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+                  f"UPLOAD (title mismatch: server='{server_title[:30]}...' "
+                  f"local='{title_text[:30]}...')")
+    else:
+        print(f"[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+              f"UPLOAD (not on server)")
     
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
@@ -592,7 +610,11 @@ def run_video_upload_phase(
                         state.video_trash_ids.add(vid)
             _server_state_cache[cache_key] = state
             client.close()
-        except Exception:
+            print(f"[6/{total_phases}] Fetched {len(state.ready_audio_dict)} ready audio, "
+                  f"{len(state.video_dict)} videos from server "
+                  f"({len(state.video_trash_ids)} in trash)")
+        except Exception as e:
+            print(f"[6/{total_phases}] Warning: Failed to fetch server state: {e}")
             _server_state_cache[cache_key] = ServerState()
     
     if video_index == total_videos:
@@ -601,18 +623,32 @@ def run_video_upload_phase(
     state = _server_state_cache.get(cache_key, ServerState())
     
     if file_id not in state.ready_audio_dict:
+        print(f"[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+              f"SKIP (audio not ready)")
         return None
     
     if file_id in state.video_trash_ids:
+        print(f"[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+              f"SKIP (in trash)")
         return None
     
     if file_id in state.video_dict:
         server_title, server_tags = state.video_dict[file_id]
         if server_title == local_title:
             if 'FB' in server_tags or 'TT' in server_tags:
+                print(f"[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+                      f"SKIP (already published)")
                 return None
             if 'pending' in server_tags:
-                pass
+                print(f"[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+                      f"PUBLISH (currently pending)")
+        else:
+            print(f"[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+                  f"PUBLISH (title mismatch: server='{server_title[:30]}...' "
+                  f"local='{local_title[:30]}...')")
+    else:
+        print(f"[6/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+              f"PUBLISH (not on server yet)")
     
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
