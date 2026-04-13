@@ -157,7 +157,9 @@ def transcribe_media(audio_path: Path, temp_dir: Path, api_key: str, basename: s
     )
 
 
-def generate_title(temp_dir: Path, api_key: str, basename: str) -> None:
+def generate_title(
+    temp_dir: Path, api_key: str, basename: str
+) -> None:
     """Generate title from transcript file and save to file."""
     transcript_path = get_transcript_path(temp_dir, basename)
     title_path = get_title_path(temp_dir, basename)
@@ -423,7 +425,10 @@ def run_output_phase(
     if not title_text:
         return None
     
-    chosen_basename = sanitize_filename(title_text)
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%y%m%d%H%M%S")
+    chosen_basename = f"{timestamp}-{sanitize_filename(title_text)}"
+    clean_title = title_text
 
     def _perform() -> None:
         print(f"\n[4/{total_phases}] Creating final output: {video_path.name} -> {chosen_basename}.mp4")
@@ -445,6 +450,7 @@ def run_output_phase(
             title_y_fraction=title_y_fraction,
             title_height_fraction=title_height_fraction,
             temp_dir=temp_dir,
+            metadata_title=clean_title,
         )
         notify_final_output_ready(
             phase_index=4,
@@ -790,6 +796,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
 
     enc = startup.encoder
     print(f"Resolved encoder: {enc.name} ({enc.codec})")
+
     quick_test_enabled = bool(getattr(args, "quick_test", False))
     max_output_seconds = QUICK_TEST_OUTPUT_SECONDS if quick_test_enabled else None
     if quick_test_enabled:

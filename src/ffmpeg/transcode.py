@@ -132,6 +132,7 @@ def build_final_trim_command(
     video_map_pad: str = "outv",
     max_output_seconds: float | None = None,
     use_qsv_hardware_path: bool = False,
+    metadata_title: str | None = None,
 ) -> list[str]:
     """Build final video trim + encode command.
 
@@ -156,5 +157,7 @@ def build_final_trim_command(
     cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, "-progress", "pipe:1", "-nostats", "-loglevel", "error"])
     if source_metadata_filename is not None:
         cmd.extend(["-metadata", f"{FINAL_VIDEO_SOURCE_METADATA_KEY}={source_metadata_filename}"])
+    if metadata_title is not None:
+        cmd.extend(["-metadata", f"title={metadata_title}"])
     cmd.append(str(output_file))
     return cmd

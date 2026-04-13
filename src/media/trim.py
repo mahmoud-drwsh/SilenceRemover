@@ -155,6 +155,7 @@ def trim_single_video(
     title_y_fraction: float | None = None,
     title_height_fraction: float | None = None,
     temp_dir: Optional[Path] = None,
+    metadata_title: str | None = None,
 ) -> Path:
     """Trim a single video and return the output file path."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -374,6 +375,7 @@ def trim_single_video(
                 ),
                 max_output_seconds=max_output_seconds,
                 use_qsv_hardware_path=use_hw_path,
+                metadata_title=metadata_title,
             )
         
         result_path = run_silence_removed_media(
