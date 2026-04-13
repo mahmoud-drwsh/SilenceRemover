@@ -670,6 +670,17 @@ def run_video_upload_phase(
         print(f"    Then re-run the pipeline to re-encode with new title")
         return False
     
+    # Check if already published with correct title (early skip to avoid header spam)
+    try:
+        client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+        exists, title_matches = client.check_video_exists(file_id, approved_title)
+        client.close()
+        if exists and title_matches:
+            _publish_skips[cache_key] = _publish_skips.get(cache_key, 0) + 1
+            return None
+    except:
+        pass  # Continue to normal processing if check fails
+    
     # Check for pending video and handle smart approval
     pending_dict = _pending_video_cache.get(cache_key, {})
     pending_title = pending_dict.get(file_id)
