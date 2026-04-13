@@ -320,6 +320,10 @@ def run_audio_upload_phase(
     state = _server_state_cache.get(cache_key, ServerState())
     
     if file_id in state.audio_trash_ids:
+        short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
+        print(f"\r[3/{total_phases}] [{video_index}/{total_videos}] {short_name} ✓ skip (trash)\033[K", end='', flush=True)
+        if video_index == total_videos:
+            print()
         return None
     
     if file_id in state.audio_dict:
@@ -330,6 +334,11 @@ def run_audio_upload_phase(
             if video_index == total_videos:
                 print()
             return None
+        else:
+            print(f"[3/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
+                  f"UPLOAD (title mismatch: server='{server_title[:30]}...' local='{title_text[:30]}...')")
+    else:
+        print(f"[3/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: UPLOAD (not on server)")
     
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
