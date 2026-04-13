@@ -509,21 +509,24 @@ def run_pending_upload_phase(
     
     state = _server_state_cache.get(cache_key, ServerState())
     
+    def _show_progress(status: str) -> None:
+        short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
+        print(f"\r[5/{total_phases}] [{video_index}/{total_videos}] {short_name} {status}\033[K", end='', flush=True)
+        if video_index == total_videos:
+            print()
+    
     if file_id in state.video_trash_ids:
-        print(f"[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
-              f"SKIP (in trash)")
+        _show_progress("✓ skip (trash)")
         return None
     
     if file_id in state.video_dict:
         server_title, server_tags = state.video_dict[file_id]
         if server_title == title_text:
             if 'pending' in server_tags:
-                print(f"[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
-                      f"SKIP (already pending)")
+                _show_progress("✓ skip (pending)")
                 return None
             if 'FB' in server_tags or 'TT' in server_tags:
-                print(f"[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
-                      f"SKIP (already published)")
+                _show_progress("✓ skip (published)")
                 return None
             print(f"[5/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
                   f"UPLOAD (exists but tags={server_tags})")
