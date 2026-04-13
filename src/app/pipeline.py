@@ -415,9 +415,7 @@ def run_output_phase(
             current_title_hash = compute_title_hash(title_text)
             
             if already_done and stored_title_hash == current_title_hash:
-                output_mp4 = (output_dir / f"{chosen_basename}.mp4")
-                if output_mp4.exists():
-                    return None
+                return None
 
     def _perform() -> None:
         assert chosen_basename is not None
