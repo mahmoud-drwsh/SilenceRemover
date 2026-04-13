@@ -328,7 +328,8 @@ def run_audio_upload_phase(
     
     if file_id in state.audio_dict:
         server_title, _ = state.audio_dict[file_id]
-        if server_title == title_text:
+        # Strip whitespace for comparison (server may have trailing spaces)
+        if server_title.strip() == title_text.strip():
             short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
             print(f"\r[3/{total_phases}] [{video_index}/{total_videos}] {short_name} ✓ uploaded\033[K", end='', flush=True)
             if video_index == total_videos:
@@ -551,7 +552,8 @@ def run_pending_upload_phase(
     
     if file_id in state.video_dict:
         server_title, server_tags = state.video_dict[file_id]
-        if server_title == title_text:
+        # Strip whitespace for comparison (server may have trailing spaces)
+        if server_title.strip() == title_text.strip():
             if 'pending' in server_tags:
                 _show_progress("✓ skip (pending)")
                 return None
@@ -691,7 +693,8 @@ def run_video_upload_phase(
     
     if file_id in state.video_dict:
         server_title, server_tags = state.video_dict[file_id]
-        if server_title == local_title:
+        # Strip whitespace for comparison (server may have trailing spaces)
+        if server_title.strip() == local_title.strip():
             if 'FB' in server_tags or 'TT' in server_tags:
                 _show_progress("✓ skip (published)")
                 return None
