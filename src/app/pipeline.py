@@ -418,16 +418,6 @@ def run_audio_upload_phase(
     title_path = get_title_path(temp_dir, basename)
     snippet_path = get_snippet_path(temp_dir, basename)
     
-    if not title_path.exists():
-        return None
-    
-    if not snippet_path.exists():
-        return None
-    
-    title_text = title_path.read_text(encoding='utf-8').strip()
-    if not title_text:
-        return None
-    
     if not server_cache:
         return None
     
@@ -437,6 +427,10 @@ def run_audio_upload_phase(
         if video_index == total_videos:
             print()
         return None
+    
+    title_text = ""
+    if title_path.exists():
+        title_text = title_path.read_text(encoding='utf-8').strip()
     
     audio = server_cache.get_audio(file_id)
     if audio:
@@ -454,6 +448,7 @@ def run_audio_upload_phase(
         print(f"\n[4/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: UPLOAD (not on server)")
     
     def _perform() -> None:
+        fresh_title = title_path.read_text(encoding='utf-8').strip()
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
             total_size = snippet_path.stat().st_size
@@ -474,7 +469,7 @@ def run_audio_upload_phase(
                     upload_start_time = time.time()
             
             result = client.upload_audio(
-                file_id, title_text, snippet_path, 
+                file_id, fresh_title, snippet_path, 
                 tags=['todo'],
                 progress_callback=_upload_progress
             )
@@ -484,7 +479,7 @@ def run_audio_upload_phase(
                     video_index=video_index,
                     total_videos=total_videos,
                     input_name=video_path.name,
-                    title=title_text,
+                    title=fresh_title,
                 )
         finally:
             client.close()
@@ -493,8 +488,11 @@ def run_audio_upload_phase(
         video_path=video_path,
         already_done=False,
         already_done_message="",
-        precondition_ok=True,
-        precondition_message=None,
+        precondition_ok=(
+            is_title_done(temp_dir, basename) and
+            is_snippet_done(temp_dir, basename)
+        ),
+        precondition_message=f"Missing title or snippet for {video_path.name}",
         work_fn=_perform,
         success_message=f"\n✓ Phase 4 (audio upload) done: {video_path.name}",
         failure_label="Phase 4",
