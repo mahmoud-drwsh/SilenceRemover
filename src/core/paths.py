@@ -115,15 +115,29 @@ def is_completed_with_title(temp_dir: Path, basename: str) -> tuple[bool, str | 
         return (False, None)
 
 
+def get_completed_output_filename(temp_dir: Path, basename: str) -> str | None:
+    """Get the output filename stored in completion marker (line 3), if any."""
+    path = get_completed_path(temp_dir, basename)
+    if not path.exists():
+        return None
+    try:
+        lines = path.read_text(encoding="utf-8").strip().split('\n')
+        if len(lines) >= 3 and lines[2]:
+            return lines[2]
+        return None
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
 def compute_title_hash(title_text: str) -> str:
     return hashlib.sha256(title_text.encode('utf-8')).hexdigest()[:16]
 
 
-def mark_completed(temp_dir: Path, basename: str, title_hash: str | None = None) -> None:
+def mark_completed(temp_dir: Path, basename: str, title_hash: str | None = None, output_filename: str | None = None) -> None:
     path = get_completed_path(temp_dir, basename)
     path.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().isoformat()
-    content = f"{timestamp}\n{title_hash or ''}"
+    content = f"{timestamp}\n{title_hash or ''}\n{output_filename or ''}"
     path.write_text(content, encoding="utf-8")
 
 

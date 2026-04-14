@@ -19,6 +19,7 @@ from src.core.constants import (
     TITLE_DIR,
 )
 from src.core.paths import (
+    get_completed_output_filename,
     get_snippet_path,
     get_title_path,
     get_transcript_path,
@@ -461,7 +462,7 @@ def run_output_phase(
             title=title_text,
             output_mp4=output_mp4,
         )
-        mark_completed(temp_dir, basename)
+        mark_completed(temp_dir, basename, output_filename=chosen_basename)
 
     return _run_phase_step(
         video_path=video_path,
@@ -507,7 +508,11 @@ def run_pending_upload_phase(
     if not title_text:
         return None
     
-    output_basename = sanitize_filename(title_text)
+    # Read output filename from completion marker (Phase 4 stores it there)
+    output_basename = get_completed_output_filename(temp_dir, basename)
+    if output_basename is None:
+        # Fallback: try to construct from title (for backwards compatibility)
+        output_basename = sanitize_filename(title_text)
     output_path = output_dir / f"{output_basename}.mp4"
     
     if not server_cache:
@@ -614,7 +619,11 @@ def run_video_upload_phase(
     if not local_title:
         return None
     
-    output_basename = sanitize_filename(local_title)
+    # Read output filename from completion marker (Phase 4 stores it there)
+    output_basename = get_completed_output_filename(temp_dir, basename)
+    if output_basename is None:
+        # Fallback: try to construct from title (for backwards compatibility)
+        output_basename = sanitize_filename(local_title)
     output_path = output_dir / f"{output_basename}.mp4"
     
     if not server_cache:
