@@ -50,6 +50,31 @@ except ImportError:
 QUICK_TEST_OUTPUT_SECONDS = 5.0
 
 
+BASE36_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
+
+
+def int_to_base36(n: int) -> str:
+    """Convert integer to base36 string (0-9, a-z)."""
+    if n == 0:
+        return "0"
+    chars = []
+    while n:
+        n, rem = divmod(n, 36)
+        chars.append(BASE36_ALPHABET[rem])
+    return "".join(reversed(chars))
+
+
+def get_video_timestamp_base36(video_path: Path) -> str:
+    """Get file creation time as 6-char base36 timestamp."""
+    stat = video_path.stat()
+    # Try birth time first, fall back to ctime
+    created_time = getattr(stat, "st_birthtime", stat.st_ctime)
+    unix_ts = int(created_time)
+    base36 = int_to_base36(unix_ts)
+    # Return last 6 chars, zero-padded if needed
+    return base36[-6:].zfill(6)
+
+
 @dataclass(frozen=True)
 class _PipelinePhase:
     index: int
@@ -426,8 +451,8 @@ def run_output_phase(
     if not title_text:
         return None
     
-    from datetime import datetime
-    timestamp = datetime.now().strftime("%y%m%d%H%M%S")
+    # Generate base36 timestamp from file creation time (6 chars, compact)
+    timestamp = get_video_timestamp_base36(video_path)
     chosen_basename = f"{timestamp}-{sanitize_filename(title_text)}"
     clean_title = title_text
 
