@@ -45,14 +45,16 @@ def build_startup_context(args: Namespace) -> StartupContext:
     except ValueError as exc:
         fail(str(exc))
 
-    try:
-        selected_encoder = resolve_video_encoder()
-    except RuntimeError as exc:
-        fail(str(exc))
-
     output_dir = sibling_dir(input_dir, "output")
     temp_dir = output_dir / "temp"
     create_temp_subdirs(temp_dir)
+
+    encoder_cache_dir = temp_dir / "encoder"
+    encoder_cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        selected_encoder = resolve_video_encoder(cache_dir=encoder_cache_dir)
+    except RuntimeError as exc:
+        fail(str(exc))
 
     trim_defaults = resolve_trim_defaults(
         target_length=args.target_length,
