@@ -3,6 +3,7 @@
 import argparse
 import shutil
 import sys
+import time
 from pathlib import Path
 
 __all__ = [
@@ -44,9 +45,41 @@ def require_input_dir(input_dir: Path) -> None:
         fail(f"Input directory does not exist: {input_dir}")
 
 
+def is_file_stable(file_path: Path, check_delay: float = 1.0) -> bool:
+    """Check if file is stable (not being written to).
+
+    Compares file size before and after a short delay.
+    If size changes, file is still being written to.
+
+    Args:
+        file_path: Path to check
+        check_delay: Seconds to wait between checks (default 1.0)
+
+    Returns:
+        True if file size hasn't changed (stable), False if still being written
+    """
+    try:
+        initial_size = file_path.stat().st_size
+        time.sleep(check_delay)
+        final_size = file_path.stat().st_size
+        return initial_size == final_size
+    except (OSError, IOError):
+        return False
+
+
 def collect_video_files(input_dir: Path) -> list[Path]:
-    """Collect supported video files from a directory."""
-    return sorted(p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS)
+    """Collect supported video files from a directory.
+
+    Filters out files that are still being written to (e.g., being recorded).
+    """
+    video_files = []
+    for p in input_dir.iterdir():
+        if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS:
+            if is_file_stable(p, check_delay=1.0):
+                video_files.append(p)
+            else:
+                print(f"Skipping file still being written: {p.name}")
+    return sorted(video_files)
 
 
 def require_videos_in(input_dir: Path) -> None:
