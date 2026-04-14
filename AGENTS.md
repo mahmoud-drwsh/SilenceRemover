@@ -29,7 +29,17 @@ After code or config changes, agents append short notes here. When this file gro
 - **Pipeline 5-Phase Workflow**: Phase 1 (transcription), Phase 2 (title generation), Phase 3 (audio upload for review), Phase 4 (video creation local only), Phase 5 (video delivery when approved). `src/app/pipeline.py` updated with `run_audio_upload_phase`, `run_video_upload_phase`, and `sync_titles_from_api` for two-way title sync.
 
 ## Latest session edits
-- `packages/sr_title/api.py`: Simplified title selection by removing `existing_titles` parameter and `_select_title_with_fallback()` helper. Title selection now directly picks the highest scored candidate without filtering. Base36 timestamps in filenames provide natural deduplication, making title-level deduplication unnecessary.
+- **Phase 5 Split Documentation Fixes**: Updated all phase references across documentation to match the 8-phase pipeline reality:
+  - `README.md`: Changed "four main stages" to "eight main phases", "5-phase workflow" to "8-phase workflow", updated all phase numbers (Telegram Phase 6, quick-test eight phases, overlay Phase 5-6, etc.), added `overlay_done/` to directory structure.
+  - `src/app/pipeline.py`: Updated docstring from "Three-phase" to "Eight-phase".
+  - `packages/sr_telegram_notify/api.py`: Updated phase references (Phase 6 for encoding, Phase 4 for audio upload, Phase 8 for video upload).
+  - `packages/sr_media_manager/__init__.py`: Updated from "5-phase" to "8-phase" workflow documentation.
+  - `src/app/__init__.py`: Added missing exports for all 8 phase functions (`run_snippet_phase`, `run_audio_upload_phase`, `run_pending_upload_phase`, `run_video_upload_phase`).
+  - `ALGO.md`: Updated Phase 3 reference to Phase 5-6 for overlay compositing.
+- `src/app/pipeline.py`: Added `run_overlay_phase()` function for Phase 5 overlay generation, using `_run_phase_step` wrapper, calling `prepare_video_overlays()` from `src.media.trim`, and marking completion via `mark_overlay_done()`.
+
+## Latest session edits
+- `src/core/cli.py`: Added `is_file_stable()` helper function to detect files being written to (e.g., during recording). Modified `collect_video_files()` to skip unstable files with a console message. Added `time` import for the stability check.
 
 - **Media Manager Admin Dashboard**: Added `/admin/{admin_token}/` dashboard with project overview and stats. New env var `ADMIN_TOKEN` required. Admin shows aggregated project stats (audio/video counts, storage, last activity) with "Open Project" links. Project routes moved from `/{token}/{project}/` to `/projects/{token}/{project}/` for cleaner reverse proxy configuration. Updated `packages/sr_media_manager/api.py` to use new `/projects/` prefix. Updated `remote/static/index.html` URL parsing. Created `remote/static/admin.html` dashboard SPA. Updated `remote/README.md` with new URL format and admin endpoints. **BREAKING CHANGE**: All project URLs now require `/projects/` prefix; update `MEDIA_MANAGER_URL` in client `.env` files.
 - **Media Manager database migration**: Extracted auto-migration logic from `remote/app.py` into standalone script `remote/scripts/migrate_db.py`. Migration now runs separately before service start (not automatically on startup). Script copies old DB to new location, converts `ready`/`trashed` columns to JSON `tags` array, preserves all data. Includes `test_migration.py` to verify migration logic. `remote/app.py` now assumes correct schema exists. Updated `remote/README.md` with migration instructions and deployment guide.
@@ -181,3 +191,6 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/app/pipeline.py`: Modified `run_output_phase()` to generate timestamped filenames (format: YYMMDDHHMMSS-title.mp4) and pass clean title to `trim_single_video()` for metadata injection.
 - `src/ffmpeg/transcode.py`: Added `metadata_title` parameter to `build_final_trim_command()` to inject title metadata into FFmpeg command.
 - `src/media/trim.py`: Added `metadata_title` parameter to `trim_single_video()` and forwarded it to `build_final_trim_command()`.
+- `src/core/paths.py`: Added overlay path helpers (`get_overlay_done_path`, `is_overlay_done`, `mark_overlay_done`) following existing patterns; added `OVERLAY_DONE_DIR` to imports and `create_temp_subdirs()`.
+- `src/app/pipeline.py`: Renamed `run_output_phase()` to `run_encode_phase()` and updated from Phase 5 to Phase 6. Added `is_overlay_done()` precondition check. Updated all phase references from 5 to 6 (total_phases=8, print statements, docstring, phase_index, success_message, failure_label, notify_final_output_ready phase_index). Added Phase 5 (Overlay Generation) to the pipeline phases list before Phase 6.
+- `src/app/pipeline.py`: Updated default `total_phases` parameter values from 7 to 8 in function signatures for `run_snippet_phase`, `run_transcription_phase`, `run_title_phase`, and `run_audio_upload_phase` to match the 8-phase pipeline structure.

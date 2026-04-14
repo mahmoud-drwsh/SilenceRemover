@@ -138,6 +138,84 @@ def _ensure_prescaled_logo(
     return output_logo_path
 
 
+def prepare_video_overlays(
+    input_file: Path,
+    temp_dir: Path,
+    title_path: Path | None,
+    title_font: str | None,
+    enable_title_overlay: bool,
+    enable_logo_overlay: bool,
+    title_y_fraction: float | None,
+    title_height_fraction: float | None,
+) -> tuple[Path | None, Path | None, int | None, bool]:
+    """Generate title overlay PNG and pre-scale logo. Returns (title_overlay_path, logo_path, banner_top, use_logo)."""
+    use_logo = enable_logo_overlay and DEFAULT_LOGO_PATH.is_file()
+    logo_path_resolved: Path | None = DEFAULT_LOGO_PATH if use_logo else None
+    title_overlay_path: Path | None = None
+    banner_top: int | None = None
+    video_width: int = 0
+    video_height: int = 0
+    logo_target_w: int | None = None
+
+    if (title_path is not None and enable_title_overlay) or use_logo:
+        try:
+            video_width, video_height = probe_video_dimensions(input_file)
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"Warning: Failed to probe video dimensions ({input_file}): {exc}")
+            return (None, None, None, False)
+
+        if use_logo:
+            try:
+                _lw, _lh = probe_video_dimensions(DEFAULT_LOGO_PATH)
+                probe_ffmpeg_can_decode_image_frame(DEFAULT_LOGO_PATH)
+            except (OSError, RuntimeError, ValueError) as exc:
+                print(f"Warning: Skipping logo overlay ({DEFAULT_LOGO_PATH}): {exc}")
+                use_logo = False
+                logo_path_resolved = None
+            else:
+                logo_target_w = max(1, int(video_width * LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO))
+                try:
+                    logo_path_resolved = _ensure_prescaled_logo(
+                        source_logo_path=DEFAULT_LOGO_PATH,
+                        output_logo_path=_get_prescaled_logo_path(
+                            temp_dir=temp_dir, target_width_px=logo_target_w
+                        ),
+                        target_width_px=logo_target_w,
+                    )
+                except RuntimeError as exc:
+                    print(f"Warning: Skipping logo overlay pre-scale ({DEFAULT_LOGO_PATH}): {exc}")
+                    use_logo = False
+                    logo_path_resolved = None
+
+    if title_path is not None and enable_title_overlay:
+        try:
+            title_text = title_path.read_text(encoding="utf-8").strip()
+            if not title_text:
+                print(f"Warning: Empty title at {title_path}, skipping title overlay")
+                title_overlay_path = None
+            else:
+                font_name = title_font or TITLE_FONT_DEFAULT
+                effective_height_fraction = title_height_fraction if title_height_fraction is not None else TITLE_BANNER_HEIGHT_FRACTION
+                effective_start_fraction = title_y_fraction if title_y_fraction is not None else TITLE_BANNER_START_FRACTION
+                banner_height = max(1, int(video_height * effective_height_fraction))
+                banner_top = int(video_height * effective_start_fraction)
+                basename = input_file.stem
+                title_overlay_path = build_title_overlay(
+                    title=title_text,
+                    video_width=video_width,
+                    banner_height=banner_height,
+                    output_file=get_title_overlay_path(temp_dir, basename),
+                    font_family=font_name,
+                    font_cache_dir=get_font_cache_path(temp_dir),
+                )
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"Warning: Failed to generate title overlay ({title_path}): {exc}")
+            title_overlay_path = None
+            banner_top = None
+
+    return (title_overlay_path, logo_path_resolved, banner_top, use_logo)
+
+
 def trim_single_video(
     input_file: Path,
     output_dir: Path,
@@ -204,55 +282,21 @@ def trim_single_video(
         print(f"Target length: {target_length}s")
         print(f"Expected resulting length: {resulting_length:.3f}s")
 
-    font_name = title_font or TITLE_FONT_DEFAULT
-    title_overlay_path: Path | None = None
-    banner_top: int | None = None
-    logo_target_w: int | None = None
-    video_width: int = 0
-    video_height: int = 0
-
-    if (title_path is not None and enable_title_overlay) or use_logo:
-        video_width, video_height = probe_video_dimensions(input_file)
-        if use_logo:
-            try:
-                _lw, _lh = probe_video_dimensions(DEFAULT_LOGO_PATH)
-                probe_ffmpeg_can_decode_image_frame(DEFAULT_LOGO_PATH)
-            except (OSError, RuntimeError, ValueError) as exc:
-                print(f"Warning: Skipping logo overlay ({DEFAULT_LOGO_PATH}): {exc}")
-                use_logo = False
-                logo_path_resolved = None
-            else:
-                logo_target_w = max(1, int(video_width * LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO))
-                try:
-                    logo_path_resolved = _ensure_prescaled_logo(
-                        source_logo_path=DEFAULT_LOGO_PATH,
-                        output_logo_path=_get_prescaled_logo_path(
-                            temp_dir=temp_dir_resolved, target_width_px=logo_target_w
-                        ),
-                        target_width_px=logo_target_w,
-                    )
-                except RuntimeError as exc:
-                    print(f"Warning: Skipping logo overlay pre-scale ({DEFAULT_LOGO_PATH}): {exc}")
-                    use_logo = False
-                    logo_path_resolved = None
-
-    if title_path is not None and enable_title_overlay:
-        title_text = title_path.read_text(encoding="utf-8").strip()
-        if not title_text:
-            raise RuntimeError(f"Empty title at {title_path}")
-        # Use CLI values if provided, otherwise use constants
-        effective_height_fraction = title_height_fraction if title_height_fraction is not None else TITLE_BANNER_HEIGHT_FRACTION
-        effective_start_fraction = title_y_fraction if title_y_fraction is not None else TITLE_BANNER_START_FRACTION
-        banner_height = max(1, int(video_height * effective_height_fraction))
-        banner_top = int(video_height * effective_start_fraction)
-        title_overlay_path = build_title_overlay(
-            title=title_text,
-            video_width=video_width,
-            banner_height=banner_height,
-            output_file=get_title_overlay_path(temp_dir_resolved, basename),
-            font_family=font_name,
-            font_cache_dir=get_font_cache_path(temp_dir_resolved),
-        )
+    (
+        title_overlay_path,
+        logo_path_resolved,
+        banner_top,
+        use_logo,
+    ) = prepare_video_overlays(
+        input_file=input_file,
+        temp_dir=temp_dir_resolved,
+        title_path=title_path,
+        title_font=title_font,
+        enable_title_overlay=enable_title_overlay,
+        enable_logo_overlay=enable_logo_overlay,
+        title_y_fraction=title_y_fraction,
+        title_height_fraction=title_height_fraction,
+    )
 
     # Handle case where all audio is silence (no segments to keep)
     if len(segments_to_keep) == 0:

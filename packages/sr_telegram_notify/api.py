@@ -70,7 +70,7 @@ def notify_final_encoding_started(
     title: str,
     output_mp4: Path,
 ) -> None:
-    """Notify that Phase 3 final encoding is about to start (before FFmpeg)."""
+    """Notify that Phase 6 final encoding is about to start (before FFmpeg)."""
     body = _progress_body(
         video_index=video_index,
         total_videos=total_videos,
@@ -90,7 +90,7 @@ def notify_final_output_ready(
     title: str,
     output_mp4: Path,
 ) -> None:
-    """Notify that Phase 3 encoding finished successfully."""
+    """Notify that Phase 6 encoding finished successfully."""
     body = _progress_body(
         video_index=video_index,
         total_videos=total_videos,
@@ -107,7 +107,7 @@ def notify_audio_uploaded(
     input_name: str,
     title: str,
 ) -> None:
-    """Notify that audio snippet was uploaded to Media Manager (Phase 3)."""
+    """Notify that audio snippet was uploaded to Media Manager (Phase 4)."""
     body = _progress_body(
         video_index=video_index,
         total_videos=total_videos,
@@ -124,7 +124,7 @@ def notify_video_uploaded(
     input_name: str,
     title: str,
 ) -> None:
-    """Notify that final video was uploaded to Media Manager (Phase 5)."""
+    """Notify that final video was uploaded to Media Manager (Phase 8)."""
     body = _progress_body(
         video_index=video_index,
         total_videos=total_videos,

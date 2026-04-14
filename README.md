@@ -49,14 +49,14 @@ All other options (models, silence parameters, timeouts, etc.) are controlled vi
 
 ### Telegram (optional)
 
-During **Phase 3**, the pipeline can send **plain text** Telegram messages when **final encoding starts** and again when it **finishes successfully** (no file upload). Set both of the following in `.env` (alongside your OpenRouter key):
+During **Phase 6**, the pipeline can send **plain text** Telegram messages when **final encoding starts** and again when it **finishes successfully** (no file upload). Set both of the following in `.env` (alongside your OpenRouter key):
 
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_or_channel_id
 ```
 
-The message includes pipeline progress (phase 3/3 and video index/total), the input filename, title, and output `.mp4` basename. Text is capped at Telegram's **4096** character limit. Failures are logged to stderr and **do not** fail the encode.
+The message includes pipeline progress (phase 6/8 and video index/total), the input filename, title, and output `.mp4` basename. Text is capped at Telegram's **4096** character limit. Failures are logged to stderr and **do not** fail the encode.
 
 Optional: `TELEGRAM_API_BASE` overrides the API host (default `https://api.telegram.org`), e.g. for a self-hosted Bot API server. Treat the bot token as a **secret**.
 
@@ -68,11 +68,15 @@ For integration with the external Media Manager service (VPS-based), set the ful
 MEDIA_MANAGER_URL=https://your-server.com/TOKEN/your-project/
 ```
 
-This enables the **5-phase workflow**:
-1. **Phase 1-2**: Local transcription and title generation
-2. **Phase 3**: Upload audio snippet with `tags: ["todo"]` for review
-3. **Phase 4**: Create final video locally (no upload yet)
-4. **Phase 5**: Query ready audio, upload matching videos with `tags: ["FB", "TT"]`
+This enables the **8-phase workflow**:
+1. **Phase 1**: Create silence-removed snippet for transcription
+2. **Phase 2**: Transcribe snippet via OpenRouter
+3. **Phase 3**: Generate title from transcript
+4. **Phase 4**: Upload audio snippet with `tags: ["todo"]` for review
+5. **Phase 5**: Generate title overlay PNG and pre-scale logo
+6. **Phase 6**: Create final video locally with overlays
+7. **Phase 7**: Stage video to pending
+8. **Phase 8**: Publish video with `tags: ["FB", "TT"]` when audio approved
 
 Plus **two-way sync**: At startup, fetch edited titles from Media Manager and trigger re-encode if changed.
 
@@ -92,8 +96,8 @@ python main.py /path/to/video/directory
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Defaults are `TARGET_NOISE_THRESHOLD_DB` (`-55.0`) when `--target-length` is set, otherwise `NON_TARGET_NOISE_THRESHOLD_DB` (`-50.0`).
 - `--min-duration FLOAT`: Override minimum silence duration in seconds (applies in both modes). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with `--target-length` and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
 - `--title-font`: Google Font family name used to render the title overlay. The font is auto-downloaded from Google Fonts on first use and cached under `output/temp/fonts/`.
-- `--quick-test`: Run all five phases, but cap only the final Phase 4 encode output to the first 5 seconds for a fast end-to-end smoke run.
-- `--enable-title-overlay`: Enable title overlay in final output (requires a title from Phase 2). By default, overlays are disabled.
+- `--quick-test`: Run all eight phases, but cap only the final Phase 6 encode output to the first 5 seconds for a fast end-to-end smoke run.
+- `--enable-title-overlay`: Enable title overlay in final output (requires a title from Phase 3). By default, overlays are disabled.
 - `--enable-logo-overlay`: Enable logo overlay in final output (requires `logo/logo.png`). By default, overlays are disabled.
 
 ### Suggested Arabic-friendly Google Fonts
@@ -148,7 +152,7 @@ FFmpeg responsibilities are now organized in the `src/ffmpeg` package:
 
 ## How It Works
 
-The tool processes videos sequentially through **four** main stages:
+The tool processes videos sequentially through **eight** main phases:
 
 ### 1. Silence Detection & Trimming
 
@@ -181,7 +185,7 @@ The tool processes videos sequentially through **four** main stages:
   - The model produces a small pool of candidate titles in **one** generation call (JSON array of distinct titles). A **second** call scores every candidate in one shot (`verbatim_score` and `correctness_score`, each 0–10); the implementation picks the highest **combined** score (sum). Ties break deterministically (earliest transcript substring match, then length near a practical band, then candidate order).
   - The final title is returned after that scoring step (no further LLM calls).
 
-### 4. Title overlay & file renaming (Phase 4)
+### 4. Title overlay & file renaming (Phase 5-6)
 
 - The title text from `output/temp/title/{basename}.txt` is loaded right before output encoding.
 - `ffprobe` reads the source **video width and height**. A **banner-sized** RGBA PNG (`video_width` × `banner_height`, with `banner_height = (1/6) × frame height`) is written to `output/temp/title_overlays/{basename}.png`. FFmpeg composites it at `x=0`, `y=(1/6) × frame height` (`overlay=0:{y}`), so the strip covers **`y` from H/6 to H/3** (the second sixth of the frame). Values come from `TITLE_BANNER_START_FRACTION` and `TITLE_BANNER_HEIGHT_FRACTION` in `src/core/constants.py`.
@@ -189,7 +193,7 @@ The tool processes videos sequentially through **four** main stages:
 - **Layout algorithm** (largest font that fits, optional multi-line word-boundary splits, bbox-based metrics, vertical stacking): see **`ALGO.md` → “Title overlay PNG”** and tunables in `packages/sr_title_overlay/constants.py`.
 - **Arabic / RTL titles**: Pillow draws in visual order only; text is shaped with `arabic-reshaper` and reordered with `python-bidi` (`get_display`) before measuring and drawing. Mixed Arabic + Latin/numbers follow Unicode bidirectional rules.
 - FFmpeg applies this PNG in the trim/concat filter graph; no `drawtext` dependency for the final overlay. After PNG/logo alpha compositing (`format=rgba` + `overlay`), the final graph now explicitly normalizes the output video pad to `format=nv12` before `hevc_qsv` mapping to reduce implicit conversion overhead.
-- **Logo (optional):** If `logo/logo.png` exists at the **repository root** (that folder is often gitignored), Phase 3 adds another looping PNG input to FFmpeg. **Input order** (0-based): **`0`** = source video, **`1`** = title overlay PNG (when a title is rendered), **`2`** = logo PNG when **both** title and logo are used (the logo is the **third** demuxer input in that case). If `trim_single_video` is called **without** a title but with a logo file, the logo is **`1`**. The pipeline’s Phase 3 always supplies a title, so production runs use **title at `1`, logo at `2`**. **Stacking:** the logo is composited onto the video first, then the title strip on top. `ffprobe` reads the logo width, then a tiny FFmpeg decode (`-frames:v 1` to null) confirms the PNG is readable by the same decoder used in the final command; if either check fails, the logo overlay is skipped with a console warning and the rest of the encode continues. Before final encoding, the logo is pre-scaled once to **`target = video_width × LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO`** (default **1.0**, full frame width) and cached under `output/temp/logo_overlays/`, so runtime overlay no longer performs per-frame logo scaling. After `format=rgba`, **`colorchannelmixer=aa=LOGO_OVERLAY_ALPHA`** (default **1.0**, fully opaque gain) applies before compositing **top-aligned** with **`LOGO_OVERLAY_MARGIN_PX`** inset (default **0**, no padding). Constants live in `src/core/constants.py` (`DEFAULT_LOGO_PATH`, `LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO`, `LOGO_OVERLAY_MARGIN_PX`, `LOGO_OVERLAY_ALPHA`). Stream-copy skips when a logo file is present (same as title overlay).
+- **Logo (optional):** If `logo/logo.png` exists at the **repository root** (that folder is often gitignored), Phase 5 adds another looping PNG input to FFmpeg. **Input order** (0-based): **`0`** = source video, **`1`** = title overlay PNG (when a title is rendered), **`2`** = logo PNG when **both** title and logo are used (the logo is the **third** demuxer input in that case). If `trim_single_video` is called **without** a title but with a logo file, the logo is **`1`**. The pipeline’s Phase 3 always supplies a title, so production runs use **title at `1`, logo at `2`**. **Stacking:** the logo is composited onto the video first, then the title strip on top. `ffprobe` reads the logo width, then a tiny FFmpeg decode (`-frames:v 1` to null) confirms the PNG is readable by the same decoder used in the final command; if either check fails, the logo overlay is skipped with a console warning and the rest of the encode continues. Before final encoding, the logo is pre-scaled once to **`target = video_width × LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO`** (default **1.0**, full frame width) and cached under `output/temp/logo_overlays/`, so runtime overlay no longer performs per-frame logo scaling. After `format=rgba`, **`colorchannelmixer=aa=LOGO_OVERLAY_ALPHA`** (default **1.0**, fully opaque gain) applies before compositing **top-aligned** with **`LOGO_OVERLAY_MARGIN_PX`** inset (default **0**, no padding). Constants live in `src/core/constants.py` (`DEFAULT_LOGO_PATH`, `LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO`, `LOGO_OVERLAY_MARGIN_PX`, `LOGO_OVERLAY_ALPHA`). Stream-copy skips when a logo file is present (same as title overlay).
 
 - Reads generated title from `output/temp/title/{basename}.txt`
 - Sanitizes filename (removes invalid characters)
@@ -215,6 +219,7 @@ output/                    # Sibling to input-directory
       ├── title/           # Title text files
       ├── completed/       # Completion markers
       ├── title_overlays/  # Rendered title PNGs for FFmpeg
+      ├── overlay_done/    # Overlay generation completion markers
       ├── fonts/           # Cached Google Fonts for title rendering
       ├── scripts/         # Temporary ffmpeg filter_complex scripts (cleaned up automatically)
       ├── silence/         # Silence detection cache
@@ -227,7 +232,7 @@ output/                    # Sibling to input-directory
 The tool maintains state in files under **`output/temp/`** to avoid reprocessing videos:
 
 - **Per-video markers**: `output/temp/transcript/{basename}.txt`, `output/temp/title/{basename}.txt`, and `output/temp/completed/{basename}.txt`
-- **Automatic Skip**: Phase 1 is skipped if `output/temp/transcript/{basename}.txt` exists **and** contains non-whitespace text; Phase 2 is skipped if title exists; Phase 3 is skipped when the completed marker exists. (Whitespace-only or unreadable transcript files are treated as **not** done for Phase 1.)
+- **Automatic Skip**: Phase 1 is skipped if snippet exists; Phase 2 is skipped if transcript exists with non-whitespace text; Phase 3 is skipped if title exists; Phase 4 is skipped if audio already uploaded; Phase 5 is skipped if overlay done marker exists; Phase 6 is skipped if completed marker exists; Phases 7-8 are skipped based on server state. (Whitespace-only or unreadable transcript files are treated as **not** done for Phase 2.)
 - **Manual Reset**: Delete corresponding files under `output/temp/transcript`, `output/temp/title`, and `output/temp/completed` to reprocess specific videos.
 
 ## Supported Formats
@@ -258,11 +263,11 @@ The main code lives under `src/` and `packages/`:
 - `packages/sr_title/`: transcript-to-title generation using OpenRouter (import as `sr_title`).
 - `packages/sr_title_overlay/`: Pillow/Google Fonts PNG title strip for FFmpeg burn-in (import as `sr_title_overlay`).
 - `packages/openrouter_transport/`: shared OpenRouter transport layer (import as `openrouter_transport`).
-- `packages/sr_telegram_notify/`: optional Phase 3 Telegram text notifications (`notify_final_encoding_started`, `notify_final_output_ready`; import as `sr_telegram_notify`).
+- `packages/sr_telegram_notify/`: optional Phase 6 Telegram text notifications (`notify_final_encoding_started`, `notify_final_output_ready`; import as `sr_telegram_notify`).
 - `packages/sr_filename/`: filename sanitization utilities (import as `sr_filename`).
 - `packages/sr_ffmpeg_cmd_builder/`: FFmpeg/FFprobe command builders (import as `sr_ffmpeg_cmd_builder`).
 - `packages/sr_filter_graph/`: FFmpeg filter graph construction (import as `sr_filter_graph`).
-- `packages/sr_media_manager/`: Media Manager API client for 5-phase workflow (import as `sr_media_manager`). Replaces old `sr_mp3_manager`.
+- `packages/sr_media_manager/`: Media Manager API client for 8-phase workflow (import as `sr_media_manager`). Replaces old `sr_mp3_manager`.
 - `packages/sr_progress_formatter/`: FFmpeg progress output formatting (import as `sr_progress_formatter`).
 - `packages/sr_silence_detection/`: silence detection and interval processing (import as `sr_silence_detection`).
 - `packages/sr_threshold_selection/`: threshold selection algorithms (import as `sr_threshold_selection`).

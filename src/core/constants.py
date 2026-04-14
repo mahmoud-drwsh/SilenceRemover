@@ -162,6 +162,7 @@ SILENCE_CACHE_DIR = "silence"
 VIDEO_PROCESSING_DIR = "processing"
 FONTS_DIR = "fonts"
 TITLE_OVERLAYS_DIR = "title_overlays"
+OVERLAY_DONE_DIR = "overlay_done"
 
 # --- File extensions ---
 
@@ -237,6 +238,7 @@ __all__ = [
     "VIDEO_PROCESSING_DIR",
     "FONTS_DIR",
     "TITLE_OVERLAYS_DIR",
+    "OVERLAY_DONE_DIR",
     "AUDIO_EXTENSIONS",
     "AUDIO_FORMATS",
     "AUDIO_FILE_EXT",

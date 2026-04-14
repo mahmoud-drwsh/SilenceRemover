@@ -194,7 +194,7 @@ After trim/concat, the video stream may receive one or two PNG overlays. Builder
 ### Demuxer input indices (FFmpeg `-i` order)
 
 - **`0`:** Source video (after concat, this is `[outv]` from `concat` in the main graph; in the minimal graph it is `[0:v]`).
-- **`1`:** Title overlay PNG when a title is rendered (always present in the pipeline’s Phase 3 when overlays run).
+- **`1`:** Title overlay PNG when a title is rendered (always present in the pipeline’s Phase 5-6 when overlays run).
 - **`2`:** Logo PNG only when **both** title and logo are used. If `trim_single_video` runs with a logo but **no** title PNG, the logo is **`1`** instead.
 
 ### Stacking order (z-order)
