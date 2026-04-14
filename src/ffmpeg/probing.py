@@ -89,8 +89,16 @@ def probe_ffmpeg_can_decode_image_frame(path: Path) -> None:
 
 def can_run_encoder(codec: str, codec_args: Sequence[str] = ()) -> bool:
     """Check whether the given codec can run in a minimal encode test."""
+    import subprocess
+
     cmd = build_encoder_probe_command(codec, codec_args)
-    result = run(cmd, capture_output=True, check=False)
+    try:
+        result = run(cmd, capture_output=True, check=False, timeout=30)
+    except subprocess.TimeoutExpired:
+        quoted_cmd = " ".join(shlex.quote(arg) for arg in cmd)
+        print(f"FFmpeg probe timed out after 30s for codec={codec}:")
+        print(f"  Command: {quoted_cmd}")
+        return False
     if result.returncode != 0:
         quoted_cmd = " ".join(shlex.quote(arg) for arg in cmd)
         print(f"FFmpeg probe failed for codec={codec}:")
