@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.ffmpeg.core import print_ffmpeg_cmd
 from src.ffmpeg.probing import probe_duration, probe_has_audio_stream
 from src.ffmpeg.runner import run
 
@@ -21,7 +20,6 @@ def _detect_raw(input_file: Path, noise_threshold: float, min_duration: float) -
         return [], []
 
     cmd = _build_silence_detection_command(input_file, noise_threshold, min_duration)
-    print_ffmpeg_cmd(cmd)
     result = run(cmd, capture_output=True, text=True, check=True)
     return _parse_silence_output(result.stderr)
 
@@ -44,7 +42,6 @@ def _detect_dual_raw(
         edge_noise_threshold,
         edge_min_duration,
     )
-    print_ffmpeg_cmd(cmd)
     result = run(cmd, capture_output=True, text=True, check=True)
     primary, edge, ok = _parse_dual_silence_output(result.stderr)
     if not ok:
