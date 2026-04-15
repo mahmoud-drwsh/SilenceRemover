@@ -114,10 +114,6 @@ def _run_phase(
     skip_count = 0
     fail_count = 0
     for i, video_file in enumerate(videos, 1):
-        # Print video-level progress bar before processing
-        _print_progress_bar(i - 1, n)
-        print(f" {phase.label} - {video_file.name}")
-        
         result = phase.run(video_file, i, n, total_phases)
         if result is True:
             success_count += 1
@@ -126,9 +122,8 @@ def _run_phase(
         else:
             fail_count += 1
     
-    # Final progress bar at 100%
-    _print_progress_bar(n, n)
-    print(f" ✓ {phase.label} complete ({success_count} done, {skip_count} skipped, {fail_count} failed)")
+    # Phase summary on single line
+    print(f"✓ {phase.label} complete: {success_count} done, {skip_count} skipped, {fail_count} failed")
     
     return success_count, skip_count, fail_count
 
