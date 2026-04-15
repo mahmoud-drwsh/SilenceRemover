@@ -487,9 +487,7 @@ def run_audio_upload_phase(
                     overall_speed = uploaded_bytes / elapsed
                     speed_mbps = overall_speed / (1024 * 1024)
                     percent = (uploaded_bytes / total_bytes) * 100 if total_bytes > 0 else 0
-                    short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
-                    print(f"\r[4/{total_phases}] [{video_index}/{total_videos}] {short_name} "
-                          f"↑ {percent:5.1f}% {speed_mbps:5.2f} MB/s\033[K", end='', flush=True)
+                    progress.update_message(f"↑ {percent:5.1f}% {speed_mbps:5.2f} MB/s")
                     last_uploaded = uploaded_bytes
                     upload_start_time = time.time()
             
@@ -694,9 +692,7 @@ def run_pending_upload_phase(
                     overall_speed = uploaded_bytes / elapsed
                     speed_mbps = overall_speed / (1024 * 1024)
                     percent = (uploaded_bytes / total_bytes) * 100 if total_bytes > 0 else 0
-                    short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
-                    print(f"\r[7/{total_phases}] [{video_index}/{total_videos}] {short_name} "
-                          f"↑ {percent:5.1f}% {speed_mbps:5.2f} MB/s\033[K", end='', flush=True)
+                    progress.update_message(f"↑ {percent:5.1f}% {speed_mbps:5.2f} MB/s")
                     last_uploaded = uploaded_bytes
                     upload_start_time = time.time()
             
@@ -705,7 +701,6 @@ def run_pending_upload_phase(
                 tags=['pending'],
                 progress_callback=_upload_progress
             )
-            print(f"\n[7/{total_phases}] Staged to pending: {output_path.name}")
         finally:
             client.close()
     
@@ -806,9 +801,7 @@ def run_video_upload_phase(
                     overall_speed = uploaded_bytes / elapsed
                     speed_mbps = overall_speed / (1024 * 1024)
                     percent = (uploaded_bytes / total_bytes) * 100 if total_bytes > 0 else 0
-                    short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
-                    print(f"\r[8/{total_phases}] [{video_index}/{total_videos}] {short_name} "
-                          f"↑ {percent:5.1f}% {speed_mbps:5.2f} MB/s\033[K", end='', flush=True)
+                    progress.update_message(f"↑ {percent:5.1f}% {speed_mbps:5.2f} MB/s")
                     last_uploaded = uploaded_bytes
                     upload_start_time = time.time()
             
@@ -819,9 +812,7 @@ def run_video_upload_phase(
             )
             
             if result.get('skipped'):
-                _show_progress("✓ skip (already on server)")
-            else:
-                print(f"\n[8/{total_phases}] Published: {output_path.name}")
+                progress.update_status("skip", "already on server")
         finally:
             client.close()
     

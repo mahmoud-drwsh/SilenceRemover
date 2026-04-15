@@ -140,6 +140,16 @@ class PipelineProgress:
             line = f"[{phase_index}/{self._total_phases}] {phase_name} - {short_name}"
             self._fallback.update(line)
 
+    def update_message(self, message: str) -> None:
+        """Update the message field for upload progress indicators."""
+        if self._rich_available and self._task_id is not None:
+            self._progress.update(
+                self._task_id,
+                message=message,
+            )
+        else:
+            self._fallback.update(f"{self._fallback._current_line} {message}")
+
     def update_status(
         self,
         status: Literal["done", "skip", "error"],
