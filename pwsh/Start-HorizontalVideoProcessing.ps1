@@ -7,15 +7,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$inputDir = Join-Path $PSScriptRoot ".." ".." ".." "Desktop" "TEMP" "raw"
-$outputDir = Join-Path $PSScriptRoot ".." ".." ".." "Desktop" "TEMP" "output"
-
-Write-Host "Starting horizontal video processing with encoder: $Encoder" -ForegroundColor Green
-
-$mainPy = Join-Path $PSScriptRoot ".." "main.py"
-uv run python $mainPy `
-    --input $inputDir `
-    --output $outputDir `
+& (Join-Path $PSScriptRoot ".." ".." "venv" "Scripts" "python.exe") `
+    (Join-Path $PSScriptRoot ".." ".." "main.py") `
+    --input (Join-Path $PSScriptRoot ".." ".." ".." "Desktop" "TEMP" "raw") `
+    --output (Join-Path $PSScriptRoot ".." ".." ".." "Desktop" "TEMP" "output") `
     --encoder $Encoder `
     --target-length 238 `
     --noise-threshold -35 `
