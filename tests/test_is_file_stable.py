@@ -15,8 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "packages"))
 import pytest
 
 from src.core.cli import collect_video_files, is_file_stable
-from src.core.constants import AUDIO_FILE_EXT, VIDEO_EXTENSIONS
-from src.core.paths import get_snippet_path, is_snippet_done
+from src.core.constants import VIDEO_EXTENSIONS
 
 
 class TestIsFileStable:
@@ -90,94 +89,6 @@ class TestCollectVideoFiles:
         # Both video files should have been checked
         assert "aaa.mp4" in mock_check.calls
         assert "bbb.mp4" in mock_check.calls
-
-    def test_skips_snippet_files_no_ffprobe_check(self, tmp_path):
-        """Test 5: collect_video_files skips files with audio extracted (no ffprobe check).
-
-        Files with existing snippet (audio already extracted) should be skipped
-        without calling is_file_stable.
-        """
-        # Setup: input/ and output/temp/ directories
-        input_dir = tmp_path / "input"
-        input_dir.mkdir()
-        temp_dir = tmp_path / "output" / "temp"
-        temp_dir.mkdir(parents=True)
-
-        # Create video files
-        (input_dir / "has_snippet.mp4").write_text("content")
-        (input_dir / "new.mp4").write_text("content")
-
-        # Create snippet file for one video (simulates audio already extracted)
-        snippet_dir = temp_dir / "snippet"
-        snippet_dir.mkdir(parents=True, exist_ok=True)
-        snippet_path = snippet_dir / f"has_snippet{AUDIO_FILE_EXT}"
-        snippet_path.write_text("fake audio content")
-        assert is_snippet_done(temp_dir, "has_snippet") is True
-
-        # Track which files were checked for stability
-        checked_files = []
-
-        def mock_is_stable(path):
-            checked_files.append(path.name)
-            return True
-
-        # Patch at the module level where is_file_stable is looked up
-        with patch("src.core.cli.is_file_stable", side_effect=mock_is_stable):
-            result = collect_video_files(input_dir)
-
-        # Only new.mp4 should have been checked (has_snippet.mp4 skipped)
-        assert "new.mp4" in checked_files
-        assert "has_snippet.mp4" not in checked_files
-        assert len(result) == 1
-        assert result[0].name == "new.mp4"
-
-    def test_checks_stability_for_new_files_only(self, tmp_path):
-        """Test 6: collect_video_files checks stability for new files only.
-
-        Verify ffprobe is only called for files without extracted audio.
-        """
-        # Create directory structure
-        input_dir = tmp_path / "input"
-        input_dir.mkdir()
-        output_dir = tmp_path / "output"
-        output_dir.mkdir()
-        temp_dir = output_dir / "temp"
-        temp_dir.mkdir()
-
-        # Create multiple video files
-        video1 = input_dir / "video1.mp4"
-        video1.write_text("fake content 1")
-        video2 = input_dir / "video2.mp4"
-        video2.write_text("fake content 2")
-        video3 = input_dir / "video3.mp4"
-        video3.write_text("fake content 3")
-
-        # Create snippet file for video2 (audio already extracted)
-        snippet_dir = temp_dir / "snippet"
-        snippet_dir.mkdir(parents=True, exist_ok=True)
-        snippet_path = snippet_dir / f"video2{AUDIO_FILE_EXT}"
-        snippet_path.write_text("fake audio content")
-
-        # Track which files were checked for stability
-        checked_files = []
-
-        def mock_is_file_stable(path):
-            checked_files.append(path.name)
-            return True
-
-        with patch("src.core.cli.is_file_stable", side_effect=mock_is_file_stable):
-            result = collect_video_files(input_dir)
-
-        # Only video1 and video3 should have been checked (video2 was skipped)
-        assert "video1.mp4" in checked_files
-        assert "video3.mp4" in checked_files
-        assert "video2.mp4" not in checked_files
-
-        # All videos without snippets should be in result
-        result_names = {p.name for p in result}
-        assert "video1.mp4" in result_names
-        assert "video3.mp4" in result_names
-        assert "video2.mp4" not in result_names
 
     def test_returns_sorted_list(self, tmp_path):
         """Test: Results are returned in sorted order."""
