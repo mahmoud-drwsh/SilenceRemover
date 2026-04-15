@@ -12,8 +12,7 @@ $outputDir = Join-Path $PSScriptRoot ".." ".." ".." "Desktop" "TEMP" "output"
 
 Write-Host "Starting vertical video processing with encoder: $Encoder" -ForegroundColor Green
 
-& (Join-Path $PSScriptRoot ".." "venv" "Scripts" "python.exe") `
-    (Join-Path $PSScriptRoot ".." "main.py") `
+& uv run python (Join-Path $PSScriptRoot ".." "main.py") `
     --input $inputDir `
     --output $outputDir `
     --encoder $Encoder `
