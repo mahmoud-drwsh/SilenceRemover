@@ -29,24 +29,9 @@ from sr_progress_formatter import parse_ffmpeg_encoder_lines
 def get_available_encoders() -> set[str]:
     """Return supported encoder names from the current FFmpeg installation."""
     cmd = build_ffmpeg_cmd(False, "-encoders")
-    result = run(cmd, check=True, capture_output=True)
-    return parse_ffmpeg_encoder_lines(result.stdout)
-
-
-def run_ffprobe_float(input_file: Path, format_entry: str, fallback: float) -> float:
-    """Run ffprobe and parse a float metadata field."""
-    result = run(build_ffprobe_metadata_command(input_file, format_entry), capture_output=True, check=False)
-    output = result.stdout.strip()
-    try:
-        return float(output)
-    except (TypeError, ValueError):
-        return fallback
-
-
-def probe_has_audio_stream(input_file: Path) -> bool:
-    """True if ffprobe finds any audio stream on the file."""
-    result = run(build_ffprobe_has_audio_command(input_file), capture_output=True, check=False)
-    if result.returncode != 0:
+    result = run(cmd, check=True, capture_output=True, timeout=10)
+        return result.returncode == 0
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return False
     return bool(result.stdout.strip())
 
