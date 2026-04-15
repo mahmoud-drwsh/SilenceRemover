@@ -19,6 +19,7 @@ dependencies = [
     "python-bidi",
     "fastapi",
     "uvicorn",
+    "rich>=13.0.0",
 ]
 
 [dependency-groups]

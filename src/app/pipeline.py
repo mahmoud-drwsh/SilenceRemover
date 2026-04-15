@@ -56,6 +56,7 @@ from sr_telegram_notify import notify_audio_uploaded, notify_final_output_ready,
 from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
 from src.media.trim import trim_single_video
+from src.app.pipeline_display import PipelineProgress
 
 # Optional Media Manager integration for title sync and upload (Phases 3 and 5)
 try:
@@ -99,31 +100,36 @@ def get_video_timestamp_base36(video_path: Path) -> str:
 class _PipelinePhase:
     index: int
     label: str
-    run: Callable[[Path, int, int, int], bool | None]
+    run: Callable[[Path, int, int, int, "PipelineProgress"], bool | None]
 
 
 def _run_phase(
     videos: list[Path], phase: _PipelinePhase, total_phases: int
 ) -> tuple[int, int, int]:
-    """Run one phase over all videos with progress bar and shared output.
+    """Run one phase over all videos with Rich progress display.
     
     Returns: (success_count, skip_count, fail_count)
     """
+    from src.app.pipeline_display import PipelineProgress
+    
     n = len(videos)
     success_count = 0
     skip_count = 0
     fail_count = 0
-    for i, video_file in enumerate(videos, 1):
-        result = phase.run(video_file, i, n, total_phases)
-        if result is True:
-            success_count += 1
-        elif result is None:
-            skip_count += 1
-        else:
-            fail_count += 1
     
-    # Phase summary on single line
-    print(f"✓ {phase.label} complete: {success_count} done, {skip_count} skipped, {fail_count} failed")
+    with PipelineProgress() as progress:
+        progress.start_pipeline(total_phases=total_phases, total_videos=n)
+        
+        for i, video_file in enumerate(videos, 1):
+            result = phase.run(video_file, i, n, total_phases, progress)
+            if result is True:
+                success_count += 1
+            elif result is None:
+                skip_count += 1
+            else:
+                fail_count += 1
+        
+        progress.print_summary(success_count, skip_count, fail_count)
     
     return success_count, skip_count, fail_count
 
@@ -142,35 +148,33 @@ def _run_phase_step(
     label: str,
     precondition_ok: bool = True,
     precondition_message: str = "",
+    progress: PipelineProgress | None = None,
 ) -> bool | None:
-    """Execute a single phase step with single-line progress handling."""
-    # Print progress at phase start
-    _print_phase_progress(phase_index, total_phases, label, video_path.name)
+    """Execute a single phase step with Rich-based progress handling."""
+    if progress is None:
+        progress = PipelineProgress(use_rich=False)
+
+    progress.start_phase(phase_index, label, video_path.name)
 
     if already_done:
-        _print_phase_progress(phase_index, total_phases, label, video_path.name, "✓ skip (done)")
-        print()
+        progress.update_status("skip", "done")
         return None
 
     if not precondition_ok:
-        _print_phase_progress(phase_index, total_phases, label, video_path.name, f"⚠ skip ({precondition_message})")
-        print()
+        progress.update_status("skip", precondition_message)
         return None
 
     try:
         work_fn()
-        _print_phase_progress(phase_index, total_phases, label, video_path.name, "✓ done")
-        print()
+        progress.update_status("done")
         return True
     except ValueError as e:
         if "Invalid video duration" in str(e):
-            _print_phase_progress(phase_index, total_phases, label, video_path.name, "⚠ skip (invalid)")
-            print()
+            progress.update_status("skip", "invalid")
             return False
         raise
     except Exception as e:
-        _print_phase_progress(phase_index, total_phases, label, video_path.name, f"✗ error: {e}")
-        print()
+        progress.update_status("error", str(e))
         traceback.print_exc()
         return False
 
@@ -222,6 +226,7 @@ def run_snippet_phase(
     pad_sec: float,
     video_index: int,
     total_videos: int,
+    progress: PipelineProgress,
     *,
     total_phases: int = 8,
 ) -> bool | None:
@@ -233,9 +238,6 @@ def run_snippet_phase(
         # Silent skip if snippet already exists
         if is_snippet_done(temp_dir, basename):
             return
-        print(
-            f"\n[1/{total_phases}] Creating snippet (first 3 min, silence-removed): {video_path.name}"
-        )
         create_silence_removed_snippet(
             input_file=video_path,
             output_audio_path=snippet_path,
@@ -249,13 +251,14 @@ def run_snippet_phase(
         already_done=False,
         already_done_message="",
         work_fn=_perform,
-        success_message=f"\n✓ Phase 1 (snippet creation) done: {video_path.name}",
+        success_message="",
         failure_label="Phase 1",
         phase_index=1,
         total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         label="Snippet Creation",
+        progress=progress,
     )
 
 
@@ -266,6 +269,7 @@ def run_transcription_phase(
     api_key: str,
     video_index: int,
     total_videos: int,
+    progress: PipelineProgress,
     *,
     total_phases: int = 8,
 ) -> bool | None:
@@ -277,7 +281,6 @@ def run_transcription_phase(
         # Silent skip if transcript already exists
         if is_transcript_done(temp_dir, basename):
             return
-        print(f"\n[2/{total_phases}] Transcribing: {snippet_path.name}")
         transcribe_media(audio_path=snippet_path, temp_dir=temp_dir, api_key=api_key, basename=basename)
 
     return _run_phase_step(
@@ -285,7 +288,7 @@ def run_transcription_phase(
         already_done=False,
         already_done_message="",
         work_fn=_perform,
-        success_message=f"\n✓ Phase 2 (transcription) done: {video_path.name}",
+        success_message="",
         failure_label="Phase 2",
         phase_index=2,
         total_phases=total_phases,
@@ -294,6 +297,7 @@ def run_transcription_phase(
         label="Transcription",
         precondition_ok=is_snippet_done(temp_dir, basename),
         precondition_message=f"No snippet for {video_path.name}; cannot run transcription.",
+        progress=progress,
     )
 
 
@@ -303,6 +307,7 @@ def run_title_phase(
     api_key: str,
     video_index: int,
     total_videos: int,
+    progress: PipelineProgress,
     *,
     total_phases: int = 8,
 ) -> bool | None:
@@ -313,7 +318,6 @@ def run_title_phase(
         # Silent skip if title already exists
         if is_title_done(temp_dir, basename):
             return
-        print(f"\n[3/{total_phases}] Generating title for: {video_path.name}")
         generate_title(temp_dir=temp_dir, api_key=api_key, basename=basename)
 
     return _run_phase_step(
@@ -323,13 +327,14 @@ def run_title_phase(
         precondition_ok=is_transcript_done(temp_dir, basename),
         precondition_message=f"No transcript for {video_path.name}; cannot run title generation.",
         work_fn=_perform,
-        success_message=f"\n✓ Phase 3 (title generation) done: {video_path.name}",
+        success_message="",
         failure_label="Phase 3",
         phase_index=3,
         total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         label="Title Generation",
+        progress=progress,
     )
 
 
@@ -339,6 +344,7 @@ def run_overlay_phase(
     title_font: str | None,
     video_index: int,
     total_videos: int,
+    progress: PipelineProgress,
     enable_title_overlay: bool = False,
     enable_logo_overlay: bool = False,
     title_y_fraction: float | None = None,
@@ -383,13 +389,14 @@ def run_overlay_phase(
         precondition_ok=is_title_done(temp_dir, basename),
         precondition_message=f"No title for {video_path.name}; cannot run overlay generation.",
         work_fn=_perform,
-        success_message=f"\n✓ Phase 5 (overlay generation) done: {video_path.name}",
+        success_message="",
         failure_label="Phase 5",
         phase_index=5,
         total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         label="Overlay Generation",
+        progress=progress,
     )
 
 
@@ -435,6 +442,7 @@ def run_audio_upload_phase(
     video_index: int,
     total_videos: int,
     server_cache: ServerDataCache | None,
+    progress: PipelineProgress,
     *,
     total_phases: int = 8,
 ) -> bool | None:
@@ -447,10 +455,8 @@ def run_audio_upload_phase(
         return None
     
     if server_cache.is_audio_trash(file_id):
-        short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
-        print(f"\r[4/{total_phases}] [{video_index}/{total_videos}] {short_name} ✓ skip (trash)\033[K", end='', flush=True)
-        if video_index == total_videos:
-            print()
+        progress.start_phase(4, "Audio Upload", video_path.name)
+        progress.update_status("skip", "trash")
         return None
     
     title_text = ""
@@ -461,16 +467,10 @@ def run_audio_upload_phase(
     if audio:
         server_title = audio.get('title', '')
         if server_title.strip() == title_text.strip():
-            short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
-            print(f"\r[4/{total_phases}] [{video_index}/{total_videos}] {short_name} ✓ uploaded\033[K", end='', flush=True)
-            if video_index == total_videos:
-                print()
+            progress.start_phase(4, "Audio Upload", video_path.name)
+            progress.update_status("skip", "uploaded")
             return None
-        else:
-            print(f"\n[4/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
-                  f"UPLOAD (title mismatch: server='{server_title[:30]}...' local='{title_text[:30]}...')")
-    else:
-        print(f"\n[4/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: UPLOAD (not on server)")
+        # Title mismatch - will re-upload with updated title
     
     def _perform() -> None:
         fresh_title = title_path.read_text(encoding='utf-8').strip()
@@ -538,6 +538,7 @@ def run_encode_phase(
     pad_sec: float,
     target_length: Optional[float],
     encoder: VideoEncoderProfile,
+    progress: PipelineProgress,
     title_font: str | None = None,
     max_output_seconds: float | None = None,
     video_index: int = 1,
@@ -570,7 +571,6 @@ def run_encode_phase(
     clean_title = title_text
 
     def _perform() -> None:
-        print(f"\n[6/{total_phases}] Creating final output: {video_path.name} -> {chosen_basename}.mp4")
         output_mp4 = (output_dir / f"{chosen_basename}.mp4").resolve()
         trim_single_video(
             input_file=video_path,
@@ -602,18 +602,19 @@ def run_encode_phase(
 
     return _run_phase_step(
         video_path=video_path,
-        already_done=False,
-        already_done_message="",
-        precondition_ok=is_overlay_done(temp_dir, basename),
-        precondition_message=f"No overlay for {video_path.name}; cannot run encode phase.",
+        already_done=is_completed(temp_dir, basename),
+        already_done_message="Final output already exists",
+        precondition_ok=is_transcript_done(temp_dir, basename),
+        precondition_message="No transcript available",
         work_fn=_perform,
-        success_message=f"\n✓ Phase 6 (encode) done: {video_path.name}",
+        success_message="",
         failure_label="Phase 6",
         phase_index=6,
         total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         label="Final Encode",
+        progress=progress,
     )
 
 
@@ -627,6 +628,7 @@ def run_pending_upload_phase(
     video_index: int,
     total_videos: int,
     server_cache: ServerDataCache | None,
+    progress: PipelineProgress,
     *,
     total_phases: int = 8,
 ) -> bool | None:
@@ -654,14 +656,9 @@ def run_pending_upload_phase(
     if not server_cache:
         return None
     
-    def _show_progress(status: str) -> None:
-        short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
-        print(f"\r[7/{total_phases}] [{video_index}/{total_videos}] {short_name} {status}\033[K", end='', flush=True)
-        if video_index == total_videos:
-            print()
-    
     if server_cache.is_video_trash(file_id):
-        _show_progress("✓ skip (trash)")
+        progress.start_phase(7, "Stage to Pending", video_path.name)
+        progress.update_status("skip", "trash")
         return None
     
     video = server_cache.get_video(file_id)
@@ -670,20 +667,18 @@ def run_pending_upload_phase(
         server_tags = video.get('tags', [])
         if server_title.strip() == title_text.strip():
             if 'pending' in server_tags:
-                _show_progress("✓ skip (pending)")
+                progress.start_phase(7, "Stage to Pending", video_path.name)
+                progress.update_status("skip", "pending")
                 return None
             if 'FB' in server_tags or 'TT' in server_tags:
-                _show_progress("✓ skip (published)")
+                progress.start_phase(7, "Stage to Pending", video_path.name)
+                progress.update_status("skip", "published")
                 return None
-            print(f"\n[7/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
-                  f"UPLOAD (exists but tags={server_tags})")
+            # Exists but tags don't match - will re-upload
         else:
-            print(f"\n[7/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
-                  f"UPLOAD (title mismatch: server='{server_title[:30]}...' "
-                  f"local='{title_text[:30]}...')")
+            pass  # Title mismatch - will re-upload
     else:
-        print(f"\n[7/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
-              f"UPLOAD (not on server)")
+        pass  # Not on server - will upload
     
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
@@ -988,20 +983,21 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         _PipelinePhase(
             1,
             "Snippet Creation",
-            lambda video_file, vi, vn, tp: run_snippet_phase(
+            lambda video_file, vi, vn, tp, progress: run_snippet_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 pad_sec=startup.pad_sec,
                 video_index=vi,
                 total_videos=vn,
                 total_phases=tp,
+                progress=progress,
             ),
         ),
         # UPDATED: Phase 2 - Transcription (was Phase 1)
         _PipelinePhase(
             2,
             "Transcription",
-            lambda video_file, vi, vn, tp: run_transcription_phase(
+            lambda video_file, vi, vn, tp, progress: run_transcription_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 pad_sec=startup.pad_sec,
@@ -1009,39 +1005,42 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 video_index=vi,
                 total_videos=vn,
                 total_phases=tp,
+                progress=progress,
             ),
         ),
         # UPDATED: Phase 3 - Title Generation (was Phase 2)
         _PipelinePhase(
             3,
             "Title Generation",
-            lambda video_file, vi, vn, tp: run_title_phase(
+            lambda video_file, vi, vn, tp, progress: run_title_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 api_key=api_key,
                 video_index=vi,
                 total_videos=vn,
                 total_phases=tp,
+                progress=progress,
             ),
         ),
         # UPDATED: Phase 4 - Audio Upload (was Phase 3)
         _PipelinePhase(
             4,
             "Audio Upload",
-            lambda video_file, vi, vn, tp: run_audio_upload_phase(
+            lambda video_file, vi, vn, tp, progress: run_audio_upload_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 video_index=vi,
                 total_videos=vn,
                 server_cache=server_cache,
                 total_phases=tp,
+                progress=progress,
             ),
         ),
         # UPDATED: Phase 5 - Overlay Generation
         _PipelinePhase(
             5,
             "Overlay Generation",
-            lambda video_file, vi, vn, tp: run_overlay_phase(
+            lambda video_file, vi, vn, tp, progress: run_overlay_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 title_font=startup.title_font,
@@ -1050,15 +1049,16 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 enable_title_overlay=startup.enable_title_overlay,
                 enable_logo_overlay=startup.enable_logo_overlay,
                 title_y_fraction=getattr(args, 'title_y_fraction', None),
-                title_height_fraction=getattr(args, 'title_height_fraction', None),
+                title_height_fraction=getattr(args, 'title_y_fraction', None),
                 total_phases=tp,
+                progress=progress,
             ),
         ),
         # UPDATED: Phase 6 - Final Encode (was Phase 5)
         _PipelinePhase(
             6,
             "Final Encode",
-            lambda video_file, vi, vn, tp: run_encode_phase(
+            lambda video_file, vi, vn, tp, progress: run_encode_phase(
                 video_path=video_file,
                 output_dir=startup.output_dir,
                 temp_dir=startup.temp_dir,
@@ -1074,13 +1074,14 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 enable_title_overlay=startup.enable_title_overlay,
                 enable_logo_overlay=startup.enable_logo_overlay,
                 total_phases=tp,
+                progress=progress,
             ),
         ),
         # UPDATED: Phase 7 - Stage to Pending (was Phase 6)
         _PipelinePhase(
             7,
             "Stage to Pending",
-            lambda video_file, vi, vn, tp: run_pending_upload_phase(
+            lambda video_file, vi, vn, tp, progress: run_pending_upload_phase(
                 video_path=video_file,
                 output_dir=startup.output_dir,
                 temp_dir=temp_dir,
@@ -1088,13 +1089,14 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 total_videos=vn,
                 server_cache=server_cache,
                 total_phases=tp,
+                progress=progress,
             ),
         ),
         # UPDATED: Phase 8 - Publish Video (was Phase 7)
         _PipelinePhase(
             8,
             "Publish Video",
-            lambda video_file, vi, vn, tp: run_video_upload_phase(
+            lambda video_file, vi, vn, tp, progress: run_video_upload_phase(
                 video_path=video_file,
                 output_dir=startup.output_dir,
                 temp_dir=temp_dir,
@@ -1102,6 +1104,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 total_videos=vn,
                 server_cache=server_cache,
                 total_phases=tp,
+                progress=progress,
             ),
         ),
     )
