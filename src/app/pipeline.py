@@ -690,7 +690,7 @@ def run_video_upload_phase(
     - If video exists with FB/TT tags → return None (already published)
     - If video exists with pending tags → return None (will be promoted in Phase 9)
     - If video exists with different title → return None (Phase 7 handles reconciliation)
-    - If video is in trash → Phase 7 would have deleted it after cache rebuild; skip
+    - If video is in trash → return None (skip — do not re-upload trashed content)
     - If video not on server → upload with tags=['pending']
     """
     basename = video_path.stem
