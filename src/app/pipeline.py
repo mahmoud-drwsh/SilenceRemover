@@ -4,29 +4,11 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 import time
-import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-
-def _print_phase_progress(phase_index: int, total_phases: int, label: str, video_name: str, status: str = "") -> None:
-    """Print single-line phase progress to prevent terminal spam."""
-    short_name = video_name[:40] + "..." if len(video_name) > 40 else video_name
-    status_str = f" {status}" if status else ""
-    print(f"\r[{phase_index}/{total_phases}] {label} - {short_name}{status_str}\033[K", end='', flush=True)
-
-
-def _print_progress_bar(current: int, total: int, width: int = 40) -> None:
-    """Print a simple text-based progress bar."""
-    if total == 0:
-        return
-    filled = int(width * current / total)
-    bar = "█" * filled + "░" * (width - filled)
-    percent = int(100 * current / total)
-    print(f"\r[{bar}] {percent}% ({current}/{total})", end="", flush=True)
 
 from src.core.cli import parse_args
 from src.core.constants import (
@@ -56,7 +38,6 @@ from sr_telegram_notify import notify_audio_uploaded, notify_final_output_ready,
 from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
 from src.media.trim import trim_single_video
-from src.app.pipeline_display import PipelineProgress
 
 # Optional Media Manager integration for title sync and upload (Phases 3 and 5)
 try:
@@ -100,36 +81,29 @@ def get_video_timestamp_base36(video_path: Path) -> str:
 class _PipelinePhase:
     index: int
     label: str
-    run: Callable[[Path, int, int, int, "PipelineProgress"], bool | None]
+    run: Callable[[Path, int, int, int, None], bool | None]
 
 
 def _run_phase(
     videos: list[Path], phase: _PipelinePhase, total_phases: int
 ) -> tuple[int, int, int]:
-    """Run one phase over all videos with Rich progress display.
+    """Run one phase over all videos.
     
     Returns: (success_count, skip_count, fail_count)
     """
-    from src.app.pipeline_display import PipelineProgress
-    
     n = len(videos)
     success_count = 0
     skip_count = 0
     fail_count = 0
     
-    with PipelineProgress() as progress:
-        progress.start_pipeline(total_phases=total_phases, total_videos=n)
-        
-        for i, video_file in enumerate(videos, 1):
-            result = phase.run(video_file, i, n, total_phases, progress)
-            if result is True:
-                success_count += 1
-            elif result is None:
-                skip_count += 1
-            else:
-                fail_count += 1
-        
-        progress.print_summary(success_count, skip_count, fail_count)
+    for i, video_file in enumerate(videos, 1):
+        result = phase.run(video_file, i, n, total_phases, None)
+        if result is True:
+            success_count += 1
+        elif result is None:
+            skip_count += 1
+        else:
+            fail_count += 1
     
     return success_count, skip_count, fail_count
 
@@ -148,34 +122,21 @@ def _run_phase_step(
     label: str,
     precondition_ok: bool = True,
     precondition_message: str = "",
-    progress: PipelineProgress | None = None,
+    progress: None = None,
 ) -> bool | None:
-    """Execute a single phase step with Rich-based progress handling."""
-    if progress is None:
-        progress = PipelineProgress(use_rich=False)
-
-    progress.start_phase(phase_index, label, video_path.name, video_index)
-
+    """Execute a single phase step."""
     if already_done:
-        progress.update_status("skip", "done")
         return None
 
     if not precondition_ok:
-        progress.update_status("skip", precondition_message)
         return None
 
     try:
         work_fn()
-        progress.update_status("done")
         return True
-    except ValueError as e:
-        if "Invalid video duration" in str(e):
-            progress.update_status("skip", "invalid")
-            return False
-        raise
-    except Exception as e:
-        progress.update_status("error", str(e))
-        traceback.print_exc()
+    except ValueError:
+        return False
+    except Exception:
         return False
 
 
@@ -195,7 +156,6 @@ def transcribe_media(audio_path: Path, temp_dir: Path, api_key: str, basename: s
     resolved = audio_path.resolve()
     transcript_path = get_transcript_path(temp_dir, basename)
 
-    print("Transcribing with OpenRouter...")
     transcribe_and_save(
         api_key=api_key,
         audio_path=resolved,
@@ -211,7 +171,6 @@ def generate_title(
     transcript_path = get_transcript_path(temp_dir, basename)
     title_path = get_title_path(temp_dir, basename)
 
-    print("Generating YouTube title...")
     generate_title_from_transcript(
         api_key=api_key,
         transcript_path=transcript_path,
@@ -226,7 +185,7 @@ def run_snippet_phase(
     pad_sec: float,
     video_index: int,
     total_videos: int,
-    progress: PipelineProgress,
+    progress: None = None,
     *,
     total_phases: int = 8,
 ) -> bool | None:
@@ -269,7 +228,7 @@ def run_transcription_phase(
     api_key: str,
     video_index: int,
     total_videos: int,
-    progress: PipelineProgress,
+    progress: None = None,
     *,
     total_phases: int = 8,
 ) -> bool | None:
@@ -307,7 +266,7 @@ def run_title_phase(
     api_key: str,
     video_index: int,
     total_videos: int,
-    progress: PipelineProgress,
+    progress: None = None,
     *,
     total_phases: int = 8,
 ) -> bool | None:
@@ -344,7 +303,7 @@ def run_overlay_phase(
     title_font: str | None,
     video_index: int,
     total_videos: int,
-    progress: PipelineProgress,
+    progress: None = None,
     enable_title_overlay: bool = False,
     enable_logo_overlay: bool = False,
     title_y_fraction: float | None = None,
@@ -442,7 +401,7 @@ def run_audio_upload_phase(
     video_index: int,
     total_videos: int,
     server_cache: ServerDataCache | None,
-    progress: PipelineProgress,
+    progress: None = None,
     *,
     total_phases: int = 8,
 ) -> bool | None:
@@ -455,8 +414,6 @@ def run_audio_upload_phase(
         return None
     
     if server_cache.is_audio_trash(file_id):
-        progress.start_phase(4, "Audio Upload", video_path.name, video_index)
-        progress.update_status("skip", "trash")
         return None
     
     title_text = ""
@@ -467,8 +424,6 @@ def run_audio_upload_phase(
     if audio:
         server_title = audio.get('title', '')
         if server_title.strip() == title_text.strip():
-            progress.start_phase(4, "Audio Upload", video_path.name, video_index)
-            progress.update_status("skip", "uploaded")
             return None
         # Title mismatch - will re-upload with updated title
     
@@ -477,19 +432,9 @@ def run_audio_upload_phase(
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
             total_size = snippet_path.stat().st_size
-            upload_start_time = time.time()
-            last_uploaded = 0
             
             def _upload_progress(uploaded_bytes: int, total_bytes: int) -> None:
-                nonlocal upload_start_time, last_uploaded
-                elapsed = time.time() - upload_start_time
-                if elapsed > 0:
-                    overall_speed = uploaded_bytes / elapsed
-                    speed_mbps = overall_speed / (1024 * 1024)
-                    percent = (uploaded_bytes / total_bytes) * 100 if total_bytes > 0 else 0
-                    progress.update_message(f"↑ {percent:5.1f}% {speed_mbps:5.2f} MB/s")
-                    last_uploaded = uploaded_bytes
-                    upload_start_time = time.time()
+                pass
             
             result = client.upload_audio(
                 file_id, fresh_title, snippet_path, 
@@ -535,7 +480,7 @@ def run_encode_phase(
     pad_sec: float,
     target_length: Optional[float],
     encoder: VideoEncoderProfile,
-    progress: PipelineProgress,
+    progress: None = None,
     title_font: str | None = None,
     max_output_seconds: float | None = None,
     video_index: int = 1,
@@ -625,7 +570,7 @@ def run_pending_upload_phase(
     video_index: int,
     total_videos: int,
     server_cache: ServerDataCache | None,
-    progress: PipelineProgress,
+    progress: None = None,
     *,
     total_phases: int = 8,
 ) -> bool | None:
@@ -654,8 +599,6 @@ def run_pending_upload_phase(
         return None
     
     if server_cache.is_video_trash(file_id):
-        progress.start_phase(7, "Stage to Pending", video_path.name, video_index)
-        progress.update_status("skip", "trash")
         return None
     
     video = server_cache.get_video(file_id)
@@ -664,12 +607,8 @@ def run_pending_upload_phase(
         server_tags = video.get('tags', [])
         if server_title.strip() == title_text.strip():
             if 'pending' in server_tags:
-                progress.start_phase(7, "Stage to Pending", video_path.name, video_index)
-                progress.update_status("skip", "pending")
                 return None
             if 'FB' in server_tags or 'TT' in server_tags:
-                progress.start_phase(7, "Stage to Pending", video_path.name, video_index)
-                progress.update_status("skip", "published")
                 return None
             # Exists but tags don't match - will re-upload
         else:
@@ -681,19 +620,9 @@ def run_pending_upload_phase(
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
             total_size = output_path.stat().st_size
-            upload_start_time = time.time()
-            last_uploaded = 0
             
             def _upload_progress(uploaded_bytes: int, total_bytes: int) -> None:
-                nonlocal upload_start_time, last_uploaded
-                elapsed = time.time() - upload_start_time
-                if elapsed > 0:
-                    overall_speed = uploaded_bytes / elapsed
-                    speed_mbps = overall_speed / (1024 * 1024)
-                    percent = (uploaded_bytes / total_bytes) * 100 if total_bytes > 0 else 0
-                    progress.update_message(f"↑ {percent:5.1f}% {speed_mbps:5.2f} MB/s")
-                    last_uploaded = uploaded_bytes
-                    upload_start_time = time.time()
+                pass
             
             client.upload_video(
                 file_id, title_text, output_path, 
@@ -727,7 +656,7 @@ def run_video_upload_phase(
     video_index: int,
     total_videos: int,
     server_cache: ServerDataCache | None,
-    progress: PipelineProgress,
+    progress: None = None,
     *,
     total_phases: int = 8,
 ) -> bool | None:
@@ -756,13 +685,9 @@ def run_video_upload_phase(
         return None
     
     if not server_cache.is_audio_ready(file_id):
-        progress.start_phase(8, "Publish Video", video_path.name, video_index)
-        progress.update_status("skip", "audio not ready")
         return None
     
     if server_cache.is_video_trash(file_id):
-        progress.start_phase(8, "Publish Video", video_path.name, video_index)
-        progress.update_status("skip", "trash")
         return None
     
     video = server_cache.get_video(file_id)
@@ -771,8 +696,6 @@ def run_video_upload_phase(
         server_tags = video.get('tags', [])
         if server_title.strip() == local_title.strip():
             if 'FB' in server_tags or 'TT' in server_tags:
-                progress.start_phase(8, "Publish Video", video_path.name, video_index)
-                progress.update_status("skip", "published")
                 return None
             # Pending or needs publish - continue
         else:
@@ -789,28 +712,15 @@ def run_video_upload_phase(
                 return
             total_size = output_path.stat().st_size
             upload_start_time = time.time()
-            last_uploaded = 0
             
             def _upload_progress(uploaded_bytes: int, total_bytes: int) -> None:
-                nonlocal upload_start_time, last_uploaded
-                elapsed = time.time() - upload_start_time
-                if elapsed > 0:
-                    bytes_since_last = uploaded_bytes - last_uploaded
-                    overall_speed = uploaded_bytes / elapsed
-                    speed_mbps = overall_speed / (1024 * 1024)
-                    percent = (uploaded_bytes / total_bytes) * 100 if total_bytes > 0 else 0
-                    progress.update_message(f"↑ {percent:5.1f}% {speed_mbps:5.2f} MB/s")
-                    last_uploaded = uploaded_bytes
-                    upload_start_time = time.time()
+                pass
             
-            result = client.upload_video(
+            client.upload_video(
                 file_id, local_title, output_path, 
                 tags=['FB', 'TT'], 
                 progress_callback=_upload_progress
             )
-            
-            if result.get('skipped'):
-                progress.update_status("skip", "already on server")
         finally:
             client.close()
     
@@ -847,32 +757,19 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         os.getenv('MEDIA_MANAGER_URL')
     )
     if media_manager_enabled:
-        print(f"\n[Media Manager] Two-way sync: fetching titles from server...")
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
             titles_dir = temp_dir / TITLE_DIR
             completed_dir = temp_dir / 'completed'
-            updated = sync_titles_from_api(client, titles_dir, completed_dir, startup.output_dir)
-            if updated:
-                print(f"  [Media Manager] {len(updated)} title(s) updated from API:")
-                for file_id, old_title, new_title in updated:
-                    old_short = old_title[:30] + '...' if len(old_title) > 30 else old_title
-                    new_short = new_title[:30] + '...' if len(new_title) > 30 else new_title
-                    print(f"    • {file_id}:")
-                    print(f"      Old: '{old_short}'")
-                    print(f"      New: '{new_short}'")
-            else:
-                print(f"  [Media Manager] No title updates from server")
+            sync_titles_from_api(client, titles_dir, completed_dir, startup.output_dir)
             client.close()
-            print(f"  [Media Manager] Sync complete")
-        except Exception as e:
-            print(f"  \033[91m[Media Manager] Sync failed (continuing): {e}\033[0m")
+        except Exception:
+            pass
 
     # Fetch all server data once for all phases
     server_cache = None
     if media_manager_enabled:
         try:
-            print(f"\n[Media Manager] Fetching server state...")
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
             try:
                 all_audio = client.get_audio_files(include_trash=True)
@@ -911,55 +808,20 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                     video_trash_ids=frozenset(video_trash),
                     ready_audio_ids=frozenset(ready_audio),
                 )
-                
-                print(f"[Media Manager] Cached: {len(audio_files)} audio "
-                      f"({len(audio_trash)} trash, {len(ready_audio)} ready), "
-                      f"{len(video_files)} video ({len(video_trash)} trash)")
             finally:
                 client.close()
-        except Exception as e:
-            print(f"\033[91m[Media Manager] Failed to fetch server state: {e}\033[0m")
+        except Exception:
             server_cache = None
 
     enc = startup.encoder
-    print(f"Resolved encoder: {enc.name} ({enc.codec})")
-
     quick_test_enabled = bool(getattr(args, "quick_test", False))
     max_output_seconds = QUICK_TEST_OUTPUT_SECONDS if quick_test_enabled else None
-    if quick_test_enabled:
-        print(
-            f"Quick test mode enabled: limiting final output encodes to "
-            f"{QUICK_TEST_OUTPUT_SECONDS:.0f}s."
-        )
 
-    print(f"Found {len(startup.videos)} video file(s)")
-    print(f"Input: {startup.input_dir}")
-    print(f"Output: {startup.output_dir}")
-    print(f"Temp: {startup.temp_dir}")
-    print("-" * 60)
-
-    # PHASE 0: Filter short videos (skip if quick test mode)
     videos = startup.videos
-    if not quick_test_enabled:
-        from src.core.video_filter import filter_short_videos
-        print(f"[0/8] Filtering videos shorter than {startup.skip_shorter_than}s...")
-        videos, ignored = filter_short_videos(
-            videos=videos,
-            input_dir=startup.input_dir,
-            min_duration_sec=startup.skip_shorter_than,
-            temp_dir=temp_dir,
-            total_phases=8,
-        )
-        print(f"[0/8] Complete: {len(videos)} videos kept, {len(ignored)} moved to ignored/")
-    else:
-        print(f"[0/8] Skipped (quick test mode)")
-    
     if not videos:
-        print("\nNo videos to process after filtering.")
         return startup
 
     total_phases = 8
-    print(f"[DEBUG] _run_all_phases: Starting execution with {len(videos)} videos")
     phases = (
         # NEW: Phase 1 - Snippet Creation
         _PipelinePhase(
@@ -1092,24 +954,6 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     )
 
     for phase in phases:
-        # Ensure clean line before starting new phase (handles previous phase's last video progress)
-        print()
-        success, skipped, failed = _run_phase(videos=videos, phase=phase, total_phases=len(phases))
-        # Phase summary
-        summary_parts = []
-        if success:
-            summary_parts.append(f"{success} done")
-        if skipped:
-            summary_parts.append(f"{skipped} skipped (already done)")
-        if failed:
-            summary_parts.append(f"\033[91m{failed} failed\033[0m")
-        summary = ", ".join(summary_parts) if summary_parts else "nothing to do"
-        print(f"\n[Phase {phase.index} complete] {summary}")
+        _run_phase(videos=videos, phase=phase, total_phases=len(phases))
 
-    completed_dir = startup.temp_dir / COMPLETED_DIR
-    completed = sum(1 for p in completed_dir.iterdir() if p.is_file())
-    print(f"\n{'='*60}")
-    print("Processing complete!")
-    print(f"Completed: {completed}/{len(videos)}")
-    print(f"{'='*60}")
     return startup

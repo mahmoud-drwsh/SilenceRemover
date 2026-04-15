@@ -84,20 +84,11 @@ def wait_for_file_release(path: Path, timeout: float | None = None) -> bool:
         )
         if handle != _INVALID_HANDLE_VALUE:
             _CloseHandle(handle)
-            if waited:
-                print(f"Lock released: '{path.name}' is now writable.")
             return True
         err = ctypes.get_last_error()
         if err in (_ERROR_FILE_NOT_FOUND, _ERROR_PATH_NOT_FOUND):
             return False
-        if not waited:
-            print(f"Waiting for '{path.name}' to become unlockable...")
-            waited = True
         if time.monotonic() >= deadline:
-            print(
-                f"Timed out waiting for '{path.name}' to be freed "
-                f"({timeout:.1f}s). Another process may still hold it."
-            )
             return False
         time.sleep(sleep_interval)
 

@@ -1,7 +1,6 @@
 """Video trimming functionality."""
 
 import shutil
-import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -28,7 +27,6 @@ from src.ffmpeg.probing import (
 )
 from sr_trim_plan import build_trim_plan
 from sr_title_overlay import build_title_overlay
-from sr_progress_formatter import DefaultProgressFormatter, ProgressMetrics
 from src.ffmpeg.transcode import build_final_trim_command, build_minimal_video_command
 from src.core.fs_utils import wait_for_file_release
 from src.ffmpeg.core import build_ffmpeg_cmd
@@ -47,16 +45,8 @@ def _copy_input_video(
     basename: str,
 ) -> Path:
     """Copy input video to output using processing file → final rename pattern."""
-    print(
-        f"Target length >= original duration, copying original file "
-        f"{input_file} -> {output_file}"
-    )
     processing_output = get_processing_video_path(temp_dir, basename)
     processing_output.parent.mkdir(parents=True, exist_ok=True)
-
-    # Check for existing processing file
-    if processing_output.exists():
-        print(f"⚠️  Overwriting existing processing file: {basename}.mp4")
 
     try:
         shutil.copyfile(input_file, processing_output)
@@ -160,16 +150,14 @@ def prepare_video_overlays(
     if (title_path is not None and enable_title_overlay) or use_logo:
         try:
             video_width, video_height = probe_video_dimensions(input_file)
-        except (OSError, RuntimeError, ValueError) as exc:
-            print(f"Warning: Failed to probe video dimensions ({input_file}): {exc}")
+        except (OSError, RuntimeError, ValueError):
             return (None, None, None, False)
 
         if use_logo:
             try:
                 _lw, _lh = probe_video_dimensions(DEFAULT_LOGO_PATH)
                 probe_ffmpeg_can_decode_image_frame(DEFAULT_LOGO_PATH)
-            except (OSError, RuntimeError, ValueError) as exc:
-                print(f"Warning: Skipping logo overlay ({DEFAULT_LOGO_PATH}): {exc}")
+            except (OSError, RuntimeError, ValueError):
                 use_logo = False
                 logo_path_resolved = None
             else:
@@ -182,8 +170,7 @@ def prepare_video_overlays(
                         ),
                         target_width_px=logo_target_w,
                     )
-                except RuntimeError as exc:
-                    print(f"Warning: Skipping logo overlay pre-scale ({DEFAULT_LOGO_PATH}): {exc}")
+                except RuntimeError:
                     use_logo = False
                     logo_path_resolved = None
 
@@ -191,7 +178,6 @@ def prepare_video_overlays(
         try:
             title_text = title_path.read_text(encoding="utf-8").strip()
             if not title_text:
-                print(f"Warning: Empty title at {title_path}, skipping title overlay")
                 title_overlay_path = None
             else:
                 font_name = title_font or TITLE_FONT_DEFAULT
@@ -208,8 +194,7 @@ def prepare_video_overlays(
                     font_family=font_name,
                     font_cache_dir=get_font_cache_path(temp_dir),
                 )
-        except (OSError, RuntimeError, ValueError) as exc:
-            print(f"Warning: Failed to generate title overlay ({title_path}): {exc}")
+        except (OSError, RuntimeError, ValueError):
             title_overlay_path = None
             banner_top = None
 
@@ -273,14 +258,6 @@ def trim_single_video(
     use_qsv_hardware_path = encoder.codec == "hevc_qsv"
     resulting_length = plan.resulting_length_sec
     input_has_audio = probe_has_audio_stream(input_file)
-    print(f"Input: {input_file}")
-    print(f"Output: {output_file}")
-    print(f"Settings: noise={resolved_noise_threshold}dB, min_duration={resolved_min_duration}s, pad={resolved_pad_sec}s")
-    print(f"Number of segments: {len(segments_to_keep)}")
-
-    if target_length is not None:
-        print(f"Target length: {target_length}s")
-        print(f"Expected resulting length: {resulting_length:.3f}s")
 
     (
         title_overlay_path,
@@ -300,15 +277,9 @@ def trim_single_video(
 
     # Handle case where all audio is silence (no segments to keep)
     if len(segments_to_keep) == 0:
-        print("Warning: All audio detected as silence. Creating minimal video (first frame only).")
-
         def _run_minimal_encode(*, use_hw_path: bool) -> Path:
             processing_output = get_processing_video_path(temp_dir_resolved, basename)
             processing_output.parent.mkdir(parents=True, exist_ok=True)
-
-            # Check for existing processing file
-            if processing_output.exists():
-                print(f"⚠️  Overwriting existing processing file: {basename}.mp4")
 
             result_path = run_minimal_ffmpeg_output(
                 output_file=processing_output,
@@ -342,12 +313,7 @@ def trim_single_video(
         if use_qsv_hardware_path:
             try:
                 return _run_minimal_encode(use_hw_path=True)
-            except RuntimeError as exc:
-                print(
-                    "Warning: QSV hardware-path flags failed for minimal encode; "
-                    "retrying with generic FFmpeg input path. "
-                    f"Original error: {exc}"
-                )
+            except RuntimeError:
                 return _run_minimal_encode(use_hw_path=False)
 
         return _run_minimal_encode(use_hw_path=False)
@@ -376,38 +342,14 @@ def trim_single_video(
         )
         use_lavfi_silent_audio = not input_has_audio
 
-    start_wall = time.monotonic()
-    progress_formatter = DefaultProgressFormatter(throttle_size_check_seconds=1.0)
-
     def _run_final_encode(*, use_hw_path: bool) -> Path:
         processing_output = get_processing_video_path(temp_dir_resolved, basename)
         processing_output.parent.mkdir(parents=True, exist_ok=True)
 
-        # Check for existing processing file
-        if processing_output.exists():
-            print(f"⚠️  Overwriting existing processing file: {basename}.mp4")
-
-        def _on_progress(percent: int, ffmpeg_elapsed_sec: float) -> None:
-            metrics = ProgressMetrics(
-                percent=percent,
-                encoded_seconds=ffmpeg_elapsed_sec,
-                wall_start_time=start_wall,
-            )
-            
-            # Get file size (throttled updates handled by formatter)
-            # During encoding, processing_output exists; display progress against final name
-            size_bytes = None
-            try:
-                size_bytes = processing_output.stat().st_size
-            except OSError:
-                pass
-            
-            progress_formatter.format_and_print(metrics, size_bytes)
-
         def _build_ffmpeg_command(in_file, out_file, filter_script):
             return build_final_trim_command(
                 input_file=in_file,
-                output_file=processing_output,  # FFmpeg writes to processing
+                output_file=processing_output,
                 filter_script_path=filter_script,
                 encoder=encoder,
                 title_overlay_path=title_overlay_path,
@@ -422,7 +364,7 @@ def trim_single_video(
                 metadata_title=metadata_title,
             )
         
-        result_path = run_silence_removed_media(
+        run_silence_removed_media(
             input_file=input_file,
             output_file=processing_output,
             temp_dir=temp_dir_resolved,
@@ -430,28 +372,20 @@ def trim_single_video(
             build_filter_graph=filter_builder,
             build_command=_build_ffmpeg_command,
             expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
-            on_progress=_on_progress,
+            on_progress=lambda p, s: None,
             command_label=f"{encoder.codec} encode",
             overlay_y=banner_top,
         )
-        # result_path is processing_output resolved; move to final destination
         _move_processing_to_final(processing_output, output_file)
-        # Delete from processing after successful move
         if processing_output.exists():
             processing_output.unlink()
         wait_for_file_release(output_file)
-        print(f"Done! Output saved to: {output_file}")
         return output_file.resolve()
 
     if use_qsv_hardware_path:
         try:
             return _run_final_encode(use_hw_path=True)
-        except RuntimeError as exc:
-            print(
-                "Warning: QSV hardware-path flags failed during encode; "
-                "retrying with generic FFmpeg input path. "
-                f"Original error: {exc}"
-            )
+        except RuntimeError:
             return _run_final_encode(use_hw_path=False)
 
     return _run_final_encode(use_hw_path=False)

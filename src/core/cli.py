@@ -35,8 +35,7 @@ from src.core.constants import (
 
 
 def fail(message: str) -> None:
-    """Print error message and exit."""
-    print(f"Error: {message}", file=sys.stderr)
+    """Exit with error code."""
     sys.exit(1)
 
 
@@ -98,8 +97,7 @@ def collect_video_files(input_dir: Path) -> list[Path]:
             # Only filter out files locked by another process (e.g., OBS recording)
             if not is_file_locked(p):
                 video_files.append(p)
-            else:
-                print(f"Skipping file locked by another process: {p.name}")
+
 
     return sorted(video_files)
 
