@@ -73,22 +73,22 @@ def collect_video_files(input_dir: Path) -> list[Path]:
     """Collect supported video files from a directory.
 
     Filters out files that are still being written to (e.g., being recorded).
-    Skips files that have already been processed (completion marker exists).
+    Skips files that already have audio extracted (snippet phase done).
     """
-    from src.core.paths import is_completed
+    from src.core.paths import is_snippet_done
 
     # Calculate temp_dir path (output/temp relative to input_dir)
     temp_dir = input_dir.parent / "output" / "temp"
 
     video_files = []
-    skipped_completed_count = 0
+    skipped_snippet_count = 0
     for p in input_dir.iterdir():
         if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS:
             basename = p.stem
 
-            # Skip already completed files silently (no ffprobe needed)
-            if is_completed(temp_dir, basename):
-                skipped_completed_count += 1
+            # Skip files that already have audio extracted (no ffprobe needed)
+            if is_snippet_done(temp_dir, basename):
+                skipped_snippet_count += 1
                 continue
 
             # Check stability only for new files
@@ -97,9 +97,9 @@ def collect_video_files(input_dir: Path) -> list[Path]:
             else:
                 print(f"Skipping file still being written: {p.name}")
 
-    # Log total skipped completed files (if any)
-    if skipped_completed_count > 0:
-        print(f"Skipped {skipped_completed_count} already completed file(s)")
+    # Log total skipped files with extracted audio (if any)
+    if skipped_snippet_count > 0:
+        print(f"Skipped {skipped_snippet_count} file(s) with audio already extracted")
 
     return sorted(video_files)
 
