@@ -682,7 +682,7 @@ def run_video_upload_phase(
     total_phases: int = 9,
 ) -> bool | None:
     """Phase 8: Upload video with ['pending'] tags.
-    
+
     Logic:
     - If server_cache is None → return None (skip)
     - If not completed locally → return None (skip)
@@ -690,7 +690,7 @@ def run_video_upload_phase(
     - If video exists with FB/TT tags → return None (already published)
     - If video exists with pending tags → return None (will be promoted in Phase 9)
     - If video exists with different title → return None (Phase 7 handles reconciliation)
-    - If video is in trash → delete from trash first, then upload
+    - If video is in trash → Phase 7 would have deleted it after cache rebuild; skip
     - If video not on server → upload with tags=['pending']
     """
     basename = video_path.stem
@@ -728,14 +728,10 @@ def run_video_upload_phase(
                 return None
         else:
             return None
-    
-    in_trash = server_cache.is_video_trash(file_id)
-    
+
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
-            if in_trash:
-                client.delete_file(file_id, file_type='video')
             client.upload_video(
                 file_id, local_title, output_path,
                 tags=['pending'],
