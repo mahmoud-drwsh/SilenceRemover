@@ -719,6 +719,8 @@ def run_video_upload_phase(
     
     video = server_cache.get_video(file_id)
     if video:
+        if server_cache.is_video_trash(file_id):
+            return None
         server_title = video.get('title', '')
         server_tags = video.get('tags', [])
         if server_title.strip() == local_title.strip():
