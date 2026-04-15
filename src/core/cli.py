@@ -3,7 +3,6 @@
 import argparse
 import shutil
 import sys
-import time
 from pathlib import Path
 
 __all__ = [
@@ -45,25 +44,28 @@ def require_input_dir(input_dir: Path) -> None:
         fail(f"Input directory does not exist: {input_dir}")
 
 
-def is_file_stable(file_path: Path, check_delay: float = 1.0) -> bool:
-    """Check if file is stable (not being written to).
+def is_file_stable(file_path: Path) -> bool:
+    """Check if video file is stable (complete and readable) using ffprobe.
 
-    Compares file size before and after a short delay.
-    If size changes, file is still being written to.
+    Runs ffprobe to verify the file has valid video metadata.
+    Returns True immediately if file is readable as video.
+    Returns False if ffprobe fails (file incomplete/corrupt/locked).
 
     Args:
-        file_path: Path to check
-        check_delay: Seconds to wait between checks (default 1.0)
+        file_path: Path to video file to check
 
     Returns:
-        True if file size hasn't changed (stable), False if still being written
+        True if file is stable and readable, False otherwise
     """
+    from src.ffmpeg.runner import run
+    from sr_ffmpeg_cmd_builder import build_ffprobe_metadata_command
+
     try:
-        initial_size = file_path.stat().st_size
-        time.sleep(check_delay)
-        final_size = file_path.stat().st_size
-        return initial_size == final_size
-    except (OSError, IOError):
+        cmd = build_ffprobe_metadata_command(file_path, "duration")
+        result = run(cmd, capture_output=True, check=False, timeout=5)
+        # ffprobe success + non-empty duration = stable file
+        return result.returncode == 0 and bool(result.stdout.strip())
+    except Exception:
         return False
 
 
@@ -71,11 +73,25 @@ def collect_video_files(input_dir: Path) -> list[Path]:
     """Collect supported video files from a directory.
 
     Filters out files that are still being written to (e.g., being recorded).
+    Skips files that have already been processed (completion marker exists).
     """
+    from src.core.paths import is_completed
+
+    # Calculate temp_dir path (output/temp relative to input_dir)
+    temp_dir = input_dir.parent / "output" / "temp"
+
     video_files = []
     for p in input_dir.iterdir():
         if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS:
-            if is_file_stable(p, check_delay=1.0):
+            basename = p.stem
+
+            # Skip already completed files (no ffprobe needed)
+            if is_completed(temp_dir, basename):
+                print(f"Skipping completed file: {p.name}")
+                continue
+
+            # Check stability only for new files
+            if is_file_stable(p):
                 video_files.append(p)
             else:
                 print(f"Skipping file still being written: {p.name}")
