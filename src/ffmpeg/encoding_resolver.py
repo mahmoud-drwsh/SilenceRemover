@@ -97,40 +97,35 @@ def _probe_encoder_profile(profile: VideoEncoderProfile) -> VideoEncoderProfile:
     )
 
 
-def resolve_video_encoder() -> VideoEncoderProfile:
-    """Resolve final video encoder with hardware priority: QSV → AMF → libx265 fallback."""
-    available = _get_available_encoders()
-    qsv_profile, amf_profile, libx265_profile = _ENCODER_PROFILES
-
-    # Try Intel Quick Sync (QSV) first
-    if qsv_profile.codec in available:
-        try:
-            return _probe_encoder_profile(qsv_profile)
-        except RuntimeError:
-            # QSV probe failed - hardware not available or drivers missing
-            pass
-
-    # Try AMD AMF (for AMD GPUs like Ryzen with Radeon)
-    if amf_profile.codec in available:
-        try:
-            return _probe_encoder_profile(amf_profile)
-        except RuntimeError:
-            # AMF probe failed - AMD GPU/drivers issue
-            pass
-
-    # Fall back to software encoding (libx265)
-    if libx265_profile.codec not in available:
-        raise RuntimeError(
-            f"No usable HEVC encoder found. Tried: hevc_qsv, hevc_amf, {libx265_profile.codec}. "
-            f"{_LIBX265_VERIFY_HINT}"
-        )
-
-    try:
-        return _probe_encoder_profile(libx265_profile)
-    except RuntimeError as exc:
-        raise RuntimeError(
-            f"Fallback encoder '{libx265_profile.codec}' is listed but a probe encode failed. {_LIBX265_VERIFY_HINT}"
-        ) from exc
+def get_encoder_config(encoder_name: str) -> dict:
+    """Get encoder configuration for explicit encoder choice.
+    
+    Args:
+        encoder_name: One of "QSV", "AMF", "X265"
+        
+    Returns:
+        Dict with codec, args, hwaccel flag
+    """
+    encoder_upper = encoder_name.upper()
+    
+    if encoder_upper == "QSV":
+        return {
+            "codec": "hevc_qsv",
+            "args": ["-global_quality", "20", "-preset", "slow"],
+            "hwaccel": True,
+        }
+    elif encoder_upper == "AMF":
+        return {
+            "codec": "hevc_amf", 
+            "args": ["-qp_i", "22", "-qp_p", "22", "-quality", "quality"],
+            "hwaccel": True,
+        }
+    else:
+        return {
+            "codec": "libx265",
+            "args": ["-crf", "24", "-preset", "slow"],
+            "hwaccel": False,
+        }
 
 
-__all__ = ["VideoEncoderProfile", "resolve_video_encoder"]
+__all__ = ["VideoEncoderProfile", "get_encoder_config"]

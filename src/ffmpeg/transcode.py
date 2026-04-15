@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Sequence, TYPE_CHECKING
+from typing import Sequence
 
 from src.core.constants import (
     AUDIO_BITRATE,
@@ -12,10 +12,8 @@ from src.core.constants import (
     LOGO_OVERLAY_MARGIN_PX,
 )
 from src.ffmpeg.core import add_filter_complex_script, build_ffmpeg_cmd, build_qsv_hwaccel_flags
+from src.ffmpeg.encoding_resolver import get_encoder_config
 from sr_filter_graph import build_minimal_encode_overlay_filter_complex
-
-if TYPE_CHECKING:
-    from src.ffmpeg.encoding_resolver import VideoEncoderProfile
 
 
 def _build_input_command(input_file: Path, *, use_qsv_hardware_path: bool = False) -> list[str]:
@@ -72,7 +70,7 @@ def build_silence_removed_audio_command(
 def build_minimal_video_command(
     input_file: Path,
     output_file: Path,
-    encoder: "VideoEncoderProfile",
+    encoder: str,
     *,
     title_overlay_path: Path | None = None,
     title_overlay_y: int | None = None,
@@ -84,6 +82,10 @@ def build_minimal_video_command(
     use_qsv_hardware_path: bool = False,
 ) -> list[str]:
     """Build a minimal fallback encode command when no audio remains."""
+    config = get_encoder_config(encoder)
+    codec = config["codec"]
+    codec_args = config["args"]
+
     cmd = _build_input_command(input_file, use_qsv_hardware_path=use_qsv_hardware_path)
     cmd.extend(["-t", "0.1"])
 
@@ -110,7 +112,8 @@ def build_minimal_video_command(
             ]
         )
 
-    cmd.extend(encoder.video_args())
+    cmd.extend(["-c:v", codec])
+    cmd.extend(codec_args)
     cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE])
     if source_metadata_filename is not None:
         cmd.extend(["-metadata", f"{FINAL_VIDEO_SOURCE_METADATA_KEY}={source_metadata_filename}"])
@@ -122,7 +125,7 @@ def build_final_trim_command(
     input_file: Path,
     output_file: Path,
     filter_script_path: Path,
-    encoder: "VideoEncoderProfile",
+    encoder: str,
     *,
     title_overlay_path: Path | None = None,
     title_overlay_y: int | None = None,
@@ -142,6 +145,10 @@ def build_final_trim_command(
 
     ``video_map_pad`` names the video filter output pad (default ``outv``).
     """
+    config = get_encoder_config(encoder)
+    codec = config["codec"]
+    codec_args = config["args"]
+
     cmd = _build_input_command(input_file, use_qsv_hardware_path=use_qsv_hardware_path)
     if title_overlay_path is not None:
         cmd.extend(["-stream_loop", "-1", "-i", str(title_overlay_path)])
@@ -151,7 +158,8 @@ def build_final_trim_command(
         cmd.extend(["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"])
     add_filter_complex_script(cmd, filter_script_path)
     cmd.extend(["-map", f"[{video_map_pad}]", "-map", "[outa]"])
-    cmd.extend(encoder.video_args(include_container_args=True))
+    cmd.extend(["-c:v", codec])
+    cmd.extend(codec_args)
     if max_output_seconds is not None:
         cmd.extend(["-t", str(max_output_seconds)])
     cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, "-progress", "pipe:1", "-nostats", "-loglevel", "error"])

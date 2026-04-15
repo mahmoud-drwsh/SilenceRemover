@@ -32,7 +32,7 @@ from src.core.paths import (
 )
 from sr_filename import sanitize_filename
 from src.startup import StartupContext, build_startup_context
-from src.ffmpeg.encoding_resolver import VideoEncoderProfile
+
 from sr_snippet import create_silence_removed_snippet
 from sr_telegram_notify import notify_audio_uploaded, notify_final_output_ready, notify_video_uploaded
 from sr_title import generate_title_from_transcript
@@ -481,7 +481,7 @@ def run_encode_phase(
     min_duration: float,
     pad_sec: float,
     target_length: Optional[float],
-    encoder: VideoEncoderProfile,
+    encoder: str,
     progress: None = None,
     title_font: str | None = None,
     max_output_seconds: float | None = None,
@@ -888,7 +888,6 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         except Exception:
             server_cache = None
 
-    enc = startup.encoder
     quick_test_enabled = bool(getattr(args, "quick_test", False))
     max_output_seconds = QUICK_TEST_OUTPUT_SECONDS if quick_test_enabled else None
 
@@ -985,7 +984,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 min_duration=startup.min_duration,
                 pad_sec=startup.pad_sec,
                 target_length=startup.target_length,
-                encoder=startup.encoder,
+                encoder=args.encoder,
                 title_font=startup.title_font,
                 max_output_seconds=max_output_seconds,
                 video_index=vi,

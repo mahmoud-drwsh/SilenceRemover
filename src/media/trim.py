@@ -13,7 +13,7 @@ from src.core.constants import (
     TITLE_BANNER_START_FRACTION,
     TITLE_FONT_DEFAULT,
 )
-from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
+from src.ffmpeg.encoding_resolver import VideoEncoderProfile, get_encoder_config, resolve_video_encoder
 from sr_filter_graph import (
     build_video_audio_concat_filter_graph,
     build_video_audio_concat_filter_graph_with_title_overlay,
@@ -209,7 +209,7 @@ def trim_single_video(
     pad_sec: float,
     target_length: Optional[float],
     output_basename: Optional[str] = None,
-    encoder: VideoEncoderProfile | None = None,
+    encoder: str = "libx265",
     title_path: Path | None = None,
     title_font: str | None = None,
     max_output_seconds: float | None = None,
@@ -254,8 +254,8 @@ def trim_single_video(
     resolved_noise_threshold = plan.resolved_noise_threshold
     resolved_min_duration = plan.resolved_min_duration
     resolved_pad_sec = plan.resolved_pad_sec
-    encoder = encoder or resolve_video_encoder()
-    use_qsv_hardware_path = encoder.codec == "hevc_qsv"
+    encoder = encoder or resolve_video_encoder().codec
+    use_qsv_hardware_path = encoder == "hevc_qsv"
     resulting_length = plan.resulting_length_sec
     input_has_audio = probe_has_audio_stream(input_file)
 
@@ -300,7 +300,7 @@ def trim_single_video(
                     ),
                     use_qsv_hardware_path=use_hw_path,
                 ),
-                command_label=f"{encoder.codec} encode",
+                command_label=f"{encoder} encode",
             )
             # result_path is processing_output resolved; move to final destination
             _move_processing_to_final(processing_output, output_file)
@@ -373,7 +373,7 @@ def trim_single_video(
             build_command=_build_ffmpeg_command,
             expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
             on_progress=lambda p, s: None,
-            command_label=f"{encoder.codec} encode",
+            command_label=f"{encoder} encode",
             overlay_y=banner_top,
         )
         _move_processing_to_final(processing_output, output_file)
