@@ -216,6 +216,9 @@ def run_snippet_phase(
     snippet_path = get_snippet_path(temp_dir, basename)
 
     def _perform() -> None:
+        # Silent skip if snippet already exists
+        if is_snippet_done(temp_dir, basename):
+            return
         print(
             f"\n[1/{total_phases}] Creating snippet (first 3 min, silence-removed): {video_path.name}"
         )
@@ -229,8 +232,8 @@ def run_snippet_phase(
 
     return _run_phase_step(
         video_path=video_path,
-        already_done=is_snippet_done(temp_dir, basename),
-        already_done_message=f"Phase 1 already done for {video_path.name}, skipping snippet creation.",
+        already_done=False,
+        already_done_message="",
         work_fn=_perform,
         success_message=f"\n✓ Phase 1 (snippet creation) done: {video_path.name}",
         failure_label="Phase 1",
@@ -257,13 +260,16 @@ def run_transcription_phase(
     snippet_path = get_snippet_path(temp_dir, basename)
 
     def _perform() -> None:
+        # Silent skip if transcript already exists
+        if is_transcript_done(temp_dir, basename):
+            return
         print(f"\n[2/{total_phases}] Transcribing: {snippet_path.name}")
         transcribe_media(audio_path=snippet_path, temp_dir=temp_dir, api_key=api_key, basename=basename)
 
     return _run_phase_step(
         video_path=video_path,
-        already_done=is_transcript_done(temp_dir, basename),
-        already_done_message=f"Phase 2 already done for {video_path.name}, skipping transcription.",
+        already_done=False,
+        already_done_message="",
         work_fn=_perform,
         success_message=f"\n✓ Phase 2 (transcription) done: {video_path.name}",
         failure_label="Phase 2",
@@ -290,13 +296,16 @@ def run_title_phase(
     basename = video_path.stem
 
     def _perform() -> None:
+        # Silent skip if title already exists
+        if is_title_done(temp_dir, basename):
+            return
         print(f"\n[3/{total_phases}] Generating title for: {video_path.name}")
         generate_title(temp_dir=temp_dir, api_key=api_key, basename=basename)
 
     return _run_phase_step(
         video_path=video_path,
-        already_done=is_title_done(temp_dir, basename),
-        already_done_message=f"Phase 3 already done for {video_path.name}, skipping title generation.",
+        already_done=False,
+        already_done_message="",
         precondition_ok=is_transcript_done(temp_dir, basename),
         precondition_message=f"No transcript for {video_path.name}; cannot run title generation.",
         work_fn=_perform,
@@ -335,6 +344,10 @@ def run_overlay_phase(
             print(f"Warning: No title for {video_path.name}; cannot generate overlay.")
             return
         
+        # Silent skip if overlay already exists for current title
+        if is_overlay_done(temp_dir, basename):
+            return
+        
         # Read title content for the marker (overlay invalidates if title changes)
         title_text = title_path.read_text(encoding="utf-8").strip()
         
@@ -353,8 +366,8 @@ def run_overlay_phase(
 
     return _run_phase_step(
         video_path=video_path,
-        already_done=is_overlay_done(temp_dir, basename),
-        already_done_message=f"Phase 5 already done for {video_path.name}, skipping overlay generation.",
+        already_done=False,
+        already_done_message="",
         precondition_ok=is_title_done(temp_dir, basename),
         precondition_message=f"No title for {video_path.name}; cannot run overlay generation.",
         work_fn=_perform,
