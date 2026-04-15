@@ -1,7 +1,6 @@
 """CLI argument parsing and validation utilities."""
 
 import argparse
-import ctypes
 import shutil
 import sys
 from pathlib import Path
@@ -14,14 +13,6 @@ __all__ = [
     "require_input_dir",
     "require_videos_in",
 ]
-
-# Windows API constants for file lock detection
-kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-GENERIC_READ = 0x80000000
-FILE_SHARE_NONE = 0x00000000
-OPEN_EXISTING = 3
-ERROR_SHARING_VIOLATION = 32
-INVALID_HANDLE_VALUE = -1
 
 # Import VIDEO_EXTENSIONS here to avoid circular imports
 from src.core.constants import (
@@ -52,52 +43,16 @@ def require_input_dir(input_dir: Path) -> None:
         fail(f"Input directory does not exist: {input_dir}")
 
 
-def is_file_locked(file_path: Path) -> bool:
-    """Check if file is locked by another process (Windows-only).
-
-    Uses Windows CreateFileW API to attempt exclusive read access.
-    If the file is open by another process (e.g., OBS recording), 
-    it returns ERROR_SHARING_VIOLATION.
-
-    Args:
-        file_path: Path to video file to check
-
-    Returns:
-        True if file is locked by another process, False if accessible
-    """
-    try:
-        handle = kernel32.CreateFileW(
-            str(file_path),
-            GENERIC_READ,
-            FILE_SHARE_NONE,
-            None,
-            OPEN_EXISTING,
-            0,
-            None,
-        )
-        if handle == INVALID_HANDLE_VALUE:
-            err = ctypes.get_last_error()
-            return err == ERROR_SHARING_VIOLATION
-        kernel32.CloseHandle(handle)
-        return False
-    except (OSError, IOError):
-        return False
-
-
 def collect_video_files(input_dir: Path) -> list[Path]:
     """Collect supported video files from a directory.
 
-    Filters out files locked by another process (e.g., being recorded by OBS).
-    All valid, accessible videos go through the pipeline - individual phases
-    handle their own skip logic (snippet, title, encode, upload, etc.).
+    All valid video files are collected - the pipeline assumes all input videos
+    are ready and stable. Individual phases handle their own skip logic.
     """
     video_files = []
     for p in input_dir.iterdir():
         if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS:
-            # Only filter out files locked by another process (e.g., OBS recording)
-            if not is_file_locked(p):
-                video_files.append(p)
-
+            video_files.append(p)
 
     return sorted(video_files)
 

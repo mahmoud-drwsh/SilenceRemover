@@ -1,0 +1,55 @@
+{
+  "active_plan": "/Users/mahmoud/Documents/GitHub/SilenceRemover/.sisyphus/plans/video-upload-phases.md",
+  "started_at": "2026-04-15T16:01:19.262Z",
+  "session_ids": [
+    "ses_26e48df39ffe7XJ5ZRnfM8xTJS",
+    "ses_26e1c4cd4ffek1ggW079sTYqjy",
+    "ses_26e0da89effehdXK1fl7j7hH1T",
+    "ses_26cae3e4affeEof7RvlLR0acqI",
+    "ses_26c9a7137ffexWAZchpxYHdfhP",
+    "ses_26c9a63efffelMRXpzOTQtDoT5",
+    "ses_26c9a485affeNBYERzrMPNN9r5",
+    "ses_26c9a3887ffe4v6Eak6avKMvI2"
+  ],
+  "session_origins": {
+    "ses_26e48df39ffe7XJ5ZRnfM8xTJS": "direct",
+    "ses_26e1c4cd4ffek1ggW079sTYqjy": "direct",
+    "ses_26e0da89effehdXK1fl7j7hH1T": "direct",
+    "ses_26cae3e4affeEof7RvlLR0acqI": "direct",
+    "ses_26c9a7137ffexWAZchpxYHdfhP": "appended",
+    "ses_26c9a63efffelMRXpzOTQtDoT5": "appended",
+    "ses_26c9a485affeNBYERzrMPNN9r5": "appended",
+    "ses_26c9a3887ffe4v6Eak6avKMvI2": "appended"
+  },
+  "plan_name": "video-upload-phases",
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "Add `delete_file()` and `include_trash` to MediaManagerClient",
+      "session_id": "ses_26cad2eabffexoVUdhoX4x09J8",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-04-15T22:47:36.065Z"
+    },
+    "todo:3": {
+      "task_key": "todo:3",
+      "task_label": "3",
+      "task_title": "Implement Phase 7 — run_video_reconciliation_phase",
+      "session_id": "ses_26caa2f5bffePmfKrFlkfXHcZe",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-04-15T22:52:04.627Z"
+    },
+    "final-wave:f1": {
+      "task_key": "final-wave:f1",
+      "task_label": "F1",
+      "task_title": "**Plan Compliance Audit** — `oracle`",
+      "session_id": "ses_26c9a485affeNBYERzrMPNN9r5",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-04-15T23:08:56.075Z"
+    }
+  }
+}
