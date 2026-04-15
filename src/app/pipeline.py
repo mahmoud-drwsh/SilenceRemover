@@ -733,6 +733,7 @@ def run_video_upload_phase(
     video_index: int,
     total_videos: int,
     server_cache: ServerDataCache | None,
+    progress: PipelineProgress,
     *,
     total_phases: int = 8,
 ) -> bool | None:
@@ -760,18 +761,14 @@ def run_video_upload_phase(
     if not server_cache:
         return None
     
-    def _show_progress(status: str) -> None:
-        short_name = video_path.name[:40] + "..." if len(video_path.name) > 40 else video_path.name
-        print(f"\r[8/{total_phases}] [{video_index}/{total_videos}] {short_name} {status}\033[K", end='', flush=True)
-        if video_index == total_videos:
-            print()
-    
     if not server_cache.is_audio_ready(file_id):
-        _show_progress("✓ skip (audio not ready)")
+        progress.start_phase(8, "Publish Video", video_path.name)
+        progress.update_status("skip", "audio not ready")
         return None
     
     if server_cache.is_video_trash(file_id):
-        _show_progress("✓ skip (trash)")
+        progress.start_phase(8, "Publish Video", video_path.name)
+        progress.update_status("skip", "trash")
         return None
     
     video = server_cache.get_video(file_id)
@@ -780,18 +777,14 @@ def run_video_upload_phase(
         server_tags = video.get('tags', [])
         if server_title.strip() == local_title.strip():
             if 'FB' in server_tags or 'TT' in server_tags:
-                _show_progress("✓ skip (published)")
+                progress.start_phase(8, "Publish Video", video_path.name)
+                progress.update_status("skip", "published")
                 return None
-            if 'pending' in server_tags:
-                print(f"\n[8/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
-                      f"PUBLISH (currently pending)")
+            # Pending or needs publish - continue
         else:
-            print(f"\n[8/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
-                      f"PUBLISH (title mismatch: server='{server_title[:30]}...' "
-                      f"local='{local_title[:30]}...')")
+            pass  # Title mismatch - will update
     else:
-        print(f"\n[8/{total_phases}] [{video_index}/{total_videos}] {video_path.name}: "
-                      f"PUBLISH (not on server yet)")
+        pass  # Not on server - will upload
     
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
