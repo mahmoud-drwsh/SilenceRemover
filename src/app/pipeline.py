@@ -131,6 +131,8 @@ def _run_phase_step(
     if not precondition_ok:
         return None
 
+    print(f"[Phase {phase_index}/{total_phases}] File {video_index}/{total_videos}: {video_path.name}")
+
     try:
         work_fn()
         return True
