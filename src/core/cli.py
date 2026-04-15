@@ -81,13 +81,14 @@ def collect_video_files(input_dir: Path) -> list[Path]:
     temp_dir = input_dir.parent / "output" / "temp"
 
     video_files = []
+    skipped_completed_count = 0
     for p in input_dir.iterdir():
         if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS:
             basename = p.stem
 
-            # Skip already completed files (no ffprobe needed)
+            # Skip already completed files silently (no ffprobe needed)
             if is_completed(temp_dir, basename):
-                print(f"Skipping completed file: {p.name}")
+                skipped_completed_count += 1
                 continue
 
             # Check stability only for new files
@@ -95,6 +96,11 @@ def collect_video_files(input_dir: Path) -> list[Path]:
                 video_files.append(p)
             else:
                 print(f"Skipping file still being written: {p.name}")
+
+    # Log total skipped completed files (if any)
+    if skipped_completed_count > 0:
+        print(f"Skipped {skipped_completed_count} already completed file(s)")
+
     return sorted(video_files)
 
 
