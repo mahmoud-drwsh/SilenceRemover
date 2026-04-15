@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "packages"))
 
 from src.ffmpeg.core import build_qsv_hwaccel_flags
-from src.ffmpeg.encoding_resolver import resolve_video_encoder
+from src.ffmpeg.encoding_resolver import get_encoder_config
 from sr_filter_graph import (
     build_minimal_encode_overlay_filter_complex,
     build_video_audio_concat_filter_graph_with_title_overlay,
@@ -45,38 +45,42 @@ def main() -> None:
     _ok(f"hevc_qsv listed: {has_qsv}")
     _ok(f"libx265 listed: {has_x265}")
 
-    profile = resolve_video_encoder()
-    _ok(f"Resolved encoder: {profile.name} ({profile.codec})")
+    x265_config = get_encoder_config("X265")
+    _ok(f"X265 config: codec={x265_config['codec']}, args={x265_config['args']}")
 
-    if has_qsv and profile.codec != "hevc_qsv":
-        _fail("Expected hevc_qsv to be selected when listed.")
-    if (not has_qsv) and profile.codec != "libx265":
-        _fail("Expected libx265 fallback when hevc_qsv is absent.")
-
-    if not can_run_encoder(profile.codec, profile.codec_args):
-        _fail(f"Probe encode failed for resolved codec {profile.codec}.")
-    _ok("Probe encode passed for resolved encoder profile.")
+    if not can_run_encoder("libx265", x265_config["args"]):
+        _fail(f"Probe encode failed for libx265 with config args.")
+    _ok("Probe encode passed for libx265.")
 
     if has_x265 and not can_run_encoder("libx265", ("-crf", "24", "-preset", "slow")):
         _warn("libx265 is listed but a direct probe with fallback args failed.")
 
-    # Command-builder sanity via APIs only (no hand-built ffmpeg command strings).
     cmd_final = build_final_trim_command(
         input_file=Path("input.mp4"),
         output_file=Path("output.mp4"),
         filter_script_path=Path("output/temp/scripts/test.ffscript"),
-        encoder=profile,
+        encoder=x265_config["codec"],
     )
     if not cmd_final or cmd_final[-1] != "output.mp4":
         _fail("Final trim command assembly returned an unexpected output path.")
     _ok("Final trim command assembly sanity passed.")
 
-    if profile.codec == "hevc_qsv":
+    cmd_min = build_minimal_video_command(
+        input_file=Path("input.mp4"),
+        output_file=Path("output-min.mp4"),
+        encoder=x265_config["codec"],
+    )
+    if not cmd_min or cmd_min[-1] != "output-min.mp4":
+        _fail("Minimal video command assembly returned an unexpected output path.")
+    _ok("Minimal encode command assembly sanity passed.")
+
+    if has_qsv:
+        qsv_config = get_encoder_config("QSV")
         cmd_final_qsv = build_final_trim_command(
             input_file=Path("input.mp4"),
             output_file=Path("output-qsv.mp4"),
             filter_script_path=Path("output/temp/scripts/test-qsv.ffscript"),
-            encoder=profile,
+            encoder=qsv_config["codec"],
             use_qsv_hardware_path=True,
         )
         hw_flags = build_qsv_hwaccel_flags()
@@ -84,20 +88,10 @@ def main() -> None:
             _fail("QSV final command is missing one or more hardware-path flags.")
         _ok("QSV final command includes hardware-path flags.")
 
-    cmd_min = build_minimal_video_command(
-        input_file=Path("input.mp4"),
-        output_file=Path("output-min.mp4"),
-        encoder=profile,
-    )
-    if not cmd_min or cmd_min[-1] != "output-min.mp4":
-        _fail("Minimal video command assembly returned an unexpected output path.")
-    _ok("Minimal encode command assembly sanity passed.")
-
-    if profile.codec == "hevc_qsv":
         cmd_min_qsv = build_minimal_video_command(
             input_file=Path("input.mp4"),
             output_file=Path("output-min-qsv.mp4"),
-            encoder=profile,
+            encoder=qsv_config["codec"],
             use_qsv_hardware_path=True,
         )
         hw_flags = build_qsv_hwaccel_flags()

@@ -112,9 +112,19 @@ def can_run_encoder(codec: str, codec_args: Sequence[str] = ()) -> bool:
     return True
 
 
+def _run_ffprobe_float(input_file: Path, format_entry: str, fallback: float) -> float:
+    """Run ffprobe and parse a float metadata field."""
+    result = run(build_ffprobe_metadata_command(input_file, format_entry), capture_output=True, check=False)
+    output = (result.stdout or "").strip()
+    try:
+        return float(output)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def probe_duration(input_file: Path) -> float:
     """Probe media duration in seconds."""
-    return run_ffprobe_float(input_file, "duration", 0.0)
+    return _run_ffprobe_float(input_file, "duration", 0.0)
 
 
 def read_format_tags(input_file: Path) -> dict[str, str]:
@@ -182,7 +192,7 @@ def delete_final_videos_matching_source(output_dir: Path, source_filename: str) 
 
 def probe_bitrate_bps(input_file: Path, fallback: int = BITRATE_FALLBACK_BPS) -> int:
     """Probe format-level bitrate and return it in bits-per-second."""
-    result = run_ffprobe_float(input_file, "bit_rate", float(fallback))
+    result = _run_ffprobe_float(input_file, "bit_rate", float(fallback))
     if result == float(fallback):
         return fallback
     try:

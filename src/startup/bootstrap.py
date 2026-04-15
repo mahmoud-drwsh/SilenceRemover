@@ -10,7 +10,7 @@ from src.core.cli import collect_video_files, fail, require_input_dir, require_t
 from src.core.config import get_config, load_config
 from src.core.constants import TITLE_FONT_DEFAULT, resolve_trim_defaults
 from src.core.paths import create_temp_subdirs, sibling_dir
-from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
+
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ class StartupContext:
     target_length: float | None
     api_key: str
     title_font: str
-    encoder: VideoEncoderProfile
+
     enable_title_overlay: bool
     enable_logo_overlay: bool
 
@@ -47,11 +47,6 @@ def build_startup_context(args: Namespace) -> StartupContext:
     output_dir = sibling_dir(input_dir, "output")
     temp_dir = output_dir / "temp"
     create_temp_subdirs(temp_dir)
-
-    try:
-        selected_encoder = resolve_video_encoder()
-    except RuntimeError as exc:
-        fail(str(exc))
 
     trim_defaults = resolve_trim_defaults(
         target_length=args.target_length,
@@ -76,7 +71,6 @@ def build_startup_context(args: Namespace) -> StartupContext:
         target_length=args.target_length,
         api_key=api_key,
         title_font=(args.title_font or "").strip() or TITLE_FONT_DEFAULT,
-        encoder=selected_encoder,
         enable_title_overlay=getattr(args, "enable_title_overlay", False),
         enable_logo_overlay=getattr(args, "enable_logo_overlay", False),
     )

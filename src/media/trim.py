@@ -13,7 +13,7 @@ from src.core.constants import (
     TITLE_BANNER_START_FRACTION,
     TITLE_FONT_DEFAULT,
 )
-from src.ffmpeg.encoding_resolver import VideoEncoderProfile, get_encoder_config, resolve_video_encoder
+from src.ffmpeg.encoding_resolver import VideoEncoderProfile, get_encoder_config
 from sr_filter_graph import (
     build_video_audio_concat_filter_graph,
     build_video_audio_concat_filter_graph_with_title_overlay,
@@ -254,7 +254,7 @@ def trim_single_video(
     resolved_noise_threshold = plan.resolved_noise_threshold
     resolved_min_duration = plan.resolved_min_duration
     resolved_pad_sec = plan.resolved_pad_sec
-    encoder = encoder or resolve_video_encoder().codec
+    encoder = encoder or get_encoder_config("X265")["codec"]
     use_qsv_hardware_path = encoder == "hevc_qsv"
     resulting_length = plan.resulting_length_sec
     input_has_audio = probe_has_audio_stream(input_file)

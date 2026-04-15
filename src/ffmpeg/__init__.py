@@ -36,7 +36,7 @@ from src.ffmpeg.transcode import (
     build_silent_audio_file_command,
     build_silence_removed_audio_command,
 )
-from src.ffmpeg.encoding_resolver import VideoEncoderProfile, resolve_video_encoder
+from src.ffmpeg.encoding_resolver import VideoEncoderProfile
 
 __all__ = [
     "FFMPEG_BIN",
@@ -70,5 +70,4 @@ __all__ = [
     "build_silent_audio_file_command",
     "build_silence_removed_audio_command",
     "VideoEncoderProfile",
-    "resolve_video_encoder",
 ]
