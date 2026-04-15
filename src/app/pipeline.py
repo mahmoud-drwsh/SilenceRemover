@@ -562,7 +562,80 @@ def run_encode_phase(
     )
 
 
+def run_video_cleanup_phase(
+    video_path: Path,
+    video_index: int,
+    total_videos: int,
+    server_cache: Any,
+    total_phases: int = 9,
+) -> None:
+    client, enabled = _get_media_manager_client()
+    if not enabled:
+        return None
+    print(f"[Video Cleanup] File {video_index}/{total_videos}: {video_path.name}")
+    try:
+        file_id = video_path.stem
+        title_path = get_title_path(video_path)
+        if not title_path.exists():
+            return None
+        local_title = title_path.read_text(encoding="utf-8").strip()
+        video = server_cache.get_video(file_id)
+        if video and video.get("title") != local_title:
+            client.delete_video(file_id)
+            clear_completion(video_path)
+    except Exception:
+        pass
+    return None
 
+
+def run_video_upload_phase(
+    video_path: Path,
+    video_index: int,
+    total_videos: int,
+    server_cache: Any,
+    total_phases: int = 9,
+) -> None:
+    client, enabled = _get_media_manager_client()
+    if not enabled:
+        return None
+    print(f"[Video Upload] File {video_index}/{total_videos}: {video_path.name}")
+    try:
+        file_id = video_path.stem
+        title_path = get_title_path(video_path)
+        if not title_path.exists():
+            return None
+        local_title = title_path.read_text(encoding="utf-8").strip()
+        output_path = get_output_path(video_path, local_title)
+        video = server_cache.get_video(file_id)
+        if video:
+            return None
+        client.upload_video(file_id, local_title, output_path, tags=["pending"])
+    except Exception:
+        pass
+    return None
+
+
+def run_video_publish_phase(
+    video_path: Path,
+    video_index: int,
+    total_videos: int,
+    server_cache: Any,
+    total_phases: int = 9,
+) -> None:
+    client, enabled = _get_media_manager_client()
+    if not enabled:
+        return None
+    print(f"[Video Publish] File {video_index}/{total_videos}: {video_path.name}")
+    try:
+        file_id = video_path.stem
+        if not server_cache.is_audio_ready(file_id):
+            return None
+        video = server_cache.get_video(file_id)
+        if video and "pending" in video.get("tags", []):
+            client.update_tags(file_id, ["FB", "TT"], file_type="video")
+    except Exception:
+        pass
+    return None
 
 
 def run_pending_upload_phase(
