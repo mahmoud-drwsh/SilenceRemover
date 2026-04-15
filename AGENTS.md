@@ -30,12 +30,12 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/trim.py`: Modified `trim_single_video()` to accept `encoder: str` parameter (default `"libx265"`) instead of `VideoEncoderProfile | None`. Added import for `get_encoder_config`. Updated encoder resolution logic to use `.codec` attribute when falling back to `resolve_video_encoder()`. Updated all `command_label` references to use the string encoder directly.
 
 ## Latest session edits
-- **Phase 5 Split Documentation Fixes**: Updated all phase references across documentation to match the 8-phase pipeline reality:
-  - `README.md`: Changed "four main stages" to "eight main phases", "5-phase workflow" to "8-phase workflow", updated all phase numbers (Telegram Phase 6, quick-test eight phases, overlay Phase 5-6, etc.), added `overlay_done/` to directory structure.
-  - `src/app/pipeline.py`: Updated docstring from "Three-phase" to "Eight-phase".
-  - `packages/sr_telegram_notify/api.py`: Updated phase references (Phase 6 for encoding, Phase 4 for audio upload, Phase 8 for video upload).
-  - `packages/sr_media_manager/__init__.py`: Updated from "5-phase" to "8-phase" workflow documentation.
-  - `src/app/__init__.py`: Added missing exports for all 8 phase functions (`run_snippet_phase`, `run_audio_upload_phase`, `run_pending_upload_phase`, `run_video_upload_phase`).
+- **Phase 5 Split Documentation Fixes**: Updated all phase references across documentation to match the 9-phase pipeline reality:
+  - `README.md`: Changed "four main stages" to "nine main phases", "5-phase workflow" to "9-phase workflow", updated all phase numbers (Telegram Phase 6, quick-test nine phases, overlay Phase 5-6, etc.), added `overlay_done/` to directory structure.
+  - `src/app/pipeline.py`: Updated docstring from "Three-phase" to "Nine-phase".
+  - `packages/sr_telegram_notify/api.py`: Updated phase references (Phase 6 for encoding, Phase 4 for audio upload, Phase 8-9 for video upload).
+  - `packages/sr_media_manager/__init__.py`: Updated from "5-phase" to "9-phase" workflow documentation.
+  - `src/app/__init__.py`: Added missing exports for all 9 phase functions (`run_snippet_phase`, `run_audio_upload_phase`, `run_pending_upload_phase`, `run_video_upload_phase`).
   - `ALGO.md`: Updated Phase 3 reference to Phase 5-6 for overlay compositing.
 - `src/app/pipeline.py`: Added `run_overlay_phase()` function for Phase 5 overlay generation, using `_run_phase_step` wrapper, calling `prepare_video_overlays()` from `src.media.trim`, and marking completion via `mark_overlay_done()`.
 
@@ -195,6 +195,10 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/ffmpeg/transcode.py`: Added `metadata_title` parameter to `build_final_trim_command()` to inject title metadata into FFmpeg command.
 - `src/media/trim.py`: Added `metadata_title` parameter to `trim_single_video()` and forwarded it to `build_final_trim_command()`.
 - `src/core/paths.py`: Added overlay path helpers (`get_overlay_done_path`, `is_overlay_done`, `mark_overlay_done`) following existing patterns; added `OVERLAY_DONE_DIR` to imports and `create_temp_subdirs()`.
-- `src/app/pipeline.py`: Renamed `run_output_phase()` to `run_encode_phase()` and updated from Phase 5 to Phase 6. Added `is_overlay_done()` precondition check. Updated all phase references from 5 to 6 (total_phases=8, print statements, docstring, phase_index, success_message, failure_label, notify_final_output_ready phase_index). Added Phase 5 (Overlay Generation) to the pipeline phases list before Phase 6.
-- `src/app/pipeline.py`: Updated default `total_phases` parameter values from 7 to 8 in function signatures for `run_snippet_phase`, `run_transcription_phase`, `run_title_phase`, and `run_audio_upload_phase` to match the 8-phase pipeline structure.
+- `src/app/pipeline.py`: Renamed `run_output_phase()` to `run_encode_phase()` and updated from Phase 5 to Phase 6. Added `is_overlay_done()` precondition check. Updated all phase references from 5 to 6 (total_phases=9, print statements, docstring, phase_index, success_message, failure_label, notify_final_output_ready phase_index). Added Phase 5 (Overlay Generation) to the pipeline phases list before Phase 6.
+- `src/app/pipeline.py`: Updated default `total_phases` parameter values from 8 to 9 in function signatures for `run_snippet_phase`, `run_transcription_phase`, `run_title_phase`, and `run_audio_upload_phase` to match the 9-phase pipeline structure.
 - `tests/test_is_file_stable.py`: Created comprehensive test file with 27 unit tests for `is_file_stable()` and `collect_video_files()` functions, covering all 6 required scenarios from the plan plus additional edge cases.
+
+- `src/app/pipeline.py`: Removed 3 dead functions (lines 565-638): `run_video_cleanup_phase`, old `run_video_upload_phase`, `run_video_publish_phase` — all called undefined `_get_media_manager_client()`. Active `run_pending_upload_phase` (now line 565) and `run_video_upload_phase` (now line 651) preserved. `__init__.py` already exported only active functions.
+
+- `src/app/pipeline.py`: Replaced `run_video_upload_phase` (Phase 8) with NEW version that uploads with `tags=['pending']`. The existing `run_video_tag_promotion_phase` (Phase 9) handles FB+TT tag promotion. New function checks server state: skips if FB/TT or pending tags exist, skips on title mismatch (Phase 7 reconciliation handles), and handles trash re-upload by deleting before uploading. Pipeline Phase 8 now calls `run_video_upload_phase`, Phase 9 calls `run_video_tag_promotion_phase`.

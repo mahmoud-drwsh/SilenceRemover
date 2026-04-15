@@ -23,19 +23,19 @@ class TestPipelineProgress:
         """Test that PipelineProgress works as context manager."""
         with PipelineProgress(use_rich=False) as progress:
             assert progress is not None
-            progress.start_pipeline(total_phases=8, total_videos=10)
+            progress.start_pipeline(total_phases=9, total_videos=10)
 
     def test_start_phase_with_fallback(self):
         """Test start_phase with fallback display."""
         progress = PipelineProgress(use_rich=False)
-        progress.start_pipeline(total_phases=8, total_videos=10)
+        progress.start_pipeline(total_phases=9, total_videos=10)
         # Should not raise
         progress.start_phase(5, "Overlay Generation", "test_video.mp4")
 
     def test_update_status_with_fallback(self):
         """Test update_status with fallback display."""
         progress = PipelineProgress(use_rich=False)
-        progress.start_pipeline(total_phases=8, total_videos=10)
+        progress.start_pipeline(total_phases=9, total_videos=10)
         progress.start_phase(5, "Overlay Generation", "test_video.mp4")
         # Should not raise
         progress.update_status("done")
@@ -45,7 +45,7 @@ class TestPipelineProgress:
     def test_filename_truncation(self):
         """Test that long filenames are truncated."""
         progress = PipelineProgress(use_rich=False)
-        progress.start_pipeline(total_phases=8, total_videos=10)
+        progress.start_pipeline(total_phases=9, total_videos=10)
         long_name = "a" * 100 + ".mp4"
         # Should not raise and should truncate
         progress.start_phase(5, "Overlay Generation", long_name)
@@ -59,7 +59,7 @@ class TestPipelineProgress:
     def test_invalid_status(self):
         """Test that invalid status defaults gracefully."""
         progress = PipelineProgress(use_rich=False)
-        progress.start_pipeline(total_phases=8, total_videos=10)
+        progress.start_pipeline(total_phases=9, total_videos=10)
         progress.start_phase(5, "Overlay Generation", "test.mp4")
         # Invalid status should use default (? symbol, white style)
         progress.update_status("invalid_status")  # type: ignore

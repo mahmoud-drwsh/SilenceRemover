@@ -1,4 +1,4 @@
-"""Eight-phase pipeline orchestration for SilenceRemover."""
+"""Nine-phase pipeline orchestration for SilenceRemover."""
 
 from __future__ import annotations
 
@@ -562,151 +562,50 @@ def run_encode_phase(
     )
 
 
-def run_video_cleanup_phase(
+def run_video_reconciliation_phase(
     video_path: Path,
-    video_index: int,
-    total_videos: int,
-    server_cache: Any,
-    total_phases: int = 9,
-) -> None:
-    client, enabled = _get_media_manager_client()
-    if not enabled:
-        return None
-    print(f"[Video Cleanup] File {video_index}/{total_videos}: {video_path.name}")
-    try:
-        file_id = video_path.stem
-        title_path = get_title_path(video_path)
-        if not title_path.exists():
-            return None
-        local_title = title_path.read_text(encoding="utf-8").strip()
-        video = server_cache.get_video(file_id)
-        if video and video.get("title") != local_title:
-            client.delete_video(file_id)
-            clear_completion(video_path)
-    except Exception:
-        pass
-    return None
-
-
-def run_video_upload_phase(
-    video_path: Path,
-    video_index: int,
-    total_videos: int,
-    server_cache: Any,
-    total_phases: int = 9,
-) -> None:
-    client, enabled = _get_media_manager_client()
-    if not enabled:
-        return None
-    print(f"[Video Upload] File {video_index}/{total_videos}: {video_path.name}")
-    try:
-        file_id = video_path.stem
-        title_path = get_title_path(video_path)
-        if not title_path.exists():
-            return None
-        local_title = title_path.read_text(encoding="utf-8").strip()
-        output_path = get_output_path(video_path, local_title)
-        video = server_cache.get_video(file_id)
-        if video:
-            return None
-        client.upload_video(file_id, local_title, output_path, tags=["pending"])
-    except Exception:
-        pass
-    return None
-
-
-def run_video_publish_phase(
-    video_path: Path,
-    video_index: int,
-    total_videos: int,
-    server_cache: Any,
-    total_phases: int = 9,
-) -> None:
-    client, enabled = _get_media_manager_client()
-    if not enabled:
-        return None
-    print(f"[Video Publish] File {video_index}/{total_videos}: {video_path.name}")
-    try:
-        file_id = video_path.stem
-        if not server_cache.is_audio_ready(file_id):
-            return None
-        video = server_cache.get_video(file_id)
-        if video and "pending" in video.get("tags", []):
-            client.update_tags(file_id, ["FB", "TT"], file_type="video")
-    except Exception:
-        pass
-    return None
-
-
-def run_pending_upload_phase(
-    video_path: Path,
-    output_dir: Path,
-    temp_dir: Path,
     video_index: int,
     total_videos: int,
     server_cache: ServerDataCache | None,
     progress: None = None,
     *,
-    total_phases: int = 8,
+    temp_dir: Path,
+    total_phases: int = 9,
 ) -> bool | None:
-    basename = video_path.stem
-    file_id = basename
-    title_path = get_title_path(temp_dir, basename)
-    
-    if not is_completed(temp_dir, basename):
-        return None
-    
-    if not title_path.exists():
-        return None
-    
-    title_text = title_path.read_text(encoding='utf-8').strip()
-    if not title_text:
-        return None
-    
-    # Read output filename from completion marker (Phase 6 stores it there)
-    output_basename = get_completed_output_filename(temp_dir, basename)
-    if output_basename is None:
-        # Fallback: try to construct from title (for backwards compatibility)
-        output_basename = sanitize_filename(title_text)
-    output_path = output_dir / f"{output_basename}.mp4"
-    
+    """Phase 7: Reconcile - delete server video if local title differs."""
     if not server_cache:
         return None
-    
-    if server_cache.is_video_trash(file_id):
+
+    basename = video_path.stem
+    file_id = basename
+
+    # Read local title from temp_dir/title/{basename}.txt
+    title_path = get_title_path(temp_dir, basename)
+    if not title_path.exists():
         return None
-    
+
+    local_title = title_path.read_text(encoding='utf-8').strip()
+    if not local_title:
+        return None
+
+    # Look up video on server
     video = server_cache.get_video(file_id)
-    if video:
-        server_title = video.get('title', '')
-        server_tags = video.get('tags', [])
-        if server_title.strip() == title_text.strip():
-            if 'pending' in server_tags:
-                return None
-            if 'FB' in server_tags or 'TT' in server_tags:
-                return None
-            # Exists but tags don't match - will re-upload
-        else:
-            pass  # Title mismatch - will re-upload
-    else:
-        pass  # Not on server - will upload
-    
+    if not video:
+        return None
+
+    server_title = video.get('title', '')
+    if server_title.strip() == local_title.strip():
+        return None
+
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
-            total_size = output_path.stat().st_size
-            
-            def _upload_progress(uploaded_bytes: int, total_bytes: int) -> None:
-                pass
-            
-            client.upload_video(
-                file_id, title_text, output_path, 
-                tags=['pending'],
-                progress_callback=_upload_progress
-            )
+            client.update_tags(file_id, ['trash'], file_type='video')
+            client.delete_file(file_id, file_type='video')
+            print(f"[Reconciliation] Deleted server video {file_id}: title changed from '{server_title}' to '{local_title}'")
         finally:
             client.close()
-    
+
     return _run_phase_step(
         video_path=video_path,
         already_done=False,
@@ -714,14 +613,61 @@ def run_pending_upload_phase(
         precondition_ok=True,
         precondition_message=None,
         work_fn=_perform,
-        success_message=f"\n✓ Phase 7 (stage) done: {video_path.name}",
+        success_message=f"\n✓ Phase 7 (reconciliation) done: {video_path.name}",
         failure_label="Phase 7",
         phase_index=7,
         total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
-        label="Stage to Pending",
+        label="Video Reconciliation",
     )
+
+
+def _rebuild_server_cache(media_manager_url: str) -> ServerDataCache | None:
+    """Rebuild server cache from API. Used between phases to get fresh server state."""
+    try:
+        client = MediaManagerClient(media_manager_url)
+        try:
+            all_audio = client.get_audio_files(include_trash=True)
+            all_videos = client.get_video_files(include_trash=True)
+
+            audio_files = {}
+            audio_trash = set()
+            ready_audio = set()
+
+            for audio in all_audio:
+                aid = audio.get('id')
+                if aid:
+                    audio_files[aid] = audio
+                    tags = audio.get('tags', [])
+                    if isinstance(tags, list):
+                        if 'trash' in tags:
+                            audio_trash.add(aid)
+                        if 'ready' in tags:
+                            ready_audio.add(aid)
+
+            video_files = {}
+            video_trash = set()
+
+            for video in all_videos:
+                vid = video.get('id')
+                if vid:
+                    video_files[vid] = video
+                    tags = video.get('tags', [])
+                    if isinstance(tags, list) and 'trash' in tags:
+                        video_trash.add(vid)
+
+            return ServerDataCache(
+                audio_files=audio_files,
+                video_files=video_files,
+                audio_trash_ids=frozenset(audio_trash),
+                video_trash_ids=frozenset(video_trash),
+                ready_audio_ids=frozenset(ready_audio),
+            )
+        finally:
+            client.close()
+    except Exception:
+        return None
 
 
 def run_video_upload_phase(
@@ -733,8 +679,20 @@ def run_video_upload_phase(
     server_cache: ServerDataCache | None,
     progress: None = None,
     *,
-    total_phases: int = 8,
+    total_phases: int = 9,
 ) -> bool | None:
+    """Phase 8: Upload video with ['pending'] tags.
+    
+    Logic:
+    - If server_cache is None → return None (skip)
+    - If not completed locally → return None (skip)
+    - If no local title → return None (skip)
+    - If video exists with FB/TT tags → return None (already published)
+    - If video exists with pending tags → return None (will be promoted in Phase 9)
+    - If video exists with different title → return None (Phase 7 handles reconciliation)
+    - If video is in trash → delete from trash first, then upload
+    - If video not on server → upload with tags=['pending']
+    """
     basename = video_path.stem
     file_id = basename
     title_path = get_title_path(temp_dir, basename)
@@ -759,12 +717,6 @@ def run_video_upload_phase(
     if not server_cache:
         return None
     
-    if not server_cache.is_audio_ready(file_id):
-        return None
-    
-    if server_cache.is_video_trash(file_id):
-        return None
-    
     video = server_cache.get_video(file_id)
     if video:
         server_title = video.get('title', '')
@@ -772,29 +724,22 @@ def run_video_upload_phase(
         if server_title.strip() == local_title.strip():
             if 'FB' in server_tags or 'TT' in server_tags:
                 return None
-            # Pending or needs publish - continue
+            if 'pending' in server_tags:
+                return None
         else:
-            pass  # Title mismatch - will update
-    else:
-        pass  # Not on server - will upload
+            return None
+    
+    in_trash = server_cache.is_video_trash(file_id)
     
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
-            video = server_cache.get_video(file_id)
-            if video and 'pending' in video.get('tags', []):
-                client.update_tags(file_id, ['FB', 'TT'], file_type='video')
-                return
-            total_size = output_path.stat().st_size
-            upload_start_time = time.time()
-            
-            def _upload_progress(uploaded_bytes: int, total_bytes: int) -> None:
-                pass
-            
+            if in_trash:
+                client.delete_file(file_id, file_type='video')
             client.upload_video(
-                file_id, local_title, output_path, 
-                tags=['FB', 'TT'], 
-                progress_callback=_upload_progress
+                file_id, local_title, output_path,
+                tags=['pending'],
+                progress_callback=None
             )
         finally:
             client.close()
@@ -806,18 +751,74 @@ def run_video_upload_phase(
         precondition_ok=True,
         precondition_message=None,
         work_fn=_perform,
-        success_message=f"\n✓ Phase 8 (publish) done: {video_path.name}",
+        success_message=f"\n✓ Phase 8 (upload) done: {video_path.name}",
         failure_label="Phase 8",
         phase_index=8,
         total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
-        label="Publish Video",
+        label="Video Upload",
+    )
+
+
+def run_video_tag_promotion_phase(
+    video_path: Path,
+    output_dir: Path,
+    temp_dir: Path,
+    video_index: int,
+    total_videos: int,
+    server_cache: ServerDataCache | None,
+    progress=None,
+    *,
+    total_phases: int = 9,
+) -> bool | None:
+    """Phase 9: Promote video tags from pending to ['FB', 'TT'] when audio is approved."""
+    if server_cache is None:
+        return None
+
+    basename = video_path.stem
+    file_id = basename
+
+    # Skip if audio not yet approved
+    if not server_cache.is_audio_ready(file_id):
+        return None
+
+    # Check server state
+    video = server_cache.get_video(file_id)
+    if video is None:
+        return None  # Not on server — Phase 8 handles upload
+
+    server_tags = video.get('tags', [])
+    if 'FB' in server_tags or 'TT' in server_tags:
+        return None  # Already promoted
+
+    def _perform() -> None:
+        client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
+        try:
+            client.update_tags(file_id, ['FB', 'TT'], file_type='video')
+            print(f"[Tag Promotion] Video {file_id} promoted to FB+TT")
+        finally:
+            client.close()
+
+    return _run_phase_step(
+        video_path=video_path,
+        already_done=False,
+        already_done_message="",
+        precondition_ok=True,
+        precondition_message=None,
+        work_fn=_perform,
+        success_message=f"\n✓ Phase 9 (promotion) done: {video_path.name}",
+        failure_label="Phase 9",
+        phase_index=9,
+        total_phases=total_phases,
+        video_index=video_index,
+        total_videos=total_videos,
+        label="Tag Promotion",
     )
 
 
 def run(args: argparse.Namespace | None = None) -> StartupContext:
-    """Run the full eight-phase media processing pipeline."""
+    """Run the full nine-phase media processing pipeline."""
     if args is None:
         args = parse_args()
     startup = build_startup_context(args)
@@ -844,49 +845,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     # Fetch all server data once for all phases
     server_cache = None
     if media_manager_enabled:
-        try:
-            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            try:
-                all_audio = client.get_audio_files(include_trash=True)
-                all_videos = client.get_video_files()
-                
-                audio_files = {}
-                audio_trash = set()
-                ready_audio = set()
-                
-                for audio in all_audio:
-                    aid = audio.get('id')
-                    if aid:
-                        audio_files[aid] = audio
-                        tags = audio.get('tags', [])
-                        if isinstance(tags, list):
-                            if 'trash' in tags:
-                                audio_trash.add(aid)
-                            if 'ready' in tags:
-                                ready_audio.add(aid)
-                
-                video_files = {}
-                video_trash = set()
-                
-                for video in all_videos:
-                    vid = video.get('id')
-                    if vid:
-                        video_files[vid] = video
-                        tags = video.get('tags', [])
-                        if isinstance(tags, list) and 'trash' in tags:
-                            video_trash.add(vid)
-                
-                server_cache = ServerDataCache(
-                    audio_files=audio_files,
-                    video_files=video_files,
-                    audio_trash_ids=frozenset(audio_trash),
-                    video_trash_ids=frozenset(video_trash),
-                    ready_audio_ids=frozenset(ready_audio),
-                )
-            finally:
-                client.close()
-        except Exception:
-            server_cache = None
+        server_cache = _rebuild_server_cache(os.getenv('MEDIA_MANAGER_URL') or '')
 
     quick_test_enabled = bool(getattr(args, "quick_test", False))
     max_output_seconds = QUICK_TEST_OUTPUT_SECONDS if quick_test_enabled else None
@@ -895,7 +854,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     if not videos:
         return startup
 
-    total_phases = 8
+    total_phases = 9
     phases = (
         # NEW: Phase 1 - Snippet Creation
         _PipelinePhase(
@@ -995,11 +954,25 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 progress=progress,
             ),
         ),
-        # UPDATED: Phase 7 - Stage to Pending (was Phase 6)
+        # NEW: Phase 7 - Video Reconciliation (delete server video if local title differs)
         _PipelinePhase(
             7,
-            "Stage to Pending",
-            lambda video_file, vi, vn, tp, progress: run_pending_upload_phase(
+            "Video Reconciliation",
+            lambda video_file, vi, vn, tp, progress: run_video_reconciliation_phase(
+                video_path=video_file,
+                video_index=vi,
+                total_videos=vn,
+                server_cache=server_cache,
+                total_phases=tp,
+                progress=progress,
+                temp_dir=temp_dir,
+            ),
+        ),
+        # NEW: Phase 8 - Video Upload (with pending tags, handles trash re-upload)
+        _PipelinePhase(
+            8,
+            "Video Upload",
+            lambda video_file, vi, vn, tp, progress: run_video_upload_phase(
                 video_path=video_file,
                 output_dir=startup.output_dir,
                 temp_dir=temp_dir,
@@ -1010,11 +983,11 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 progress=progress,
             ),
         ),
-        # UPDATED: Phase 8 - Publish Video (was Phase 7)
+        # UPDATED: Phase 9 - Publish Video (was Phase 8)
         _PipelinePhase(
-            8,
+            9,
             "Publish Video",
-            lambda video_file, vi, vn, tp, progress: run_video_upload_phase(
+            lambda video_file, vi, vn, tp, progress: run_video_tag_promotion_phase(
                 video_path=video_file,
                 output_dir=startup.output_dir,
                 temp_dir=temp_dir,
@@ -1029,5 +1002,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
 
     for phase in phases:
         _run_phase(videos=videos, phase=phase, total_phases=len(phases))
+        # Rebuild cache after Phase 7 (reconciliation) and Phase 8 (upload)
+        # so subsequent phases see fresh server state
+        if media_manager_enabled and phase.index in (7, 8):
+            server_cache = _rebuild_server_cache(os.getenv('MEDIA_MANAGER_URL') or '')
 
     return startup

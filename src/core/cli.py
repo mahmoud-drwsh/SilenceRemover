@@ -126,7 +126,7 @@ def _positive_float(value: str) -> float:
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments and return namespace."""
     parser = argparse.ArgumentParser(
-        description="Eight-phase pipeline: 1) Snippet Creation, 2) Transcription, 3) Title Generation, 4) Audio Upload, 5) Overlay Generation, 6) Final Video Encode, 7) Stage to Pending, 8) Publish Video"
+        description="Nine-phase pipeline: 1) Snippet Creation, 2) Transcription, 3) Title Generation, 4) Audio Upload, 5) Overlay Generation, 6) Final Video Encode, 7) Video Reconciliation, 8) Video Upload, 9) Tag Promotion"
     )
     parser.add_argument("input_dir", type=str, help="Input directory (raw videos)")
     parser.add_argument(
@@ -208,7 +208,7 @@ def parse_args() -> argparse.Namespace:
         "--enable-media-manager",
         action="store_true",
         help=(
-            "Enable Media Manager integration for 8-phase workflow: "
+            "Enable Media Manager integration for 9-phase workflow: "
             "audio upload, title sync, and video delivery. "
             "Requires MEDIA_MANAGER_URL environment variable."
         ),

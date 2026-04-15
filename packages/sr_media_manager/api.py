@@ -68,11 +68,12 @@ class MediaManagerClient:
         except Exception as e:
             raise MediaManagerError(f"Failed to fetch audio files: {e}")
     
-    def get_video_files(self, tags: str = None) -> list[dict]:
+    def get_video_files(self, tags: str = None, include_trash: bool = False) -> list[dict]:
         """Fetch video files from API.
         
         Args:
             tags: Optional tag filter (e.g., "FB", "TT", "trash")
+            include_trash: If True, include trashed files even when no tag filter (default: False)
         
         Returns: [{"id": "...", "title": "...", "tags": [...], ...}, ...]
         """
@@ -80,6 +81,8 @@ class MediaManagerClient:
             url = self._url('/api/files?type=video')
             if tags:
                 url += f'&tags={tags}'
+            if include_trash:
+                url += '&include_trash=true'
             resp = self._client.get(url)
             resp.raise_for_status()
             return resp.json()
@@ -391,6 +394,26 @@ class MediaManagerClient:
             return resp.status_code == 200
         except Exception as e:
             raise MediaManagerError(f"Tag update failed for {file_id}: {e}")
+
+    def delete_file(self, file_id: str, file_type: str = 'video') -> bool:
+        """Delete a file (trash first, then permanently).
+        
+        Args:
+            file_id: File identifier
+            file_type: 'audio' or 'video' (default: 'video')
+        
+        Returns: True on success (including if file already gone)
+        """
+        self.update_tags(file_id, ['trash'], file_type=file_type)
+        try:
+            self._client.delete(self._url(f'/api/files/{file_id}?type={file_type}'))
+            return True
+        except Exception as e:
+            if '404' in str(e):
+                return True
+            if 'Only trashed files can be deleted' in str(e):
+                raise MediaManagerError(f"Cannot delete {file_id}: file must be trashed first")
+            raise MediaManagerError(f"Delete failed for {file_id}: {e}")
     
     def close(self):
         """Close HTTP client."""

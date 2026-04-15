@@ -68,15 +68,16 @@ For integration with the external Media Manager service (VPS-based), set the ful
 MEDIA_MANAGER_URL=https://your-server.com/TOKEN/your-project/
 ```
 
-This enables the **8-phase workflow**:
+This enables the **9-phase workflow**:
 1. **Phase 1**: Create silence-removed snippet for transcription
 2. **Phase 2**: Transcribe snippet via OpenRouter
 3. **Phase 3**: Generate title from transcript
 4. **Phase 4**: Upload audio snippet with `tags: ["todo"]` for review
 5. **Phase 5**: Generate title overlay PNG and pre-scale logo
 6. **Phase 6**: Create final video locally with overlays
-7. **Phase 7**: Stage video to pending
-8. **Phase 8**: Publish video with `tags: ["FB", "TT"]` when audio approved
+7. **Phase 7**: Reconcile video on server (delete if title changed)
+8. **Phase 8**: Upload video with `tags: ["pending"]`
+9. **Phase 9**: Promote video to `tags: ["FB", "TT"]` when audio approved
 
 Plus **two-way sync**: At startup, fetch edited titles from Media Manager and trigger re-encode if changed.
 
@@ -96,7 +97,7 @@ python main.py /path/to/video/directory
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Defaults are `TARGET_NOISE_THRESHOLD_DB` (`-55.0`) when `--target-length` is set, otherwise `NON_TARGET_NOISE_THRESHOLD_DB` (`-50.0`).
 - `--min-duration FLOAT`: Override minimum silence duration in seconds (applies in both modes). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with `--target-length` and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
 - `--title-font`: Google Font family name used to render the title overlay. The font is auto-downloaded from Google Fonts on first use and cached under `output/temp/fonts/`.
-- `--quick-test`: Run all eight phases, but cap only the final Phase 6 encode output to the first 5 seconds for a fast end-to-end smoke run.
+- `--quick-test`: Run all nine phases, but cap only the final Phase 6 encode output to the first 5 seconds for a fast end-to-end smoke run.
 - `--enable-title-overlay`: Enable title overlay in final output (requires a title from Phase 3). By default, overlays are disabled.
 - `--enable-logo-overlay`: Enable logo overlay in final output (requires `logo/logo.png`). By default, overlays are disabled.
 
@@ -267,7 +268,7 @@ The main code lives under `src/` and `packages/`:
 - `packages/sr_filename/`: filename sanitization utilities (import as `sr_filename`).
 - `packages/sr_ffmpeg_cmd_builder/`: FFmpeg/FFprobe command builders (import as `sr_ffmpeg_cmd_builder`).
 - `packages/sr_filter_graph/`: FFmpeg filter graph construction (import as `sr_filter_graph`).
-- `packages/sr_media_manager/`: Media Manager API client for 8-phase workflow (import as `sr_media_manager`). Replaces old `sr_mp3_manager`.
+- `packages/sr_media_manager/`: Media Manager API client for 9-phase workflow (import as `sr_media_manager`). Replaces old `sr_mp3_manager`.
 - `packages/sr_progress_formatter/`: FFmpeg progress output formatting (import as `sr_progress_formatter`).
 - `packages/sr_silence_detection/`: silence detection and interval processing (import as `sr_silence_detection`).
 - `packages/sr_threshold_selection/`: threshold selection algorithms (import as `sr_threshold_selection`).
