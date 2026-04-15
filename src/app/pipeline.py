@@ -12,15 +12,11 @@ from pathlib import Path
 from typing import Callable, Optional
 
 
-def _print_phase_banner(phase_index: int, total_phases: int, label: str, video_name: str) -> None:
-    """Print banner at phase start before any checks."""
-    width = 60
-    phase_str = f"Phase {phase_index}/{total_phases}"
-    content = f"{phase_str}: {label} - {video_name}"
-    padding = (width - len(content) - 2) // 2
-    print("\n" + "=" * width)
-    print("=" + " " * padding + content + " " * (width - len(content) - 2 - padding) + "=")
-    print("=" * width)
+def _print_phase_progress(phase_index: int, total_phases: int, label: str, video_name: str, status: str = "") -> None:
+    """Print single-line phase progress to prevent terminal spam."""
+    short_name = video_name[:40] + "..." if len(video_name) > 40 else video_name
+    status_str = f" {status}" if status else ""
+    print(f"\r[{phase_index}/{total_phases}] {label} - {short_name}{status_str}\033[K", end='', flush=True)
 
 
 def _print_progress_bar(current: int, total: int, width: int = 40) -> None:
@@ -152,44 +148,34 @@ def _run_phase_step(
     precondition_ok: bool = True,
     precondition_message: str = "",
 ) -> bool | None:
-    """Execute a single phase step with banner, skip, precondition, and progress handling."""
-    # Banner at phase start - BEFORE any checks
-    _print_phase_banner(phase_index, total_phases, label, video_path.name)
+    """Execute a single phase step with single-line progress handling."""
+    # Print progress at phase start
+    _print_phase_progress(phase_index, total_phases, label, video_path.name)
 
     if already_done:
-        print(f"  ✓ Already done - skipping {label}")
+        _print_phase_progress(phase_index, total_phases, label, video_path.name, "✓ skip (done)")
+        print()
         return None
 
     if not precondition_ok:
-        print(f"  ⚠ Precondition not met - skipping {label}: {precondition_message}")
+        _print_phase_progress(phase_index, total_phases, label, video_path.name, f"⚠ skip ({precondition_message})")
+        print()
         return None
 
     try:
         work_fn()
-        print(success_message)
-        return True
-    except Exception as e:
-        print(f"\n✗ {failure_label} failed for {video_path.name}: {e}")
-        traceback.print_exc()
-        return False
-
-    # Print header when work actually starts
-    if phase_index and total_phases and video_index and total_videos:
-        print(f"\n{'='*60}")
-        print(f"[{phase_index}/{total_phases}][{video_index}/{total_videos}] {label}: {video_path.name}")
-        print(f"{'='*60}")
-
-    try:
-        work_fn()
-        print(success_message)
+        _print_phase_progress(phase_index, total_phases, label, video_path.name, "✓ done")
+        print()
         return True
     except ValueError as e:
         if "Invalid video duration" in str(e):
-            print(f"⚠ Skipping invalid video: {video_path.name}")
+            _print_phase_progress(phase_index, total_phases, label, video_path.name, "⚠ skip (invalid)")
+            print()
             return False
         raise
     except Exception as e:
-        print(f"\n\033[91m✗ {failure_label} error for {video_path.name}: {e}\033[0m", file=sys.stderr)
+        _print_phase_progress(phase_index, total_phases, label, video_path.name, f"✗ error: {e}")
+        print()
         traceback.print_exc()
         return False
 
@@ -374,7 +360,6 @@ def run_overlay_phase(
 
     def _perform() -> None:
         if not is_title_done(temp_dir, basename):
-            print(f"Warning: No title for {video_path.name}; cannot generate overlay.")
             return
         
         # Silent skip if overlay already exists for current title
@@ -384,7 +369,6 @@ def run_overlay_phase(
         # Read title content for the marker (overlay invalidates if title changes)
         title_text = title_path.read_text(encoding="utf-8").strip()
         
-        print(f"\n[5/{total_phases}] Generating overlay for: {video_path.name}")
         prepare_video_overlays(
             input_file=video_path,
             temp_dir=temp_dir,
