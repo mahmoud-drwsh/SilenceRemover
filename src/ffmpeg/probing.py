@@ -26,14 +26,40 @@ from sr_ffmpeg_cmd_builder import (
 from sr_progress_formatter import parse_ffmpeg_encoder_lines
 
 
+def probe_has_audio_stream(input_file: Path) -> bool:
+    """Check if file has at least one audio stream.
+
+    Uses ffprobe to detect audio streams. Returns True if audio exists.
+
+    Args:
+        input_file: Path to media file to check
+
+    Returns:
+        True if file has audio stream, False otherwise
+    """
+    cmd = build_ffprobe_has_audio_command(input_file)
+    result = run(cmd, capture_output=True, check=False)
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
 def get_available_encoders() -> set[str]:
     """Return supported encoder names from the current FFmpeg installation."""
+    import subprocess
+
     cmd = build_ffmpeg_cmd(False, "-encoders")
-    result = run(cmd, check=True, capture_output=True, timeout=10)
-        return result.returncode == 0
+    try:
+        result = run(cmd, check=True, capture_output=True, timeout=10)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return False
-    return bool(result.stdout.strip())
+        return set()
+    if result.returncode != 0:
+        return set()
+    encoders: set[str] = set()
+    for line in (result.stdout or "").splitlines():
+        if line.startswith(" "):
+            parts = line.strip().split()
+            if len(parts) >= 2:
+                encoders.add(parts[1])
+    return encoders
 
 
 def probe_video_dimensions(input_file: Path) -> tuple[int, int]:

@@ -1,6 +1,7 @@
 """CLI argument parsing and validation utilities."""
 
 import argparse
+import ctypes
 import shutil
 import sys
 from pathlib import Path
@@ -13,6 +14,14 @@ __all__ = [
     "require_input_dir",
     "require_videos_in",
 ]
+
+# Windows API constants for file lock detection
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+GENERIC_READ = 0x80000000
+FILE_SHARE_NONE = 0x00000000
+OPEN_EXISTING = 3
+ERROR_SHARING_VIOLATION = 32
+INVALID_HANDLE_VALUE = -1
 
 # Import VIDEO_EXTENSIONS here to avoid circular imports
 from src.core.constants import (
@@ -44,33 +53,34 @@ def require_input_dir(input_dir: Path) -> None:
         fail(f"Input directory does not exist: {input_dir}")
 
 
-def is_file_stable(file_path: Path, check_interval: float = 1.0) -> bool:
-    """Check if video file is stable (not being written to).
+def is_file_locked(file_path: Path) -> bool:
+    """Check if file is locked by another process (Windows-only).
 
-    Uses file size + modification time comparison to detect active writes.
-    This avoids Windows file locking issues with ffprobe on recording files.
+    Uses Windows CreateFileW API to attempt exclusive read access.
+    If the file is open by another process (e.g., OBS recording), 
+    it returns ERROR_SHARING_VIOLATION.
 
     Args:
         file_path: Path to video file to check
-        check_interval: Seconds to wait between checks (default 1.0)
 
     Returns:
-        True if file size and mtime are stable, False if changing or error
+        True if file is locked by another process, False if accessible
     """
-    import time
-
     try:
-        # Get initial stats (doesn't open file, avoids Windows locking)
-        stat1 = file_path.stat()
-        initial_size = stat1.st_size
-        initial_mtime = stat1.st_mtime
-
-        # Wait and check again
-        time.sleep(check_interval)
-
-        stat2 = file_path.stat()
-        # File is stable if size and mtime haven't changed
-        return stat2.st_size == initial_size and stat2.st_mtime == initial_mtime
+        handle = kernel32.CreateFileW(
+            str(file_path),
+            GENERIC_READ,
+            FILE_SHARE_NONE,
+            None,
+            OPEN_EXISTING,
+            0,
+            None,
+        )
+        if handle == INVALID_HANDLE_VALUE:
+            err = ctypes.get_last_error()
+            return err == ERROR_SHARING_VIOLATION
+        kernel32.CloseHandle(handle)
+        return False
     except (OSError, IOError):
         return False
 
@@ -78,18 +88,18 @@ def is_file_stable(file_path: Path, check_interval: float = 1.0) -> bool:
 def collect_video_files(input_dir: Path) -> list[Path]:
     """Collect supported video files from a directory.
 
-    Filters out files that are still being written to (e.g., being recorded).
-    All valid, stable videos go through the pipeline - individual phases
+    Filters out files locked by another process (e.g., being recorded by OBS).
+    All valid, accessible videos go through the pipeline - individual phases
     handle their own skip logic (snippet, title, encode, upload, etc.).
     """
     video_files = []
     for p in input_dir.iterdir():
         if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS:
-            # Only filter out files still being written
-            if is_file_stable(p):
+            # Only filter out files locked by another process (e.g., OBS recording)
+            if not is_file_locked(p):
                 video_files.append(p)
             else:
-                print(f"Skipping file still being written: {p.name}")
+                print(f"Skipping file locked by another process: {p.name}")
 
     return sorted(video_files)
 
