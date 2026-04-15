@@ -49,11 +49,3 @@ def build_ffprobe_cmd(*args: str) -> list[str]:
 def add_filter_complex_script(cmd: list[str], filter_script_path: Path) -> None:
     """Attach a filter graph script using FFmpeg's modern non-deprecated option."""
     cmd.extend(["-/filter_complex", str(filter_script_path)])
-
-
-def print_ffmpeg_cmd(cmd: list[str]) -> None:
-    """Print an FFmpeg command in shell-friendly quoting."""
-    if not cmd or cmd[0] != FFMPEG_BIN:
-        return
-    quoted = [shlex.quote(str(arg)) for arg in cmd]
-    print("FFmpeg:", " ".join(quoted))

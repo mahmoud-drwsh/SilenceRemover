@@ -8,7 +8,6 @@ from src.ffmpeg.core import (
     build_ffmpeg_cmd,
     build_ffprobe_cmd,
     build_qsv_hwaccel_flags,
-    print_ffmpeg_cmd,
 )
 from sr_filter_graph import (
     build_audio_concat_filter_graph,
@@ -46,7 +45,6 @@ __all__ = [
     "build_ffmpeg_cmd",
     "build_ffprobe_cmd",
     "build_qsv_hwaccel_flags",
-    "print_ffmpeg_cmd",
     "build_audio_concat_filter_graph",
     "build_filter_graph_script",
     "build_video_audio_concat_filter_graph",
