@@ -68,7 +68,7 @@ MIME_TO_EXT = {
 }
 
 # Audio tags (fixed)
-AUDIO_TAGS = {'todo', 'ready', 'all', 'trash'}
+AUDIO_TAGS = {'todo', 'FB', 'ready', 'all', 'trash'}
 
 
 # Pydantic models
@@ -789,6 +789,7 @@ def list_admin_projects(admin_token: str):
             project,
             COUNT(CASE WHEN type='audio' THEN 1 END) as audio_total,
             SUM(CASE WHEN type='audio' AND tags LIKE '%"todo"%' THEN 1 ELSE 0 END) as audio_todo,
+            SUM(CASE WHEN type='audio' AND tags LIKE '%"FB"%' THEN 1 ELSE 0 END) as audio_fb,
             SUM(CASE WHEN type='audio' AND tags LIKE '%"ready"%' THEN 1 ELSE 0 END) as audio_ready,
             SUM(CASE WHEN type='audio' AND tags LIKE '%"trash"%' THEN 1 ELSE 0 END) as audio_trash,
             COUNT(CASE WHEN type='video' THEN 1 END) as video_total,
@@ -806,6 +807,7 @@ def list_admin_projects(admin_token: str):
             "project": row['project'],
             "audio": {
                 "todo": row['audio_todo'] or 0,
+                "fb": row['audio_fb'] or 0,
                 "ready": row['audio_ready'] or 0,
                 "trash": row['audio_trash'] or 0,
                 "total": row['audio_total'] or 0

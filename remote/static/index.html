@@ -67,7 +67,7 @@
         .audio-actions { display: flex; gap: 0.25rem; margin: 0; padding: 0; min-height: 32px; }
         .audio-actions button { flex: 1; padding: 0.4rem 0.25rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; min-width: 32px; min-height: 32px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; }
         .btn { padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
-        .btn-primary { background: #4a9eff; color: #fff; }
+        .btn-primary { background: #4a5568; color: #fff; }
         .btn-secondary { background: #3a3a3a; color: #fff; }
         .btn-secondary.btn-downloaded { background: #2d5a2d; color: #fff; opacity: 0.85; }
         .btn-ready { background: #2d5a2d; color: #fff; }  /* Dark green for ready state */
@@ -226,6 +226,10 @@
 
         // Utility: Get type constant based on current section
         function getCurrentType() {
+            // Cross-type viewing: FB tab in audio section shows videos
+            if (currentSection === 'audio' && currentFilter === 'FB') {
+                return TYPE_VIDEO;
+            }
             return currentSection === TYPE_AUDIO ? TYPE_AUDIO : TYPE_VIDEO;
         }
 
@@ -254,7 +258,8 @@
         let currentSort = 'asc'; // 'asc' or 'desc'
 
         // Fixed tabs per section
-        const AUDIO_TABS = ['todo', 'ready', 'all', 'trash'];
+        // Audio section now includes FB tab to view uploaded videos (cross-type viewing)
+        const AUDIO_TABS = ['todo', 'FB', 'ready', 'all', 'trash'];
         const VIDEO_TABS = ['FB', 'TT', 'all', 'trash', 'pending'];
 
         function showSection(section, folder = null, isStrict = false) {
@@ -426,7 +431,10 @@
             content.innerHTML = '<div class="loading">Loading...</div>';
 
             try {
-                let url = `${API_BASE}/files?type=${currentSection}`;
+                // Cross-type viewing: FB tab in audio section shows videos with FB tag
+                const isFbCrossView = currentSection === 'audio' && currentFilter === 'FB';
+                const fetchType = isFbCrossView ? 'video' : currentSection;
+                let url = `${API_BASE}/files?type=${fetchType}`;
                 if (currentFilter !== 'all') {
                     url += `&tags=${currentFilter}`;
                 }
@@ -442,7 +450,10 @@
                 const files = await res.json();
 
                 if (files.length === 0) {
-                    content.innerHTML = `<div class="empty">No ${currentSection} files ${currentFilter !== 'all' ? `with "${currentFilter}" tag` : ''}</div>`;
+                    // Cross-type viewing: show correct file type in empty state
+                    const isFbCrossView = currentSection === 'audio' && currentFilter === 'FB';
+                    const displayType = isFbCrossView ? 'video' : currentSection;
+                    content.innerHTML = `<div class="empty">No ${displayType} files ${currentFilter !== 'all' ? `with "${currentFilter}" tag` : ''}</div>`;
                     const label = getTabLabel(currentFilter);
                     document.querySelector('header h1').innerHTML = `📁 ${label} (0)`;
                     return;
