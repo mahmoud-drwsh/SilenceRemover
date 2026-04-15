@@ -11,6 +11,27 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
+
+def _print_phase_banner(phase_index: int, total_phases: int, label: str, video_name: str) -> None:
+    """Print banner at phase start before any checks."""
+    width = 60
+    phase_str = f"Phase {phase_index}/{total_phases}"
+    content = f"{phase_str}: {label} - {video_name}"
+    padding = (width - len(content) - 2) // 2
+    print("\n" + "=" * width)
+    print("=" + " " * padding + content + " " * (width - len(content) - 2 - padding) + "=")
+    print("=" * width)
+
+
+def _print_progress_bar(current: int, total: int, width: int = 40) -> None:
+    """Print a simple text-based progress bar."""
+    if total == 0:
+        return
+    filled = int(width * current / total)
+    bar = "█" * filled + "░" * (width - filled)
+    percent = int(100 * current / total)
+    print(f"\r[{bar}] {percent}% ({current}/{total})", end="", flush=True)
+
 from src.core.cli import parse_args
 from src.core.constants import (
     AUDIO_EXTENSIONS,
@@ -88,7 +109,7 @@ class _PipelinePhase:
 def _run_phase(
     videos: list[Path], phase: _PipelinePhase, total_phases: int
 ) -> tuple[int, int, int]:
-    """Run one phase over all videos with shared progress output.
+    """Run one phase over all videos with progress bar and shared output.
     
     Returns: (success_count, skip_count, fail_count)
     """
@@ -97,7 +118,10 @@ def _run_phase(
     skip_count = 0
     fail_count = 0
     for i, video_file in enumerate(videos, 1):
-        # Call the phase function first - it will print its own header if work is needed
+        # Print video-level progress bar before processing
+        _print_progress_bar(i - 1, n)
+        print(f" {phase.label} - {video_file.name}")
+        
         result = phase.run(video_file, i, n, total_phases)
         if result is True:
             success_count += 1
@@ -105,39 +129,48 @@ def _run_phase(
             skip_count += 1
         else:
             fail_count += 1
+    
+    # Final progress bar at 100%
+    _print_progress_bar(n, n)
+    print(f" ✓ {phase.label} complete ({success_count} done, {skip_count} skipped, {fail_count} failed)")
+    
     return success_count, skip_count, fail_count
 
 
 def _run_phase_step(
-    *,
     video_path: Path,
     already_done: bool,
     already_done_message: str,
     work_fn: Callable[[], None],
     success_message: str,
     failure_label: str,
+    phase_index: int,
+    total_phases: int,
+    video_index: int,
+    total_videos: int,
+    label: str,
     precondition_ok: bool = True,
-    precondition_message: str | None = None,
-    phase_index: int = 0,
-    total_phases: int = 0,
-    video_index: int = 0,
-    total_videos: int = 0,
-    label: str = "",
+    precondition_message: str = "",
 ) -> bool | None:
-    """Centralized phase execution wrapper with consistent skip/error behavior.
-    
-    Returns:
-        True: Success
-        None: Skipped (already done) - silent, no logging
-        False: Failed or precondition not met
-    """
+    """Execute a single phase step with banner, skip, precondition, and progress handling."""
+    # Banner at phase start - BEFORE any checks
+    _print_phase_banner(phase_index, total_phases, label, video_path.name)
+
     if already_done:
-        # Silent skip - no individual logging, counted at phase level
+        print(f"  ✓ Already done - skipping {label}")
         return None
 
     if not precondition_ok:
-        if precondition_message is not None:
-            print(precondition_message)
+        print(f"  ⚠ Precondition not met - skipping {label}: {precondition_message}")
+        return None
+
+    try:
+        work_fn()
+        print(success_message)
+        return True
+    except Exception as e:
+        print(f"\n✗ {failure_label} failed for {video_path.name}: {e}")
+        traceback.print_exc()
         return False
 
     # Print header when work actually starts
