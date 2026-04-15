@@ -41,6 +41,8 @@ class PipelineProgress:
         self._console = None
         self._task_id: int | None = None
         self._fallback = _FallbackProgress()
+        self._total_phases: int = 8
+        self._total_videos: int = 0
 
         # Auto-detect if not specified
         if use_rich is None:
