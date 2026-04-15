@@ -105,9 +105,7 @@ def resolve_video_encoder() -> VideoEncoderProfile:
     # Try Intel Quick Sync (QSV) first
     if qsv_profile.codec in available:
         try:
-            encoder = _probe_encoder_profile(qsv_profile)
-            print(f"Using hardware encoder: {qsv_profile.name}")
-            return encoder
+            return _probe_encoder_profile(qsv_profile)
         except RuntimeError:
             # QSV probe failed - hardware not available or drivers missing
             pass
@@ -115,9 +113,7 @@ def resolve_video_encoder() -> VideoEncoderProfile:
     # Try AMD AMF (for AMD GPUs like Ryzen with Radeon)
     if amf_profile.codec in available:
         try:
-            encoder = _probe_encoder_profile(amf_profile)
-            print(f"Using hardware encoder: {amf_profile.name}")
-            return encoder
+            return _probe_encoder_profile(amf_profile)
         except RuntimeError:
             # AMF probe failed - AMD GPU/drivers issue
             pass
@@ -130,9 +126,7 @@ def resolve_video_encoder() -> VideoEncoderProfile:
         )
 
     try:
-        encoder = _probe_encoder_profile(libx265_profile)
-        print(f"Using software encoder: {libx265_profile.name}")
-        return encoder
+        return _probe_encoder_profile(libx265_profile)
     except RuntimeError as exc:
         raise RuntimeError(
             f"Fallback encoder '{libx265_profile.codec}' is listed but a probe encode failed. {_LIBX265_VERIFY_HINT}"

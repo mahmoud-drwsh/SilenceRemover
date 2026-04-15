@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 from src.core.constants import SCRIPTS_DIR
 from src.core.fs_utils import wait_for_file_release
-from src.ffmpeg.core import print_ffmpeg_cmd
+
 from src.ffmpeg.filter_graph import write_filter_graph_script
 from src.ffmpeg.runner import format_ffmpeg_process_failure, run, run_with_progress
 
@@ -20,7 +20,6 @@ def run_minimal_ffmpeg_output(
     cmd: list[str],
     command_label: str,
 ) -> Path:
-    print_ffmpeg_cmd(cmd)
     try:
         run(cmd, check=True)
         wait_for_file_release(output_file)
@@ -52,7 +51,6 @@ def run_silence_removed_media(
     write_filter_graph_script(filter_script_path, filter_complex)
 
     cmd = build_command(input_file, output_file, filter_script_path)
-    print_ffmpeg_cmd(cmd)
     if expected_total_seconds is not None:
         emitted_progress = False
 
@@ -74,8 +72,6 @@ def run_silence_removed_media(
             raise RuntimeError(
                 format_ffmpeg_process_failure(command_label, exc)
             ) from exc
-        if emitted_progress:
-            print()
     else:
         try:
             run(cmd, check=True)
@@ -87,7 +83,6 @@ def run_silence_removed_media(
             raise
 
     wait_for_file_release(output_file)
-    print(f"Done! Output saved to: {output_file}")
     return output_file.resolve()
 
 

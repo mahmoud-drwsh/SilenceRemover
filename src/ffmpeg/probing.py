@@ -106,17 +106,8 @@ def can_run_encoder(codec: str, codec_args: Sequence[str] = ()) -> bool:
     try:
         result = run(cmd, capture_output=True, check=False, timeout=30)
     except subprocess.TimeoutExpired:
-        quoted_cmd = " ".join(shlex.quote(arg) for arg in cmd)
-        print(f"FFmpeg probe timed out after 30s for codec={codec}:")
-        print(f"  Command: {quoted_cmd}")
         return False
     if result.returncode != 0:
-        quoted_cmd = " ".join(shlex.quote(arg) for arg in cmd)
-        print(f"FFmpeg probe failed for codec={codec}:")
-        print(f"  Command: {quoted_cmd}")
-        print(f"  Return code: {result.returncode}")
-        if result.stderr:
-            print(f"  Stderr: {result.stderr.strip()}")
         return False
     return True
 
