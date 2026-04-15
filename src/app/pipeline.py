@@ -154,7 +154,7 @@ def _run_phase_step(
     if progress is None:
         progress = PipelineProgress(use_rich=False)
 
-    progress.start_phase(phase_index, label, video_path.name)
+    progress.start_phase(phase_index, label, video_path.name, video_index)
 
     if already_done:
         progress.update_status("skip", "done")
@@ -455,7 +455,7 @@ def run_audio_upload_phase(
         return None
     
     if server_cache.is_audio_trash(file_id):
-        progress.start_phase(4, "Audio Upload", video_path.name)
+        progress.start_phase(4, "Audio Upload", video_path.name, video_index)
         progress.update_status("skip", "trash")
         return None
     
@@ -467,7 +467,7 @@ def run_audio_upload_phase(
     if audio:
         server_title = audio.get('title', '')
         if server_title.strip() == title_text.strip():
-            progress.start_phase(4, "Audio Upload", video_path.name)
+            progress.start_phase(4, "Audio Upload", video_path.name, video_index)
             progress.update_status("skip", "uploaded")
             return None
         # Title mismatch - will re-upload with updated title
@@ -657,7 +657,7 @@ def run_pending_upload_phase(
         return None
     
     if server_cache.is_video_trash(file_id):
-        progress.start_phase(7, "Stage to Pending", video_path.name)
+        progress.start_phase(7, "Stage to Pending", video_path.name, video_index)
         progress.update_status("skip", "trash")
         return None
     
@@ -667,11 +667,11 @@ def run_pending_upload_phase(
         server_tags = video.get('tags', [])
         if server_title.strip() == title_text.strip():
             if 'pending' in server_tags:
-                progress.start_phase(7, "Stage to Pending", video_path.name)
+                progress.start_phase(7, "Stage to Pending", video_path.name, video_index)
                 progress.update_status("skip", "pending")
                 return None
             if 'FB' in server_tags or 'TT' in server_tags:
-                progress.start_phase(7, "Stage to Pending", video_path.name)
+                progress.start_phase(7, "Stage to Pending", video_path.name, video_index)
                 progress.update_status("skip", "published")
                 return None
             # Exists but tags don't match - will re-upload
@@ -762,12 +762,12 @@ def run_video_upload_phase(
         return None
     
     if not server_cache.is_audio_ready(file_id):
-        progress.start_phase(8, "Publish Video", video_path.name)
+        progress.start_phase(8, "Publish Video", video_path.name, video_index)
         progress.update_status("skip", "audio not ready")
         return None
     
     if server_cache.is_video_trash(file_id):
-        progress.start_phase(8, "Publish Video", video_path.name)
+        progress.start_phase(8, "Publish Video", video_path.name, video_index)
         progress.update_status("skip", "trash")
         return None
     
@@ -777,7 +777,7 @@ def run_video_upload_phase(
         server_tags = video.get('tags', [])
         if server_title.strip() == local_title.strip():
             if 'FB' in server_tags or 'TT' in server_tags:
-                progress.start_phase(8, "Publish Video", video_path.name)
+                progress.start_phase(8, "Publish Video", video_path.name, video_index)
                 progress.update_status("skip", "published")
                 return None
             # Pending or needs publish - continue

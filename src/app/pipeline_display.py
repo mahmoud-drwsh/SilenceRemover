@@ -118,19 +118,21 @@ class PipelineProgress:
         phase_index: int,
         phase_name: str,
         video_name: str,
+        video_index: int = 1,
     ) -> None:
         """Mark phase start with spinner animation."""
         short_name = video_name[:40] + "..." if len(video_name) > 40 else video_name
 
         if self._rich_available and self._task_id is not None:
+            description = f"[{phase_index}/{self._total_phases}] {phase_name}"
             self._progress.update(
                 self._task_id,
-                description=phase_name,
+                description=description,
                 filename=short_name,
                 status_symbol="⋯",
                 status_style="bold blue",
                 message="",
-                completed=phase_index - 1,
+                completed=video_index - 1,
             )
         else:
             line = f"[{phase_index}/{self._total_phases}] {phase_name} - {short_name}"
