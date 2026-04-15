@@ -776,6 +776,11 @@ def run_video_upload_phase(
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
+            video = server_cache.get_video(file_id)
+            if video and 'pending' in video.get('tags', []):
+                client.update_tags(file_id, ['FB', 'TT'], file_type='video')
+                print(f"\n[8/{total_phases}] Published: {output_path.name} (tags updated)")
+                return
             total_size = output_path.stat().st_size
             upload_start_time = time.time()
             last_uploaded = 0

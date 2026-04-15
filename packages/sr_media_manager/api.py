@@ -375,11 +375,17 @@ class MediaManagerClient:
                 'error': str(e)
             }
     
-    def update_tags(self, file_id: str, tags: list) -> bool:
-        """Update file tags."""
+    def update_tags(self, file_id: str, tags: list, file_type: str = 'audio') -> bool:
+        """Update file tags.
+        
+        Args:
+            file_id: File identifier
+            tags: New list of tags
+            file_type: 'audio' or 'video' (required by API)
+        """
         try:
             resp = self._client.put(
-                self._url(f'/api/files/{file_id}'),
+                self._url(f'/api/files/{file_id}?type={file_type}'),
                 json={'tags': tags}
             )
             return resp.status_code == 200
