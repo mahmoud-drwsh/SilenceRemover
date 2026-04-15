@@ -1,0 +1,1 @@
+Web development tutorial covering HTML, CSS, and JavaScript fundamentals. Learn how to build responsive websites from scratch. We cover modern web standards and best practices for creating accessible, performant web applications.

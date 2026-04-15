@@ -1,0 +1,1 @@
+Advanced techniques in machine learning and deep learning. This video explores neural networks, backpropagation, and gradient descent optimization. We will look at convolutional neural networks and recurrent neural networks for different types of problems.
