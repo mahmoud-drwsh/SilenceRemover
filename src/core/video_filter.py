@@ -14,17 +14,13 @@ def get_video_duration(video_path: Path) -> float | None:
         Duration in seconds, or None if failed
     """
     try:
-        result = subprocess.run(
-            [
-                'ffprobe',
-                '-v', 'error',
-                '-show_entries', 'format=duration',
-                '-of', 'csv=p=0',
-                str(video_path)
-            ],
+result = subprocess.run(
+            cmd,
             capture_output=True,
             text=True,
-            check=True
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
         )
         duration = float(result.stdout.strip())
         return duration
