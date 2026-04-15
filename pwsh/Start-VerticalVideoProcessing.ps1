@@ -1,14 +1,29 @@
+[CmdletBinding()]
 param(
-    [double]$TitleYFraction = 0.166667,      # 1/6 default - title position from top
-    [double]$TitleHeightFraction = 0.166667  # 1/6 default - banner height
+    [Parameter(Mandatory=$true)]
+    [ValidateSet("QSV", "AMF", "X265")]
+    [string]$Encoder
 )
 
-Set-Location C:\Users\user\scripts\SilenceRemover
-uv run python main.py C:\Users\user\Videos\vertical\raw\ `
-    --target-length 179.00 `
-    --noise-threshold -40 `
-    --enable-title-overlay `
-    --enable-logo-overlay `
-    --enable-media-manager `
-    --title-y-fraction $TitleYFraction `
-    --title-height-fraction $TitleHeightFraction
+$ErrorActionPreference = "Stop"
+
+$inputDir = Join-Path $PSScriptRoot ".." ".." ".." "Desktop" "TEMP" "raw"
+$outputDir = Join-Path $PSScriptRoot ".." ".." ".." "Desktop" "TEMP" "output"
+
+Write-Host "Starting vertical video processing with encoder: $Encoder" -ForegroundColor Green
+
+& (Join-Path $PSScriptRoot ".." ".." "venv" "Scripts" "python.exe") `
+    (Join-Path $PSScriptRoot ".." ".." "main.py") `
+    --input $inputDir `
+    --output $outputDir `
+    --encoder $Encoder `
+    --target-length 178 `
+    --noise-threshold -35 `
+    --min-duration 0.3
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Pipeline failed with exit code $LASTEXITCODE"
+    exit $LASTEXITCODE
+}
+
+Write-Host "Vertical video processing completed successfully!" -ForegroundColor Green

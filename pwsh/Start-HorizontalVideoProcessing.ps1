@@ -1,2 +1,29 @@
-Set-Location C:\Users\user\scripts\SilenceRemover
-uv run python main.py C:\Users\user\Videos\raw\
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory=$true)]
+    [ValidateSet("QSV", "AMF", "X265")]
+    [string]$Encoder
+)
+
+$ErrorActionPreference = "Stop"
+
+$inputDir = Join-Path $PSScriptRoot ".." ".." ".." "Desktop" "TEMP" "raw"
+$outputDir = Join-Path $PSScriptRoot ".." ".." ".." "Desktop" "TEMP" "output"
+
+Write-Host "Starting horizontal video processing with encoder: $Encoder" -ForegroundColor Green
+
+& (Join-Path $PSScriptRoot ".." ".." "venv" "Scripts" "python.exe") `
+    (Join-Path $PSScriptRoot ".." ".." "main.py") `
+    --input $inputDir `
+    --output $outputDir `
+    --encoder $Encoder `
+    --target-length 238 `
+    --noise-threshold -35 `
+    --min-duration 0.3
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Pipeline failed with exit code $LASTEXITCODE"
+    exit $LASTEXITCODE
+}
+
+Write-Host "Horizontal video processing completed successfully!" -ForegroundColor Green
