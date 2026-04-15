@@ -128,7 +128,7 @@ def _ensure_prescaled_logo(
         "1",
         str(output_logo_path),
     )
-    result = run(cmd, check=False, capture_output=True, timeout=30)
+    result = run(cmd, check=False, capture_output=True)
     if result.returncode != 0:
         tail = (result.stderr or "").strip()
         if len(tail) > 400:
