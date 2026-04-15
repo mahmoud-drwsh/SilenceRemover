@@ -1003,6 +1003,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         return startup
 
     total_phases = 8
+    print(f"[DEBUG] _run_all_phases: Starting execution with {len(videos)} videos")
     phases = (
         # NEW: Phase 1 - Snippet Creation
         _PipelinePhase(
