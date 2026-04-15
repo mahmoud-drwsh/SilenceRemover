@@ -44,28 +44,34 @@ def require_input_dir(input_dir: Path) -> None:
         fail(f"Input directory does not exist: {input_dir}")
 
 
-def is_file_stable(file_path: Path) -> bool:
-    """Check if video file is stable (complete and readable) using ffprobe.
+def is_file_stable(file_path: Path, check_interval: float = 1.0) -> bool:
+    """Check if video file is stable (not being written to).
 
-    Runs ffprobe to verify the file has valid video metadata.
-    Returns True immediately if file is readable as video.
-    Returns False if ffprobe fails (file incomplete/corrupt/locked).
+    Uses file size + modification time comparison to detect active writes.
+    This avoids Windows file locking issues with ffprobe on recording files.
 
     Args:
         file_path: Path to video file to check
+        check_interval: Seconds to wait between checks (default 1.0)
 
     Returns:
-        True if file is stable and readable, False otherwise
+        True if file size and mtime are stable, False if changing or error
     """
-    from src.ffmpeg.runner import run
-    from sr_ffmpeg_cmd_builder import build_ffprobe_metadata_command
+    import time
 
     try:
-        cmd = build_ffprobe_metadata_command(file_path, "duration")
-        result = run(cmd, capture_output=True, check=False, timeout=5)
-        # ffprobe success + non-empty duration = stable file
-        return result.returncode == 0 and bool(result.stdout.strip())
-    except Exception:
+        # Get initial stats (doesn't open file, avoids Windows locking)
+        stat1 = file_path.stat()
+        initial_size = stat1.st_size
+        initial_mtime = stat1.st_mtime
+
+        # Wait and check again
+        time.sleep(check_interval)
+
+        stat2 = file_path.stat()
+        # File is stable if size and mtime haven't changed
+        return stat2.st_size == initial_size and stat2.st_mtime == initial_mtime
+    except (OSError, IOError):
         return False
 
 

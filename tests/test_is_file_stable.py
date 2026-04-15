@@ -36,23 +36,24 @@ class TestIsFileStable:
         nonexistent = Path("/tmp/definitely_does_not_exist_12345.mp4")
         assert is_file_stable(nonexistent) is False
 
-    def test_text_file_returns_false(self, tmp_path):
-        """Test 3: Text file returns False (not a video).
+    def test_text_file_stable_returns_true(self, tmp_path):
+        """Test 3: Text file returns True (stable, not being written).
 
-        Non-video files should fail ffprobe check and return False.
+        File stability checks size/mtime, not video validity.
+        Text files that aren't changing are considered stable.
         """
         text_file = tmp_path / "not_a_video.txt"
         text_file.write_text("This is not a video file")
-        assert is_file_stable(text_file) is False
+        assert is_file_stable(text_file) is True
 
-    def test_empty_file_returns_false(self, tmp_path):
-        """Test: Empty file returns False.
+    def test_empty_file_stable_returns_true(self, tmp_path):
+        """Test: Empty file returns True (stable, not being written).
 
-        Empty files should fail ffprobe duration check.
+        Empty files are considered stable if not changing.
         """
         empty_file = tmp_path / "empty.mp4"
         empty_file.write_text("")
-        assert is_file_stable(empty_file) is False
+        assert is_file_stable(empty_file) is True
 
 
 class TestCollectVideoFiles:
@@ -173,23 +174,13 @@ class TestEdgeCases:
         result = collect_video_files(input_dir)
         assert result == []
 
-    def test_is_file_stable_handles_exception(self, tmp_path):
-        """Test: is_file_stable handles exceptions gracefully."""
+    def test_is_file_stable_handles_oserror(self, tmp_path):
+        """Test: is_file_stable handles file access errors gracefully."""
         video_file = tmp_path / "video.mp4"
         video_file.write_text("content")
 
-        # Mock run to raise an exception
-        with patch("src.ffmpeg.runner.run", side_effect=Exception("FFmpeg error")):
-            result = is_file_stable(video_file)
-            assert result is False
-
-    def test_is_file_stable_handles_timeout(self, tmp_path):
-        """Test: is_file_stable handles timeout gracefully."""
-        video_file = tmp_path / "video.mp4"
-        video_file.write_text("content")
-
-        # Mock run to raise timeout
-        with patch("src.ffmpeg.runner.run", side_effect=TimeoutError("Timeout")):
+        # Mock stat to raise OSError (simulates permission denied)
+        with patch.object(Path, "stat", side_effect=OSError("Permission denied")):
             result = is_file_stable(video_file)
             assert result is False
 
