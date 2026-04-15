@@ -497,7 +497,6 @@ def run_audio_upload_phase(
                 progress_callback=_upload_progress
             )
             if result:
-                print(f"\n[4/{total_phases}] Uploaded: {video_path.name}")
                 notify_audio_uploaded(
                     video_index=video_index,
                     total_videos=total_videos,
@@ -787,7 +786,6 @@ def run_video_upload_phase(
             video = server_cache.get_video(file_id)
             if video and 'pending' in video.get('tags', []):
                 client.update_tags(file_id, ['FB', 'TT'], file_type='video')
-                print(f"\n[8/{total_phases}] Published: {output_path.name} (tags updated)")
                 return
             total_size = output_path.stat().st_size
             upload_start_time = time.time()
