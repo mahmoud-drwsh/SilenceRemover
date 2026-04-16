@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, TextIO
 
 
 from src.core.cli import parse_args
@@ -84,6 +85,52 @@ class _PipelinePhase:
     run: Callable[[Path, int, int, int, None], bool | None]
 
 
+class _ConsolePhaseProgress:
+    """TTY-aware phase progress output with compact single-line updates."""
+
+    def __init__(self, stream: TextIO) -> None:
+        self.stream = stream
+        self._is_tty = bool(getattr(stream, "isatty", lambda: False)())
+        self._current_phase: str | None = None
+        self._compact_line_active = False
+
+    def start_phase(self, label: str) -> None:
+        if self._current_phase == label:
+            return
+        self.finish_line()
+        self.stream.write("\n")
+        self.stream.flush()
+        self._current_phase = label
+
+    def show_file_progress(self, label: str, video_index: int, total_videos: int, name: str) -> None:
+        self.start_phase(label)
+        message = f"[{label}] File {video_index}/{total_videos}: {name}"
+        if self._is_tty:
+            self.stream.write(f"\r{message}\033[K")
+            self._compact_line_active = True
+        else:
+            self.stream.write(f"{message}\n")
+        self.stream.flush()
+
+    def finish_line(self) -> None:
+        if not self._compact_line_active:
+            return
+        self.stream.write("\n")
+        self.stream.flush()
+        self._compact_line_active = False
+
+
+_PHASE_PROGRESS: _ConsolePhaseProgress | None = None
+
+
+def _get_phase_progress() -> _ConsolePhaseProgress:
+    """Return a phase progress helper bound to the current stdout."""
+    global _PHASE_PROGRESS
+    if _PHASE_PROGRESS is None or _PHASE_PROGRESS.stream is not sys.stdout:
+        _PHASE_PROGRESS = _ConsolePhaseProgress(sys.stdout)
+    return _PHASE_PROGRESS
+
+
 def _run_phase(
     videos: list[Path], phase: _PipelinePhase, total_phases: int
 ) -> tuple[int, int, int]:
@@ -95,6 +142,8 @@ def _run_phase(
     success_count = 0
     skip_count = 0
     fail_count = 0
+    phase_progress = _get_phase_progress()
+    phase_progress.start_phase(phase.label)
     
     for i, video_file in enumerate(videos, 1):
         result = phase.run(video_file, i, n, total_phases, None)
@@ -104,6 +153,8 @@ def _run_phase(
             skip_count += 1
         else:
             fail_count += 1
+
+    phase_progress.finish_line()
     
     return success_count, skip_count, fail_count
 
@@ -131,14 +182,16 @@ def _run_phase_step(
     if not precondition_ok:
         return None
 
-    print(f"[{label}] File {video_index}/{total_videos}: {video_path.name}")
+    _get_phase_progress().show_file_progress(label, video_index, total_videos, video_path.name)
 
     try:
         work_fn()
         return True
     except ValueError:
+        _get_phase_progress().finish_line()
         return False
     except Exception:
+        _get_phase_progress().finish_line()
         return False
 
 
