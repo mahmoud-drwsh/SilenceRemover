@@ -10,6 +10,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Get-Location).Path
 $pythonExe = Join-Path $repoRoot ".venv" "Scripts" "python.exe"
 $mainPy = Join-Path $repoRoot "main.py"
+$inputDir = "C:\Users\user\Desktop\TEMP\raw"
 
 if (-not (Test-Path $pythonExe)) {
     Write-Error "Python executable not found in the current directory. Expected: $pythonExe"
@@ -23,8 +24,7 @@ if (-not (Test-Path $mainPy)) {
 
 & $pythonExe `
     $mainPy `
-    --input (Join-Path $PSScriptRoot ".." ".." ".." "Desktop" "TEMP" "raw") `
-    --output (Join-Path $PSScriptRoot ".." ".." ".." "Desktop" "TEMP" "output") `
+    $inputDir `
     --encoder $Encoder `
     --target-length 178 `
     --noise-threshold -35 `
