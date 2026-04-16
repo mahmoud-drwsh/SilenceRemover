@@ -7,20 +7,22 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$pythonCandidates = @(
-    (Join-Path $repoRoot ".venv" "Scripts" "python.exe"),
-    (Join-Path $repoRoot "venv" "Scripts" "python.exe")
-)
-$pythonExe = $pythonCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+$repoRoot = (Get-Location).Path
+$pythonExe = Join-Path $repoRoot ".venv" "Scripts" "python.exe"
+$mainPy = Join-Path $repoRoot "main.py"
 
-if (-not $pythonExe) {
-    $searched = $pythonCandidates -join ", "
-    throw "Could not find project Python executable. Checked: $searched"
+if (-not (Test-Path $pythonExe)) {
+    Write-Error "Python executable not found in the current directory. Expected: $pythonExe"
+    exit 1
+}
+
+if (-not (Test-Path $mainPy)) {
+    Write-Error "main.py not found in the current directory. Expected: $mainPy"
+    exit 1
 }
 
 & $pythonExe `
-    (Join-Path $repoRoot "main.py") `
+    $mainPy `
     --input (Join-Path $PSScriptRoot ".." ".." ".." "Desktop" "TEMP" "raw") `
     --output (Join-Path $PSScriptRoot ".." ".." ".." "Desktop" "TEMP" "output") `
     --encoder $Encoder `
