@@ -150,6 +150,9 @@ def _run_phase_step(
     label: str,
 ) -> bool | None:
     """Execute a single phase step."""
+    stream = _get_phase_progress().stream
+    stream.write(f"  processing: {video_path.name}\n")
+    stream.flush()
     _get_phase_progress().show_file_progress(label, video_index, total_videos, video_path.name)
 
     try:
