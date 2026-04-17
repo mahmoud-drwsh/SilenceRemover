@@ -63,18 +63,16 @@ class _PipelinePhase:
 
 
 class _ConsolePhaseProgress:
-    """TTY-aware phase progress output with compact single-line updates."""
+    """Plain line-by-line phase progress output."""
 
     def __init__(self, stream: TextIO) -> None:
         self.stream = stream
         self._is_tty = bool(getattr(stream, "isatty", lambda: False)())
         self._current_phase: str | None = None
-        self._compact_line_active = False
 
     def start_phase(self, label: str) -> None:
         if self._current_phase == label:
             return
-        self.finish_line()
         self.stream.write("\n")
         self.stream.flush()
         self._current_phase = label
@@ -82,19 +80,19 @@ class _ConsolePhaseProgress:
     def show_file_progress(self, label: str, video_index: int, total_videos: int, name: str) -> None:
         self.start_phase(label)
         message = f"[{label}] File {video_index}/{total_videos}: {name}"
+        self.stream.write(f"{message}\n")
+        self.stream.flush()
+
+    def show_skip(self, name: str, reason: str) -> None:
+        message = f"  skip: {name} ({reason})"
         if self._is_tty:
-            self.stream.write(f"\r{message}\033[K")
-            self._compact_line_active = True
+            self.stream.write(f"\r{message}\n")
         else:
             self.stream.write(f"{message}\n")
         self.stream.flush()
 
     def finish_line(self) -> None:
-        if not self._compact_line_active:
-            return
-        self.stream.write("\n")
-        self.stream.flush()
-        self._compact_line_active = False
+        return
 
 
 _PHASE_PROGRESS: _ConsolePhaseProgress | None = None
@@ -127,7 +125,7 @@ def _run_phase(
             reason = phase.skip_reason(video_file)
             if reason:
                 skip_count += 1
-                phase_progress.stream.write(f"  skip: {video_file.name} ({reason})\n")
+                phase_progress.show_skip(video_file.name, reason)
                 continue
         result = phase.run(video_file, i, n)
         if result is True:
