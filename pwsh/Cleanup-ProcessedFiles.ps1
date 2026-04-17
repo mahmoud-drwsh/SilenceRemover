@@ -1,5 +1,6 @@
 # Cleanup script for processed video files
 # Moves files from raw to archive and deletes only the output directory
+Set-Location (Join-Path $HOME "scripts\SilenceRemover")
 
 $basePath = "C:\Users\user\Videos"
 
@@ -100,4 +101,3 @@ switch ($selection) {
 }
 
 Write-Host "`n=== Cleanup Complete ===" -ForegroundColor Green
-
