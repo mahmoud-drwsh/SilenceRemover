@@ -69,16 +69,19 @@ class _ConsolePhaseProgress:
         self.stream = stream
         self._is_tty = bool(getattr(stream, "isatty", lambda: False)())
         self._current_phase: str | None = None
+        self._skip_line_open = False
 
     def start_phase(self, label: str) -> None:
         if self._current_phase == label:
             return
+        self.finish_line()
         self.stream.write("\n")
         self.stream.flush()
         self._current_phase = label
 
     def show_file_progress(self, label: str, video_index: int, total_videos: int, name: str) -> None:
         self.start_phase(label)
+        self.finish_line()
         message = f"[{label}] File {video_index}/{total_videos}: {name}"
         self.stream.write(f"{message}\n")
         self.stream.flush()
@@ -86,13 +89,18 @@ class _ConsolePhaseProgress:
     def show_skip(self, name: str, reason: str) -> None:
         message = f"  skip: {name} ({reason})"
         if self._is_tty:
-            self.stream.write(f"\r{message}\n")
+            self.stream.write(f"\r{message}")
+            self._skip_line_open = True
         else:
             self.stream.write(f"{message}\n")
         self.stream.flush()
 
     def finish_line(self) -> None:
-        return
+        if not self._skip_line_open:
+            return
+        self.stream.write("\n")
+        self.stream.flush()
+        self._skip_line_open = False
 
 
 _PHASE_PROGRESS: _ConsolePhaseProgress | None = None
@@ -148,19 +156,21 @@ def _run_phase_step(
     label: str,
 ) -> bool | None:
     """Execute a single phase step."""
-    stream = _get_phase_progress().stream
+    phase_progress = _get_phase_progress()
+    phase_progress.finish_line()
+    stream = phase_progress.stream
     stream.write(f"  processing: {video_path.name}\n")
     stream.flush()
-    _get_phase_progress().show_file_progress(label, video_index, total_videos, video_path.name)
+    phase_progress.show_file_progress(label, video_index, total_videos, video_path.name)
 
     try:
         work_fn()
         return True
     except ValueError:
-        _get_phase_progress().finish_line()
+        phase_progress.finish_line()
         return False
     except Exception:
-        _get_phase_progress().finish_line()
+        phase_progress.finish_line()
         return False
 
 
