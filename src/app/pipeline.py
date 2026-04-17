@@ -5,8 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional, TextIO
 
@@ -14,13 +13,11 @@ from typing import Callable, Optional, TextIO
 from src.core.cli import parse_args
 from src.core.constants import (
     AUDIO_EXTENSIONS,
-    COMPLETED_DIR,
     SNIPPET_MAX_DURATION_SEC,
     TITLE_DIR,
 )
 from src.core.paths import (
     get_completed_output_filename,
-    get_overlay_done_path,
     get_snippet_path,
     get_title_path,
     get_transcript_path,
@@ -35,7 +32,11 @@ from sr_filename import sanitize_filename
 from src.startup import StartupContext, build_startup_context
 
 from sr_snippet import create_silence_removed_snippet
-from sr_telegram_notify import notify_audio_uploaded, notify_final_output_ready, notify_video_uploaded
+from sr_telegram_notify import (
+    notify_audio_uploaded,
+    notify_final_encoding_started,
+    notify_final_output_ready,
+)
 from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
 from src.media.trim import trim_single_video
@@ -53,36 +54,12 @@ except ImportError:
 QUICK_TEST_OUTPUT_SECONDS = 5.0
 
 
-BASE36_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
-
-
-def int_to_base36(n: int) -> str:
-    """Convert integer to base36 string (0-9, a-z)."""
-    if n == 0:
-        return "0"
-    chars = []
-    while n:
-        n, rem = divmod(n, 36)
-        chars.append(BASE36_ALPHABET[rem])
-    return "".join(reversed(chars))
-
-
-def get_video_timestamp_base36(video_path: Path) -> str:
-    """Get file creation time as 6-char base36 timestamp."""
-    stat = video_path.stat()
-    # Try birth time first, fall back to ctime
-    created_time = getattr(stat, "st_birthtime", stat.st_ctime)
-    unix_ts = int(created_time)
-    base36 = int_to_base36(unix_ts)
-    # Return last 6 chars, zero-padded if needed
-    return base36[-6:].zfill(6)
-
-
 @dataclass(frozen=True)
 class _PipelinePhase:
     index: int
     label: str
-    run: Callable[[Path, int, int, int, None], bool | None]
+    run: Callable[[Path, int, int], bool | None]
+    skip_reason: Callable[[Path], str | None] | None = None
 
 
 class _ConsolePhaseProgress:
@@ -132,7 +109,7 @@ def _get_phase_progress() -> _ConsolePhaseProgress:
 
 
 def _run_phase(
-    videos: list[Path], phase: _PipelinePhase, total_phases: int
+    videos: list[Path], phase: _PipelinePhase
 ) -> tuple[int, int, int]:
     """Run one phase over all videos.
     
@@ -144,9 +121,15 @@ def _run_phase(
     fail_count = 0
     phase_progress = _get_phase_progress()
     phase_progress.start_phase(phase.label)
-    
+
     for i, video_file in enumerate(videos, 1):
-        result = phase.run(video_file, i, n, total_phases, None)
+        if phase.skip_reason is not None:
+            reason = phase.skip_reason(video_file)
+            if reason:
+                skip_count += 1
+                phase_progress.stream.write(f"  skip: {video_file.name} ({reason})\n")
+                continue
+        result = phase.run(video_file, i, n)
         if result is True:
             success_count += 1
         elif result is None:
@@ -161,27 +144,12 @@ def _run_phase(
 
 def _run_phase_step(
     video_path: Path,
-    already_done: bool,
-    already_done_message: str,
     work_fn: Callable[[], None],
-    success_message: str,
-    failure_label: str,
-    phase_index: int,
-    total_phases: int,
     video_index: int,
     total_videos: int,
     label: str,
-    precondition_ok: bool = True,
-    precondition_message: str = "",
-    progress: None = None,
 ) -> bool | None:
     """Execute a single phase step."""
-    if already_done:
-        return None
-
-    if not precondition_ok:
-        return None
-
     _get_phase_progress().show_file_progress(label, video_index, total_videos, video_path.name)
 
     try:
@@ -240,18 +208,12 @@ def run_snippet_phase(
     pad_sec: float,
     video_index: int,
     total_videos: int,
-    progress: None = None,
-    *,
-    total_phases: int = 8,
 ) -> bool | None:
     """Phase 1: Create silence-removed snippet to `temp/snippet/{basename}.ogg`."""
     basename = video_path.stem
     snippet_path = get_snippet_path(temp_dir, basename)
 
     def _perform() -> None:
-        # Silent skip if snippet already exists
-        if is_snippet_done(temp_dir, basename):
-            return
         create_silence_removed_snippet(
             input_file=video_path,
             output_audio_path=snippet_path,
@@ -262,17 +224,10 @@ def run_snippet_phase(
 
     return _run_phase_step(
         video_path=video_path,
-        already_done=False,
-        already_done_message="",
         work_fn=_perform,
-        success_message="",
-        failure_label="Phase 1",
-        phase_index=1,
-        total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         label="Snippet Creation",
-        progress=progress,
     )
 
 
@@ -283,35 +238,20 @@ def run_transcription_phase(
     api_key: str,
     video_index: int,
     total_videos: int,
-    progress: None = None,
-    *,
-    total_phases: int = 8,
 ) -> bool | None:
     """Phase 2: Transcribe existing snippet to `temp/transcript/{basename}.txt`."""
     basename = video_path.stem
     snippet_path = get_snippet_path(temp_dir, basename)
 
     def _perform() -> None:
-        # Silent skip if transcript already exists
-        if is_transcript_done(temp_dir, basename):
-            return
         transcribe_media(audio_path=snippet_path, temp_dir=temp_dir, api_key=api_key, basename=basename)
 
     return _run_phase_step(
         video_path=video_path,
-        already_done=False,
-        already_done_message="",
         work_fn=_perform,
-        success_message="",
-        failure_label="Phase 2",
-        phase_index=2,
-        total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         label="Transcription",
-        precondition_ok=is_snippet_done(temp_dir, basename),
-        precondition_message=f"No snippet for {video_path.name}; cannot run transcription.",
-        progress=progress,
     )
 
 
@@ -321,34 +261,19 @@ def run_title_phase(
     api_key: str,
     video_index: int,
     total_videos: int,
-    progress: None = None,
-    *,
-    total_phases: int = 8,
 ) -> bool | None:
     """Phase 3: Generate title from transcript to `temp/title/{basename}.txt`."""
     basename = video_path.stem
 
     def _perform() -> None:
-        # Silent skip if title already exists
-        if is_title_done(temp_dir, basename):
-            return
         generate_title(temp_dir=temp_dir, api_key=api_key, basename=basename)
 
     return _run_phase_step(
         video_path=video_path,
-        already_done=False,
-        already_done_message="",
-        precondition_ok=is_transcript_done(temp_dir, basename),
-        precondition_message=f"No transcript for {video_path.name}; cannot run title generation.",
         work_fn=_perform,
-        success_message="",
-        failure_label="Phase 3",
-        phase_index=3,
-        total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         label="Title Generation",
-        progress=progress,
     )
 
 
@@ -358,13 +283,10 @@ def run_overlay_phase(
     title_font: str | None,
     video_index: int,
     total_videos: int,
-    progress: None = None,
     enable_title_overlay: bool = False,
     enable_logo_overlay: bool = False,
     title_y_fraction: float | None = None,
     title_height_fraction: float | None = None,
-    *,
-    total_phases: int = 8,
 ) -> bool | None:
     """Phase 5: Generate title overlay PNG and pre-scale logo."""
     from src.media.trim import prepare_video_overlays
@@ -374,13 +296,6 @@ def run_overlay_phase(
     title_path = get_title_path(temp_dir, basename)
 
     def _perform() -> None:
-        if not is_title_done(temp_dir, basename):
-            return
-        
-        # Silent skip if overlay already exists for current title
-        if is_overlay_done(temp_dir, basename):
-            return
-        
         # Read title content for the marker (overlay invalidates if title changes)
         title_text = title_path.read_text(encoding="utf-8").strip()
         
@@ -398,19 +313,10 @@ def run_overlay_phase(
 
     return _run_phase_step(
         video_path=video_path,
-        already_done=False,
-        already_done_message="",
-        precondition_ok=is_title_done(temp_dir, basename),
-        precondition_message=f"No title for {video_path.name}; cannot run overlay generation.",
         work_fn=_perform,
-        success_message="",
-        failure_label="Phase 5",
-        phase_index=5,
-        total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         label="Overlay Generation",
-        progress=progress,
     )
 
 
@@ -456,45 +362,20 @@ def run_audio_upload_phase(
     video_index: int,
     total_videos: int,
     server_cache: ServerDataCache | None,
-    progress: None = None,
-    *,
-    total_phases: int = 8,
 ) -> bool | None:
     basename = video_path.stem
     file_id = basename
     title_path = get_title_path(temp_dir, basename)
     snippet_path = get_snippet_path(temp_dir, basename)
     
-    if not server_cache:
-        return None
-    
-    if server_cache.is_audio_trash(file_id):
-        return None
-    
-    title_text = ""
-    if title_path.exists():
-        title_text = title_path.read_text(encoding='utf-8').strip()
-    
-    audio = server_cache.get_audio(file_id)
-    if audio:
-        server_title = audio.get('title', '')
-        if server_title.strip() == title_text.strip():
-            return None
-        # Title mismatch - will re-upload with updated title
-    
     def _perform() -> None:
         fresh_title = title_path.read_text(encoding='utf-8').strip()
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
-            total_size = snippet_path.stat().st_size
-            
-            def _upload_progress(uploaded_bytes: int, total_bytes: int) -> None:
-                pass
-            
             result = client.upload_audio(
                 file_id, fresh_title, snippet_path, 
                 tags=['todo'],
-                progress_callback=_upload_progress
+                progress_callback=None
             )
             if result:
                 notify_audio_uploaded(
@@ -508,18 +389,7 @@ def run_audio_upload_phase(
     
     return _run_phase_step(
         video_path=video_path,
-        already_done=False,
-        already_done_message="",
-        precondition_ok=(
-            is_title_done(temp_dir, basename) and
-            is_snippet_done(temp_dir, basename)
-        ),
-        precondition_message=f"Missing title or snippet for {video_path.name}",
         work_fn=_perform,
-        success_message=f"\n✓ Phase 4 (audio upload) done: {video_path.name}",
-        failure_label="Phase 4",
-        phase_index=4,
-        total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         label="Audio Upload",
@@ -535,40 +405,29 @@ def run_encode_phase(
     pad_sec: float,
     target_length: Optional[float],
     encoder: str,
-    progress: None = None,
     title_font: str | None = None,
     max_output_seconds: float | None = None,
     video_index: int = 1,
     total_videos: int = 1,
     enable_title_overlay: bool = False,
     enable_logo_overlay: bool = False,
-    *,
-    total_phases: int = 8,
 ) -> bool | None:
     """Phase 6: Full video trim with title-based output filename."""
     basename = video_path.stem
     title_path = get_title_path(temp_dir, basename)
-    
-    if is_completed(temp_dir, basename):
-        return None
-    
-    if not is_transcript_done(temp_dir, basename):
-        return None
-    
-    if not title_path.exists():
-        return None
-    
+
     title_text = title_path.read_text(encoding="utf-8").strip()
-    if not title_text:
-        return None
-    
-    # Generate base36 timestamp from file creation time (6 chars, compact)
-    timestamp = get_video_timestamp_base36(video_path)
-    chosen_basename = f"{timestamp}-{sanitize_filename(title_text)}"
+
+    chosen_basename = sanitize_filename(title_text)
     clean_title = title_text
 
     def _perform() -> None:
-        output_mp4 = (output_dir / f"{chosen_basename}.mp4").resolve()
+        notify_final_encoding_started(
+            video_index=video_index,
+            total_videos=total_videos,
+            input_name=video_path.name,
+            title=title_text,
+        )
         trim_single_video(
             input_file=video_path,
             output_dir=output_dir,
@@ -587,31 +446,19 @@ def run_encode_phase(
             metadata_title=clean_title,
         )
         notify_final_output_ready(
-            phase_index=6,
-            total_phases=total_phases,
             video_index=video_index,
             total_videos=total_videos,
             input_name=video_path.name,
             title=title_text,
-            output_mp4=output_mp4,
         )
         mark_completed(temp_dir, basename, output_filename=chosen_basename)
 
     return _run_phase_step(
         video_path=video_path,
-        already_done=is_completed(temp_dir, basename),
-        already_done_message="Final output already exists",
-        precondition_ok=is_transcript_done(temp_dir, basename),
-        precondition_message="No transcript available",
         work_fn=_perform,
-        success_message="",
-        failure_label="Phase 6",
-        phase_index=6,
-        total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         label="Final Encode",
-        progress=progress,
     )
 
 
@@ -620,56 +467,24 @@ def run_video_reconciliation_phase(
     video_index: int,
     total_videos: int,
     server_cache: ServerDataCache | None,
-    progress: None = None,
     *,
     temp_dir: Path,
-    total_phases: int = 9,
 ) -> bool | None:
     """Phase 7: Reconcile - delete server video if local title differs."""
-    if not server_cache:
-        return None
-
     basename = video_path.stem
     file_id = basename
-
-    # Read local title from temp_dir/title/{basename}.txt
-    title_path = get_title_path(temp_dir, basename)
-    if not title_path.exists():
-        return None
-
-    local_title = title_path.read_text(encoding='utf-8').strip()
-    if not local_title:
-        return None
-
-    # Look up video on server
-    video = server_cache.get_video(file_id)
-    if not video:
-        return None
-
-    server_title = video.get('title', '')
-    if server_title.strip() == local_title.strip():
-        return None
-
+    
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
             client.update_tags(file_id, ['trash'], file_type='video')
             client.delete_file(file_id, file_type='video')
-            print(f"[Reconciliation] Deleted server video {file_id}: title changed from '{server_title}' to '{local_title}'")
         finally:
             client.close()
 
     return _run_phase_step(
         video_path=video_path,
-        already_done=False,
-        already_done_message="",
-        precondition_ok=True,
-        precondition_message=None,
         work_fn=_perform,
-        success_message=f"\n✓ Phase 7 (reconciliation) done: {video_path.name}",
-        failure_label="Phase 7",
-        phase_index=7,
-        total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         label="Video Reconciliation",
@@ -730,9 +545,6 @@ def run_video_upload_phase(
     video_index: int,
     total_videos: int,
     server_cache: ServerDataCache | None,
-    progress: None = None,
-    *,
-    total_phases: int = 9,
 ) -> bool | None:
     """Phase 8: Upload video with ['pending'] tags.
 
@@ -749,40 +561,15 @@ def run_video_upload_phase(
     basename = video_path.stem
     file_id = basename
     title_path = get_title_path(temp_dir, basename)
-    
-    if not is_completed(temp_dir, basename):
-        return None
-    
-    if not title_path.exists():
-        return None
-    
+
     local_title = title_path.read_text(encoding='utf-8').strip()
-    if not local_title:
-        return None
-    
+
     # Read output filename from completion marker (Phase 6 stores it there)
     output_basename = get_completed_output_filename(temp_dir, basename)
     if output_basename is None:
         # Fallback: try to construct from title (for backwards compatibility)
         output_basename = sanitize_filename(local_title)
     output_path = output_dir / f"{output_basename}.mp4"
-    
-    if not server_cache:
-        return None
-    
-    video = server_cache.get_video(file_id)
-    if video:
-        if server_cache.is_video_trash(file_id):
-            return None
-        server_title = video.get('title', '')
-        server_tags = video.get('tags', [])
-        if server_title.strip() == local_title.strip():
-            if 'FB' in server_tags or 'TT' in server_tags:
-                return None
-            if 'pending' in server_tags:
-                return None
-        else:
-            return None
 
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
@@ -797,15 +584,7 @@ def run_video_upload_phase(
     
     return _run_phase_step(
         video_path=video_path,
-        already_done=False,
-        already_done_message="",
-        precondition_ok=True,
-        precondition_message=None,
         work_fn=_perform,
-        success_message=f"\n✓ Phase 8 (upload) done: {video_path.name}",
-        failure_label="Phase 8",
-        phase_index=8,
-        total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         label="Video Upload",
@@ -819,49 +598,21 @@ def run_video_tag_promotion_phase(
     video_index: int,
     total_videos: int,
     server_cache: ServerDataCache | None,
-    progress=None,
-    *,
-    total_phases: int = 9,
 ) -> bool | None:
     """Phase 9: Promote video tags from pending to ['FB', 'TT'] when audio is approved."""
-    if server_cache is None:
-        return None
-
     basename = video_path.stem
     file_id = basename
-
-    # Skip if audio not yet approved
-    if not server_cache.is_audio_ready(file_id):
-        return None
-
-    # Check server state
-    video = server_cache.get_video(file_id)
-    if video is None:
-        return None  # Not on server — Phase 8 handles upload
-
-    server_tags = video.get('tags', [])
-    if 'FB' in server_tags or 'TT' in server_tags:
-        return None  # Already promoted
 
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
             client.update_tags(file_id, ['FB', 'TT'], file_type='video')
-            print(f"[Tag Promotion] Video {file_id} promoted to FB+TT")
         finally:
             client.close()
 
     return _run_phase_step(
         video_path=video_path,
-        already_done=False,
-        already_done_message="",
-        precondition_ok=True,
-        precondition_message=None,
         work_fn=_perform,
-        success_message=f"\n✓ Phase 9 (promotion) done: {video_path.name}",
-        failure_label="Phase 9",
-        phase_index=9,
-        total_phases=total_phases,
         video_index=video_index,
         total_videos=total_videos,
         label="Tag Promotion",
@@ -905,88 +656,148 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     if not videos:
         return startup
 
-    total_phases = 9
+    def _title_text(video_file: Path) -> str:
+        title_path = get_title_path(temp_dir, video_file.stem)
+        if not title_path.exists():
+            return ""
+        return title_path.read_text(encoding="utf-8").strip()
+
+    def _audio_meta(video_file: Path) -> dict:
+        if server_cache is None:
+            return {}
+        audio = server_cache.get_audio(video_file.stem)
+        return audio if isinstance(audio, dict) else {}
+
+    def _video_meta(video_file: Path) -> dict:
+        if server_cache is None:
+            return {}
+        video = server_cache.get_video(video_file.stem)
+        return video if isinstance(video, dict) else {}
+
     phases = (
         # NEW: Phase 1 - Snippet Creation
         _PipelinePhase(
             1,
             "Snippet Creation",
-            lambda video_file, vi, vn, tp, progress: run_snippet_phase(
+            lambda video_file, vi, vn: run_snippet_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 pad_sec=startup.pad_sec,
                 video_index=vi,
                 total_videos=vn,
-                total_phases=tp,
-                progress=progress,
+            ),
+            skip_reason=lambda video_file: (
+                "snippet already exists"
+                if is_snippet_done(temp_dir, video_file.stem)
+                else None
             ),
         ),
         # UPDATED: Phase 2 - Transcription (was Phase 1)
         _PipelinePhase(
             2,
             "Transcription",
-            lambda video_file, vi, vn, tp, progress: run_transcription_phase(
+            lambda video_file, vi, vn: run_transcription_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 pad_sec=startup.pad_sec,
                 api_key=api_key,
                 video_index=vi,
                 total_videos=vn,
-                total_phases=tp,
-                progress=progress,
+            ),
+            skip_reason=lambda video_file: (
+                "transcript already exists"
+                if is_transcript_done(temp_dir, video_file.stem)
+                else (
+                    "snippet missing (run phase 1 first)"
+                    if not is_snippet_done(temp_dir, video_file.stem)
+                    else None
+                )
             ),
         ),
         # UPDATED: Phase 3 - Title Generation (was Phase 2)
         _PipelinePhase(
             3,
             "Title Generation",
-            lambda video_file, vi, vn, tp, progress: run_title_phase(
+            lambda video_file, vi, vn: run_title_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 api_key=api_key,
                 video_index=vi,
                 total_videos=vn,
-                total_phases=tp,
-                progress=progress,
+            ),
+            skip_reason=lambda video_file: (
+                "title already exists"
+                if is_title_done(temp_dir, video_file.stem)
+                else (
+                    "transcript missing (run phase 2 first)"
+                    if not is_transcript_done(temp_dir, video_file.stem)
+                    else None
+                )
             ),
         ),
         # UPDATED: Phase 4 - Audio Upload (was Phase 3)
         _PipelinePhase(
             4,
             "Audio Upload",
-            lambda video_file, vi, vn, tp, progress: run_audio_upload_phase(
+            lambda video_file, vi, vn: run_audio_upload_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
                 video_index=vi,
                 total_videos=vn,
                 server_cache=server_cache,
-                total_phases=tp,
-                progress=progress,
+            ),
+            skip_reason=lambda video_file: (
+                "media manager disabled"
+                if server_cache is None
+                else (
+                    "audio marked trash on server"
+                    if server_cache.is_audio_trash(video_file.stem)
+                    else (
+                        "snippet/title missing (run phases 2-3 first)"
+                        if not (
+                            is_title_done(temp_dir, video_file.stem)
+                            and is_snippet_done(temp_dir, video_file.stem)
+                        )
+                        else (
+                            "audio already uploaded with same title"
+                            if _audio_meta(video_file).get("title", "").strip() == _title_text(video_file)
+                            and _audio_meta(video_file)
+                            else None
+                        )
+                    )
+                )
             ),
         ),
         # UPDATED: Phase 5 - Overlay Generation
         _PipelinePhase(
             5,
             "Overlay Generation",
-            lambda video_file, vi, vn, tp, progress: run_overlay_phase(
-                video_path=video_file,
-                temp_dir=temp_dir,
+            lambda video_file, vi, vn: run_overlay_phase(
+                video_file,
+                temp_dir,
                 title_font=startup.title_font,
                 video_index=vi,
                 total_videos=vn,
                 enable_title_overlay=startup.enable_title_overlay,
                 enable_logo_overlay=startup.enable_logo_overlay,
                 title_y_fraction=getattr(args, 'title_y_fraction', None),
-                title_height_fraction=getattr(args, 'title_y_fraction', None),
-                total_phases=tp,
-                progress=progress,
+                title_height_fraction=getattr(args, 'title_height_fraction', None),
+            ),
+            skip_reason=lambda video_file: (
+                "title missing (run phase 3 first)"
+                if not is_title_done(temp_dir, video_file.stem)
+                else (
+                    "overlay already generated for current title"
+                    if is_overlay_done(temp_dir, video_file.stem)
+                    else None
+                )
             ),
         ),
         # UPDATED: Phase 6 - Final Encode (was Phase 5)
         _PipelinePhase(
             6,
             "Final Encode",
-            lambda video_file, vi, vn, tp, progress: run_encode_phase(
+            lambda video_file, vi, vn: run_encode_phase(
                 video_path=video_file,
                 output_dir=startup.output_dir,
                 temp_dir=startup.temp_dir,
@@ -1001,58 +812,154 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 total_videos=vn,
                 enable_title_overlay=startup.enable_title_overlay,
                 enable_logo_overlay=startup.enable_logo_overlay,
-                total_phases=tp,
-                progress=progress,
+            ),
+            skip_reason=lambda video_file: (
+                "already completed"
+                if is_completed(temp_dir, video_file.stem)
+                else (
+                    "transcript missing (run phase 2 first)"
+                    if not is_transcript_done(temp_dir, video_file.stem)
+                    else (
+                        "title missing (run phase 3 first)"
+                        if not is_title_done(temp_dir, video_file.stem)
+                        else (
+                            "title empty"
+                            if not _title_text(video_file)
+                            else None
+                        )
+                    )
+                )
             ),
         ),
         # NEW: Phase 7 - Video Reconciliation (delete server video if local title differs)
         _PipelinePhase(
             7,
             "Video Reconciliation",
-            lambda video_file, vi, vn, tp, progress: run_video_reconciliation_phase(
+            lambda video_file, vi, vn: run_video_reconciliation_phase(
                 video_path=video_file,
                 video_index=vi,
                 total_videos=vn,
                 server_cache=server_cache,
-                total_phases=tp,
-                progress=progress,
                 temp_dir=temp_dir,
+            ),
+            skip_reason=lambda video_file: (
+                "media manager disabled"
+                if server_cache is None
+                else (
+                    "title missing (run phase 3 first)"
+                    if not is_title_done(temp_dir, video_file.stem)
+                    else (
+                        "title empty"
+                        if not _title_text(video_file)
+                        else (
+                            "video not found on server"
+                            if not _video_meta(video_file)
+                            else (
+                                "title unchanged"
+                                if _video_meta(video_file).get("title", "").strip() == _title_text(video_file)
+                                else None
+                            )
+                        )
+                    )
+                )
             ),
         ),
         # NEW: Phase 8 - Video Upload (with pending tags, handles trash re-upload)
         _PipelinePhase(
             8,
             "Video Upload",
-            lambda video_file, vi, vn, tp, progress: run_video_upload_phase(
+            lambda video_file, vi, vn: run_video_upload_phase(
                 video_path=video_file,
                 output_dir=startup.output_dir,
                 temp_dir=temp_dir,
                 video_index=vi,
                 total_videos=vn,
                 server_cache=server_cache,
-                total_phases=tp,
-                progress=progress,
+            ),
+            skip_reason=lambda video_file: (
+                "final encode not completed"
+                if not is_completed(temp_dir, video_file.stem)
+                else (
+                    "title missing (run phase 3 first)"
+                    if not is_title_done(temp_dir, video_file.stem)
+                    else (
+                        "media manager disabled"
+                        if server_cache is None
+                        else (
+                            "title empty"
+                            if not _title_text(video_file)
+                            else (
+                                "already published"
+                                if (
+                                    _video_meta(video_file)
+                                    and (
+                                        "FB" in _video_meta(video_file).get("tags", [])
+                                        or "TT" in _video_meta(video_file).get("tags", [])
+                                    )
+                                )
+                                else (
+                                    "already pending"
+                                    if (
+                                        _video_meta(video_file)
+                                        and "pending" in _video_meta(video_file).get("tags", [])
+                                    )
+                                    else (
+                                        "video trashed on server"
+                                        if _video_meta(video_file) and server_cache.is_video_trash(video_file.stem)
+                                        else (
+                                            "title mismatch; reconciliation required"
+                                            if (
+                                                _video_meta(video_file)
+                                                and _video_meta(video_file).get("title", "").strip()
+                                                != _title_text(video_file)
+                                            )
+                                            else None
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
             ),
         ),
         # UPDATED: Phase 9 - Publish Video (was Phase 8)
         _PipelinePhase(
             9,
             "Publish Video",
-            lambda video_file, vi, vn, tp, progress: run_video_tag_promotion_phase(
+            lambda video_file, vi, vn: run_video_tag_promotion_phase(
                 video_path=video_file,
                 output_dir=startup.output_dir,
                 temp_dir=temp_dir,
                 video_index=vi,
                 total_videos=vn,
                 server_cache=server_cache,
-                total_phases=tp,
-                progress=progress,
+            ),
+            skip_reason=lambda video_file: (
+                "media manager disabled"
+                if server_cache is None
+                else (
+                    "audio not ready"
+                    if not server_cache.is_audio_ready(video_file.stem)
+                    else (
+                        "video not found on server"
+                        if not _video_meta(video_file)
+                        else (
+                            "already published"
+                            if (
+                                "FB" in _video_meta(video_file).get("tags", [])
+                                or "TT" in _video_meta(video_file).get("tags", [])
+                            )
+                            else None
+                        )
+                    )
+                )
             ),
         ),
     )
 
     for phase in phases:
-        _run_phase(videos=videos, phase=phase, total_phases=len(phases))
+        _run_phase(videos=videos, phase=phase)
         # Rebuild cache after Phase 7 (reconciliation) and Phase 8 (upload)
         # so subsequent phases see fresh server state
         if media_manager_enabled and phase.index in (7, 8):
