@@ -231,11 +231,15 @@ pipeline:
         checked_path_templates: []
         checked_runtime_templates:
           - 'server_cache.get_video("{basename}") is falsy'
+      - condition: "video not pending"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.get_video("{basename}")["tags"] does not contain "pending"'
       - condition: "already published"
         checked_path_templates: []
         checked_runtime_templates:
           - 'server_cache.get_video("{basename}")["tags"] contains "FB" or "TT"'
-    robustness: "reasonable; this phase only depends on current server-cache state"
+    robustness: "reasonable; this phase only promotes server videos that are explicitly in the pending state"
 
 summary:
   phases_1_to_2: "content-aware and fairly robust"

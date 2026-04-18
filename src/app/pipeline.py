@@ -684,7 +684,7 @@ def run_video_tag_promotion_phase(
     total_videos: int,
     server_cache: ServerDataCache | None,
 ) -> bool | None:
-    """Phase 10: Promote video tags from pending to ['FB', 'TT'] when audio is approved."""
+    """Phase 10: Promote pending video tags to ['FB', 'TT'] when audio is approved."""
     basename = video_path.stem
     file_id = basename
 
@@ -1110,7 +1110,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 f"server:video/{video_file.stem}",
             ],
         ),
-        # UPDATED: Phase 10 - Publish Video (was Phase 9)
+        # UPDATED: Phase 10 - Publish Video (pending -> FB/TT only)
         _PipelinePhase(
             10,
             "Publish Video",
@@ -1132,12 +1132,16 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                         "video not found on server"
                         if not _video_meta(video_file)
                         else (
-                            "already published"
-                            if (
-                                "FB" in _video_meta(video_file).get("tags", [])
-                                or "TT" in _video_meta(video_file).get("tags", [])
+                            "video not pending"
+                            if "pending" not in _video_meta(video_file).get("tags", [])
+                            else (
+                                "already published"
+                                if (
+                                    "FB" in _video_meta(video_file).get("tags", [])
+                                    or "TT" in _video_meta(video_file).get("tags", [])
+                                )
+                                else None
                             )
-                            else None
                         )
                     )
                 )

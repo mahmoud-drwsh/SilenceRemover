@@ -79,7 +79,7 @@ This enables the **Phase-0-to-10 workflow**:
 7. **Phase 7**: Create final video locally with overlays
 8. **Phase 8**: Reconcile video on server (delete if title changed)
 9. **Phase 9**: Upload video with `tags: ["pending"]`
-10. **Phase 10**: Promote video to `tags: ["FB", "TT"]` when audio approved
+10. **Phase 10**: Promote `pending` video to `tags: ["FB", "TT"]` when audio approved
 
 Plus **two-way sync**: At startup, fetch edited titles from Media Manager and trigger re-encode if changed.
 
