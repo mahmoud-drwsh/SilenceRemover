@@ -12,6 +12,7 @@ from src.core.constants import (
     TITLE_BANNER_HEIGHT_FRACTION,
     TITLE_BANNER_START_FRACTION,
     TITLE_FONT_DEFAULT,
+    SCRIPTS_DIR,
 )
 from src.ffmpeg.encoding_resolver import get_encoder_config
 from src.ffmpeg.probing import (
@@ -19,14 +20,14 @@ from src.ffmpeg.probing import (
     probe_video_dimensions,
 )
 from sr_title_overlay import build_title_overlay
-from src.ffmpeg.transcode import build_final_trim_command, build_minimal_video_command
+from src.ffmpeg.transcode import build_final_trim_command
 from src.core.fs_utils import wait_for_file_release
 from src.ffmpeg.core import build_ffmpeg_cmd
 from src.ffmpeg.silence_removed_runner import (
-    run_minimal_ffmpeg_output,
     run_silence_removed_media_with_script,
 )
-from src.ffmpeg.trim_script_bundle import load_trim_script_bundle
+from src.ffmpeg.filter_graph import write_filter_graph_script
+from src.ffmpeg.trim_script_bundle import load_trim_script
 from src.ffmpeg.runner import run
 from src.core.paths import get_font_cache_path, get_processing_video_path, get_title_overlay_path
 
@@ -70,6 +71,40 @@ def _move_processing_to_final(processing_path: Path, final_path: Path) -> None:
             raise RuntimeError(
                 f"Failed to move processing file {processing_path} to final {final_path}: {exc}"
             ) from exc
+
+
+def _build_overlay_suffix_from_base(
+    *,
+    title_overlay_y: int | None,
+    logo_enabled: bool,
+    logo_margin_px: int,
+    logo_alpha: float,
+) -> str:
+    has_title = title_overlay_y is not None
+    has_logo = bool(logo_enabled)
+    if not has_title and not has_logo:
+        return ""
+    parts: list[str] = []
+    base_label = "basev"
+    logo_stream_idx = 2 if has_title else 1
+    if has_logo:
+        m = int(logo_margin_px)
+        aa = float(logo_alpha)
+        logo_out = "basev_logo"
+        parts.append(
+            f"[{logo_stream_idx}:v]format=rgba,colorchannelmixer=aa={aa}[ov_logo];"
+            f"[{base_label}][ov_logo]overlay=W-w-{m}:{m}:shortest=1[{logo_out}]"
+        )
+        base_label = logo_out
+    if has_title:
+        oy = int(title_overlay_y)  # type: ignore[arg-type]
+        title_out = "basev_title"
+        parts.append(
+            f"[1:v]format=rgba[ov_title];[{base_label}][ov_title]overlay=0:{oy}:shortest=1[{title_out}]"
+        )
+        base_label = title_out
+    parts.append(f"[{base_label}]format=nv12[outv]")
+    return ";" + ";".join(parts)
 
 
 def _get_prescaled_logo_path(temp_dir: Path, *, target_width_px: int) -> Path:
@@ -307,14 +342,13 @@ def trim_single_video(
     encoder: str = "libx265",
     title_path: Path | None = None,
     title_font: str | None = None,
-    max_output_seconds: float | None = None,
     enable_title_overlay: bool = False,
     enable_logo_overlay: bool = False,
     title_y_fraction: float | None = None,
     title_height_fraction: float | None = None,
     temp_dir: Optional[Path] = None,
     metadata_title: str | None = None,
-    trim_script_bundle_dir: Path | None = None,
+    trim_script_path: Path | None = None,
 ) -> Path:
     """Trim a single video and return the output file path."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -323,9 +357,13 @@ def trim_single_video(
     temp_dir_resolved = temp_dir if temp_dir is not None else output_dir / "temp"
     temp_dir_resolved.mkdir(parents=True, exist_ok=True)
 
-    if trim_script_bundle_dir is None:
-        raise RuntimeError("trim_single_video requires a pre-generated trim-script bundle")
-    bundle = load_trim_script_bundle(trim_script_bundle_dir)
+    if trim_script_path is None:
+        raise RuntimeError("trim_single_video requires a pre-generated trim script")
+    artifact = load_trim_script(
+        trim_script_path,
+        input_file=input_file,
+        target_length=target_length,
+    )
 
     use_logo = enable_logo_overlay and DEFAULT_LOGO_PATH.is_file()
     logo_path_resolved = DEFAULT_LOGO_PATH if use_logo else None
@@ -348,7 +386,7 @@ def trim_single_video(
         title_height_fraction=title_height_fraction,
         )
 
-    if bundle.final_strategy == "copy" and title_overlay_path is None and not use_logo:
+    if artifact.final_strategy == "copy" and title_overlay_path is None and not use_logo:
         copied_output_file = _copy_input_video(
             input_file=input_file,
             output_file=output_file,
@@ -358,75 +396,33 @@ def trim_single_video(
         wait_for_file_release(copied_output_file)
         return copied_output_file
 
-    # Handle case where all audio is silence (no segments to keep)
-    if bundle.final_strategy in {"minimal", "minimal_overlay"}:
-        def _run_minimal_encode(*, use_hw_path: bool) -> Path:
-            processing_output = get_processing_video_path(temp_dir_resolved, basename)
-            processing_output.parent.mkdir(parents=True, exist_ok=True)
-
-            if bundle.final_strategy == "minimal_overlay":
-                if bundle.final_script_path is None:
-                    raise RuntimeError(f"Missing final minimal overlay script in bundle: {trim_script_bundle_dir}")
-                command = build_minimal_video_command(
-                    input_file=input_file,
-                    output_file=processing_output,
-                    encoder=encoder,
-                    filter_script_path=bundle.final_script_path,
-                    title_overlay_path=title_overlay_path,
-                    title_overlay_y=banner_top,
-                    logo_path=logo_path_resolved if use_logo else None,
-                    logo_enabled=use_logo,
-                    logo_margin_px=LOGO_OVERLAY_MARGIN_PX,
-                    logo_alpha=LOGO_OVERLAY_ALPHA,
-                    source_metadata_filename=(
-                        input_file.name
-                        if (title_overlay_path is not None or use_logo)
-                        else None
-                    ),
-                    use_qsv_hardware_path=use_hw_path,
-                )
-            else:
-                command = build_minimal_video_command(
-                    input_file=input_file,
-                    output_file=processing_output,
-                    encoder=encoder,
-                    title_overlay_path=title_overlay_path,
-                    title_overlay_y=banner_top,
-                    logo_path=logo_path_resolved if use_logo else None,
-                    logo_enabled=use_logo,
-                    logo_margin_px=LOGO_OVERLAY_MARGIN_PX,
-                    logo_alpha=LOGO_OVERLAY_ALPHA,
-                    source_metadata_filename=(
-                        input_file.name
-                        if (title_overlay_path is not None or use_logo)
-                        else None
-                    ),
-                    use_qsv_hardware_path=use_hw_path,
-                )
-            run_minimal_ffmpeg_output(
-                output_file=processing_output,
-                cmd=command,
-                command_label=f"{encoder} encode",
+    def _overlay_wrapped_script_path() -> Path:
+        if title_overlay_path is None and not use_logo:
+            return artifact.script_path
+        if artifact.final_strategy == "minimal":
+            raise RuntimeError(
+                "Minimal trim fallback cannot be combined with title/logo overlays yet. "
+                "This usually means the trim plan kept nothing. "
+                "Disable overlays for this file or filter out empty-keep videos before Phase 7."
             )
-            # result_path is processing_output resolved; move to final destination
-            _move_processing_to_final(processing_output, output_file)
-            # Delete from processing after successful move
-            if processing_output.exists():
-                processing_output.unlink()
-            wait_for_file_release(output_file)
-            return output_file.resolve()
-
-        if use_qsv_hardware_path:
-            try:
-                return _run_minimal_encode(use_hw_path=True)
-            except RuntimeError:
-                return _run_minimal_encode(use_hw_path=False)
-
-        return _run_minimal_encode(use_hw_path=False)
+        if "[outv][outa]" not in artifact.filter_graph:
+            raise RuntimeError(f"Trim script does not expose [outv][outa]: {trim_script_path}")
+        base_graph = artifact.filter_graph.replace("[outv][outa]", "[basev][outa]", 1)
+        overlay_graph = base_graph + _build_overlay_suffix_from_base(
+            title_overlay_y=banner_top if title_overlay_path is not None else None,
+            logo_enabled=use_logo,
+            logo_margin_px=LOGO_OVERLAY_MARGIN_PX,
+            logo_alpha=LOGO_OVERLAY_ALPHA,
+        )
+        scripts_dir = temp_dir_resolved / SCRIPTS_DIR
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        combined_script_path = scripts_dir / f"{basename}_final_overlay.ffscript"
+        return write_filter_graph_script(combined_script_path, overlay_graph)
 
     def _run_final_encode(*, use_hw_path: bool) -> Path:
         processing_output = get_processing_video_path(temp_dir_resolved, basename)
         processing_output.parent.mkdir(parents=True, exist_ok=True)
+        final_filter_script_path = _overlay_wrapped_script_path()
 
         def _build_ffmpeg_command(in_file, out_file, filter_script):
             return build_final_trim_command(
@@ -437,24 +433,18 @@ def trim_single_video(
                 title_overlay_path=title_overlay_path,
                 title_overlay_y=banner_top,
                 logo_path=logo_path_resolved if use_logo else None,
-                extra_silent_audio_lavfi=(bundle.final_strategy == "concat_lavfi"),
                 source_metadata_filename=(
                     in_file.name if (title_overlay_path is not None or use_logo) else None
                 ),
-                max_output_seconds=max_output_seconds,
                 use_qsv_hardware_path=use_hw_path,
                 metadata_title=metadata_title,
             )
 
-        if bundle.final_script_path is None:
-            raise RuntimeError(f"Missing final filter script in bundle: {trim_script_bundle_dir}")
-
         run_silence_removed_media_with_script(
             input_file=input_file,
             output_file=processing_output,
-            filter_script_path=bundle.final_script_path,
+            filter_script_path=final_filter_script_path,
             build_command=_build_ffmpeg_command,
-            expected_total_seconds=bundle.expected_total_seconds,
             command_label=f"{encoder} encode",
         )
         _move_processing_to_final(processing_output, output_file)

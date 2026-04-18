@@ -129,7 +129,6 @@ def build_final_trim_command(
     extra_silent_audio_lavfi: bool = False,
     source_metadata_filename: str | None = None,
     video_map_pad: str = "outv",
-    max_output_seconds: float | None = None,
     use_qsv_hardware_path: bool = False,
     metadata_title: str | None = None,
 ) -> list[str]:
@@ -156,8 +155,6 @@ def build_final_trim_command(
     cmd.extend(["-map", f"[{video_map_pad}]", "-map", "[outa]"])
     cmd.extend(["-c:v", codec])
     cmd.extend(codec_args)
-    if max_output_seconds is not None:
-        cmd.extend(["-t", str(max_output_seconds)])
     cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, "-progress", "pipe:1", "-nostats", "-loglevel", "error"])
     if source_metadata_filename is not None:
         cmd.extend(["-metadata", f"{FINAL_VIDEO_SOURCE_METADATA_KEY}={source_metadata_filename}"])

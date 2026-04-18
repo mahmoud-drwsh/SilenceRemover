@@ -69,8 +69,8 @@ MEDIA_MANAGER_URL=https://your-server.com/TOKEN/your-project/
 ```
 
 This enables the **Phase-0-to-10 workflow**:
-0. **Phase 0**: Generate reusable FFmpeg trim scripts from silence detection + trim policy
-1. **Phase 1**: Create silence-removed snippet for transcription from the Phase 0 bundle
+0. **Phase 0**: Generate one reusable FFmpeg trim script from silence detection + trim policy
+1. **Phase 1**: Create silence-removed snippet for transcription from the Phase 0 script
 2. **Phase 2**: Transcribe snippet via OpenRouter
 3. **Phase 3**: Generate title from transcript
 4. **Phase 4**: Upload audio snippet with `tags: ["todo"]` for review
@@ -99,7 +99,6 @@ python main.py /path/to/video/directory
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Defaults are `TARGET_NOISE_THRESHOLD_DB` (`-55.0`) when `--target-length` is set, otherwise `NON_TARGET_NOISE_THRESHOLD_DB` (`-50.0`).
 - `--min-duration FLOAT`: Override minimum silence duration in seconds (applies in both modes). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with `--target-length` and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
 - `--title-font`: Google Font family name used to render the title overlay. The font is auto-downloaded from Google Fonts on first use and cached under `output/temp/fonts/`.
-- `--quick-test`: Run phases 0-10, but cap only the final Phase 7 encode output to the first 5 seconds for a fast end-to-end smoke run.
 - `--enable-title-overlay`: Enable title overlay in final output (requires a title from Phase 3). By default, overlays are disabled.
 - `--enable-logo-overlay`: Enable logo overlay in final output (requires `logo/logo.png`). By default, overlays are disabled.
 
@@ -134,12 +133,6 @@ Customize title typography with a specific Google Font:
 
 ```bash
 python main.py ~/Videos/lectures --title-font "Cairo"
-```
-
-Run a fast end-to-end smoke test (final outputs capped to 5 seconds):
-
-```bash
-python main.py ~/Videos/lectures --quick-test
 ```
 
 ## FFmpeg Command Architecture
@@ -235,8 +228,8 @@ output/                    # Sibling to input-directory
 
 The tool maintains state in files under **`output/temp/`** to avoid reprocessing videos:
 
-- **Per-video markers**: `output/temp/trim_script_bundles/{bundle_key}/`, `output/temp/transcript/{basename}.txt`, `output/temp/title/{basename}.txt`, and `output/temp/completed/{basename}.txt`
-- **Automatic Skip**: Phase 0 is skipped if the expected trim-script bundle already exists; Phase 1 is skipped if the snippet exists; Phase 2 is skipped if the transcript exists with non-whitespace text; Phase 3 is skipped if the title exists; Phase 4 is skipped if audio is already uploaded; Phase 5 is skipped if the current title overlay PNG already matches the current title; Phase 6 is skipped if the pre-scaled logo is already cached; Phase 7 is skipped if the completed marker exists; Phases 8-10 are skipped based on server state. (Whitespace-only or unreadable transcript files are treated as **not** done for Phase 2.)
+- **Per-video markers**: `output/temp/trim_scripts/{script_key}.ffscript`, `output/temp/transcript/{basename}.txt`, `output/temp/title/{basename}.txt`, and `output/temp/completed/{basename}.txt`
+- **Automatic Skip**: Phase 0 is skipped if the expected trim script already exists; Phase 1 is skipped if the snippet exists; Phase 2 is skipped if the transcript exists with non-whitespace text; Phase 3 is skipped if the title exists; Phase 4 is skipped if audio is already uploaded; Phase 5 is skipped if the current title overlay PNG already matches the current title; Phase 6 is skipped if the pre-scaled logo is already cached; Phase 7 is skipped if the completed marker exists; Phases 8-10 are skipped based on server state. (Whitespace-only or unreadable transcript files are treated as **not** done for Phase 2.)
 - **Manual Reset**: Delete corresponding files under `output/temp/transcript`, `output/temp/title`, and `output/temp/completed` to reprocess specific videos.
 
 ## Supported Formats

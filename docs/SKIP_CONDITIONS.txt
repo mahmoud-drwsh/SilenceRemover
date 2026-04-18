@@ -1,13 +1,14 @@
 pipeline
 ├── phase_0_trim_script_generation
 │   ├── skip_conditions
-│   │   └── trim scripts already generated
+│   │   └── trim script already generated
 │   │       ├── checked_path_templates
-│   │       │   └── temp_dir/trim_script_bundles/{bundle_key}/
+│   │       │   └── temp_dir/trim_scripts/{script_key}.ffscript
 │   │       └── checked_runtime_templates
-│   │           └── is_trim_script_bundle_ready(...)
+│   │           ├── is_trim_script_ready(...) -> script file exists and load_trim_script(...) succeeds
+│   │           └── load_trim_script(...) requires a non-empty filter graph body; strategy is inferred later from the graph plus current input/target context
 │   └── robustness
-│       └── reasonable; readiness is bundle-based and invalidates on input identity plus trim/script-affecting params encoded in the bundle path
+│       └── reasonable; readiness is file-based, invalidates on input identity plus trim-affecting params encoded in the script path, and requires one valid self-contained trim graph artifact
 ├── phase_1_snippet_creation
 │   ├── skip_conditions
 │   │   ├── snippet already exists and is non-empty
@@ -15,13 +16,14 @@ pipeline
 │   │   │   │   └── temp_dir/snippet/{basename}.ogg
 │   │   │   └── checked_runtime_templates
 │   │   │       └── is_snippet_done(temp_dir, basename) -> path exists and stat().st_size > 0
-│   │   └── trim scripts missing (run phase 0 first)
+│   │   └── trim script missing (run phase 0 first)
 │   │       ├── checked_path_templates
-│   │       │   └── temp_dir/trim_script_bundles/{bundle_key}/
+│   │       │   └── temp_dir/trim_scripts/{script_key}.ffscript
 │   │       └── checked_runtime_templates
-│   │           └── is_trim_script_bundle_ready(...) is False
+│   │           ├── is_trim_script_ready(...) is False
+│   │           └── missing/invalid script means load_trim_script(...) cannot read a non-empty filter graph body
 │   └── robustness
-│       └── good; this is content-aware enough for a generated binary artifact
+│       └── good; snippet skip is content-aware enough for the generated audio artifact, and Phase 1 also hard-requires one structurally valid Phase 0 trim script
 ├── phase_2_transcription
 │   ├── skip_conditions
 │   │   └── transcript already exists and has non-whitespace UTF-8 content
@@ -135,17 +137,19 @@ pipeline
 │   │   │   │   └── temp_dir/title/{basename}.txt
 │   │   │   └── checked_runtime_templates
 │   │   │       └── get_title_path(...).read_text(...).strip() == ""
-│   │   └── trim scripts missing (run phase 0 first)
+│   │   └── trim script missing (run phase 0 first)
 │   │       ├── checked_path_templates
-│   │       │   └── temp_dir/trim_script_bundles/{bundle_key}/
+│   │       │   └── temp_dir/trim_scripts/{script_key}.ffscript
 │   │       └── checked_runtime_templates
-│   │           └── is_trim_script_bundle_ready(...) is False
+│   │           ├── is_trim_script_ready(...) is False
+│   │           └── missing/invalid script means load_trim_script(...) cannot read a non-empty filter graph body
 │   ├── robustness
 │   │   └── mixed; transcript/title emptiness is checked, but completion still trusts the marker file alone
 │   └── concerns
 │       ├── completed skip does not verify that the referenced MP4 exists in output_dir
 │       ├── completed skip does not verify that completed.txt contains a non-empty output basename
-│       └── when overlays are enabled, final encode now expects Phase 5/6 assets to exist instead of generating them inline
+│       ├── Phase 0 may still resolve to a stream-copy path at runtime, so a ready trim script does not guarantee Phase 7 will run FFmpeg
+│       └── when overlays are enabled, Phase 7 wraps the base trim script with a temporary overlay graph instead of regenerating trim planning
 ├── phase_8_video_reconciliation
 │   ├── skip_conditions
 │   │   ├── media manager disabled or server cache unavailable

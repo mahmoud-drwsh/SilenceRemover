@@ -126,14 +126,6 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--quick-test",
-        action="store_true",
-        help=(
-            "Run full phases 0-10, but cap only final Phase 7 output encoding "
-            "to the first 5 seconds for end-to-end smoke testing."
-        ),
-    )
-    parser.add_argument(
         "--encoder",
         type=str,
         choices=["QSV", "AMF", "X265"],
@@ -183,8 +175,7 @@ def parse_args() -> argparse.Namespace:
         default=10.0,
         help=(
             "Minimum video duration in seconds (preflight input screening). Videos shorter than this "
-            "are moved to input/ignored/ and skipped. Default: 10.0. "
-            "Skipped in quick-test mode."
+            "are moved to input/ignored/ and skipped. Default: 10.0."
         ),
     )
     return parser.parse_args()

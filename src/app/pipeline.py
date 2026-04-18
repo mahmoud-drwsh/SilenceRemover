@@ -44,9 +44,9 @@ from sr_telegram_notify import (
 from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
 from src.ffmpeg.trim_script_bundle import (
-    generate_trim_script_bundle,
-    get_trim_script_bundle_dir,
-    is_trim_script_bundle_ready,
+    generate_trim_script,
+    get_trim_script_path,
+    is_trim_script_ready,
 )
 from src.media.trim import is_logo_overlay_ready, trim_single_video
 
@@ -59,9 +59,6 @@ try:
     _MEDIA_MANAGER_AVAILABLE = True
 except ImportError:
     _MEDIA_MANAGER_AVAILABLE = False
-
-QUICK_TEST_OUTPUT_SECONDS = 5.0
-
 
 @dataclass(frozen=True)
 class _PipelinePhase:
@@ -247,7 +244,7 @@ def generate_title(
 def run_snippet_phase(
     video_path: Path,
     temp_dir: Path,
-    trim_script_bundle_dir: Path,
+    trim_script_path: Path,
     pad_sec: float,
     video_index: int,
     total_videos: int,
@@ -261,7 +258,7 @@ def run_snippet_phase(
             input_file=video_path,
             output_audio_path=snippet_path,
             temp_dir=temp_dir,
-            trim_script_bundle_dir=trim_script_bundle_dir,
+            trim_script_path=trim_script_path,
             pad_sec=pad_sec,
             max_duration=SNIPPET_MAX_DURATION_SEC,
         )
@@ -478,10 +475,9 @@ def run_encode_phase(
     min_duration: float,
     pad_sec: float,
     target_length: Optional[float],
-    trim_script_bundle_dir: Path,
+    trim_script_path: Path,
     encoder: str,
     title_font: str | None = None,
-    max_output_seconds: float | None = None,
     video_index: int = 1,
     total_videos: int = 1,
     enable_title_overlay: bool = False,
@@ -514,12 +510,11 @@ def run_encode_phase(
             encoder=encoder,
             title_path=title_path,
             title_font=title_font,
-            max_output_seconds=max_output_seconds,
             enable_title_overlay=enable_title_overlay,
             enable_logo_overlay=enable_logo_overlay,
             temp_dir=temp_dir,
             metadata_title=clean_title,
-            trim_script_bundle_dir=trim_script_bundle_dir,
+            trim_script_path=trim_script_path,
         )
         notify_final_output_ready(
             video_index=video_index,
@@ -545,25 +540,19 @@ def run_trim_script_generation_phase(
     noise_threshold: float,
     min_duration: float,
     pad_sec: float,
-    title_overlay_enabled: bool,
-    title_y_fraction: float | None,
-    logo_overlay_enabled: bool,
     video_index: int,
     total_videos: int,
 ) -> bool | None:
-    """Phase 0: Generate reusable trim-script bundle for snippet and final encode."""
+    """Phase 0: Generate one reusable trim script for snippet and final encode."""
 
     def _perform() -> None:
-        generate_trim_script_bundle(
+        generate_trim_script(
             input_file=video_path,
             temp_dir=temp_dir,
             target_length=target_length,
             noise_threshold=noise_threshold,
             min_duration=min_duration,
             pad_sec=pad_sec,
-            title_overlay_enabled=title_overlay_enabled,
-            title_y_fraction=title_y_fraction,
-            logo_overlay_enabled=logo_overlay_enabled,
         )
 
     return _run_phase_step(
@@ -762,9 +751,6 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     if media_manager_enabled:
         server_cache = _rebuild_server_cache(os.getenv('MEDIA_MANAGER_URL') or '')
 
-    quick_test_enabled = bool(getattr(args, "quick_test", False))
-    max_output_seconds = QUICK_TEST_OUTPUT_SECONDS if quick_test_enabled else None
-
     videos = startup.videos
     if not videos:
         return startup
@@ -787,17 +773,14 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         video = server_cache.get_video(video_file.stem)
         return video if isinstance(video, dict) else {}
 
-    def _trim_script_bundle_dir(video_file: Path) -> Path:
-        return get_trim_script_bundle_dir(
+    def _trim_script_path(video_file: Path) -> Path:
+        return get_trim_script_path(
             input_file=video_file,
             temp_dir=temp_dir,
             target_length=startup.target_length,
             noise_threshold=startup.noise_threshold,
             min_duration=startup.min_duration,
             pad_sec=startup.pad_sec,
-            title_overlay_enabled=startup.enable_title_overlay,
-            title_y_fraction=getattr(args, "title_y_fraction", None),
-            logo_overlay_enabled=(startup.enable_logo_overlay and DEFAULT_LOGO_PATH.is_file()),
         )
 
     phases = (
@@ -811,29 +794,23 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 noise_threshold=startup.noise_threshold,
                 min_duration=startup.min_duration,
                 pad_sec=startup.pad_sec,
-                title_overlay_enabled=startup.enable_title_overlay,
-                title_y_fraction=getattr(args, "title_y_fraction", None),
-                logo_overlay_enabled=startup.enable_logo_overlay,
                 video_index=vi,
                 total_videos=vn,
             ),
             skip_reason=lambda video_file: (
-                "trim scripts already generated"
-                if is_trim_script_bundle_ready(
+                "trim script already generated"
+                if is_trim_script_ready(
                     input_file=video_file,
                     temp_dir=temp_dir,
                     target_length=startup.target_length,
                     noise_threshold=startup.noise_threshold,
                     min_duration=startup.min_duration,
                     pad_sec=startup.pad_sec,
-                    title_overlay_enabled=startup.enable_title_overlay,
-                    title_y_fraction=getattr(args, "title_y_fraction", None),
-                    logo_overlay_enabled=(startup.enable_logo_overlay and DEFAULT_LOGO_PATH.is_file()),
                 )
                 else None
             ),
             checked_paths=lambda video_file: [
-                str(_trim_script_bundle_dir(video_file)),
+                str(_trim_script_path(video_file)),
             ],
         ),
         # NEW: Phase 1 - Snippet Creation
@@ -843,30 +820,27 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             lambda video_file, vi, vn: run_snippet_phase(
                 video_path=video_file,
                 temp_dir=temp_dir,
-                trim_script_bundle_dir=_trim_script_bundle_dir(video_file),
+                trim_script_path=_trim_script_path(video_file),
                 pad_sec=startup.pad_sec,
                 video_index=vi,
                 total_videos=vn,
             ),
             skip_reason=lambda video_file: ("snippet already exists"
                 if is_snippet_done(temp_dir, video_file.stem)
-                else ("trim scripts missing (run phase 0 first)"
-                    if not is_trim_script_bundle_ready(
+                else ("trim script missing (run phase 0 first)"
+                    if not is_trim_script_ready(
                         input_file=video_file,
                         temp_dir=temp_dir,
                         target_length=startup.target_length,
                         noise_threshold=startup.noise_threshold,
                         min_duration=startup.min_duration,
                         pad_sec=startup.pad_sec,
-                        title_overlay_enabled=startup.enable_title_overlay,
-                        title_y_fraction=getattr(args, "title_y_fraction", None),
-                        logo_overlay_enabled=(startup.enable_logo_overlay and DEFAULT_LOGO_PATH.is_file()),
                     )
                     else None)
             ),
             checked_paths=lambda video_file: [
                 str(get_snippet_path(temp_dir, video_file.stem)),
-                str(_trim_script_bundle_dir(video_file)),
+                str(_trim_script_path(video_file)),
             ],
         ),
         # UPDATED: Phase 2 - Transcription (was Phase 1)
@@ -1033,10 +1007,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 min_duration=startup.min_duration,
                 pad_sec=startup.pad_sec,
                 target_length=startup.target_length,
-                trim_script_bundle_dir=_trim_script_bundle_dir(video_file),
+                trim_script_path=_trim_script_path(video_file),
                 encoder=args.encoder,
                 title_font=startup.title_font,
-                max_output_seconds=max_output_seconds,
                 video_index=vi,
                 total_videos=vn,
                 enable_title_overlay=startup.enable_title_overlay,
@@ -1054,17 +1027,14 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                             "title empty"
                             if not _title_text(video_file)
                             else (
-                                "trim scripts missing (run phase 0 first)"
-                                if not is_trim_script_bundle_ready(
+                                "trim script missing (run phase 0 first)"
+                                if not is_trim_script_ready(
                                     input_file=video_file,
                                     temp_dir=temp_dir,
                                     target_length=startup.target_length,
                                     noise_threshold=startup.noise_threshold,
                                     min_duration=startup.min_duration,
                                     pad_sec=startup.pad_sec,
-                                    title_overlay_enabled=startup.enable_title_overlay,
-                                    title_y_fraction=getattr(args, "title_y_fraction", None),
-                                    logo_overlay_enabled=(startup.enable_logo_overlay and DEFAULT_LOGO_PATH.is_file()),
                                 )
                                 else None
                             )
@@ -1076,7 +1046,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 str(get_completed_path(temp_dir, video_file.stem)),
                 str(get_transcript_path(temp_dir, video_file.stem)),
                 str(get_title_path(temp_dir, video_file.stem)),
-                str(_trim_script_bundle_dir(video_file)),
+                str(_trim_script_path(video_file)),
             ],
         ),
         # UPDATED: Phase 8 - Video Reconciliation (delete server video if local title differs)
