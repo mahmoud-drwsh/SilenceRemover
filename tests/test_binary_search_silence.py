@@ -59,39 +59,25 @@ class TestBinarySearchConstants:
 
 
 class TestCacheFilenameEncoding:
-    """Verify fractional value encoding for cache filenames."""
-    
-    def test_encode_min_duration_three_decimals(self):
-        """Min duration should encode to 3 decimal places."""
-        from packages.sr_silence_detection._cache import _encode_min_duration
-        assert _encode_min_duration(0.1) == "0_100"
-        assert _encode_min_duration(0.375) == "0_375"
-        assert _encode_min_duration(0.5) == "0_500"
-    
-    def test_encode_threshold_three_decimals_negative(self):
-        """Negative threshold should encode with 'neg' prefix and 3 decimals."""
-        from packages.sr_silence_detection._cache import _encode_threshold
-        assert _encode_threshold(-60.0) == "neg_60_000"
-        assert _encode_threshold(-59.75) == "neg_59_750"
-        assert _encode_threshold(-55.0) == "neg_55_000"
-        assert _encode_threshold(-30.0) == "neg_30_000"
-    
-    def test_encode_threshold_positive(self):
-        """Positive threshold should encode with 'pos' prefix and 3 decimals."""
-        from packages.sr_silence_detection._cache import _encode_threshold
-        assert _encode_threshold(30.0) == "pos_30_000"
-        assert _encode_threshold(0.0) == "pos_0_000"
-    
-    def test_primary_cache_path_format(self):
-        """Cache path should combine all components correctly."""
-        from packages.sr_silence_detection._cache import _get_primary_cache_path
-        from pathlib import Path
-        
+    """Verify single-file cache addressing for silence analysis."""
+
+    def test_cache_path_is_single_file_per_video(self):
+        """Each video should now map to one cache file."""
+        from packages.sr_silence_detection._cache import _get_cache_path
+
         temp_dir = Path("/tmp/temp")
-        path = _get_primary_cache_path(temp_dir, "Video", 0.375, -59.75)
-        
-        expected = temp_dir / "silence" / "Video_primary_0_375_neg_59_750.json"
+        path = _get_cache_path(temp_dir, "Video")
+
+        expected = temp_dir / "silence" / "Video.json"
         assert path == expected
+
+    def test_primary_cache_key_is_stable(self):
+        """Primary variants should be stored under stable in-file keys."""
+        from packages.sr_silence_detection._cache import _get_primary_cache_key
+
+        assert _get_primary_cache_key(0.1, -60.0) == "d:0.100|t:-60.000"
+        assert _get_primary_cache_key(0.375, -59.75) == "d:0.375|t:-59.750"
+        assert _get_primary_cache_key(0.5, 0.0) == "d:0.500|t:0.000"
 
 
 class TestBinarySearchAlgorithm:
