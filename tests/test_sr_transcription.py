@@ -116,6 +116,20 @@ class TestTranscribeWithOpenRouter:
                     api_key="test-key",
                     audio_path=audio_path,
                 )
+
+    def test_empty_audio_file_raises_before_provider_request(self, tmp_path):
+        """Test that zero-byte audio fails fast without hitting the provider."""
+        audio_path = tmp_path / "empty.ogg"
+        audio_path.write_bytes(b"")
+
+        with patch("sr_transcription.api._openrouter_request") as mock_request:
+            with pytest.raises(RuntimeError, match="empty"):
+                transcribe_with_openrouter(
+                    api_key="test-key",
+                    audio_path=audio_path,
+                )
+
+            mock_request.assert_not_called()
     
     def test_correct_api_arguments(self, tmp_path):
         """Test that correct arguments are passed to transport layer."""

@@ -71,6 +71,7 @@ def create_silence_removed_audio(
             output_audio_path=out_file,
             filter_script_path=filter_script_path,
             acodec=acodec,
+            has_video_output="[outv]" in artifact.filter_graph,
             max_duration=max_duration,
         ),
         command_label="Silence-removed audio",

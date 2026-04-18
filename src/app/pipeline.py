@@ -847,9 +847,14 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             skip_reason=lambda video_file: (
                 "transcript already exists"
                 if is_transcript_done(temp_dir, video_file.stem)
-                else None
+                else (
+                    "snippet missing or empty (run phase 1 first)"
+                    if not is_snippet_done(temp_dir, video_file.stem)
+                    else None
+                )
             ),
             checked_paths=lambda video_file: [
+                str(get_snippet_path(temp_dir, video_file.stem)),
                 str(get_transcript_path(temp_dir, video_file.stem)),
             ],
         ),

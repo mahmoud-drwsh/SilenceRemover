@@ -53,17 +53,26 @@ def build_silence_removed_audio_command(
     filter_script_path: Path,
     *,
     acodec: Sequence[str],
+    has_video_output: bool = False,
     max_duration: float | None = None,
 ) -> list[str]:
-    """Build audio-only silence-removed output command."""
+    """Build audio-only silence-removed output command.
+
+    When a shared trim script also exposes ``[outv]``, route it to a null muxer so
+    FFmpeg does not reject the graph for leaving the video pad unconnected.
+    """
     cmd = _build_input_command(input_file)
-    cmd.extend(["-vn"])
     add_filter_complex_script(cmd, filter_script_path)
     cmd.extend(["-map", "[outa]"])
     cmd.extend(acodec)
     if max_duration is not None:
         cmd.extend(["-t", str(max_duration)])
     cmd.append(str(output_audio_path))
+    if has_video_output:
+        cmd.extend(["-map", "[outv]"])
+        if max_duration is not None:
+            cmd.extend(["-t", str(max_duration)])
+        cmd.extend(["-f", "null", "-"])
     return cmd
 
 

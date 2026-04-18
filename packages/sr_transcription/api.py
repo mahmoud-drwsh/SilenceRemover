@@ -30,6 +30,10 @@ def transcribe_with_openrouter(
         Transcript text
     """
     audio_bytes = audio_path.read_bytes()
+    if not audio_bytes:
+        raise RuntimeError(
+            f"Audio file is empty: {audio_path.name}. Recreate the snippet before transcription."
+        )
     audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
     audio_format = audio_path.suffix.lstrip(".").lower()
