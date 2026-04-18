@@ -273,11 +273,6 @@ def _build_target_trim_plan(
         chosen_min_dur == _MIN_DURATIONS_TIERS[-1] and chosen_db == _DB_SEARCH_HIGH
     )
 
-    print(
-        f"Target mode (binary search): chosen noise_threshold={chosen_db}dB, "
-        f"min_duration={chosen_min_dur}s, pad={pad_sec}s, "
-        f"used_most_aggressive={used_most_aggressive}"
-    )
     return TrimPlan(
         mode="target",
         segments_to_keep=segments_to_keep,

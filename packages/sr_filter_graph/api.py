@@ -6,8 +6,6 @@ no side effects.
 """
 
 from sr_filter_graph._concat import (
-    build_audio_concat_filter_graph,
-    build_filter_graph_script,
     build_video_audio_concat_filter_graph,
     build_video_lavfi_audio_concat_filter_graph,
 )

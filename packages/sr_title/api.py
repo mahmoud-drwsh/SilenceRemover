@@ -1,7 +1,6 @@
 """Title generation from transcript using OpenRouter."""
 
 import json
-import sys
 from pathlib import Path
 
 from openrouter_transport import request as openrouter_request
@@ -77,17 +76,7 @@ def _parse_title_candidates_json(raw: str, expected: int) -> list[str]:
     if not out:
         raise RuntimeError("Title batch JSON contained no non-empty title strings")
 
-    if len(out) < expected:
-        print(
-            f"Title batch returned {len(out)} unique candidate(s); expected {expected}. "
-            "Proceeding with available candidates.",
-            file=sys.stderr,
-        )
-    elif len(out) > expected:
-        print(
-            f"Title batch returned {len(out)} unique candidates; using first {expected} only.",
-            file=sys.stderr,
-        )
+    if len(out) > expected:
         out = out[:expected]
     return out
 
@@ -178,9 +167,6 @@ def _evaluate_title_candidates(
     messages = [
         {"role": "user", "content": [{"type": "text", "text": prompt}]},
     ]
-    print(
-        f"Scoring {len(candidates)} title candidates in one call with model: {model}"
-    )
     raw = openrouter_request(api_key, model, messages, log_dir=log_dir)
     return _parse_title_evaluation_json(str(raw), n=len(candidates))
 
@@ -202,10 +188,6 @@ def _select_title_by_scores(
         key=lambda i: _selection_sort_key(transcript, candidates[i], i),
     )
     v, c = scores[best_i]
-    print(
-        f"Selected candidate index {best_i} (combined={best}, "
-        f"verbatim={v}, correctness={c})."
-    )
     return candidates[best_i]
 
 
@@ -225,9 +207,6 @@ def _generate_title_candidates(
     messages = [
         {"role": "user", "content": [{"type": "text", "text": prompt}]},
     ]
-    print(
-        f"Generating {target_count} title candidates in one call with model: {verifier_model}"
-    )
     raw = openrouter_request(api_key, verifier_model, messages, log_dir=log_dir)
     return _parse_title_candidates_json(str(raw), expected=target_count)
 
@@ -274,47 +253,28 @@ def generate_title_with_openrouter(
         raise RuntimeError("Transcript is empty; cannot generate title.")
 
     # Phase 1: one generation call for the candidate pool.
-    try:
-        candidates = _generate_title_candidates(
-            api_key,
-            model,
-            title_source_transcript,
-            target_count=_TITLE_CANDIDATE_TARGET_COUNT,
-            log_dir=log_dir,
-        )
-    except RuntimeError as e:
-        print(f"Title batch generation failed: {e}", file=sys.stderr)
-        raise
+    candidates = _generate_title_candidates(
+        api_key,
+        model,
+        title_source_transcript,
+        target_count=_TITLE_CANDIDATE_TARGET_COUNT,
+        log_dir=log_dir,
+    )
     if not candidates:
-        print(
-            "Title generation produced no usable candidates.",
-            file=sys.stderr,
-        )
         raise RuntimeError("Title generation returned empty response")
 
     # Phase 2: one scoring call (verbatim + correctness per candidate), then argmax + tie-break.
-    try:
-        score_rows = _evaluate_title_candidates(
-            api_key,
-            model,
-            title_source_transcript,
-            candidates,
-            log_dir,
-        )
-    except RuntimeError as e:
-        print(f"Title batch scoring failed: {e}", file=sys.stderr)
-        raise
-
-    for i, (v, c) in enumerate(score_rows):
-        print(
-            f"  Candidate {i}: verbatim={v}, correctness={c}, combined={v + c}",
-            file=sys.stderr,
-        )
+    score_rows = _evaluate_title_candidates(
+        api_key,
+        model,
+        title_source_transcript,
+        candidates,
+        log_dir,
+    )
 
     raw_title = _select_title_by_scores(title_source_transcript, candidates, score_rows)
 
     if not raw_title:
-        print("Title selection produced empty result.", file=sys.stderr)
         raise RuntimeError("Title generation returned empty response")
 
     return raw_title
@@ -340,7 +300,6 @@ def generate_title_from_transcript(
         RuntimeError: If the transcript file is empty/whitespace-only (no title file written)
             or title generation fails.
     """
-    print(f"Reading transcript from: {transcript_path}")
     transcript = transcript_path.read_text(encoding="utf-8").strip()
     if not transcript:
         raise RuntimeError(
@@ -353,7 +312,6 @@ def generate_title_from_transcript(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(title_text, encoding="utf-8")
-    print(f"Title saved to: {output_path}")
 
 
 __all__ = [

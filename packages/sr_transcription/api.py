@@ -72,7 +72,6 @@ def transcribe_and_save(
     Raises:
         RuntimeError: If the model returns empty or whitespace-only text (nothing is written).
     """
-    print(f"Transcribing audio: {audio_path.name}")
     transcript_text = transcribe_with_openrouter(api_key, audio_path, model, log_dir)
     if not transcript_text.strip():
         raise RuntimeError(
@@ -81,7 +80,6 @@ def transcribe_and_save(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(transcript_text, encoding="utf-8")
-    print(f"Transcript saved to: {output_path}")
 
 
 __all__ = ["DEFAULT_MODEL", "transcribe_with_openrouter", "transcribe_and_save"]

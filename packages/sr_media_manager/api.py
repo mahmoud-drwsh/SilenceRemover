@@ -359,9 +359,6 @@ class MediaManagerClient:
                 response_json = resp.json()
                 overwritten = response_json.get('overwritten', False) if isinstance(response_json, dict) else False
 
-                if overwritten:
-                    print(f"[Media Manager] Video {file_id} overwritten on server")
-
                 return {
                     'success': True,
                     'uploaded': True,

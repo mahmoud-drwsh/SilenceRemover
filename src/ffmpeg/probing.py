@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 import unicodedata
 from pathlib import Path
 from typing import Sequence
@@ -14,7 +13,7 @@ from src.core.constants import (
     FINAL_VIDEO_SOURCE_METADATA_KEY,
     LEGACY_FINAL_VIDEO_SOURCE_METADATA_KEY,
 )
-from src.ffmpeg.core import build_ffmpeg_cmd, build_ffprobe_cmd
+from src.ffmpeg.core import build_ffmpeg_cmd
 from src.ffmpeg.runner import run
 from sr_ffmpeg_cmd_builder import (
     build_encoder_probe_command,
@@ -23,7 +22,6 @@ from sr_ffmpeg_cmd_builder import (
     build_ffprobe_metadata_command,
     build_ffprobe_stream_dimensions_command,
 )
-from sr_progress_formatter import parse_ffmpeg_encoder_lines
 
 
 def probe_has_audio_stream(input_file: Path) -> bool:

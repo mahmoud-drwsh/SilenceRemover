@@ -1,0 +1,207 @@
+pipeline:
+  phase_1_snippet_creation:
+    skip_conditions:
+      - condition: "snippet already exists and is non-empty"
+        checked_path_templates:
+          - "temp_dir/snippet/{basename}.ogg"
+        checked_runtime_templates:
+          - "is_snippet_done(temp_dir, basename) -> path exists and stat().st_size > 0"
+    robustness: "good; this is content-aware enough for a generated binary artifact"
+
+  phase_2_transcription:
+    skip_conditions:
+      - condition: "transcript already exists and has non-whitespace UTF-8 content"
+        checked_path_templates:
+          - "temp_dir/transcript/{basename}.txt"
+        checked_runtime_templates:
+          - "is_transcript_done(temp_dir, basename) -> path exists and read_text(...).strip() is non-empty"
+    robustness: "good; invalid UTF-8 or whitespace-only transcripts are treated as not done"
+
+  phase_3_title_generation:
+    skip_conditions:
+      - condition: "title file already exists"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - "is_title_done(temp_dir, basename) -> path.exists() only"
+    robustness: "weak; skip logic is existence-only and does not validate non-empty title content"
+    concerns:
+      - "there is no skip-time check for transcript readiness here; phase execution relies on upstream ordering and the title generator itself"
+      - "an empty or whitespace-only existing title file still counts as done for skip purposes"
+
+  phase_4_audio_upload:
+    skip_conditions:
+      - condition: "media manager disabled or server cache unavailable"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - "server_cache is None"
+      - condition: "audio marked trash on server"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.is_audio_trash("{basename}")'
+      - condition: "snippet or title missing"
+        checked_path_templates:
+          - "temp_dir/snippet/{basename}.ogg"
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - "is_snippet_done(temp_dir, basename)"
+          - "is_title_done(temp_dir, basename)"
+      - condition: "audio already uploaded with the same title"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - 'server_cache.get_audio("{basename}")'
+          - 'server_cache.get_audio("{basename}")["title"].strip() == local title text'
+    robustness: "reasonable, but title readiness is existence-only because it reuses is_title_done()"
+
+  phase_5_overlay_generation:
+    skip_conditions:
+      - condition: "title missing"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - "is_title_done(temp_dir, basename)"
+      - condition: "overlay already generated for the current title text"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+          - "temp_dir/overlay_done/{basename}.txt"
+        checked_runtime_templates:
+          - "is_overlay_done(temp_dir, basename) -> overlay marker text equals current title text"
+    robustness: "good; overlay invalidation is tied to current title content, not just marker existence"
+
+  phase_6_final_encode:
+    skip_conditions:
+      - condition: "already completed"
+        checked_path_templates:
+          - "temp_dir/completed/{basename}.txt"
+        checked_runtime_templates:
+          - "is_completed(temp_dir, basename) -> completion marker exists only"
+      - condition: "transcript missing or unusable"
+        checked_path_templates:
+          - "temp_dir/transcript/{basename}.txt"
+        checked_runtime_templates:
+          - "is_transcript_done(temp_dir, basename)"
+      - condition: "title missing"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - "is_title_done(temp_dir, basename)"
+      - condition: "title empty after reading local title file"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - 'get_title_path(...).read_text(...).strip() == ""'
+    robustness: "mixed; transcript/title emptiness is checked, but completion still trusts the marker file alone"
+    concerns:
+      - "completed skip does not verify that the referenced MP4 exists in output_dir"
+      - "completed skip does not verify that completed.txt contains a non-empty output basename"
+
+  phase_7_video_reconciliation:
+    skip_conditions:
+      - condition: "media manager disabled or server cache unavailable"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - "server_cache is None"
+      - condition: "title missing"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - "is_title_done(temp_dir, basename)"
+      - condition: "title empty"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - 'get_title_path(...).read_text(...).strip() == ""'
+      - condition: "video not found on server"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.get_video("{basename}") is falsy'
+      - condition: "server title already matches local title"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - 'server_cache.get_video("{basename}")["title"].strip() == local title text'
+    robustness: "reasonable; this phase is only entered when a server-side video exists and differs by title"
+
+  phase_8_video_upload:
+    skip_conditions:
+      - condition: "final encode not completed"
+        checked_path_templates:
+          - "temp_dir/completed/{basename}.txt"
+        checked_runtime_templates:
+          - "is_completed(temp_dir, basename)"
+      - condition: "title missing"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - "is_title_done(temp_dir, basename)"
+      - condition: "media manager disabled or server cache unavailable"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - "server_cache is None"
+      - condition: "title empty"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - 'get_title_path(...).read_text(...).strip() == ""'
+      - condition: "already published"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.get_video("{basename}")["tags"] contains "FB" or "TT"'
+      - condition: "already pending"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.get_video("{basename}")["tags"] contains "pending"'
+      - condition: "video trashed on server"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.get_video("{basename}") is truthy and server_cache.is_video_trash("{basename}")'
+      - condition: "title mismatch; reconciliation required first"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - 'server_cache.get_video("{basename}") is truthy'
+          - 'server_cache.get_video("{basename}")["title"].strip() != local title text'
+    robustness: "mixed; server-side skip gating is solid, but local completion/output resolution is still permissive"
+    output_filename_resolution:
+      preferred_source: "completed.txt"
+      checked_path_templates:
+        - "temp_dir/completed/{basename}.txt"
+        - "output_dir/{completed_output_filename}.mp4"
+        - "output_dir/{sanitize_filename(title)}.mp4"
+      current_behavior:
+        - "tries get_completed_output_filename(temp_dir, basename) first"
+        - "falls back to sanitize_filename(local_title) when completed.txt is missing, unreadable, or empty"
+        - "does not preflight-check that the chosen MP4 exists before attempting upload"
+      linkage_note: "completed.txt is intended to carry the final rendered basename, but Phase 8 still keeps a title-derived fallback for backward compatibility"
+    concerns:
+      - "Phase 8 does not strictly require a readable completion marker payload yet"
+      - "a missing final MP4 will fail during upload rather than being converted into a skip reason"
+
+  phase_9_publish_video:
+    skip_conditions:
+      - condition: "media manager disabled or server cache unavailable"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - "server_cache is None"
+      - condition: "audio not ready"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.is_audio_ready("{basename}") is False'
+      - condition: "video not found on server"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.get_video("{basename}") is falsy'
+      - condition: "already published"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.get_video("{basename}")["tags"] contains "FB" or "TT"'
+    robustness: "reasonable; this phase only depends on current server-cache state"
+
+summary:
+  phases_1_to_2: "content-aware and fairly robust"
+  phase_3: "weakest local skip because title readiness is path existence only"
+  phases_4_to_5: "generally solid, with title checks still inheriting existence-only semantics where is_title_done() is used"
+  phase_6: "brittle around completed.txt because completion is trusted without verifying the actual MP4"
+  phase_8: "brittle around output-file resolution because it still falls back from completed.txt to sanitize_filename(title)"
+  media_manager_rule: "server-driven skip decisions are based on cached audio/video metadata refreshed after reconciliation and upload phases"

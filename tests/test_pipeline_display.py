@@ -69,12 +69,7 @@ def test_run_phase_step_flushes_tty_line_before_error_output(monkeypatch) -> Non
     result = pipeline._run_phase_step(
         video_path=Path("broken.mkv"),
         already_done=False,
-        already_done_message="",
         work_fn=lambda: (_ for _ in ()).throw(RuntimeError("boom")),
-        success_message="",
-        failure_label="Phase 1",
-        phase_index=1,
-        total_phases=9,
         video_index=1,
         total_videos=3,
         label="Snippet Creation",

@@ -98,7 +98,6 @@ def create_silence_removed_audio(
         if max_duration is not None:
             duration_sec = min(duration_sec, max_duration)
         duration_sec = max(0.1, float(duration_sec))
-        print("Warning: Input has no audio stream; writing silent audio for transcription/snippet.")
         return run_minimal_ffmpeg_output(
             output_file=output_audio_path,
             cmd=build_silent_audio_file_command(
@@ -114,7 +113,6 @@ def create_silence_removed_audio(
     )
 
     if len(segments_to_keep) == 0:
-        print("Warning: All audio detected as silence. Creating minimal audio.")
         if not probe_has_audio_stream(input_file):
             duration_sec = max(0.1, float(probe_duration(input_file)))
             if max_duration is not None:

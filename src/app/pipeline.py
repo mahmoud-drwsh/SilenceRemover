@@ -17,7 +17,9 @@ from src.core.constants import (
     TITLE_DIR,
 )
 from src.core.paths import (
+    get_completed_path,
     get_completed_output_filename,
+    get_overlay_done_path,
     get_snippet_path,
     get_title_path,
     get_transcript_path,
@@ -60,6 +62,7 @@ class _PipelinePhase:
     label: str
     run: Callable[[Path, int, int], bool | None]
     skip_reason: Callable[[Path], str | None] | None = None
+    checked_paths: Callable[[Path], list[str]] | None = None
 
 
 class _ConsolePhaseProgress:
@@ -93,6 +96,20 @@ class _ConsolePhaseProgress:
             self._skip_line_open = True
         else:
             self.stream.write(f"{message}\n")
+        self.stream.flush()
+
+    def show_failure(self, name: str, reason: str) -> None:
+        self.finish_line()
+        self.stream.write(f"  failed: {name} ({reason})\n")
+        self.stream.flush()
+
+    def show_check(self, name: str, paths: list[str]) -> None:
+        self.finish_line()
+        if paths:
+            checked = " | ".join(paths)
+        else:
+            checked = "(no path)"
+        self.stream.write(f"  check: {name} -> {checked}\n")
         self.stream.flush()
 
     def finish_line(self) -> None:
@@ -129,13 +146,21 @@ def _run_phase(
     phase_progress.start_phase(phase.label)
 
     for i, video_file in enumerate(videos, 1):
+        if phase.checked_paths is not None:
+            phase_progress.show_check(video_file.name, phase.checked_paths(video_file))
         if phase.skip_reason is not None:
             reason = phase.skip_reason(video_file)
             if reason:
                 skip_count += 1
                 phase_progress.show_skip(video_file.name, reason)
                 continue
-        result = phase.run(video_file, i, n)
+        try:
+            result = phase.run(video_file, i, n)
+        except Exception as err:
+            fail_count += 1
+            reason = str(err).strip() or err.__class__.__name__
+            phase_progress.show_failure(video_file.name, reason)
+            continue
         if result is True:
             success_count += 1
         elif result is None:
@@ -166,11 +191,10 @@ def _run_phase_step(
     try:
         work_fn()
         return True
-    except ValueError:
+    except Exception as err:
         phase_progress.finish_line()
-        return False
-    except Exception:
-        phase_progress.finish_line()
+        reason = str(err).strip() or err.__class__.__name__
+        phase_progress.show_failure(video_path.name, reason)
         return False
 
 
@@ -702,6 +726,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 if is_snippet_done(temp_dir, video_file.stem)
                 else None
             ),
+            checked_paths=lambda video_file: [
+                str(get_snippet_path(temp_dir, video_file.stem)),
+            ],
         ),
         # UPDATED: Phase 2 - Transcription (was Phase 1)
         _PipelinePhase(
@@ -718,12 +745,11 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             skip_reason=lambda video_file: (
                 "transcript already exists"
                 if is_transcript_done(temp_dir, video_file.stem)
-                else (
-                    "snippet missing (run phase 1 first)"
-                    if not is_snippet_done(temp_dir, video_file.stem)
-                    else None
-                )
+                else None
             ),
+            checked_paths=lambda video_file: [
+                str(get_transcript_path(temp_dir, video_file.stem)),
+            ],
         ),
         # UPDATED: Phase 3 - Title Generation (was Phase 2)
         _PipelinePhase(
@@ -739,12 +765,11 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             skip_reason=lambda video_file: (
                 "title already exists"
                 if is_title_done(temp_dir, video_file.stem)
-                else (
-                    "transcript missing (run phase 2 first)"
-                    if not is_transcript_done(temp_dir, video_file.stem)
-                    else None
-                )
+                else None
             ),
+            checked_paths=lambda video_file: [
+                str(get_title_path(temp_dir, video_file.stem)),
+            ],
         ),
         # UPDATED: Phase 4 - Audio Upload (was Phase 3)
         _PipelinePhase(
@@ -778,6 +803,11 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                     )
                 )
             ),
+            checked_paths=lambda video_file: [
+                str(get_snippet_path(temp_dir, video_file.stem)),
+                str(get_title_path(temp_dir, video_file.stem)),
+                f"server:audio/{video_file.stem}",
+            ],
         ),
         # UPDATED: Phase 5 - Overlay Generation
         _PipelinePhase(
@@ -803,6 +833,10 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                     else None
                 )
             ),
+            checked_paths=lambda video_file: [
+                str(get_title_path(temp_dir, video_file.stem)),
+                str(get_overlay_done_path(temp_dir, video_file.stem)),
+            ],
         ),
         # UPDATED: Phase 6 - Final Encode (was Phase 5)
         _PipelinePhase(
@@ -841,6 +875,11 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                     )
                 )
             ),
+            checked_paths=lambda video_file: [
+                str(get_completed_path(temp_dir, video_file.stem)),
+                str(get_transcript_path(temp_dir, video_file.stem)),
+                str(get_title_path(temp_dir, video_file.stem)),
+            ],
         ),
         # NEW: Phase 7 - Video Reconciliation (delete server video if local title differs)
         _PipelinePhase(
@@ -874,6 +913,10 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                     )
                 )
             ),
+            checked_paths=lambda video_file: [
+                str(get_title_path(temp_dir, video_file.stem)),
+                f"server:video/{video_file.stem}",
+            ],
         ),
         # NEW: Phase 8 - Video Upload (with pending tags, handles trash re-upload)
         _PipelinePhase(
@@ -933,6 +976,11 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                     )
                 )
             ),
+            checked_paths=lambda video_file: [
+                str(get_completed_path(temp_dir, video_file.stem)),
+                str(get_title_path(temp_dir, video_file.stem)),
+                f"server:video/{video_file.stem}",
+            ],
         ),
         # UPDATED: Phase 9 - Publish Video (was Phase 8)
         _PipelinePhase(
@@ -966,6 +1014,10 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                     )
                 )
             ),
+            checked_paths=lambda video_file: [
+                f"server:audio/{video_file.stem}",
+                f"server:video/{video_file.stem}",
+            ],
         ),
     )
 

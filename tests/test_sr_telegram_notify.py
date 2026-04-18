@@ -17,29 +17,20 @@ from sr_telegram_notify import notify_final_encoding_started, notify_final_outpu
 
 
 class TestTelegramNotify(unittest.TestCase):
-    def setUp(self) -> None:
-        telegram_api._half_config_warned = False
-
     @patch.dict("os.environ", {}, clear=True)
     @patch.object(telegram_api, "send_message_text")
     def test_noop_when_unconfigured(self, send_mock: MagicMock) -> None:
         notify_final_output_ready(
-            phase_index=3,
-            total_phases=3,
             video_index=2,
             total_videos=5,
             input_name="clip.mp4",
             title="Hello",
-            output_mp4=Path("out.mp4"),
         )
         notify_final_encoding_started(
-            phase_index=3,
-            total_phases=3,
             video_index=2,
             total_videos=5,
             input_name="clip.mp4",
             title="Hello",
-            output_mp4=Path("out.mp4"),
         )
         send_mock.assert_not_called()
 
@@ -51,13 +42,10 @@ class TestTelegramNotify(unittest.TestCase):
     @patch.object(telegram_api, "send_message_text")
     def test_sends_message_with_progress(self, send_mock: MagicMock) -> None:
         notify_final_output_ready(
-            phase_index=3,
-            total_phases=3,
             video_index=2,
             total_videos=5,
             input_name="clip.mp4",
             title="My Title",
-            output_mp4=Path("/tmp/FinalName.mp4"),
         )
         send_mock.assert_called_once()
         kwargs = send_mock.call_args.kwargs
@@ -78,13 +66,10 @@ class TestTelegramNotify(unittest.TestCase):
     @patch.object(telegram_api, "send_message_text")
     def test_started_message_includes_progress(self, send_mock: MagicMock) -> None:
         notify_final_encoding_started(
-            phase_index=3,
-            total_phases=3,
             video_index=1,
             total_videos=3,
             input_name="a.mp4",
             title="T",
-            output_mp4=Path("planned.mp4"),
         )
         send_mock.assert_called_once()
         text = send_mock.call_args.kwargs["text"]
@@ -103,13 +88,10 @@ class TestTelegramNotify(unittest.TestCase):
         err = io.StringIO()
         with patch.object(telegram_api.sys, "stderr", err):
             notify_final_output_ready(
-                phase_index=3,
-                total_phases=3,
                 video_index=1,
                 total_videos=1,
                 input_name="a.mp4",
                 title="t",
-                output_mp4=Path("o.mp4"),
             )
         self.assertIn("Telegram notification failed", err.getvalue())
 
@@ -123,13 +105,10 @@ class TestTelegramNotify(unittest.TestCase):
         err = io.StringIO()
         with patch.object(telegram_api.sys, "stderr", err):
             notify_final_output_ready(
-                phase_index=3,
-                total_phases=3,
                 video_index=1,
                 total_videos=1,
                 input_name="a.mp4",
                 title="t",
-                output_mp4=Path("o.mp4"),
             )
         send_mock.assert_not_called()
         self.assertIn("TELEGRAM_BOT_TOKEN", err.getvalue())

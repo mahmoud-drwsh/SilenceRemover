@@ -52,19 +52,11 @@ def run_silence_removed_media(
 
     cmd = build_command(input_file, output_file, filter_script_path)
     if expected_total_seconds is not None:
-        emitted_progress = False
-
-        def _on_progress(percent: int, ffmpeg_seconds: float) -> None:
-            nonlocal emitted_progress
-            emitted_progress = True
-            if on_progress is not None:
-                on_progress(percent, ffmpeg_seconds)
-
         try:
             run_with_progress(
                 cmd,
                 expected_total_seconds=expected_total_seconds,
-                on_progress=_on_progress,
+                on_progress=on_progress,
             )
         except subprocess.CalledProcessError as exc:
             if command_label is None:
