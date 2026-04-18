@@ -138,18 +138,14 @@ def is_logo_overlay_ready(
     temp_dir: Path,
     enable_logo_overlay: bool,
 ) -> bool:
-    """Return True when the expected pre-scaled logo asset already exists."""
+    """Return True when the expected pre-scaled logo asset file exists."""
     if not enable_logo_overlay or not DEFAULT_LOGO_PATH.is_file():
         return False
 
     try:
         target_width_px = _resolve_logo_target_width(input_file)
         candidate = _get_prescaled_logo_path(temp_dir, target_width_px=target_width_px)
-        if not candidate.is_file():
-            return False
-        actual_width, _actual_height = probe_video_dimensions(candidate)
-        probe_ffmpeg_can_decode_image_frame(candidate)
-        return actual_width == target_width_px
+        return candidate.is_file()
     except (OSError, RuntimeError, ValueError):
         return False
 
