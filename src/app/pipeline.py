@@ -908,9 +908,8 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                             and is_snippet_done(temp_dir, video_file.stem)
                         )
                         else (
-                            "audio already uploaded with same title"
-                            if _audio_meta(video_file).get("title", "").strip() == _title_text(video_file)
-                            and _audio_meta(video_file)
+                            "audio already exists on server"
+                            if _audio_meta(video_file)
                             else None
                         )
                     )

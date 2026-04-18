@@ -62,12 +62,10 @@ pipeline
 │   │   │   └── checked_runtime_templates
 │   │   │       ├── is_snippet_done(temp_dir, basename)
 │   │   │       └── is_title_done(temp_dir, basename)
-│   │   └── audio already uploaded with the same title
+│   │   └── audio already exists on server
 │   │       ├── checked_path_templates
-│   │       │   └── temp_dir/title/{basename}.txt
 │   │       └── checked_runtime_templates
-│   │           ├── server_cache.get_audio("{basename}")
-│   │           └── server_cache.get_audio("{basename}")["title"].strip() == local title text
+│   │           └── server_cache.get_audio("{basename}") is truthy
 │   └── robustness
 │       └── reasonable, but title readiness is existence-only because it reuses is_title_done()
 ├── phase_5_title_overlay_generation
