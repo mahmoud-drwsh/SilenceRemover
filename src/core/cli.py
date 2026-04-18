@@ -108,6 +108,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--pad-sec",
+        type=_positive_float,
+        default=None,
+        help=(
+            "Padding to keep around retained segments in seconds. Overrides config defaults. "
+            "In non-target mode the default is 0.5 seconds."
+        ),
+    )
+    parser.add_argument(
         "--title-font",
         type=str,
         default=TITLE_FONT_DEFAULT,

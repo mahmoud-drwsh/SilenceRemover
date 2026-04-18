@@ -9,7 +9,7 @@ if (-not (Test-Path $inputDir)) {
     exit 1
 }
 
-& uv run main.py $inputDir --encoder QSV --noise-threshold -40 --min-duration 1.0
+& uv run main.py $inputDir --encoder QSV --noise-threshold -40 --min-duration 1.0 --pad-sec 0.5
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Pipeline failed with exit code $LASTEXITCODE"

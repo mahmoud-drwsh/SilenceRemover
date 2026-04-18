@@ -52,6 +52,7 @@ def build_startup_context(args: Namespace) -> StartupContext:
         target_length=args.target_length,
         noise_threshold=args.noise_threshold,
         min_duration=args.min_duration,
+        pad_sec=getattr(args, "pad_sec", None),
     )
 
     pad_sec = trim_defaults.pad_sec
