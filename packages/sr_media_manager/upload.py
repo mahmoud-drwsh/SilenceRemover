@@ -115,8 +115,6 @@ def ensure_audio_uploaded(
         # Upload with todo tag for review
         return client.upload_audio(file_id, title, Path(audio_path), tags=['todo'])
     except Exception as e:
-        # Log and continue (don't block pipeline)
-        print(f"Warning: Audio upload failed for {file_id}: {e}")
         return False
 
 
@@ -172,9 +170,7 @@ def ensure_video_uploaded(
 
         return result
     except Exception as e:
-        # Log and continue (don't block pipeline)
         error_msg = str(e)
-        print(f"Warning: Video upload failed for {file_id}: {error_msg}")
         return {
             'success': False,
             'uploaded': False,

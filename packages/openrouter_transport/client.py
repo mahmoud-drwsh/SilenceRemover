@@ -2,7 +2,6 @@
 
 import random
 import re
-import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -212,12 +211,6 @@ def request(
                     normalized = str(content).strip()
 
                 if not normalized:
-                    preview = input_log_text[:400] if input_log_text else "<no input captured>"
-                    print(
-                        f"OpenRouter returned empty response for model {model}. "
-                        f"Input preview:\n{preview}",
-                        file=sys.stderr,
-                    )
                     if log_dir:
                         _append_openrouter_log(log_dir, model, input_log_text, "[EMPTY RESPONSE]")
                         _append_openrouter_error_log(

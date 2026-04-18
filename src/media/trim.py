@@ -2,7 +2,7 @@
 
 import shutil
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 from src.core.constants import (
     DEFAULT_LOGO_PATH,
@@ -13,7 +13,7 @@ from src.core.constants import (
     TITLE_BANNER_START_FRACTION,
     TITLE_FONT_DEFAULT,
 )
-from src.ffmpeg.encoding_resolver import VideoEncoderProfile, get_encoder_config
+from src.ffmpeg.encoding_resolver import get_encoder_config
 from sr_filter_graph import (
     build_video_audio_concat_filter_graph,
     build_video_audio_concat_filter_graph_with_title_overlay,
@@ -251,9 +251,6 @@ def trim_single_video(
 
     segments_to_keep = plan.segments_to_keep
     duration_sec = plan.input_duration_sec
-    resolved_noise_threshold = plan.resolved_noise_threshold
-    resolved_min_duration = plan.resolved_min_duration
-    resolved_pad_sec = plan.resolved_pad_sec
     encoder = encoder or get_encoder_config("X265")["codec"]
     use_qsv_hardware_path = encoder == "hevc_qsv"
     resulting_length = plan.resulting_length_sec
@@ -281,7 +278,7 @@ def trim_single_video(
             processing_output = get_processing_video_path(temp_dir_resolved, basename)
             processing_output.parent.mkdir(parents=True, exist_ok=True)
 
-            result_path = run_minimal_ffmpeg_output(
+            run_minimal_ffmpeg_output(
                 output_file=processing_output,
                 cmd=build_minimal_video_command(
                     input_file=input_file,
@@ -372,7 +369,6 @@ def trim_single_video(
             build_filter_graph=filter_builder,
             build_command=_build_ffmpeg_command,
             expected_total_seconds=resulting_length if resulting_length > 0 else duration_sec,
-            on_progress=lambda p, s: None,
             command_label=f"{encoder} encode",
             overlay_y=banner_top,
         )

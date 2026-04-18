@@ -216,3 +216,6 @@ After code or config changes, agents append short notes here. When this file gro
 - `docs/SKIP_CONDITIONS.yaml`: Replaced paraphrased skip conditions with the exact skip strings and ordering used in `src/app/pipeline.py` so the doc matches runtime output.
 - `docs/SKIP_CONDITIONS.yaml`: Expanded each skip condition entry with the exact checked temp-path template and, where applicable, the runtime server-cache lookup template used by the code.
 - `src/core/cli.py` / `src/startup/bootstrap.py` / `pwsh/Start-HorizontalVideoProcessing.ps1`: Added explicit CLI support for `--pad-sec` and set the horizontal PowerShell launcher to pass `--pad-sec 0.5`.
+- `src/app/pipeline.py`: Added per-phase `check:` logging before skip evaluation so each file now prints the exact local path(s) and Media Manager pseudo-path(s) consulted for that phase before skip/run is decided.
+- `src/app/pipeline.py`: Simplified Phase 3 (`Title Generation`) skip gating so it only pre-checks whether `temp/title/{basename}.txt` exists; missing transcripts now fail during execution instead of being pre-skipped.
+- `src/app/pipeline.py` / `docs/SKIP_CONDITIONS.yaml`: Simplified Phase 2 transcription skip gating to check only `temp_dir/transcript/{basename}.txt`; it no longer skips early based on the snippet path.

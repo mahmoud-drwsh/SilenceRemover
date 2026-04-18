@@ -1,0 +1,170 @@
+pipeline:
+  phase_1_snippet_creation:
+    skip_conditions:
+      - condition: "snippet already exists"
+        checked_path_templates:
+          - "temp_dir/snippet/{basename}.ogg"
+    robustness: "reasonable"
+
+  phase_2_transcription:
+    skip_conditions:
+      - condition: "transcript already exists"
+        checked_path_templates:
+          - "temp_dir/transcript/{basename}.txt"
+    robustness: "reasonable"
+
+  phase_3_title_generation:
+    skip_conditions:
+      - condition: "title already exists"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+      - condition: "transcript missing (run phase 2 first)"
+        checked_path_templates:
+          - "temp_dir/transcript/{basename}.txt"
+    robustness: "mostly okay, but it checks title file existence rather than non-empty content"
+
+  phase_4_audio_upload:
+    skip_conditions:
+      - condition: "media manager disabled"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - "server_cache is None"
+      - condition: "audio marked trash on server"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.audio_trash_ids contains "{basename}"'
+      - condition: "snippet/title missing (run phases 2-3 first)"
+        checked_path_templates:
+          - "temp_dir/snippet/{basename}.ogg"
+          - "temp_dir/title/{basename}.txt"
+      - condition: "audio already uploaded with same title"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - 'server_cache.audio_files["{basename}"].title'
+    robustness: "reasonable"
+
+  phase_5_overlay_generation:
+    skip_conditions:
+      - condition: "title missing (run phase 3 first)"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+      - condition: "overlay already generated for current title"
+        checked_path_templates:
+          - "temp_dir/overlay_done/{basename}.txt"
+          - "temp_dir/title/{basename}.txt"
+    robustness: "good, because overlay invalidation is tied to current title text"
+
+  phase_6_final_encode:
+    skip_conditions:
+      - condition: "already completed"
+        checked_path_templates:
+          - "temp_dir/completed/{basename}.txt"
+      - condition: "transcript missing (run phase 2 first)"
+        checked_path_templates:
+          - "temp_dir/transcript/{basename}.txt"
+      - condition: "title missing (run phase 3 first)"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+      - condition: "title empty"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+    robustness: "not fully robust"
+    concerns:
+      - "completed check only looks for completed.txt existence"
+      - "completed check does not verify that the actual MP4 exists"
+
+  phase_7_video_reconciliation:
+    skip_conditions:
+      - condition: "media manager disabled"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - "server_cache is None"
+      - condition: "title missing (run phase 3 first)"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+      - condition: "title empty"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+      - condition: "video not found on server"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.video_files["{basename}"]'
+      - condition: "title unchanged"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - 'server_cache.video_files["{basename}"].title'
+    robustness: "reasonable"
+
+  phase_8_video_upload:
+    skip_conditions:
+      - condition: "final encode not completed"
+        checked_path_templates:
+          - "temp_dir/completed/{basename}.txt"
+      - condition: "title missing (run phase 3 first)"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+      - condition: "media manager disabled"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - "server_cache is None"
+      - condition: "title empty"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+      - condition: "already published"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.video_files["{basename}"].tags'
+      - condition: "already pending"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.video_files["{basename}"].tags'
+      - condition: "video trashed on server"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.video_trash_ids contains "{basename}"'
+      - condition: "title mismatch; reconciliation required"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - 'server_cache.video_files["{basename}"].title'
+    robustness: "not fully robust"
+    output_filename_resolution:
+      preferred_source: "completed.txt"
+      checked_path_templates:
+        - "temp_dir/completed/{basename}.txt"
+        - 'output_dir/{completed_output_filename}.mp4'
+      current_behavior:
+        - "reads final output basename from completed.txt"
+        - "falls back to sanitize_filename(title) if completed.txt cannot be read"
+      required_behavior:
+        - "Media Manager video upload should resolve the final MP4 through completed.txt only"
+        - "if completed.txt is missing or empty, Phase 8 should skip or fail cleanly"
+        - "if completed.txt exists but the referenced MP4 is missing, the pipeline should treat that as not completed"
+    linkage_note: "completed.txt is the only durable link between the original input video basename and the final rendered MP4 basename"
+
+  phase_9_publish_video:
+    skip_conditions:
+      - condition: "media manager disabled"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - "server_cache is None"
+      - condition: "audio not ready"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.ready_audio_ids contains "{basename}"'
+      - condition: "video not found on server"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.video_files["{basename}"]'
+      - condition: "already published"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - 'server_cache.video_files["{basename}"].tags'
+
+summary:
+  phases_1_to_5: "mostly solid"
+  phase_6: "brittle because completed.txt is trusted without checking the MP4"
+  phase_8: "brittle because it can guess the output filename from title"
+  media_manager_rule: "filename resolution for final video upload should use completed.txt only"

@@ -1,15 +1,11 @@
 """Public API: optional text notifications for final encode start and completion."""
 
 from __future__ import annotations
-
-import sys
 from pathlib import Path
 
 from ._client import send_message_text
 
 _TELEGRAM_MAX_MESSAGE_LEN = 4096
-_half_config_warned = False
-
 
 def _env(name: str) -> str:
     import os
@@ -19,8 +15,6 @@ def _env(name: str) -> str:
 
 def _telegram_send_if_configured(text: str) -> None:
     """Send ``text`` if token and chat id are set; never raises."""
-    global _half_config_warned
-
     token = _env("TELEGRAM_BOT_TOKEN")
     chat_id = _env("TELEGRAM_CHAT_ID")
 
@@ -28,12 +22,6 @@ def _telegram_send_if_configured(text: str) -> None:
         return
 
     if bool(token) != bool(chat_id):
-        if not _half_config_warned:
-            _half_config_warned = True
-            print(
-                "Telegram: set both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, or neither.",
-                file=sys.stderr,
-            )
         return
 
     api_base = _env("TELEGRAM_API_BASE") or None
@@ -43,8 +31,8 @@ def _telegram_send_if_configured(text: str) -> None:
 
     try:
         send_message_text(token=token, chat_id=chat_id, text=text, api_base=api_base)
-    except Exception as exc:
-        print(f"Telegram notification failed: {exc}", file=sys.stderr)
+    except Exception:
+        pass
 
 
 def _progress_body(
@@ -61,14 +49,10 @@ def _progress_body(
 
 
 def notify_final_encoding_started(
-    *,
-    phase_index: int,
-    total_phases: int,
     video_index: int,
     total_videos: int,
     input_name: str,
     title: str,
-    output_mp4: Path,
 ) -> None:
     """Notify that Phase 6 final encoding is about to start (before FFmpeg)."""
     body = _progress_body(
@@ -81,14 +65,10 @@ def notify_final_encoding_started(
 
 
 def notify_final_output_ready(
-    *,
-    phase_index: int,
-    total_phases: int,
     video_index: int,
     total_videos: int,
     input_name: str,
     title: str,
-    output_mp4: Path,
 ) -> None:
     """Notify that Phase 6 encoding finished successfully."""
     body = _progress_body(
