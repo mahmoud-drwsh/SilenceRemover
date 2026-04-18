@@ -128,6 +128,157 @@ def _ensure_prescaled_logo(
     return output_logo_path
 
 
+def _resolve_logo_target_width(input_file: Path) -> int:
+    video_width, _video_height = probe_video_dimensions(input_file)
+    return max(1, int(video_width * LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO))
+
+
+def is_logo_overlay_ready(
+    input_file: Path,
+    temp_dir: Path,
+    enable_logo_overlay: bool,
+) -> bool:
+    """Return True when the expected pre-scaled logo asset already exists."""
+    if not enable_logo_overlay or not DEFAULT_LOGO_PATH.is_file():
+        return False
+
+    try:
+        target_width_px = _resolve_logo_target_width(input_file)
+        candidate = _get_prescaled_logo_path(temp_dir, target_width_px=target_width_px)
+        if not candidate.is_file():
+            return False
+        actual_width, _actual_height = probe_video_dimensions(candidate)
+        probe_ffmpeg_can_decode_image_frame(candidate)
+        return actual_width == target_width_px
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def prepare_title_overlay(
+    input_file: Path,
+    temp_dir: Path,
+    title_path: Path | None,
+    title_font: str | None,
+    enable_title_overlay: bool,
+    title_y_fraction: float | None,
+    title_height_fraction: float | None,
+) -> tuple[Path | None, int | None]:
+    """Generate the title overlay PNG and return (path, banner_top)."""
+    if title_path is None or not enable_title_overlay:
+        return (None, None)
+
+    try:
+        title_text = title_path.read_text(encoding="utf-8").strip()
+        if not title_text:
+            return (None, None)
+
+        video_width, video_height = probe_video_dimensions(input_file)
+        font_name = title_font or TITLE_FONT_DEFAULT
+        effective_height_fraction = (
+            title_height_fraction
+            if title_height_fraction is not None
+            else TITLE_BANNER_HEIGHT_FRACTION
+        )
+        effective_start_fraction = (
+            title_y_fraction
+            if title_y_fraction is not None
+            else TITLE_BANNER_START_FRACTION
+        )
+        banner_height = max(1, int(video_height * effective_height_fraction))
+        banner_top = int(video_height * effective_start_fraction)
+        basename = input_file.stem
+        return (
+            build_title_overlay(
+                title=title_text,
+                video_width=video_width,
+                banner_height=banner_height,
+                output_file=get_title_overlay_path(temp_dir, basename),
+                font_family=font_name,
+                font_cache_dir=get_font_cache_path(temp_dir),
+            ),
+            banner_top,
+        )
+    except (OSError, RuntimeError, ValueError):
+        return (None, None)
+
+
+def prepare_logo_overlay(
+    input_file: Path,
+    temp_dir: Path,
+    enable_logo_overlay: bool,
+) -> tuple[Path | None, bool]:
+    """Generate or reuse the pre-scaled logo PNG and return (path, enabled)."""
+    if not enable_logo_overlay or not DEFAULT_LOGO_PATH.is_file():
+        return (None, False)
+
+    try:
+        probe_video_dimensions(DEFAULT_LOGO_PATH)
+        probe_ffmpeg_can_decode_image_frame(DEFAULT_LOGO_PATH)
+        target_width_px = _resolve_logo_target_width(input_file)
+        return (
+            _ensure_prescaled_logo(
+                source_logo_path=DEFAULT_LOGO_PATH,
+                output_logo_path=_get_prescaled_logo_path(
+                    temp_dir=temp_dir,
+                    target_width_px=target_width_px,
+                ),
+                target_width_px=target_width_px,
+            ),
+            True,
+        )
+    except (OSError, RuntimeError, ValueError):
+        return (None, False)
+
+
+def resolve_prepared_video_overlays(
+    input_file: Path,
+    temp_dir: Path,
+    title_path: Path | None,
+    enable_title_overlay: bool,
+    enable_logo_overlay: bool,
+    title_y_fraction: float | None,
+    title_height_fraction: float | None,
+) -> tuple[Path | None, Path | None, int | None, bool]:
+    """Load pre-generated overlay assets for final encode."""
+    title_overlay_path: Path | None = None
+    logo_path_resolved: Path | None = None
+    banner_top: int | None = None
+    use_logo = False
+
+    if title_path is not None and enable_title_overlay:
+        title_text = title_path.read_text(encoding="utf-8").strip()
+        if title_text:
+            _video_width, video_height = probe_video_dimensions(input_file)
+            effective_start_fraction = (
+                title_y_fraction
+                if title_y_fraction is not None
+                else TITLE_BANNER_START_FRACTION
+            )
+            _effective_height_fraction = (
+                title_height_fraction
+                if title_height_fraction is not None
+                else TITLE_BANNER_HEIGHT_FRACTION
+            )
+            banner_top = int(video_height * effective_start_fraction)
+            title_overlay_candidate = get_title_overlay_path(temp_dir, input_file.stem)
+            if not title_overlay_candidate.is_file():
+                raise RuntimeError(f"Missing prepared title overlay: {title_overlay_candidate}")
+            title_overlay_path = title_overlay_candidate
+
+    if enable_logo_overlay and DEFAULT_LOGO_PATH.is_file():
+        target_width_px = _resolve_logo_target_width(input_file)
+        logo_target_path = _get_prescaled_logo_path(
+            temp_dir=temp_dir,
+            target_width_px=target_width_px,
+        )
+        if not logo_target_path.is_file():
+            raise RuntimeError(f"Missing prepared logo overlay: {logo_target_path}")
+        logo_path_resolved = logo_target_path
+        use_logo = True
+
+    return (title_overlay_path, logo_path_resolved, banner_top, use_logo)
+
+
 def prepare_video_overlays(
     input_file: Path,
     temp_dir: Path,
@@ -139,65 +290,20 @@ def prepare_video_overlays(
     title_height_fraction: float | None,
 ) -> tuple[Path | None, Path | None, int | None, bool]:
     """Generate title overlay PNG and pre-scale logo. Returns (title_overlay_path, logo_path, banner_top, use_logo)."""
-    use_logo = enable_logo_overlay and DEFAULT_LOGO_PATH.is_file()
-    logo_path_resolved: Path | None = DEFAULT_LOGO_PATH if use_logo else None
-    title_overlay_path: Path | None = None
-    banner_top: int | None = None
-    video_width: int = 0
-    video_height: int = 0
-    logo_target_w: int | None = None
-
-    if (title_path is not None and enable_title_overlay) or use_logo:
-        try:
-            video_width, video_height = probe_video_dimensions(input_file)
-        except (OSError, RuntimeError, ValueError):
-            return (None, None, None, False)
-
-        if use_logo:
-            try:
-                _lw, _lh = probe_video_dimensions(DEFAULT_LOGO_PATH)
-                probe_ffmpeg_can_decode_image_frame(DEFAULT_LOGO_PATH)
-            except (OSError, RuntimeError, ValueError):
-                use_logo = False
-                logo_path_resolved = None
-            else:
-                logo_target_w = max(1, int(video_width * LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO))
-                try:
-                    logo_path_resolved = _ensure_prescaled_logo(
-                        source_logo_path=DEFAULT_LOGO_PATH,
-                        output_logo_path=_get_prescaled_logo_path(
-                            temp_dir=temp_dir, target_width_px=logo_target_w
-                        ),
-                        target_width_px=logo_target_w,
-                    )
-                except RuntimeError:
-                    use_logo = False
-                    logo_path_resolved = None
-
-    if title_path is not None and enable_title_overlay:
-        try:
-            title_text = title_path.read_text(encoding="utf-8").strip()
-            if not title_text:
-                title_overlay_path = None
-            else:
-                font_name = title_font or TITLE_FONT_DEFAULT
-                effective_height_fraction = title_height_fraction if title_height_fraction is not None else TITLE_BANNER_HEIGHT_FRACTION
-                effective_start_fraction = title_y_fraction if title_y_fraction is not None else TITLE_BANNER_START_FRACTION
-                banner_height = max(1, int(video_height * effective_height_fraction))
-                banner_top = int(video_height * effective_start_fraction)
-                basename = input_file.stem
-                title_overlay_path = build_title_overlay(
-                    title=title_text,
-                    video_width=video_width,
-                    banner_height=banner_height,
-                    output_file=get_title_overlay_path(temp_dir, basename),
-                    font_family=font_name,
-                    font_cache_dir=get_font_cache_path(temp_dir),
-                )
-        except (OSError, RuntimeError, ValueError):
-            title_overlay_path = None
-            banner_top = None
-
+    title_overlay_path, banner_top = prepare_title_overlay(
+        input_file=input_file,
+        temp_dir=temp_dir,
+        title_path=title_path,
+        title_font=title_font,
+        enable_title_overlay=enable_title_overlay,
+        title_y_fraction=title_y_fraction,
+        title_height_fraction=title_height_fraction,
+    )
+    logo_path_resolved, use_logo = prepare_logo_overlay(
+        input_file=input_file,
+        temp_dir=temp_dir,
+        enable_logo_overlay=enable_logo_overlay,
+    )
     return (title_overlay_path, logo_path_resolved, banner_top, use_logo)
 
 
@@ -261,11 +367,10 @@ def trim_single_video(
         logo_path_resolved,
         banner_top,
         use_logo,
-    ) = prepare_video_overlays(
+    ) = resolve_prepared_video_overlays(
         input_file=input_file,
         temp_dir=temp_dir_resolved,
         title_path=title_path,
-        title_font=title_font,
         enable_title_overlay=enable_title_overlay,
         enable_logo_overlay=enable_logo_overlay,
         title_y_fraction=title_y_fraction,

@@ -131,7 +131,7 @@ def sync_titles_from_api(
 def get_ready_audio_ids(client: MediaManagerClient) -> list[str]:
     """Fetch list of audio file IDs that are marked as 'ready'.
     
-    These are used in Phase 5 to determine which videos to upload.
+    These are used in Phase 9 to determine which videos to upload.
     
     Returns: List of file_id strings that are ready for video delivery.
     """

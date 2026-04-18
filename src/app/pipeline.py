@@ -1,4 +1,4 @@
-"""Nine-phase pipeline orchestration for SilenceRemover."""
+"""Ten-phase pipeline orchestration for SilenceRemover."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from typing import Callable, Optional, TextIO
 from src.core.cli import parse_args
 from src.core.constants import (
     AUDIO_EXTENSIONS,
+    DEFAULT_LOGO_PATH,
     SNIPPET_MAX_DURATION_SEC,
     TITLE_DIR,
 )
@@ -22,6 +23,7 @@ from src.core.paths import (
     get_overlay_done_path,
     get_snippet_path,
     get_title_path,
+    get_title_overlay_path,
     get_transcript_path,
     is_completed,
     is_overlay_done,
@@ -41,7 +43,7 @@ from sr_telegram_notify import (
 )
 from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
-from src.media.trim import trim_single_video
+from src.media.trim import is_logo_overlay_ready, trim_single_video
 
 # Optional Media Manager integration for title sync and upload (Phases 3 and 5)
 try:
@@ -312,20 +314,19 @@ def run_title_phase(
     )
 
 
-def run_overlay_phase(
+def run_title_overlay_phase(
     video_path: Path,
     temp_dir: Path,
     title_font: str | None,
     video_index: int,
     total_videos: int,
     enable_title_overlay: bool = False,
-    enable_logo_overlay: bool = False,
     title_y_fraction: float | None = None,
     title_height_fraction: float | None = None,
 ) -> bool | None:
-    """Phase 5: Generate title overlay PNG and pre-scale logo."""
-    from src.media.trim import prepare_video_overlays
-    from src.core.paths import get_title_path, is_title_done, is_overlay_done, mark_overlay_done
+    """Phase 5: Generate title overlay PNG."""
+    from src.media.trim import prepare_title_overlay
+    from src.core.paths import get_title_path, mark_overlay_done
 
     basename = video_path.stem
     title_path = get_title_path(temp_dir, basename)
@@ -333,17 +334,18 @@ def run_overlay_phase(
     def _perform() -> None:
         # Read title content for the marker (overlay invalidates if title changes)
         title_text = title_path.read_text(encoding="utf-8").strip()
-        
-        prepare_video_overlays(
+
+        overlay_path, _banner_top = prepare_title_overlay(
             input_file=video_path,
             temp_dir=temp_dir,
             title_path=title_path,
             title_font=title_font,
             enable_title_overlay=enable_title_overlay,
-            enable_logo_overlay=enable_logo_overlay,
             title_y_fraction=title_y_fraction,
             title_height_fraction=title_height_fraction,
         )
+        if overlay_path is None:
+            raise RuntimeError("Title overlay was not generated")
         mark_overlay_done(temp_dir, basename, title_text)
 
     return _run_phase_step(
@@ -351,7 +353,37 @@ def run_overlay_phase(
         work_fn=_perform,
         video_index=video_index,
         total_videos=total_videos,
-        label="Overlay Generation",
+        label="Title Overlay Generation",
+    )
+
+
+def run_logo_overlay_phase(
+    video_path: Path,
+    temp_dir: Path,
+    video_index: int,
+    total_videos: int,
+    enable_logo_overlay: bool = False,
+) -> bool | None:
+    """Phase 6: Prepare pre-scaled logo overlay PNG."""
+    from src.media.trim import prepare_logo_overlay
+
+    def _perform() -> None:
+        logo_path, use_logo = prepare_logo_overlay(
+            input_file=video_path,
+            temp_dir=temp_dir,
+            enable_logo_overlay=enable_logo_overlay,
+        )
+        if enable_logo_overlay and not use_logo:
+            raise RuntimeError("Logo overlay could not be prepared")
+        if enable_logo_overlay and logo_path is None:
+            raise RuntimeError("Logo overlay path was not created")
+
+    return _run_phase_step(
+        video_path=video_path,
+        work_fn=_perform,
+        video_index=video_index,
+        total_videos=total_videos,
+        label="Logo Overlay Preparation",
     )
 
 
@@ -447,7 +479,7 @@ def run_encode_phase(
     enable_title_overlay: bool = False,
     enable_logo_overlay: bool = False,
 ) -> bool | None:
-    """Phase 6: Full video trim with title-based output filename."""
+    """Phase 7: Full video trim with title-based output filename."""
     basename = video_path.stem
     title_path = get_title_path(temp_dir, basename)
 
@@ -505,7 +537,7 @@ def run_video_reconciliation_phase(
     *,
     temp_dir: Path,
 ) -> bool | None:
-    """Phase 7: Reconcile - delete server video if local title differs."""
+    """Phase 8: Reconcile - delete server video if local title differs."""
     basename = video_path.stem
     file_id = basename
     
@@ -581,15 +613,15 @@ def run_video_upload_phase(
     total_videos: int,
     server_cache: ServerDataCache | None,
 ) -> bool | None:
-    """Phase 8: Upload video with ['pending'] tags.
+    """Phase 9: Upload video with ['pending'] tags.
 
     Logic:
     - If server_cache is None → return None (skip)
     - If not completed locally → return None (skip)
     - If no local title → return None (skip)
     - If video exists with FB/TT tags → return None (already published)
-    - If video exists with pending tags → return None (will be promoted in Phase 9)
-    - If video exists with different title → return None (Phase 7 handles reconciliation)
+    - If video exists with pending tags → return None (will be promoted in Phase 10)
+    - If video exists with different title → return None (Phase 8 handles reconciliation)
     - If video is in trash → return None (skip — do not re-upload trashed content)
     - If video not on server → upload with tags=['pending']
     """
@@ -599,7 +631,7 @@ def run_video_upload_phase(
 
     local_title = title_path.read_text(encoding='utf-8').strip()
 
-    # Read output filename from completion marker (Phase 6 stores it there)
+    # Read output filename from completion marker (Phase 7 stores it there)
     output_basename = get_completed_output_filename(temp_dir, basename)
     if output_basename is None:
         # Fallback: try to construct from title (for backwards compatibility)
@@ -634,7 +666,7 @@ def run_video_tag_promotion_phase(
     total_videos: int,
     server_cache: ServerDataCache | None,
 ) -> bool | None:
-    """Phase 9: Promote video tags from pending to ['FB', 'TT'] when audio is approved."""
+    """Phase 10: Promote video tags from pending to ['FB', 'TT'] when audio is approved."""
     basename = video_path.stem
     file_id = basename
 
@@ -655,7 +687,7 @@ def run_video_tag_promotion_phase(
 
 
 def run(args: argparse.Namespace | None = None) -> StartupContext:
-    """Run the full nine-phase media processing pipeline."""
+    """Run the full ten-phase media processing pipeline."""
     if args is None:
         args = parse_args()
     startup = build_startup_context(args)
@@ -809,38 +841,82 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 f"server:audio/{video_file.stem}",
             ],
         ),
-        # UPDATED: Phase 5 - Overlay Generation
+        # UPDATED: Phase 5 - Title Overlay Generation
         _PipelinePhase(
             5,
-            "Overlay Generation",
-            lambda video_file, vi, vn: run_overlay_phase(
+            "Title Overlay Generation",
+            lambda video_file, vi, vn: run_title_overlay_phase(
                 video_file,
                 temp_dir,
                 title_font=startup.title_font,
                 video_index=vi,
                 total_videos=vn,
                 enable_title_overlay=startup.enable_title_overlay,
-                enable_logo_overlay=startup.enable_logo_overlay,
                 title_y_fraction=getattr(args, 'title_y_fraction', None),
                 title_height_fraction=getattr(args, 'title_height_fraction', None),
             ),
             skip_reason=lambda video_file: (
-                "title missing (run phase 3 first)"
-                if not is_title_done(temp_dir, video_file.stem)
+                "title overlay disabled"
+                if not startup.enable_title_overlay
                 else (
-                    "overlay already generated for current title"
-                    if is_overlay_done(temp_dir, video_file.stem)
-                    else None
+                    "title missing (run phase 3 first)"
+                    if not is_title_done(temp_dir, video_file.stem)
+                    else (
+                        "title empty"
+                        if not _title_text(video_file)
+                        else (
+                            "title overlay already generated for current title"
+                            if (
+                                is_overlay_done(temp_dir, video_file.stem)
+                                and get_title_overlay_path(temp_dir, video_file.stem).is_file()
+                            )
+                            else None
+                        )
+                    )
                 )
             ),
             checked_paths=lambda video_file: [
                 str(get_title_path(temp_dir, video_file.stem)),
+                str(get_title_overlay_path(temp_dir, video_file.stem)),
                 str(get_overlay_done_path(temp_dir, video_file.stem)),
             ],
         ),
-        # UPDATED: Phase 6 - Final Encode (was Phase 5)
+        # NEW: Phase 6 - Logo Overlay Preparation
         _PipelinePhase(
             6,
+            "Logo Overlay Preparation",
+            lambda video_file, vi, vn: run_logo_overlay_phase(
+                video_path=video_file,
+                temp_dir=temp_dir,
+                video_index=vi,
+                total_videos=vn,
+                enable_logo_overlay=startup.enable_logo_overlay,
+            ),
+            skip_reason=lambda video_file: (
+                "logo overlay disabled"
+                if not startup.enable_logo_overlay
+                else (
+                    "logo file missing"
+                    if not DEFAULT_LOGO_PATH.is_file()
+                    else (
+                        "logo overlay already prepared"
+                        if is_logo_overlay_ready(
+                            video_file,
+                            temp_dir,
+                            startup.enable_logo_overlay,
+                        )
+                        else None
+                    )
+                )
+            ),
+            checked_paths=lambda video_file: [
+                str(DEFAULT_LOGO_PATH),
+                str(temp_dir / "logo_overlays"),
+            ],
+        ),
+        # UPDATED: Phase 7 - Final Encode (was Phase 6)
+        _PipelinePhase(
+            7,
             "Final Encode",
             lambda video_file, vi, vn: run_encode_phase(
                 video_path=video_file,
@@ -881,9 +957,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 str(get_title_path(temp_dir, video_file.stem)),
             ],
         ),
-        # NEW: Phase 7 - Video Reconciliation (delete server video if local title differs)
+        # UPDATED: Phase 8 - Video Reconciliation (delete server video if local title differs)
         _PipelinePhase(
-            7,
+            8,
             "Video Reconciliation",
             lambda video_file, vi, vn: run_video_reconciliation_phase(
                 video_path=video_file,
@@ -918,9 +994,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 f"server:video/{video_file.stem}",
             ],
         ),
-        # NEW: Phase 8 - Video Upload (with pending tags, handles trash re-upload)
+        # UPDATED: Phase 9 - Video Upload (with pending tags, handles trash re-upload)
         _PipelinePhase(
-            8,
+            9,
             "Video Upload",
             lambda video_file, vi, vn: run_video_upload_phase(
                 video_path=video_file,
@@ -982,9 +1058,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 f"server:video/{video_file.stem}",
             ],
         ),
-        # UPDATED: Phase 9 - Publish Video (was Phase 8)
+        # UPDATED: Phase 10 - Publish Video (was Phase 9)
         _PipelinePhase(
-            9,
+            10,
             "Publish Video",
             lambda video_file, vi, vn: run_video_tag_promotion_phase(
                 video_path=video_file,
@@ -1023,9 +1099,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
 
     for phase in phases:
         _run_phase(videos=videos, phase=phase)
-        # Rebuild cache after Phase 7 (reconciliation) and Phase 8 (upload)
+        # Rebuild cache after Phase 8 (reconciliation) and Phase 9 (upload)
         # so subsequent phases see fresh server state
-        if media_manager_enabled and phase.index in (7, 8):
+        if media_manager_enabled and phase.index in (8, 9):
             server_cache = _rebuild_server_cache(os.getenv('MEDIA_MANAGER_URL') or '')
 
     return startup

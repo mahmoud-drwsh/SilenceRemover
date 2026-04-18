@@ -54,22 +54,52 @@ pipeline:
           - 'server_cache.get_audio("{basename}")["title"].strip() == local title text'
     robustness: "reasonable, but title readiness is existence-only because it reuses is_title_done()"
 
-  phase_5_overlay_generation:
+  phase_5_title_overlay_generation:
     skip_conditions:
+      - condition: "title overlay disabled"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - "startup.enable_title_overlay is False"
       - condition: "title missing"
         checked_path_templates:
           - "temp_dir/title/{basename}.txt"
         checked_runtime_templates:
           - "is_title_done(temp_dir, basename)"
-      - condition: "overlay already generated for the current title text"
+      - condition: "title empty"
         checked_path_templates:
           - "temp_dir/title/{basename}.txt"
+        checked_runtime_templates:
+          - 'get_title_path(...).read_text(...).strip() == ""'
+      - condition: "title overlay already generated for the current title text"
+        checked_path_templates:
+          - "temp_dir/title/{basename}.txt"
+          - "temp_dir/title_overlays/{basename}.png"
           - "temp_dir/overlay_done/{basename}.txt"
         checked_runtime_templates:
           - "is_overlay_done(temp_dir, basename) -> overlay marker text equals current title text"
-    robustness: "good; overlay invalidation is tied to current title content, not just marker existence"
+          - "get_title_overlay_path(temp_dir, basename).is_file()"
+    robustness: "good; skip requires both the current-title marker and the rendered PNG"
 
-  phase_6_final_encode:
+  phase_6_logo_overlay_preparation:
+    skip_conditions:
+      - condition: "logo overlay disabled"
+        checked_path_templates: []
+        checked_runtime_templates:
+          - "startup.enable_logo_overlay is False"
+      - condition: "logo file missing"
+        checked_path_templates:
+          - "repo_root/logo/logo.png"
+        checked_runtime_templates:
+          - "DEFAULT_LOGO_PATH.is_file() is False"
+      - condition: "logo overlay already prepared"
+        checked_path_templates:
+          - "repo_root/logo/logo.png"
+          - "temp_dir/logo_overlays/logo_w{target_width_px}.png"
+        checked_runtime_templates:
+          - "is_logo_overlay_ready(input_file, temp_dir, enable_logo_overlay=True)"
+    robustness: "reasonable; readiness is per-video because the cached logo width depends on probed video width"
+
+  phase_7_final_encode:
     skip_conditions:
       - condition: "already completed"
         checked_path_templates:
@@ -95,8 +125,9 @@ pipeline:
     concerns:
       - "completed skip does not verify that the referenced MP4 exists in output_dir"
       - "completed skip does not verify that completed.txt contains a non-empty output basename"
+      - "when overlays are enabled, final encode now expects Phase 5/6 assets to exist instead of generating them inline"
 
-  phase_7_video_reconciliation:
+  phase_8_video_reconciliation:
     skip_conditions:
       - condition: "media manager disabled or server cache unavailable"
         checked_path_templates: []
@@ -123,7 +154,7 @@ pipeline:
           - 'server_cache.get_video("{basename}")["title"].strip() == local title text'
     robustness: "reasonable; this phase is only entered when a server-side video exists and differs by title"
 
-  phase_8_video_upload:
+  phase_9_video_upload:
     skip_conditions:
       - condition: "final encode not completed"
         checked_path_templates:
@@ -173,12 +204,12 @@ pipeline:
         - "tries get_completed_output_filename(temp_dir, basename) first"
         - "falls back to sanitize_filename(local_title) when completed.txt is missing, unreadable, or empty"
         - "does not preflight-check that the chosen MP4 exists before attempting upload"
-      linkage_note: "completed.txt is intended to carry the final rendered basename, but Phase 8 still keeps a title-derived fallback for backward compatibility"
+      linkage_note: "completed.txt is intended to carry the final rendered basename, but Phase 9 still keeps a title-derived fallback for backward compatibility"
     concerns:
-      - "Phase 8 does not strictly require a readable completion marker payload yet"
+      - "Phase 9 does not strictly require a readable completion marker payload yet"
       - "a missing final MP4 will fail during upload rather than being converted into a skip reason"
 
-  phase_9_publish_video:
+  phase_10_publish_video:
     skip_conditions:
       - condition: "media manager disabled or server cache unavailable"
         checked_path_templates: []
@@ -201,7 +232,7 @@ pipeline:
 summary:
   phases_1_to_2: "content-aware and fairly robust"
   phase_3: "weakest local skip because title readiness is path existence only"
-  phases_4_to_5: "generally solid, with title checks still inheriting existence-only semantics where is_title_done() is used"
-  phase_6: "brittle around completed.txt because completion is trusted without verifying the actual MP4"
-  phase_8: "brittle around output-file resolution because it still falls back from completed.txt to sanitize_filename(title)"
+  phases_4_to_6: "generally solid, with title checks still inheriting existence-only semantics where is_title_done() is used"
+  phase_7: "brittle around completed.txt because completion is trusted without verifying the actual MP4"
+  phase_9: "brittle around output-file resolution because it still falls back from completed.txt to sanitize_filename(title)"
   media_manager_rule: "server-driven skip decisions are based on cached audio/video metadata refreshed after reconciliation and upload phases"

@@ -1,9 +1,9 @@
-"""Media Manager API integration - black box package for title sync, audio upload (Phase 4), and video upload (Phase 8).
+"""Media Manager API integration - black box package for title sync, audio upload (Phase 4), and video upload (Phase 9).
 
-This package replaces the old sr_mp3_manager and supports the new 9-phase workflow:
+This package replaces the old sr_mp3_manager and supports the new 10-phase workflow:
 - Phase 4: Upload audio snippet for review (tags: ["todo"])
-- Phase 8: Upload video with tags ["pending"]
-- Phase 9: Promote video to ["FB", "TT"] when audio approved
+- Phase 9: Upload video with tags ["pending"]
+- Phase 10: Promote video to ["FB", "TT"] when audio approved
 - Two-way sync: Pull edited titles from Media Manager before processing
 """
 
@@ -25,7 +25,7 @@ __all__ = [
     # Sync (Two-way title sync + ready audio query)
     'sync_titles_from_api',
     'get_ready_audio_ids',
-    # Upload (Phase 4 and Phase 8)
+    # Upload (Phase 4 and Phase 9)
     'ensure_audio_uploaded',
     'ensure_video_uploaded',
     'get_uploaded_audio_ids',
