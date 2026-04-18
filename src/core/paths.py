@@ -1,12 +1,12 @@
 """Path construction and tracking utilities."""
 
+import hashlib
 from pathlib import Path
 
 from src.core.constants import (
     AUDIO_FILE_EXT,
     COMPLETED_DIR,
     FONTS_DIR,
-    OVERLAY_DONE_DIR,
     SCRIPTS_DIR,
     SILENCE_CACHE_DIR,
     SNIPPET_DIR,
@@ -25,6 +25,7 @@ __all__ = [
     "get_transcript_path",
     "get_title_path",
     "get_font_cache_path",
+    "get_title_overlay_hash",
     "get_title_overlay_path",
     "get_completed_path",
     "is_transcript_done",
@@ -34,9 +35,6 @@ __all__ = [
     "mark_completed",
     "resolve_output_basename",
     "get_processing_video_path",
-    "get_overlay_done_path",
-    "is_overlay_done",
-    "mark_overlay_done",
 ]
 
 
@@ -57,7 +55,6 @@ def create_temp_subdirs(temp_dir: Path) -> None:
         FONTS_DIR,
         TITLE_OVERLAYS_DIR,
         VIDEO_PROCESSING_DIR,
-        OVERLAY_DONE_DIR,
     ]:
         (temp_dir / subdir).mkdir(parents=True, exist_ok=True)
 
@@ -78,8 +75,15 @@ def get_font_cache_path(temp_dir: Path) -> Path:
     return temp_dir / FONTS_DIR
 
 
-def get_title_overlay_path(temp_dir: Path, basename: str) -> Path:
-    return temp_dir / TITLE_OVERLAYS_DIR / f"{basename}.png"
+def get_title_overlay_hash(title_text: str) -> str:
+    normalized = title_text.strip()
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return digest[:12]
+
+
+def get_title_overlay_path(temp_dir: Path, basename: str, title_text: str) -> Path:
+    overlay_hash = get_title_overlay_hash(title_text)
+    return temp_dir / TITLE_OVERLAYS_DIR / f"{basename}.{overlay_hash}.png"
 
 
 def get_completed_path(temp_dir: Path, basename: str) -> Path:
@@ -150,48 +154,3 @@ def resolve_output_basename(title: str, output_dir: Path) -> str:
 
 def get_processing_video_path(temp_dir: Path, basename: str) -> Path:
     return temp_dir / VIDEO_PROCESSING_DIR / f"{basename}.mp4"
-
-
-def get_overlay_done_path(temp_dir: Path, basename: str) -> Path:
-    return temp_dir / OVERLAY_DONE_DIR / f"{basename}.txt"
-
-
-def is_overlay_done(temp_dir: Path, basename: str) -> bool:
-    """Check if overlay matches current title content.
-    
-    Returns True only if:
-    1. Overlay marker exists
-    2. Marker contains the same title as current title.txt
-    
-    If title has changed, overlay needs regeneration.
-    """
-    path = get_overlay_done_path(temp_dir, basename)
-    if not path.exists():
-        return False
-    
-    # Read current title
-    title_path = get_title_path(temp_dir, basename)
-    if not title_path.exists():
-        return False
-    
-    try:
-        current_title = title_path.read_text(encoding="utf-8").strip()
-        stored_title = path.read_text(encoding="utf-8").strip()
-        return current_title == stored_title
-    except (OSError, UnicodeDecodeError):
-        return False
-
-
-def mark_overlay_done(temp_dir: Path, basename: str, title_text: str) -> None:
-    """Mark overlay as done, storing the title content.
-    
-    The overlay is only considered "done" if it was generated with this
-    specific title content. If title changes later, is_overlay_done()
-    will return False, triggering regeneration.
-    """
-    path = get_overlay_done_path(temp_dir, basename)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        path.write_text(title_text, encoding="utf-8")
-    except OSError:
-        pass

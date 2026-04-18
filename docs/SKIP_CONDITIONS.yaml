@@ -87,12 +87,11 @@ pipeline:
       - condition: "title overlay already generated for the current title text"
         checked_path_templates:
           - "temp_dir/title/{basename}.txt"
-          - "temp_dir/title_overlays/{basename}.png"
-          - "temp_dir/overlay_done/{basename}.txt"
+          - "temp_dir/title_overlays/{basename}.{title_hash}.png"
         checked_runtime_templates:
-          - "is_overlay_done(temp_dir, basename) -> overlay marker text equals current title text"
-          - "get_title_overlay_path(temp_dir, basename).is_file()"
-    robustness: "good; skip requires both the current-title marker and the rendered PNG"
+          - "get_title_overlay_path(temp_dir, basename, current_title_text).is_file()"
+          - "title_hash is derived from the current trimmed title text, so title changes automatically select a different PNG path"
+    robustness: "good; skip is now a single hashed-PNG existence check tied directly to the current title text"
 
   phase_6_logo_overlay_preparation:
     skip_conditions:

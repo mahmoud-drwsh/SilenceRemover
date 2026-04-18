@@ -29,7 +29,11 @@ from src.ffmpeg.silence_removed_runner import (
 from src.ffmpeg.filter_graph import write_filter_graph_script
 from src.ffmpeg.trim_script_bundle import load_trim_script
 from src.ffmpeg.runner import run
-from src.core.paths import get_font_cache_path, get_processing_video_path, get_title_overlay_path
+from src.core.paths import (
+    get_font_cache_path,
+    get_processing_video_path,
+    get_title_overlay_path,
+)
 
 
 def _copy_input_video(
@@ -216,7 +220,7 @@ def prepare_title_overlay(
                 title=title_text,
                 video_width=video_width,
                 banner_height=banner_height,
-                output_file=get_title_overlay_path(temp_dir, basename),
+                output_file=get_title_overlay_path(temp_dir, basename, title_text),
                 font_family=font_name,
                 font_cache_dir=get_font_cache_path(temp_dir),
             ),
@@ -284,7 +288,7 @@ def resolve_prepared_video_overlays(
                 else TITLE_BANNER_HEIGHT_FRACTION
             )
             banner_top = int(video_height * effective_start_fraction)
-            title_overlay_candidate = get_title_overlay_path(temp_dir, input_file.stem)
+            title_overlay_candidate = get_title_overlay_path(temp_dir, input_file.stem, title_text)
             if not title_overlay_candidate.is_file():
                 raise RuntimeError(f"Missing prepared title overlay: {title_overlay_candidate}")
             title_overlay_path = title_overlay_candidate

@@ -184,7 +184,7 @@ The tool processes videos sequentially through **ten** main phases:
 ### 4. Title/logo overlays & file renaming (Phase 5-7)
 
 - Phase 5 loads `output/temp/title/{basename}.txt` and renders the title PNG before the encode step.
-- `ffprobe` reads the source **video width and height**. A **banner-sized** RGBA PNG (`video_width` × `banner_height`, with `banner_height = (1/6) × frame height`) is written to `output/temp/title_overlays/{basename}.png`. FFmpeg composites it at `x=0`, `y=(1/6) × frame height` (`overlay=0:{y}`), so the strip covers **`y` from H/6 to H/3** (the second sixth of the frame). Values come from `TITLE_BANNER_START_FRACTION` and `TITLE_BANNER_HEIGHT_FRACTION` in `src/core/constants.py`.
+- `ffprobe` reads the source **video width and height**. A **banner-sized** RGBA PNG (`video_width` × `banner_height`, with `banner_height = (1/6) × frame height`) is written to `output/temp/title_overlays/{basename}.{title_hash}.png`, where `title_hash` is derived from the current trimmed title text. FFmpeg composites it at `x=0`, `y=(1/6) × frame height` (`overlay=0:{y}`), so the strip covers **`y` from H/6 to H/3** (the second sixth of the frame). Values come from `TITLE_BANNER_START_FRACTION` and `TITLE_BANNER_HEIGHT_FRACTION` in `src/core/constants.py`.
 - The PNG is rendered by **`packages/sr_title_overlay/`** (`build_title_overlay`): semi-transparent black strip (default alpha **0.5** in that package) with **white** title text in Pillow using the selected `--title-font` (Google Font, cached under `output/temp/fonts/`).
 - **Layout algorithm** (largest font that fits, optional multi-line word-boundary splits, bbox-based metrics, vertical stacking): see **`ALGO.md` → “Title overlay PNG”** and tunables in `packages/sr_title_overlay/constants.py`.
 - **Arabic / RTL titles**: Pillow draws in visual order only; text is shaped with `arabic-reshaper` and reordered with `python-bidi` (`get_display`) before measuring and drawing. Mixed Arabic + Latin/numbers follow Unicode bidirectional rules.
@@ -214,8 +214,7 @@ output/                    # Sibling to input-directory
       ├── transcript/      # Transcript text files
       ├── title/           # Title text files
       ├── completed/       # Completion markers
-      ├── title_overlays/  # Rendered title PNGs for FFmpeg
-      ├── overlay_done/    # Title overlay completion markers tied to title text
+      ├── title_overlays/  # Rendered title PNGs keyed by a hash of the current title text
       ├── logo_overlays/   # Pre-scaled logo PNG cache
       ├── fonts/           # Cached Google Fonts for title rendering
       ├── scripts/         # Temporary ffmpeg filter_complex scripts (cleaned up automatically)

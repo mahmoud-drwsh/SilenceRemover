@@ -20,13 +20,11 @@ from src.core.constants import (
 from src.core.paths import (
     get_completed_path,
     get_completed_output_filename,
-    get_overlay_done_path,
     get_snippet_path,
     get_title_path,
     get_title_overlay_path,
     get_transcript_path,
     is_completed,
-    is_overlay_done,
     is_snippet_done,
     is_title_done,
     is_transcript_done,
@@ -330,15 +328,12 @@ def run_title_overlay_phase(
 ) -> bool | None:
     """Phase 5: Generate title overlay PNG."""
     from src.media.trim import prepare_title_overlay
-    from src.core.paths import get_title_path, mark_overlay_done
+    from src.core.paths import get_title_path
 
     basename = video_path.stem
     title_path = get_title_path(temp_dir, basename)
 
     def _perform() -> None:
-        # Read title content for the marker (overlay invalidates if title changes)
-        title_text = title_path.read_text(encoding="utf-8").strip()
-
         overlay_path, _banner_top = prepare_title_overlay(
             input_file=video_path,
             temp_dir=temp_dir,
@@ -350,7 +345,6 @@ def run_title_overlay_phase(
         )
         if overlay_path is None:
             raise RuntimeError("Title overlay was not generated")
-        mark_overlay_done(temp_dir, basename, title_text)
 
     return _run_phase_step(
         video_path=video_path,
@@ -761,6 +755,12 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             return ""
         return title_path.read_text(encoding="utf-8").strip()
 
+    def _title_overlay_path(video_file: Path) -> Path | None:
+        title_text = _title_text(video_file)
+        if not title_text:
+            return None
+        return get_title_overlay_path(temp_dir, video_file.stem, title_text)
+
     def _audio_meta(video_file: Path) -> dict:
         if server_cache is None:
             return {}
@@ -946,10 +946,8 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                         if not _title_text(video_file)
                         else (
                             "title overlay already generated for current title"
-                            if (
-                                is_overlay_done(temp_dir, video_file.stem)
-                                and get_title_overlay_path(temp_dir, video_file.stem).is_file()
-                            )
+                            if (overlay_path := _title_overlay_path(video_file)) is not None
+                            and overlay_path.is_file()
                             else None
                         )
                     )
@@ -957,8 +955,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             ),
             checked_paths=lambda video_file: [
                 str(get_title_path(temp_dir, video_file.stem)),
-                str(get_title_overlay_path(temp_dir, video_file.stem)),
-                str(get_overlay_done_path(temp_dir, video_file.stem)),
+                str(_title_overlay_path(video_file) or (temp_dir / "title_overlays" / f"{video_file.stem}.<title_hash>.png")),
             ],
         ),
         # NEW: Phase 6 - Logo Overlay Preparation
