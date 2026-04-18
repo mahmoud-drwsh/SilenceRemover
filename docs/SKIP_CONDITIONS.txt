@@ -196,26 +196,13 @@ pipeline
 │   │   │   │   └── temp_dir/title/{basename}.txt
 │   │   │   └── checked_runtime_templates
 │   │   │       └── get_title_path(...).read_text(...).strip() == ""
-│   │   ├── already published
-│   │   │   ├── checked_path_templates
-│   │   │   └── checked_runtime_templates
-│   │   │       └── server_cache.get_video("{basename}")["tags"] contains "FB" or "TT"
-│   │   ├── already pending
-│   │   │   ├── checked_path_templates
-│   │   │   └── checked_runtime_templates
-│   │   │       └── server_cache.get_video("{basename}")["tags"] contains "pending"
-│   │   ├── video trashed on server
-│   │   │   ├── checked_path_templates
-│   │   │   └── checked_runtime_templates
-│   │   │       └── server_cache.get_video("{basename}") is truthy and server_cache.is_video_trash("{basename}")
-│   │   └── title mismatch; reconciliation required first
+│   │   └── video already exists on server
 │   │       ├── checked_path_templates
-│   │       │   └── temp_dir/title/{basename}.txt
+│   │       │   └── server:video/{basename}
 │   │       └── checked_runtime_templates
 │   │           ├── server_cache.get_video("{basename}") is truthy
-│   │           └── server_cache.get_video("{basename}")["title"].strip() != local title text
 │   ├── robustness
-│   │   └── mixed; server-side skip gating is solid, but local completion/output resolution is still permissive
+│   │   └── simpler; upload is now existence-based on the server-side video id, while local completion/title checks still gate the upload path
 │   ├── output_filename_resolution
 │   │   ├── preferred_source
 │   │   │   └── completed.txt

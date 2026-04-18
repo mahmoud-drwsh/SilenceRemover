@@ -642,18 +642,7 @@ def run_video_upload_phase(
     total_videos: int,
     server_cache: ServerDataCache | None,
 ) -> bool | None:
-    """Phase 9: Upload video with ['pending'] tags.
-
-    Logic:
-    - If server_cache is None → return None (skip)
-    - If not completed locally → return None (skip)
-    - If no local title → return None (skip)
-    - If video exists with FB/TT tags → return None (already published)
-    - If video exists with pending tags → return None (will be promoted in Phase 10)
-    - If video exists with different title → return None (Phase 8 handles reconciliation)
-    - If video is in trash → return None (skip — do not re-upload trashed content)
-    - If video not on server → upload with tags=['pending']
-    """
+    """Phase 9: Upload video with ['pending'] tags if it does not already exist on the server."""
     basename = video_path.stem
     file_id = basename
     title_path = get_title_path(temp_dir, basename)
@@ -1082,7 +1071,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 f"server:video/{video_file.stem}",
             ],
         ),
-        # UPDATED: Phase 9 - Video Upload (with pending tags, handles trash re-upload)
+        # UPDATED: Phase 9 - Video Upload (existence-based skip)
         _PipelinePhase(
             9,
             "Video Upload",
@@ -1107,34 +1096,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                             "title empty"
                             if not _title_text(video_file)
                             else (
-                                "already published"
-                                if (
-                                    _video_meta(video_file)
-                                    and (
-                                        "FB" in _video_meta(video_file).get("tags", [])
-                                        or "TT" in _video_meta(video_file).get("tags", [])
-                                    )
-                                )
-                                else (
-                                    "already pending"
-                                    if (
-                                        _video_meta(video_file)
-                                        and "pending" in _video_meta(video_file).get("tags", [])
-                                    )
-                                    else (
-                                        "video trashed on server"
-                                        if _video_meta(video_file) and server_cache.is_video_trash(video_file.stem)
-                                        else (
-                                            "title mismatch; reconciliation required"
-                                            if (
-                                                _video_meta(video_file)
-                                                and _video_meta(video_file).get("title", "").strip()
-                                                != _title_text(video_file)
-                                            )
-                                            else None
-                                        )
-                                    )
-                                )
+                                "video already exists on server"
+                                if _video_meta(video_file)
+                                else None
                             )
                         )
                     )
