@@ -18,7 +18,7 @@ class _FakeStream(StringIO):
         return self._is_tty
 
 
-def test_tty_progress_rewrites_single_line() -> None:
+def test_tty_progress_uses_current_newline_format() -> None:
     stream = _FakeStream(is_tty=True)
     progress = pipeline._ConsolePhaseProgress(stream)
 
@@ -29,8 +29,8 @@ def test_tty_progress_rewrites_single_line() -> None:
 
     assert stream.getvalue() == (
         "\n"
-        "\r[Snippet Creation] File 1/2: a.mkv\033[K"
-        "\r[Snippet Creation] File 2/2: b.mkv\033[K\n"
+        "[Snippet Creation] File 1/2: a.mkv\n"
+        "[Snippet Creation] File 2/2: b.mkv\n"
     )
 
 
@@ -58,17 +58,16 @@ def test_phase_change_inserts_blank_line_after_tty_progress() -> None:
     progress.show_file_progress("Overlay Generation", 1, 1, "second.mkv")
     progress.finish_line()
 
-    assert "\033[K\n\n\r[Overlay Generation] File 1/1: second.mkv\033[K\n" in stream.getvalue()
+    assert "\n[Title Generation] File 1/1: first.mkv\n\n[Overlay Generation] File 1/1: second.mkv\n" == stream.getvalue()
 
 
-def test_run_phase_step_flushes_tty_line_before_error_output(monkeypatch) -> None:
+def test_run_phase_step_reports_failure_with_current_output(monkeypatch) -> None:
     stream = _FakeStream(is_tty=True)
     monkeypatch.setattr(sys, "stdout", stream)
     monkeypatch.setattr(pipeline, "_PHASE_PROGRESS", None)
 
     result = pipeline._run_phase_step(
         video_path=Path("broken.mkv"),
-        already_done=False,
         work_fn=lambda: (_ for _ in ()).throw(RuntimeError("boom")),
         video_index=1,
         total_videos=3,
@@ -78,4 +77,10 @@ def test_run_phase_step_flushes_tty_line_before_error_output(monkeypatch) -> Non
     stream.write("Traceback line 1\nTraceback line 2\n")
 
     assert result is False
-    assert "\033[K\nTraceback line 1\nTraceback line 2\n" in stream.getvalue()
+    assert (
+        "  processing: broken.mkv\n"
+        "\n"
+        "[Snippet Creation] File 1/3: broken.mkv\n"
+        "  failed: broken.mkv (boom)\n"
+        "Traceback line 1\nTraceback line 2\n"
+    ) == stream.getvalue()

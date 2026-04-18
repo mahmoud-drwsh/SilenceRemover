@@ -16,7 +16,7 @@ from src.ffmpeg.transcode import (
 from src.ffmpeg.silence_removed_runner import (
     run_silence_removed_media_with_script,
 )
-from src.ffmpeg.trim_script_bundle import load_trim_script
+from src.ffmpeg.trim_script_bundle import ensure_snippet_trim_script
 
 
 def create_silence_removed_snippet(
@@ -54,7 +54,7 @@ def create_silence_removed_audio(
 ) -> Path:
     """Create silence-removed audio from a pre-generated trim script."""
     output_audio_path.parent.mkdir(parents=True, exist_ok=True)
-    artifact = load_trim_script(trim_script_path)
+    snippet_trim_script_path = ensure_snippet_trim_script(trim_script_path)
 
     is_ogg = output_audio_path.suffix.lower() == ".ogg"
     if is_ogg:
@@ -65,13 +65,12 @@ def create_silence_removed_audio(
     return run_silence_removed_media_with_script(
         input_file=input_file,
         output_file=output_audio_path,
-        filter_script_path=artifact.script_path,
+        filter_script_path=snippet_trim_script_path,
         build_command=lambda in_file, out_file, filter_script_path: build_silence_removed_audio_command(
             input_file=in_file,
             output_audio_path=out_file,
             filter_script_path=filter_script_path,
             acodec=acodec,
-            has_video_output="[outv]" in artifact.filter_graph,
             max_duration=max_duration,
         ),
         command_label="Silence-removed audio",

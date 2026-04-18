@@ -43,6 +43,7 @@ from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
 from src.ffmpeg.trim_script_bundle import (
     generate_trim_script,
+    get_snippet_trim_script_path,
     get_trim_script_path,
     is_trim_script_ready,
 )
@@ -537,7 +538,7 @@ def run_trim_script_generation_phase(
     video_index: int,
     total_videos: int,
 ) -> bool | None:
-    """Phase 0: Generate one reusable trim script for snippet and final encode."""
+    """Phase 0: Generate reusable final and snippet trim scripts."""
 
     def _perform() -> None:
         generate_trim_script(
@@ -772,6 +773,16 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             pad_sec=startup.pad_sec,
         )
 
+    def _snippet_trim_script_path(video_file: Path) -> Path:
+        return get_snippet_trim_script_path(
+            input_file=video_file,
+            temp_dir=temp_dir,
+            target_length=startup.target_length,
+            noise_threshold=startup.noise_threshold,
+            min_duration=startup.min_duration,
+            pad_sec=startup.pad_sec,
+        )
+
     phases = (
         _PipelinePhase(
             0,
@@ -800,6 +811,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             ),
             checked_paths=lambda video_file: [
                 str(_trim_script_path(video_file)),
+                str(_snippet_trim_script_path(video_file)),
             ],
         ),
         # NEW: Phase 1 - Snippet Creation
@@ -830,6 +842,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             checked_paths=lambda video_file: [
                 str(get_snippet_path(temp_dir, video_file.stem)),
                 str(_trim_script_path(video_file)),
+                str(_snippet_trim_script_path(video_file)),
             ],
         ),
         # UPDATED: Phase 2 - Transcription (was Phase 1)
@@ -1037,6 +1050,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 str(get_transcript_path(temp_dir, video_file.stem)),
                 str(get_title_path(temp_dir, video_file.stem)),
                 str(_trim_script_path(video_file)),
+                str(_snippet_trim_script_path(video_file)),
             ],
         ),
         # UPDATED: Phase 8 - Video Reconciliation (delete server video if local title differs)
