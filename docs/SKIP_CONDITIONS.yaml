@@ -1,4 +1,13 @@
 pipeline:
+  phase_0_trim_script_generation:
+    skip_conditions:
+      - condition: "trim scripts already generated"
+        checked_path_templates:
+          - "temp_dir/trim_script_bundles/{bundle_key}/"
+        checked_runtime_templates:
+          - "is_trim_script_bundle_ready(...)"
+    robustness: "reasonable; readiness is bundle-based and invalidates on input identity plus trim/script-affecting params encoded in the bundle path"
+
   phase_1_snippet_creation:
     skip_conditions:
       - condition: "snippet already exists and is non-empty"
@@ -6,6 +15,11 @@ pipeline:
           - "temp_dir/snippet/{basename}.ogg"
         checked_runtime_templates:
           - "is_snippet_done(temp_dir, basename) -> path exists and stat().st_size > 0"
+      - condition: "trim scripts missing (run phase 0 first)"
+        checked_path_templates:
+          - "temp_dir/trim_script_bundles/{bundle_key}/"
+        checked_runtime_templates:
+          - "is_trim_script_bundle_ready(...) is False"
     robustness: "good; this is content-aware enough for a generated binary artifact"
 
   phase_2_transcription:
@@ -121,6 +135,11 @@ pipeline:
           - "temp_dir/title/{basename}.txt"
         checked_runtime_templates:
           - 'get_title_path(...).read_text(...).strip() == ""'
+      - condition: "trim scripts missing (run phase 0 first)"
+        checked_path_templates:
+          - "temp_dir/trim_script_bundles/{bundle_key}/"
+        checked_runtime_templates:
+          - "is_trim_script_bundle_ready(...) is False"
     robustness: "mixed; transcript/title emptiness is checked, but completion still trusts the marker file alone"
     concerns:
       - "completed skip does not verify that the referenced MP4 exists in output_dir"

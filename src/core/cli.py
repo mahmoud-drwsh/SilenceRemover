@@ -81,7 +81,7 @@ def _positive_float(value: str) -> float:
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments and return namespace."""
     parser = argparse.ArgumentParser(
-        description="Ten-phase pipeline: 1) Snippet Creation, 2) Transcription, 3) Title Generation, 4) Audio Upload, 5) Title Overlay Generation, 6) Logo Overlay Preparation, 7) Final Video Encode, 8) Video Reconciliation, 9) Video Upload, 10) Tag Promotion"
+        description="Phase-0-to-10 pipeline: 0) Trim Script Generation, 1) Snippet Creation, 2) Transcription, 3) Title Generation, 4) Audio Upload, 5) Title Overlay Generation, 6) Logo Overlay Preparation, 7) Final Video Encode, 8) Video Reconciliation, 9) Video Upload, 10) Tag Promotion"
     )
     parser.add_argument("input_dir", type=str, help="Input directory (raw videos)")
     parser.add_argument(
@@ -129,7 +129,7 @@ def parse_args() -> argparse.Namespace:
         "--quick-test",
         action="store_true",
         help=(
-            "Run full phases 1-10, but cap only final Phase 7 output encoding "
+            "Run full phases 0-10, but cap only final Phase 7 output encoding "
             "to the first 5 seconds for end-to-end smoke testing."
         ),
     )
@@ -172,7 +172,7 @@ def parse_args() -> argparse.Namespace:
         "--enable-media-manager",
         action="store_true",
         help=(
-            "Enable Media Manager integration for 10-phase workflow: "
+            "Enable Media Manager integration for Phase-0-to-10 workflow: "
             "audio upload, title sync, and video delivery. "
             "Requires MEDIA_MANAGER_URL environment variable."
         ),
@@ -182,7 +182,7 @@ def parse_args() -> argparse.Namespace:
         type=_positive_float,
         default=10.0,
         help=(
-            "Minimum video duration in seconds (Phase 0). Videos shorter than this "
+            "Minimum video duration in seconds (preflight input screening). Videos shorter than this "
             "are moved to input/ignored/ and skipped. Default: 10.0. "
             "Skipped in quick-test mode."
         ),

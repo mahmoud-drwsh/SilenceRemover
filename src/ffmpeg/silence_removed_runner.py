@@ -78,4 +78,42 @@ def run_silence_removed_media(
     return output_file.resolve()
 
 
-__all__ = ["run_minimal_ffmpeg_output", "run_silence_removed_media"]
+def run_silence_removed_media_with_script(
+    *,
+    input_file: Path,
+    output_file: Path,
+    filter_script_path: Path,
+    build_command: Callable[[Path, Path, Path], list[str]],
+    expected_total_seconds: Optional[float] = None,
+    on_progress: Optional[Callable[[int, float], None]] = None,
+    command_label: Optional[str] = None,
+) -> Path:
+    cmd = build_command(input_file, output_file, filter_script_path)
+    if expected_total_seconds is not None:
+        try:
+            run_with_progress(
+                cmd,
+                expected_total_seconds=expected_total_seconds,
+                on_progress=on_progress,
+            )
+        except subprocess.CalledProcessError as exc:
+            if command_label is None:
+                raise
+            raise RuntimeError(
+                format_ffmpeg_process_failure(command_label, exc)
+            ) from exc
+    else:
+        try:
+            run(cmd, check=True)
+        except subprocess.CalledProcessError as exc:
+            if command_label is not None:
+                raise RuntimeError(
+                    format_ffmpeg_process_failure(command_label, exc)
+                ) from exc
+            raise
+
+    wait_for_file_release(output_file)
+    return output_file.resolve()
+
+
+__all__ = ["run_minimal_ffmpeg_output", "run_silence_removed_media", "run_silence_removed_media_with_script"]

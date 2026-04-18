@@ -72,6 +72,7 @@ def build_minimal_video_command(
     output_file: Path,
     encoder: str,
     *,
+    filter_script_path: Path | None = None,
     title_overlay_path: Path | None = None,
     title_overlay_y: int | None = None,
     logo_path: Path | None = None,
@@ -101,16 +102,11 @@ def build_minimal_video_command(
             logo_margin_px=logo_margin_px,
             logo_alpha=logo_alpha,
         )
-        cmd.extend(
-            [
-                "-filter_complex",
-                fc,
-                "-map",
-                "[outv]",
-                "-map",
-                "0:a?",
-            ]
-        )
+        if filter_script_path is not None:
+            add_filter_complex_script(cmd, filter_script_path)
+        else:
+            cmd.extend(["-filter_complex", fc])
+        cmd.extend(["-map", "[outv]", "-map", "0:a?"])
 
     cmd.extend(["-c:v", codec])
     cmd.extend(codec_args)

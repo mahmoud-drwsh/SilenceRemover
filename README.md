@@ -68,8 +68,9 @@ For integration with the external Media Manager service (VPS-based), set the ful
 MEDIA_MANAGER_URL=https://your-server.com/TOKEN/your-project/
 ```
 
-This enables the **10-phase workflow**:
-1. **Phase 1**: Create silence-removed snippet for transcription
+This enables the **Phase-0-to-10 workflow**:
+0. **Phase 0**: Generate reusable FFmpeg trim scripts from silence detection + trim policy
+1. **Phase 1**: Create silence-removed snippet for transcription from the Phase 0 bundle
 2. **Phase 2**: Transcribe snippet via OpenRouter
 3. **Phase 3**: Generate title from transcript
 4. **Phase 4**: Upload audio snippet with `tags: ["todo"]` for review
@@ -98,7 +99,7 @@ python main.py /path/to/video/directory
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Defaults are `TARGET_NOISE_THRESHOLD_DB` (`-55.0`) when `--target-length` is set, otherwise `NON_TARGET_NOISE_THRESHOLD_DB` (`-50.0`).
 - `--min-duration FLOAT`: Override minimum silence duration in seconds (applies in both modes). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with `--target-length` and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
 - `--title-font`: Google Font family name used to render the title overlay. The font is auto-downloaded from Google Fonts on first use and cached under `output/temp/fonts/`.
-- `--quick-test`: Run all ten phases, but cap only the final Phase 7 encode output to the first 5 seconds for a fast end-to-end smoke run.
+- `--quick-test`: Run phases 0-10, but cap only the final Phase 7 encode output to the first 5 seconds for a fast end-to-end smoke run.
 - `--enable-title-overlay`: Enable title overlay in final output (requires a title from Phase 3). By default, overlays are disabled.
 - `--enable-logo-overlay`: Enable logo overlay in final output (requires `logo/logo.png`). By default, overlays are disabled.
 
@@ -113,7 +114,7 @@ python main.py /path/to/video/directory
 
 The first run for each font downloads the family from Google Fonts into `output/temp/fonts/` and reuses that file on subsequent runs.
 
-**Video-only files (no audio stream):** Some exports are silent (video track only). The pipeline detects missing audio with ffprobe, skips `silencedetect` (which would otherwise fail on `-map 0:a:0`), generates a **silent** transcription snippet from the video duration, and muxes **silent stereo** from `anullsrc` during the final trim/encode when a full encode runs. **Transcription** still calls OpenRouter on that snippet; if the model returns **empty or whitespace-only** text, **no** `output/temp/transcript/{basename}.txt` is written, Phase 1 fails for that video, and **subsequent phases are skipped** until a non-empty transcript exists (fix the model/audio or delete partial temp files and re-run).
+**Video-only files (no audio stream):** Some exports are silent (video track only). The pipeline detects missing audio with ffprobe, skips `silencedetect` (which would otherwise fail on `-map 0:a:0`), generates a **silent** transcription snippet from the video duration, and muxes **silent stereo** from `anullsrc` during the final trim/encode when a full encode runs. **Transcription** still calls OpenRouter on that snippet; if the model returns **empty or whitespace-only** text, **no** `output/temp/transcript/{basename}.txt` is written, Phase 2 fails for that video, and **subsequent phases are skipped** until a non-empty transcript exists (fix the model/audio or delete partial temp files and re-run).
 
 Trimming precision controls (advanced):
 
@@ -234,8 +235,8 @@ output/                    # Sibling to input-directory
 
 The tool maintains state in files under **`output/temp/`** to avoid reprocessing videos:
 
-- **Per-video markers**: `output/temp/transcript/{basename}.txt`, `output/temp/title/{basename}.txt`, and `output/temp/completed/{basename}.txt`
-- **Automatic Skip**: Phase 1 is skipped if snippet exists; Phase 2 is skipped if transcript exists with non-whitespace text; Phase 3 is skipped if title exists; Phase 4 is skipped if audio already uploaded; Phase 5 is skipped if the current title overlay PNG already matches the current title; Phase 6 is skipped if the pre-scaled logo is already cached; Phase 7 is skipped if the completed marker exists; Phases 8-10 are skipped based on server state. (Whitespace-only or unreadable transcript files are treated as **not** done for Phase 2.)
+- **Per-video markers**: `output/temp/trim_script_bundles/{bundle_key}/`, `output/temp/transcript/{basename}.txt`, `output/temp/title/{basename}.txt`, and `output/temp/completed/{basename}.txt`
+- **Automatic Skip**: Phase 0 is skipped if the expected trim-script bundle already exists; Phase 1 is skipped if the snippet exists; Phase 2 is skipped if the transcript exists with non-whitespace text; Phase 3 is skipped if the title exists; Phase 4 is skipped if audio is already uploaded; Phase 5 is skipped if the current title overlay PNG already matches the current title; Phase 6 is skipped if the pre-scaled logo is already cached; Phase 7 is skipped if the completed marker exists; Phases 8-10 are skipped based on server state. (Whitespace-only or unreadable transcript files are treated as **not** done for Phase 2.)
 - **Manual Reset**: Delete corresponding files under `output/temp/transcript`, `output/temp/title`, and `output/temp/completed` to reprocess specific videos.
 
 ## Supported Formats
@@ -270,7 +271,7 @@ The main code lives under `src/` and `packages/`:
 - `packages/sr_filename/`: filename sanitization utilities (import as `sr_filename`).
 - `packages/sr_ffmpeg_cmd_builder/`: FFmpeg/FFprobe command builders (import as `sr_ffmpeg_cmd_builder`).
 - `packages/sr_filter_graph/`: FFmpeg filter graph construction (import as `sr_filter_graph`).
-- `packages/sr_media_manager/`: Media Manager API client for 10-phase workflow (import as `sr_media_manager`). Replaces old `sr_mp3_manager`.
+- `packages/sr_media_manager/`: Media Manager API client for the Phase-0-to-10 workflow (import as `sr_media_manager`). Replaces old `sr_mp3_manager`.
 - `packages/sr_progress_formatter/`: FFmpeg progress output formatting (import as `sr_progress_formatter`).
 - `packages/sr_silence_detection/`: silence detection and interval processing (import as `sr_silence_detection`).
 - `packages/sr_threshold_selection/`: threshold selection algorithms (import as `sr_threshold_selection`).
