@@ -111,11 +111,23 @@ def _build_overlay_suffix_from_base(
     return ";" + ";".join(parts)
 
 
-def _get_prescaled_logo_path(temp_dir: Path, *, target_width_px: int) -> Path:
-    """Return a deterministic cached logo path for a target width."""
+def _get_logo_cache_identity(source_logo_path: Path) -> str:
+    """Return a cheap cache identity derived from the source logo file stat."""
+    stat = source_logo_path.stat()
+    return f"m{stat.st_mtime_ns}_s{stat.st_size}"
+
+
+def _get_prescaled_logo_path(
+    temp_dir: Path,
+    *,
+    source_logo_path: Path,
+    target_width_px: int,
+) -> Path:
+    """Return a deterministic cached logo path for a logo identity and target width."""
     logo_dir = temp_dir / "logo_overlays"
     logo_dir.mkdir(parents=True, exist_ok=True)
-    return logo_dir / f"logo_w{target_width_px}.png"
+    logo_identity = _get_logo_cache_identity(source_logo_path)
+    return logo_dir / f"logo_{logo_identity}_w{target_width_px}.png"
 
 
 def _ensure_prescaled_logo(
@@ -176,7 +188,11 @@ def is_logo_overlay_ready(
 
     try:
         target_width_px = _resolve_logo_target_width(input_file)
-        candidate = _get_prescaled_logo_path(temp_dir, target_width_px=target_width_px)
+        candidate = _get_prescaled_logo_path(
+            temp_dir,
+            source_logo_path=DEFAULT_LOGO_PATH,
+            target_width_px=target_width_px,
+        )
         return candidate.is_file()
     except (OSError, RuntimeError, ValueError):
         return False
@@ -248,6 +264,7 @@ def prepare_logo_overlay(
                 source_logo_path=DEFAULT_LOGO_PATH,
                 output_logo_path=_get_prescaled_logo_path(
                     temp_dir=temp_dir,
+                    source_logo_path=DEFAULT_LOGO_PATH,
                     target_width_px=target_width_px,
                 ),
                 target_width_px=target_width_px,
@@ -297,6 +314,7 @@ def resolve_prepared_video_overlays(
         target_width_px = _resolve_logo_target_width(input_file)
         logo_target_path = _get_prescaled_logo_path(
             temp_dir=temp_dir,
+            source_logo_path=DEFAULT_LOGO_PATH,
             target_width_px=target_width_px,
         )
         if not logo_target_path.is_file():

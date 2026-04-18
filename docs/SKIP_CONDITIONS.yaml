@@ -107,10 +107,11 @@ pipeline:
       - condition: "logo overlay already prepared"
         checked_path_templates:
           - "repo_root/logo/logo.png"
-          - "temp_dir/logo_overlays/logo_w{target_width_px}.png"
+          - "temp_dir/logo_overlays/logo_{logo_identity}_w{target_width_px}.png"
         checked_runtime_templates:
-          - "is_logo_overlay_ready(input_file, temp_dir, enable_logo_overlay=True) -> expected cache file exists for the derived target_width_px"
-    robustness: "fast but trust-based; readiness is per-video because the cached logo width depends on probed video width, but validation now trusts the filename convention and checks only existence"
+          - "is_logo_overlay_ready(input_file, temp_dir, enable_logo_overlay=True) -> expected cache file exists for the derived target_width_px and current logo file identity"
+          - "logo_identity is derived from logo/logo.png stat (mtime_ns + size), so replacing the logo automatically selects a different cache path"
+    robustness: "fast and simple; readiness is per-video because the cached logo width depends on probed video width, and the filename now also invalidates automatically when the source logo file changes"
 
   phase_7_final_encode:
     skip_conditions:
