@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 import subprocess
+import sys
 
 from sr_progress_formatter import parse_progress_seconds
 
@@ -48,10 +49,12 @@ def run_with_progress(
     check: bool = True,
     text: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    """Run FFmpeg and forward progress updates using -progress on stdout.
+    """Run FFmpeg and show the latest speed token from -progress on stdout.
 
-    Stderr is inherited so FFmpeg logs and errors go straight to the terminal.
+    Stderr is inherited so FFmpeg logs and errors still go straight to the terminal.
     """
+    stream = sys.stdout
+    is_tty = bool(getattr(stream, "isatty", lambda: False)())
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -59,6 +62,7 @@ def run_with_progress(
         text=text,
     )
     output_lines: list[str] = []
+    saw_speed = False
     current_percent = -1
     last_encoded_sec_int = -1
     try:
@@ -69,19 +73,27 @@ def run_with_progress(
             line = raw_line.strip()
             if not line:
                 continue
+            speed = _parse_ffmpeg_progress_speed(line)
+            if speed is not None:
+                clear_suffix = "\033[K" if is_tty else ""
+                print(f"\r{speed}{clear_suffix}", end="", file=stream, flush=True)
+                saw_speed = True
+
             seconds = parse_progress_seconds(line)
-            if seconds is None:
+            if seconds is None or expected_total_seconds <= 0:
                 continue
-            if expected_total_seconds > 0:
-                percent = int(min(100.0, max(0.0, (seconds / expected_total_seconds) * 100.0)))
-                encoded_sec_int = int(seconds)
-                if percent != current_percent or encoded_sec_int != last_encoded_sec_int:
-                    current_percent = percent
-                    last_encoded_sec_int = encoded_sec_int
-                    if on_progress is not None:
-                        on_progress(percent, seconds)
+
+            percent = int(min(100.0, max(0.0, (seconds / expected_total_seconds) * 100.0)))
+            encoded_sec_int = int(seconds)
+            if percent != current_percent or encoded_sec_int != last_encoded_sec_int:
+                current_percent = percent
+                last_encoded_sec_int = encoded_sec_int
+                if on_progress is not None:
+                    on_progress(percent, seconds)
     finally:
         return_code = proc.wait()
+        if saw_speed or return_code != 0:
+            print(file=stream, flush=True)
     stdout_text = "".join(output_lines)
     result = subprocess.CompletedProcess(cmd, return_code, stdout_text, None)
     if check and return_code != 0:
@@ -97,3 +109,13 @@ def run_if_exists(path: Path, cmd: list[str]) -> subprocess.CompletedProcess[str
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     return run(cmd)
+
+
+def _parse_ffmpeg_progress_speed(line: str) -> str | None:
+    """Return the speed token from an FFmpeg progress line."""
+    if not line.startswith("speed="):
+        return None
+    speed = line.split("=", 1)[1].strip()
+    if not speed or speed == "N/A":
+        return None
+    return speed

@@ -38,6 +38,7 @@ After code or config changes, agents append short notes here. When this file gro
   - `src/app/__init__.py`: Added missing exports for all 9 phase functions (`run_snippet_phase`, `run_audio_upload_phase`, `run_pending_upload_phase`, `run_video_upload_phase`).
   - `ALGO.md`: Updated Phase 3 reference to Phase 5-6 for overlay compositing.
 - `src/app/pipeline.py`: Added `run_overlay_phase()` function for Phase 5 overlay generation, using `_run_phase_step` wrapper, calling `prepare_video_overlays()` from `src.media.trim`, and marking completion via `mark_overlay_done()`.
+- `src/ffmpeg/runner.py`: Switched FFmpeg progress output to a single overwrite line showing only the latest raw `speed=` token, clears the rest of the line on TTYs, preserves legacy progress callbacks from `out_time*`, and adds focused runner tests for speed parsing, terminal output, and callback behavior.
 
 ## Latest session edits
 - `src/ffmpeg/transcode.py`: Modified `build_final_trim_command()` and `build_minimal_video_command()` to accept `encoder: str` parameter instead of `VideoEncoderProfile`. Added import for `get_encoder_config` from `src.ffmpeg.encoding_resolver`. Both functions now retrieve encoder config via `get_encoder_config(encoder)` and use `config["codec"]` and `config["args"]` for building FFmpeg commands. Removed `TYPE_CHECKING` import block for `VideoEncoderProfile`.
