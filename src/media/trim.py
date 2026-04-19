@@ -35,6 +35,8 @@ from src.core.paths import (
     get_title_overlay_path,
 )
 
+_VALIDATED_SOURCE_LOGO_IDENTITIES: set[str] = set()
+
 
 def _copy_input_video(
     input_file: Path,
@@ -130,6 +132,29 @@ def _get_prescaled_logo_path(
     return logo_dir / f"logo_{logo_identity}_w{target_width_px}.png"
 
 
+def _iter_prescaled_logo_paths(
+    temp_dir: Path,
+    *,
+    source_logo_path: Path,
+):
+    """Yield cached logo overlays for the current source logo identity."""
+    logo_dir = temp_dir / "logo_overlays"
+    if not logo_dir.is_dir():
+        return iter(())
+    logo_identity = _get_logo_cache_identity(source_logo_path)
+    return logo_dir.glob(f"logo_{logo_identity}_w*.png")
+
+
+def _ensure_source_logo_is_validated(source_logo_path: Path) -> None:
+    """Validate the source logo once per identity for this process."""
+    logo_identity = _get_logo_cache_identity(source_logo_path)
+    if logo_identity in _VALIDATED_SOURCE_LOGO_IDENTITIES:
+        return
+    probe_video_dimensions(source_logo_path)
+    probe_ffmpeg_can_decode_image_frame(source_logo_path)
+    _VALIDATED_SOURCE_LOGO_IDENTITIES.add(logo_identity)
+
+
 def _ensure_prescaled_logo(
     *,
     source_logo_path: Path,
@@ -198,6 +223,22 @@ def is_logo_overlay_ready(
         return False
 
 
+def is_logo_overlay_cache_warm(
+    temp_dir: Path,
+    enable_logo_overlay: bool,
+) -> bool:
+    """Return True when any cached logo exists for the current source logo."""
+    if not enable_logo_overlay or not DEFAULT_LOGO_PATH.is_file():
+        return False
+    return any(
+        path.is_file()
+        for path in _iter_prescaled_logo_paths(
+            temp_dir,
+            source_logo_path=DEFAULT_LOGO_PATH,
+        )
+    )
+
+
 def prepare_title_overlay(
     input_file: Path,
     temp_dir: Path,
@@ -256,8 +297,7 @@ def prepare_logo_overlay(
         return (None, False)
 
     try:
-        probe_video_dimensions(DEFAULT_LOGO_PATH)
-        probe_ffmpeg_can_decode_image_frame(DEFAULT_LOGO_PATH)
+        _ensure_source_logo_is_validated(DEFAULT_LOGO_PATH)
         target_width_px = _resolve_logo_target_width(input_file)
         return (
             _ensure_prescaled_logo(
@@ -311,16 +351,15 @@ def resolve_prepared_video_overlays(
             title_overlay_path = title_overlay_candidate
 
     if enable_logo_overlay and DEFAULT_LOGO_PATH.is_file():
-        target_width_px = _resolve_logo_target_width(input_file)
-        logo_target_path = _get_prescaled_logo_path(
+        logo_target_path, use_logo = prepare_logo_overlay(
+            input_file=input_file,
             temp_dir=temp_dir,
-            source_logo_path=DEFAULT_LOGO_PATH,
-            target_width_px=target_width_px,
+            enable_logo_overlay=True,
         )
-        if not logo_target_path.is_file():
-            raise RuntimeError(f"Missing prepared logo overlay: {logo_target_path}")
-        logo_path_resolved = logo_target_path
-        use_logo = True
+        if use_logo:
+            if logo_target_path is None:
+                raise RuntimeError("Logo overlay path was not created")
+            logo_path_resolved = logo_target_path
 
     return (title_overlay_path, logo_path_resolved, banner_top, use_logo)
 

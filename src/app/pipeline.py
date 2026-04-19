@@ -47,7 +47,7 @@ from src.ffmpeg.trim_script_bundle import (
     get_trim_script_path,
     is_trim_script_ready,
 )
-from src.media.trim import is_logo_overlay_ready, trim_single_video
+from src.media.trim import is_logo_overlay_cache_warm, trim_single_video
 
 # Optional Media Manager integration for title sync and upload (Phases 3 and 5)
 try:
@@ -983,9 +983,8 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                     "logo file missing"
                     if not DEFAULT_LOGO_PATH.is_file()
                     else (
-                        "logo overlay already prepared"
-                        if is_logo_overlay_ready(
-                            video_file,
+                        "logo cache already warmed"
+                        if is_logo_overlay_cache_warm(
                             temp_dir,
                             startup.enable_logo_overlay,
                         )
