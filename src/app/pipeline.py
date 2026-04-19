@@ -93,10 +93,23 @@ class _ConsolePhaseProgress:
         self.stream.write(f"{message}\n")
         self.stream.flush()
 
-    def show_skip(self, name: str, reason: str) -> None:
+    def show_skip(
+        self,
+        label: str,
+        video_index: int,
+        total_videos: int,
+        name: str,
+        reason: str,
+        skip_count: int,
+    ) -> None:
         message = f"  skip: {name} ({reason})"
         if self._is_tty:
-            self.stream.write(f"\r{message}")
+            clear_suffix = "\033[K"
+            message = (
+                f"[{label}] Skip {video_index}/{total_videos}: "
+                f"{name} ({reason}) | skipped {skip_count}"
+            )
+            self.stream.write(f"\r{message}{clear_suffix}")
             self._skip_line_open = True
         else:
             self.stream.write(f"{message}\n")
@@ -150,14 +163,21 @@ def _run_phase(
     phase_progress.start_phase(phase.label)
 
     for i, video_file in enumerate(videos, 1):
-        if phase.checked_paths is not None:
-            phase_progress.show_check(video_file.name, phase.checked_paths(video_file))
         if phase.skip_reason is not None:
             reason = phase.skip_reason(video_file)
             if reason:
                 skip_count += 1
-                phase_progress.show_skip(video_file.name, reason)
+                phase_progress.show_skip(
+                    phase.label,
+                    i,
+                    n,
+                    video_file.name,
+                    reason,
+                    skip_count,
+                )
                 continue
+        if phase.checked_paths is not None:
+            phase_progress.show_check(video_file.name, phase.checked_paths(video_file))
         try:
             result = phase.run(video_file, i, n)
         except Exception as err:

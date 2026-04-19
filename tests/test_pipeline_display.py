@@ -61,6 +61,66 @@ def test_phase_change_inserts_blank_line_after_tty_progress() -> None:
     assert "\n[Title Generation] File 1/1: first.mkv\n\n[Overlay Generation] File 1/1: second.mkv\n" == stream.getvalue()
 
 
+def test_tty_skip_progress_reuses_one_live_line() -> None:
+    stream = _FakeStream(is_tty=True)
+    progress = pipeline._ConsolePhaseProgress(stream)
+
+    progress.start_phase("Transcription")
+    progress.show_skip("Transcription", 1, 3, "a.mkv", "transcript already exists", 1)
+    progress.show_skip("Transcription", 2, 3, "b.mkv", "transcript already exists", 2)
+    progress.finish_line()
+
+    assert stream.getvalue() == (
+        "\n"
+        "\r[Transcription] Skip 1/3: a.mkv (transcript already exists) | skipped 1\033[K"
+        "\r[Transcription] Skip 2/3: b.mkv (transcript already exists) | skipped 2\033[K\n"
+    )
+
+
+def test_run_phase_skips_do_not_emit_check_lines_and_flush_before_next_output(monkeypatch) -> None:
+    stream = _FakeStream(is_tty=True)
+    monkeypatch.setattr(sys, "stdout", stream)
+    monkeypatch.setattr(pipeline, "_PHASE_PROGRESS", None)
+
+    phase = pipeline._PipelinePhase(
+        index=2,
+        label="Transcription",
+        run=lambda video_file, vi, vn: True,
+        skip_reason=lambda video_file: "transcript already exists" if video_file.name == "a.mkv" else None,
+        checked_paths=lambda video_file: [f"/tmp/{video_file.name}"],
+    )
+
+    result = pipeline._run_phase([Path("a.mkv"), Path("b.mkv")], phase)
+
+    assert result == (1, 1, 0)
+    output = stream.getvalue()
+    assert "check: a.mkv" not in output
+    assert "\033[K\n  check: b.mkv -> /tmp/b.mkv\n" in output
+
+
+def test_non_tty_skips_use_concise_newline_summaries(monkeypatch) -> None:
+    stream = _FakeStream(is_tty=False)
+    monkeypatch.setattr(sys, "stdout", stream)
+    monkeypatch.setattr(pipeline, "_PHASE_PROGRESS", None)
+
+    phase = pipeline._PipelinePhase(
+        index=1,
+        label="Snippet Creation",
+        run=lambda video_file, vi, vn: True,
+        skip_reason=lambda video_file: "snippet already exists",
+        checked_paths=lambda video_file: [f"/tmp/{video_file.name}"],
+    )
+
+    result = pipeline._run_phase([Path("a.mkv"), Path("b.mkv")], phase)
+
+    assert result == (0, 2, 0)
+    assert stream.getvalue() == (
+        "\n"
+        "  skip: a.mkv (snippet already exists)\n"
+        "  skip: b.mkv (snippet already exists)\n"
+    )
+
+
 def test_run_phase_step_reports_failure_with_current_output(monkeypatch) -> None:
     stream = _FakeStream(is_tty=True)
     monkeypatch.setattr(sys, "stdout", stream)
