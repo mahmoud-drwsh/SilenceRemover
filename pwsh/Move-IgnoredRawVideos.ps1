@@ -190,6 +190,18 @@ function Move-ToIgnored {
     Write-Host ("  moved '{0}' -> '{1}' ({2})" -f $File.Name, $destination, $Reason) -ForegroundColor Yellow
 }
 
+function Get-CompletedMarkerPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RawPath,
+        [Parameter(Mandatory = $true)]
+        [System.IO.FileInfo]$File
+    )
+
+    $rootDir = Split-Path $RawPath -Parent
+    return Join-Path $rootDir ("output\temp\completed\{0}.txt" -f $File.BaseName)
+}
+
 function Invoke-RawPreflightScan {
     param(
         [Parameter(Mandatory = $true)]
@@ -205,6 +217,7 @@ function Invoke-RawPreflightScan {
             Label = $Label
             Scanned = 0
             Locked = 0
+            CompletedSkipped = 0
             Moved = 0
         }
     }
@@ -220,17 +233,26 @@ function Invoke-RawPreflightScan {
             Label = $Label
             Scanned = 0
             Locked = 0
+            CompletedSkipped = 0
             Moved = 0
         }
     }
 
     $lockedCount = 0
     $movedCount = 0
+    $completedSkipCount = 0
 
     foreach ($file in $videoFiles) {
         if (Test-FileLocked -Path $file.FullName) {
             $lockedCount++
             Write-Host ("  skipping locked file: {0}" -f $file.Name) -ForegroundColor DarkGray
+            continue
+        }
+
+        $completedMarkerPath = Get-CompletedMarkerPath -RawPath $RawPath -File $file
+        if (Test-Path -LiteralPath $completedMarkerPath) {
+            $completedSkipCount++
+            Write-Host ("  skip preflight: {0} (completed marker exists)" -f $file.Name) -ForegroundColor DarkGray
             continue
         }
 
@@ -266,6 +288,7 @@ function Invoke-RawPreflightScan {
         Label = $Label
         Scanned = $videoFiles.Count
         Locked = $lockedCount
+        CompletedSkipped = $completedSkipCount
         Moved = $movedCount
     }
 }
@@ -284,10 +307,11 @@ $summaries = @(
 Write-Host "`n=== Raw preflight summary ===" -ForegroundColor Cyan
 foreach ($summary in $summaries) {
     Write-Host (
-        "  {0}: scanned {1}, locked {2}, moved {3}" -f
+        "  {0}: scanned {1}, locked {2}, completed-skip {3}, moved {4}" -f
         $summary.Label,
         $summary.Scanned,
         $summary.Locked,
+        $summary.CompletedSkipped,
         $summary.Moved
     ) -ForegroundColor White
 }

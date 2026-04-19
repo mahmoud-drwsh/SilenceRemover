@@ -30,6 +30,7 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/trim.py`: Modified `trim_single_video()` to accept `encoder: str` parameter (default `"libx265"`) instead of `VideoEncoderProfile | None`. Added import for `get_encoder_config`. Updated encoder resolution logic to use `.codec` attribute when falling back to `resolve_video_encoder()`. Updated all `command_label` references to use the string encoder directly.
 
 ## Latest session edits
+- `pwsh/Move-IgnoredRawVideos.ps1`: Added a coarse fast path that skips expensive preflight checks whenever the existing `output/temp/completed/{raw_stem}.txt` marker exists for an unlocked raw video; summary output now includes completed-marker skips.
 - `src/core/fs_utils.py`: Added Windows-only `is_file_locked()` using `CreateFileW` exclusive-open probing so active OBS recordings can be detected without waiting for release.
 - `src/core/cli.py`: `collect_video_files()` now filters out locked Windows input files before pipeline startup and prints a short skip message naming those recordings.
 - `tests/test_is_file_stable.py`: Replaced stale `is_file_stable` coverage with tests for Windows lock detection and locked-file filtering in startup input collection.
