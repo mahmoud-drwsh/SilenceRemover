@@ -76,7 +76,7 @@ class _ConsolePhaseProgress:
         self.stream = stream
         self._is_tty = bool(getattr(stream, "isatty", lambda: False)())
         self._current_phase: str | None = None
-        self._skip_line_open = False
+        self._live_line_open = False
 
     def start_phase(self, label: str) -> None:
         if self._current_phase == label:
@@ -110,10 +110,35 @@ class _ConsolePhaseProgress:
                 f"{name} ({reason}) | skipped {skip_count}"
             )
             self.stream.write(f"\r{message}{clear_suffix}")
-            self._skip_line_open = True
+            self._live_line_open = True
         else:
             self.stream.write(f"{message}\n")
         self.stream.flush()
+
+    def show_upload_progress(
+        self,
+        label: str,
+        video_index: int,
+        total_videos: int,
+        name: str,
+        uploaded_bytes: int,
+        total_bytes: int,
+    ) -> None:
+        if not self._is_tty or total_bytes <= 0:
+            return
+
+        self.start_phase(label)
+        transferred = min(max(uploaded_bytes, 0), total_bytes)
+        percent = int(min(100.0, max(0.0, (transferred / total_bytes) * 100.0)))
+        transferred_mib = transferred / (1024 * 1024)
+        total_mib = total_bytes / (1024 * 1024)
+        message = (
+            f"[{label}] Upload {video_index}/{total_videos}: {name} | "
+            f"{percent}% | {transferred_mib:.2f}/{total_mib:.2f} MiB"
+        )
+        self.stream.write(f"\r{message}\033[K")
+        self.stream.flush()
+        self._live_line_open = True
 
     def show_failure(self, name: str, reason: str) -> None:
         self.finish_line()
@@ -130,11 +155,11 @@ class _ConsolePhaseProgress:
         self.stream.flush()
 
     def finish_line(self) -> None:
-        if not self._skip_line_open:
+        if not self._live_line_open:
             return
         self.stream.write("\n")
         self.stream.flush()
-        self._skip_line_open = False
+        self._live_line_open = False
 
 
 _PHASE_PROGRESS: _ConsolePhaseProgress | None = None
@@ -220,6 +245,28 @@ def _run_phase_step(
         reason = str(err).strip() or err.__class__.__name__
         phase_progress.show_failure(video_path.name, reason)
         return False
+
+
+def _build_upload_progress_callback(
+    *,
+    label: str,
+    video_path: Path,
+    video_index: int,
+    total_videos: int,
+) -> Callable[[int, int], None]:
+    phase_progress = _get_phase_progress()
+
+    def _on_progress(uploaded_bytes: int, total_bytes: int) -> None:
+        phase_progress.show_upload_progress(
+            label,
+            video_index,
+            total_videos,
+            video_path.name,
+            uploaded_bytes,
+            total_bytes,
+        )
+
+    return _on_progress
 
 
 def transcribe_media(audio_path: Path, temp_dir: Path, api_key: str, basename: str) -> None:
@@ -462,7 +509,12 @@ def run_audio_upload_phase(
             result = client.upload_audio(
                 file_id, fresh_title, snippet_path, 
                 tags=['todo'],
-                progress_callback=None
+                progress_callback=_build_upload_progress_callback(
+                    label="Audio Upload",
+                    video_path=video_path,
+                    video_index=video_index,
+                    total_videos=total_videos,
+                ),
             )
             if result:
                 notify_audio_uploaded(
@@ -684,7 +736,12 @@ def run_video_upload_phase(
             result = client.upload_video(
                 file_id, local_title, output_path,
                 tags=['pending'],
-                progress_callback=None
+                progress_callback=_build_upload_progress_callback(
+                    label="Video Upload",
+                    video_path=video_path,
+                    video_index=video_index,
+                    total_videos=total_videos,
+                ),
             )
             uploaded = (
                 bool(result)

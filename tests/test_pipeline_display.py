@@ -77,6 +77,21 @@ def test_tty_skip_progress_reuses_one_live_line() -> None:
     )
 
 
+def test_tty_upload_progress_reuses_one_live_line() -> None:
+    stream = _FakeStream(is_tty=True)
+    progress = pipeline._ConsolePhaseProgress(stream)
+
+    progress.show_upload_progress("Audio Upload", 1, 2, "clip.mkv", 1048576, 4194304)
+    progress.show_upload_progress("Audio Upload", 1, 2, "clip.mkv", 2097152, 4194304)
+    progress.finish_line()
+
+    assert stream.getvalue() == (
+        "\n"
+        "\r[Audio Upload] Upload 1/2: clip.mkv | 25% | 1.00/4.00 MiB\033[K"
+        "\r[Audio Upload] Upload 1/2: clip.mkv | 50% | 2.00/4.00 MiB\033[K\n"
+    )
+
+
 def test_run_phase_skips_do_not_emit_check_lines_and_flush_before_next_output(monkeypatch) -> None:
     stream = _FakeStream(is_tty=True)
     monkeypatch.setattr(sys, "stdout", stream)
@@ -96,6 +111,20 @@ def test_run_phase_skips_do_not_emit_check_lines_and_flush_before_next_output(mo
     output = stream.getvalue()
     assert "check: a.mkv" not in output
     assert "\033[K\n  check: b.mkv -> /tmp/b.mkv\n" in output
+
+
+def test_upload_progress_flushes_before_next_output() -> None:
+    stream = _FakeStream(is_tty=True)
+    progress = pipeline._ConsolePhaseProgress(stream)
+
+    progress.show_upload_progress("Video Upload", 2, 5, "clip.mkv", 1048576, 2097152)
+    progress.show_check("clip.mkv", ["/tmp/out.mp4"])
+
+    assert stream.getvalue() == (
+        "\n"
+        "\r[Video Upload] Upload 2/5: clip.mkv | 50% | 1.00/2.00 MiB\033[K\n"
+        "  check: clip.mkv -> /tmp/out.mp4\n"
+    )
 
 
 def test_non_tty_skips_use_concise_newline_summaries(monkeypatch) -> None:
