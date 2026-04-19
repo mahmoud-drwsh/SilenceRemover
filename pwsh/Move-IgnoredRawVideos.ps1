@@ -157,11 +157,11 @@ function Test-FullySilentVideo {
     )
 
     if ($DurationSeconds -le 0) {
-        return $true
+        return $false
     }
 
     if (-not (Test-HasAudioStream -Path $Path)) {
-        return $true
+        return $false
     }
 
     $silenceThresholdText = $SilenceThresholdDb.ToString($InvariantCulture)
@@ -301,18 +301,6 @@ function Invoke-RawPreflightScan {
         $file = $videoFiles[$index]
         $fileNumber = $index + 1
 
-        if (Test-FileLocked -Path $file.FullName) {
-            $lockedCount++
-            Write-SkipStatusLine `
-                -Label $Label `
-                -FileIndex $fileNumber `
-                -TotalFiles $videoFiles.Count `
-                -Name $file.Name `
-                -Reason "locked file" `
-                -SkipCount ($lockedCount + $completedSkipCount)
-            continue
-        }
-
         $completedMarkerPath = Get-CompletedMarkerPath -RawPath $RawPath -File $file
         if (Test-Path -LiteralPath $completedMarkerPath) {
             $completedSkipCount++
@@ -326,16 +314,20 @@ function Invoke-RawPreflightScan {
             continue
         }
 
-        if ($file.Length -le 0) {
-            Move-ToIgnored -File $file -IgnoredDir $ignoredDir -Reason "empty file" -DryRunMove:$DryRun
-            $movedCount++
+        if (Test-FileLocked -Path $file.FullName) {
+            $lockedCount++
+            Write-SkipStatusLine `
+                -Label $Label `
+                -FileIndex $fileNumber `
+                -TotalFiles $videoFiles.Count `
+                -Name $file.Name `
+                -Reason "locked file" `
+                -SkipCount ($lockedCount + $completedSkipCount)
             continue
         }
 
         $duration = Get-MediaDurationSeconds -Path $file.FullName
         if ($null -eq $duration -or $duration -le 0) {
-            Move-ToIgnored -File $file -IgnoredDir $ignoredDir -Reason "missing or invalid duration" -DryRunMove:$DryRun
-            $movedCount++
             continue
         }
 
