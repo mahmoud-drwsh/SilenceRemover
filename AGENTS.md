@@ -30,6 +30,8 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/trim.py`: Modified `trim_single_video()` to accept `encoder: str` parameter (default `"libx265"`) instead of `VideoEncoderProfile | None`. Added import for `get_encoder_config`. Updated encoder resolution logic to use `.codec` attribute when falling back to `resolve_video_encoder()`. Updated all `command_label` references to use the string encoder directly.
 
 ## Latest session edits
+- `pwsh/Move-IgnoredRawVideos.ps1`: Added a shared preflight scanner that walks both `Videos/raw` and `Videos/Vertical/raw`, skips OBS-locked files, moves empty/invalid, sub-10-second, and fully silent videos into each raw folder’s `ignored/`, and supports dry-run/custom roots for safe checks.
+- `pwsh/Start-VerticalVideoProcessing.ps1` / `pwsh/Start-HorizontalVideoProcessing.ps1`: Now resolve repo root via `PSScriptRoot` and run the raw preflight scanner before starting the pipeline.
 - **Phase 5 Split Documentation Fixes**: Updated all phase references across documentation to match the 9-phase pipeline reality:
   - `README.md`: Changed "four main stages" to "nine main phases", "5-phase workflow" to "9-phase workflow", updated all phase numbers (Telegram Phase 6, quick-test nine phases, overlay Phase 5-6, etc.), added `overlay_done/` to directory structure.
   - `src/app/pipeline.py`: Updated docstring from "Three-phase" to "Nine-phase".
