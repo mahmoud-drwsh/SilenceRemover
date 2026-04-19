@@ -38,6 +38,7 @@ from sr_telegram_notify import (
     notify_audio_uploaded,
     notify_final_encoding_started,
     notify_final_output_ready,
+    notify_video_uploaded,
 )
 from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
@@ -660,11 +661,25 @@ def run_video_upload_phase(
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
-            client.upload_video(
+            result = client.upload_video(
                 file_id, local_title, output_path,
                 tags=['pending'],
                 progress_callback=None
             )
+            uploaded = (
+                bool(result)
+                if isinstance(result, bool)
+                else bool(result.get("uploaded"))
+                if isinstance(result, dict)
+                else False
+            )
+            if uploaded:
+                notify_video_uploaded(
+                    video_index=video_index,
+                    total_videos=total_videos,
+                    input_name=video_path.name,
+                    title=local_title,
+                )
         finally:
             client.close()
     
