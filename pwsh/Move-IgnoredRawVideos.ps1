@@ -28,6 +28,58 @@ $videoExtensions = @(
 )
 
 $InvariantCulture = [System.Globalization.CultureInfo]::InvariantCulture
+$script:LiveSkipStatusOpen = $false
+$script:SupportsLiveSkipStatus = $false
+$script:AnsiClearToEndOfLine = "$([char]27)[K"
+
+try {
+    $script:SupportsLiveSkipStatus = -not [Console]::IsOutputRedirected
+} catch {
+    $script:SupportsLiveSkipStatus = $false
+}
+
+function Close-LiveSkipStatusLine {
+    if (-not $script:LiveSkipStatusOpen) {
+        return
+    }
+
+    Write-Host ""
+    $script:LiveSkipStatusOpen = $false
+}
+
+function Write-SkipStatusLine {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Label,
+        [Parameter(Mandatory = $true)]
+        [int]$FileIndex,
+        [Parameter(Mandatory = $true)]
+        [int]$TotalFiles,
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        [Parameter(Mandatory = $true)]
+        [string]$Reason,
+        [Parameter(Mandatory = $true)]
+        [int]$SkipCount
+    )
+
+    if ($script:SupportsLiveSkipStatus) {
+        $message = (
+            "[{0}] Skip {1}/{2}: {3} ({4}) | skipped {5}" -f
+            $Label,
+            $FileIndex,
+            $TotalFiles,
+            $Name,
+            $Reason,
+            $SkipCount
+        )
+        Write-Host ("`r{0}{1}" -f $message, $script:AnsiClearToEndOfLine) -NoNewline -ForegroundColor DarkGray
+        $script:LiveSkipStatusOpen = $true
+        return
+    }
+
+    Write-Host ("  skip: {0} ({1})" -f $Name, $Reason) -ForegroundColor DarkGray
+}
 
 function Test-RequiredTool {
     param(
@@ -175,6 +227,8 @@ function Move-ToIgnored {
         [switch]$DryRunMove
     )
 
+    Close-LiveSkipStatusLine
+
     if ($DryRunMove) {
         $destination = Join-Path $IgnoredDir $File.Name
         Write-Host ("  [dry-run] move '{0}' -> '{1}' ({2})" -f $File.Name, $destination, $Reason) -ForegroundColor Yellow
@@ -210,6 +264,7 @@ function Invoke-RawPreflightScan {
         [string]$RawPath
     )
 
+    Close-LiveSkipStatusLine
     Write-Host "`n=== $Label raw preflight ===" -ForegroundColor Cyan
     if (-not (Test-Path -LiteralPath $RawPath)) {
         Write-Host "  raw directory not found: $RawPath" -ForegroundColor DarkGray
@@ -242,17 +297,32 @@ function Invoke-RawPreflightScan {
     $movedCount = 0
     $completedSkipCount = 0
 
-    foreach ($file in $videoFiles) {
+    for ($index = 0; $index -lt $videoFiles.Count; $index++) {
+        $file = $videoFiles[$index]
+        $fileNumber = $index + 1
+
         if (Test-FileLocked -Path $file.FullName) {
             $lockedCount++
-            Write-Host ("  skipping locked file: {0}" -f $file.Name) -ForegroundColor DarkGray
+            Write-SkipStatusLine `
+                -Label $Label `
+                -FileIndex $fileNumber `
+                -TotalFiles $videoFiles.Count `
+                -Name $file.Name `
+                -Reason "locked file" `
+                -SkipCount ($lockedCount + $completedSkipCount)
             continue
         }
 
         $completedMarkerPath = Get-CompletedMarkerPath -RawPath $RawPath -File $file
         if (Test-Path -LiteralPath $completedMarkerPath) {
             $completedSkipCount++
-            Write-Host ("  skip preflight: {0} (completed marker exists)" -f $file.Name) -ForegroundColor DarkGray
+            Write-SkipStatusLine `
+                -Label $Label `
+                -FileIndex $fileNumber `
+                -TotalFiles $videoFiles.Count `
+                -Name $file.Name `
+                -Reason "completed marker exists" `
+                -SkipCount ($lockedCount + $completedSkipCount)
             continue
         }
 
@@ -281,9 +351,11 @@ function Invoke-RawPreflightScan {
             continue
         }
 
+        Close-LiveSkipStatusLine
         Write-Host ("  keeping '{0}' ({1:N2}s)" -f $file.Name, $duration) -ForegroundColor Green
     }
 
+    Close-LiveSkipStatusLine
     return [pscustomobject]@{
         Label = $Label
         Scanned = $videoFiles.Count
@@ -304,6 +376,7 @@ $summaries = @(
     Invoke-RawPreflightScan -Label "Vertical" -RawPath $verticalRaw
 )
 
+Close-LiveSkipStatusLine
 Write-Host "`n=== Raw preflight summary ===" -ForegroundColor Cyan
 foreach ($summary in $summaries) {
     Write-Host (
