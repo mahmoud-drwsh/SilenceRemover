@@ -30,6 +30,9 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/trim.py`: Modified `trim_single_video()` to accept `encoder: str` parameter (default `"libx265"`) instead of `VideoEncoderProfile | None`. Added import for `get_encoder_config`. Updated encoder resolution logic to use `.codec` attribute when falling back to `resolve_video_encoder()`. Updated all `command_label` references to use the string encoder directly.
 
 ## Latest session edits
+- `src/core/fs_utils.py`: Added Windows-only `is_file_locked()` using `CreateFileW` exclusive-open probing so active OBS recordings can be detected without waiting for release.
+- `src/core/cli.py`: `collect_video_files()` now filters out locked Windows input files before pipeline startup and prints a short skip message naming those recordings.
+- `tests/test_is_file_stable.py`: Replaced stale `is_file_stable` coverage with tests for Windows lock detection and locked-file filtering in startup input collection.
 - `pwsh/Move-IgnoredRawVideos.ps1`: Added a shared preflight scanner that walks both `Videos/raw` and `Videos/Vertical/raw`, skips OBS-locked files, moves empty/invalid, sub-10-second, and fully silent videos into each raw folder’s `ignored/`, and supports dry-run/custom roots for safe checks.
 - `pwsh/Start-VerticalVideoProcessing.ps1` / `pwsh/Start-HorizontalVideoProcessing.ps1`: Now resolve repo root via `PSScriptRoot` and run the raw preflight scanner before starting the pipeline.
 - **Phase 5 Split Documentation Fixes**: Updated all phase references across documentation to match the 9-phase pipeline reality:

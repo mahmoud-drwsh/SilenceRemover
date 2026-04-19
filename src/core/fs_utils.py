@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover - non-Windows environments
     ctypes = None
     wintypes = None
 
-__all__ = ["wait_for_file_release"]
+__all__ = ["is_file_locked", "wait_for_file_release"]
 
 _IS_WINDOWS = os.name == "nt"
 
@@ -40,6 +40,7 @@ if _IS_WINDOWS and ctypes:
 
     _INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value  # type: ignore[arg-type]
     _OPEN_EXISTING = 3
+    _GENERIC_READ = 0x80000000
     _DELETE = 0x00010000
     _FILE_READ_ATTRIBUTES = 0x80
     _FILE_SHARE_READ = 0x00000001
@@ -47,11 +48,14 @@ if _IS_WINDOWS and ctypes:
     _FILE_SHARE_DELETE = 0x00000004
     _ERROR_FILE_NOT_FOUND = 2
     _ERROR_PATH_NOT_FOUND = 3
+    _ERROR_SHARING_VIOLATION = 32
+    _ERROR_LOCK_VIOLATION = 33
 else:  # pragma: no cover - non-Windows environments
     _CreateFileW = None
     _CloseHandle = None
     _INVALID_HANDLE_VALUE = None
     _OPEN_EXISTING = None
+    _GENERIC_READ = None
     _DELETE = None
     _FILE_READ_ATTRIBUTES = None
     _FILE_SHARE_READ = None
@@ -59,6 +63,36 @@ else:  # pragma: no cover - non-Windows environments
     _FILE_SHARE_DELETE = None
     _ERROR_FILE_NOT_FOUND = None
     _ERROR_PATH_NOT_FOUND = None
+    _ERROR_SHARING_VIOLATION = None
+    _ERROR_LOCK_VIOLATION = None
+
+
+def is_file_locked(path: Path) -> bool:
+    """Return True when a Windows file is locked by another process.
+
+    The pipeline uses this to skip files that OBS is still recording to.
+    Non-Windows platforms always return False.
+    """
+    if not (_IS_WINDOWS and _CreateFileW):
+        return False
+
+    handle = _CreateFileW(
+        str(path),
+        _GENERIC_READ,
+        0,
+        None,
+        _OPEN_EXISTING,
+        0,
+        None,
+    )
+    if handle != _INVALID_HANDLE_VALUE:
+        _CloseHandle(handle)
+        return False
+
+    err = ctypes.get_last_error()
+    if err in (_ERROR_FILE_NOT_FOUND, _ERROR_PATH_NOT_FOUND):
+        return False
+    return err in (_ERROR_SHARING_VIOLATION, _ERROR_LOCK_VIOLATION)
 
 
 def wait_for_file_release(path: Path, timeout: float | None = None) -> bool:
@@ -91,4 +125,3 @@ def wait_for_file_release(path: Path, timeout: float | None = None) -> bool:
         if time.monotonic() >= deadline:
             return False
         time.sleep(sleep_interval)
-

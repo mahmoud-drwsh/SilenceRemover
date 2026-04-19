@@ -5,6 +5,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from src.core.fs_utils import is_file_locked
+
 __all__ = [
     "collect_video_files",
     "parse_args",
@@ -46,13 +48,24 @@ def require_input_dir(input_dir: Path) -> None:
 def collect_video_files(input_dir: Path) -> list[Path]:
     """Collect supported video files from a directory.
 
-    All valid video files are collected - the pipeline assumes all input videos
-    are ready and stable. Individual phases handle their own skip logic.
+    On Windows, files locked by another process (for example OBS still writing)
+    are skipped so they do not enter the pipeline run.
     """
     video_files = []
+    locked_video_files = []
     for p in input_dir.iterdir():
-        if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS:
-            video_files.append(p)
+        if not p.is_file() or p.suffix.lower() not in VIDEO_EXTENSIONS:
+            continue
+        if is_file_locked(p):
+            locked_video_files.append(p)
+            continue
+        video_files.append(p)
+
+    if locked_video_files:
+        print(
+            "Skipping locked input video(s) still being recorded on Windows: "
+            + ", ".join(path.name for path in sorted(locked_video_files))
+        )
 
     return sorted(video_files)
 
