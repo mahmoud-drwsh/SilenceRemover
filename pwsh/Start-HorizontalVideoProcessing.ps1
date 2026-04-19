@@ -10,7 +10,7 @@ if (-not (Test-Path $inputDir)) {
     exit 1
 }
 
-& (Join-Path $PSScriptRoot "Move-IgnoredRawVideos.ps1")
+& uv run python (Join-Path $PSScriptRoot "Move-IgnoredRawVideos.py")
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Raw preflight scan failed with exit code $LASTEXITCODE"
     exit $LASTEXITCODE
