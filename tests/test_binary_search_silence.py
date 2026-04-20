@@ -28,8 +28,8 @@ class TestTargetSearchConstants:
         assert TARGET_SEARCH_LOW_DB == -60.0
         assert TARGET_SEARCH_HIGH_DB == -40.0
         assert TARGET_SEARCH_STEP_DB == 0.1
-        assert TARGET_SEARCH_MIN_SILENCE_LEN_SEC == 0.2
-        assert TARGET_SEARCH_BASE_PADDING_SEC == 0.2
+        assert TARGET_SEARCH_MIN_SILENCE_LEN_SEC == 0.1
+        assert TARGET_SEARCH_BASE_PADDING_SEC == 0.1
         assert TARGET_SEARCH_PADDING_STEP_SEC == 0.01
 
         count = int(round((TARGET_SEARCH_HIGH_DB - TARGET_SEARCH_LOW_DB) / TARGET_SEARCH_STEP_DB)) + 1
@@ -63,7 +63,7 @@ class TestCacheFilenameEncoding:
     def test_primary_cache_key_is_stable(self):
         from packages.sr_silence_detection._cache import _get_primary_cache_key
 
-        assert _get_primary_cache_key(0.2, -60.0) == "d:0.200|t:-60.000"
+        assert _get_primary_cache_key(TARGET_SEARCH_MIN_SILENCE_LEN_SEC, -60.0) == "d:0.100|t:-60.000"
         assert _get_primary_cache_key(0.375, -59.75) == "d:0.375|t:-59.750"
         assert _get_primary_cache_key(0.5, 0.0) == "d:0.500|t:0.000"
 
@@ -153,7 +153,7 @@ class TestPaddingBinarySearch:
 
     def test_returns_base_padding_when_no_expansion_is_possible(self):
         pad_sec = binary_search_padding(
-            target_length=9.90,
+            target_length=9.80,
             duration_sec=5.0,
             estimate_length=lambda pad_sec: 9.70 + pad_sec,
         )
