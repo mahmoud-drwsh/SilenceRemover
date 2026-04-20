@@ -42,10 +42,27 @@ def _progress_body(
     input_name: str,
     title: str,
 ) -> str:
-    """Build compact progress message: '1/3: basename: title' (no extensions)."""
+    """Build compact detail line: 'basename: title' (no extensions)."""
     basename = Path(input_name).stem
     title_clean = Path(title).stem
-    return f"{video_index}/{total_videos}: {basename}: {title_clean}"
+    return f"{basename}: {title_clean}"
+
+
+def _status_message(
+    status: str,
+    *,
+    video_index: int,
+    total_videos: int,
+    input_name: str,
+    title: str,
+) -> str:
+    body = _progress_body(
+        video_index=video_index,
+        total_videos=total_videos,
+        input_name=input_name,
+        title=title,
+    )
+    return f"{status} {video_index}/{total_videos}\n{body}"
 
 
 def notify_final_encoding_started(
@@ -55,13 +72,13 @@ def notify_final_encoding_started(
     title: str,
 ) -> None:
     """Notify that Phase 7 final encoding is about to start (before FFmpeg)."""
-    body = _progress_body(
+    _telegram_send_if_configured(_status_message(
+        "STARTED",
         video_index=video_index,
         total_videos=total_videos,
         input_name=input_name,
         title=title,
-    )
-    _telegram_send_if_configured(f"▶️ {body}")
+    ))
 
 
 def notify_final_output_ready(
@@ -71,13 +88,13 @@ def notify_final_output_ready(
     title: str,
 ) -> None:
     """Notify that Phase 7 encoding finished successfully."""
-    body = _progress_body(
+    _telegram_send_if_configured(_status_message(
+        "READY",
         video_index=video_index,
         total_videos=total_videos,
         input_name=input_name,
         title=title,
-    )
-    _telegram_send_if_configured(f"✅ {body}")
+    ))
 
 
 def notify_audio_uploaded(
@@ -88,13 +105,13 @@ def notify_audio_uploaded(
     title: str,
 ) -> None:
     """Notify that audio snippet was uploaded to Media Manager (Phase 4)."""
-    body = _progress_body(
+    _telegram_send_if_configured(_status_message(
+        "AUDIO",
         video_index=video_index,
         total_videos=total_videos,
         input_name=input_name,
         title=title,
-    )
-    _telegram_send_if_configured(f"🎵 Audio uploaded: {body}")
+    ))
 
 
 def notify_video_uploaded(
@@ -105,10 +122,10 @@ def notify_video_uploaded(
     title: str,
 ) -> None:
     """Notify that final video was uploaded to Media Manager (Phase 9)."""
-    body = _progress_body(
+    _telegram_send_if_configured(_status_message(
+        "VIDEO",
         video_index=video_index,
         total_videos=total_videos,
         input_name=input_name,
         title=title,
-    )
-    _telegram_send_if_configured(f"🎬 Video uploaded: {body}")
+    ))
