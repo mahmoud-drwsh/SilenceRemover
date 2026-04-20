@@ -1,14 +1,14 @@
 <# 
 .SYNOPSIS
-    Create symbolic links in a YT folder for short videos.
+    Create links in a YT folder for short videos.
 
 .DESCRIPTION
     Scans the current working directory for video files shorter than a duration
-    threshold (default 179.5 seconds) and creates symbolic links to each match
+    threshold (default 179.5 seconds) and creates links to each match
     under ./YT while preserving relative folder structure.
 
-    Designed to run on Windows with PowerShell and also works cross-platform where
-    PowerShell can create symbolic links.
+    Designed for Windows with PowerShell and also works cross-platform where
+    PowerShell can create links.
 
 .PARAMETER Root
     Root directory to scan. Defaults to the current working directory.
@@ -19,6 +19,13 @@
 .PARAMETER MaxDurationSeconds
     Maximum duration threshold (seconds). Files with duration strictly less than this
     value are linked.
+
+.PARAMETER LinkType
+    Link strategy. HardLink saves space without admin requirements on NTFS and is
+    recommended on Windows. SymbolicLink preserves behavior when you need it.
+
+.PARAMETER FallbackToSymbolic
+    If set, hard-link failures (for example cross-volume) will fall back to symbolic links.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')]
 param(
@@ -30,6 +37,13 @@ param(
 
     [Parameter(Mandatory = $false, Position = 2)]
     [double]$MaxDurationSeconds = 179.5,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet('HardLink', 'SymbolicLink')]
+    [string]$LinkType = 'HardLink',
+
+    [Parameter(Mandatory = $false)]
+    [switch]$FallbackToSymbolic,
 
     [Parameter(Mandatory = $false)]
     [string[]]$Extensions = @(
@@ -93,12 +107,14 @@ function Get-VideoDurationSeconds {
 function New-VideoSymlink {
     param(
         [string]$Source,
-        [string]$LinkPath
+        [string]$LinkPath,
+        [string]$RequestedLinkType,
+        [bool]$UseFallback
     )
 
     if (Test-Path -LiteralPath $LinkPath) {
         Write-Host "[Skip] $LinkPath already exists"
-        return
+        return $false
     }
 
     $linkDirectory = Split-Path -Parent $LinkPath
@@ -106,14 +122,30 @@ function New-VideoSymlink {
         New-Item -ItemType Directory -Path $linkDirectory -Force | Out-Null
     }
 
-    if ($PSCmdlet.ShouldProcess($LinkPath, "Create symbolic link")) {
+    if ($PSCmdlet.ShouldProcess($LinkPath, "Create $RequestedLinkType link")) {
         try {
-            New-Item -ItemType SymbolicLink -Path $LinkPath -Target $Source | Out-Null
-            Write-Host "[Link] $LinkPath -> $Source"
+            New-Item -ItemType $RequestedLinkType -Path $LinkPath -Target $Source | Out-Null
+            Write-Host "[Link] $RequestedLinkType $LinkPath -> $Source"
+            return $true
         } catch {
-            Write-Warning "Failed to create symlink: $LinkPath -> $Source. $($_.Exception.Message)"
+            Write-Warning "Failed to create ${RequestedLinkType}: $LinkPath -> $Source. $($_.Exception.Message)"
+
+            if ($RequestedLinkType -eq 'HardLink' -and $UseFallback) {
+                try {
+                    New-Item -ItemType SymbolicLink -Path $LinkPath -Target $Source | Out-Null
+                    Write-Host "[Link] SymbolicLink (fallback) $LinkPath -> $Source"
+                    return $true
+                } catch {
+                    Write-Warning "Fallback symbolic link failed: $LinkPath -> $Source. $($_.Exception.Message)"
+                    return $false
+                }
+            }
+
+            return $false
         }
     }
+
+    return $false
 }
 
 $videoFiles = Get-ChildItem -LiteralPath $rootPath -File -Recurse | Where-Object {
@@ -141,8 +173,9 @@ foreach ($video in $videoFiles) {
 
     $relativePath = [System.IO.Path]::GetRelativePath($rootPath, $video.FullName)
     $targetPath = Join-Path -Path $destinationPath -ChildPath $relativePath
-    New-VideoSymlink -Source $video.FullName -LinkPath $targetPath
-    $linked++
+    if (New-VideoSymlink -Source $video.FullName -LinkPath $targetPath -RequestedLinkType $LinkType -UseFallback $FallbackToSymbolic.IsPresent) {
+        $linked++
+    }
 }
 
 Write-Host "Scanned $total videos. Linked $linked files to: $destinationPath"
