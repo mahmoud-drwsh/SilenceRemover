@@ -50,9 +50,9 @@ def build_startup_context(args: Namespace) -> StartupContext:
 
     trim_defaults = resolve_trim_defaults(
         target_length=args.target_length,
-        noise_threshold=args.noise_threshold,
-        min_duration=args.min_duration,
-        pad_sec=getattr(args, "pad_sec", None),
+        noise_threshold=args.non_target_noise_threshold,
+        min_duration=args.non_target_min_duration,
+        pad_sec=args.non_target_pad_sec,
     )
 
     pad_sec = trim_defaults.pad_sec

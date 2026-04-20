@@ -22,7 +22,7 @@ Phase 1 always creates a fixed-rule snippet for transcription:
 - Leading/trailing edges are then reduced to the 200ms keep buffer via shared edge normalization.
 - `pad_sec` is still applied through the shared segment-builder.
 - The resulting audio is capped to `SNIPPET_MAX_DURATION_SEC` (180 seconds / 3 minutes by default) after concatenation.
-- This phase is intentionally independent of CLI `--noise-threshold`, `--min-duration`, and `--target-length` settings.
+- This phase is intentionally independent of CLI `--non-target-noise-threshold`, `--non-target-min-duration`, and `--target-length` settings.
 
 ## Examples (intuition)
 
@@ -53,10 +53,10 @@ One detected silence: `silence_start=20.0`, `silence_end=22.0`, `pad_sec=0.5`.
 
 ## When no target length is set
 
-- For final output trim in non-target mode, `--noise-threshold` / `--min-duration` (if provided) are used; otherwise defaults from `src/core/constants.py` are used (`NON_TARGET_NOISE_THRESHOLD_DB=-50.0`, `NON_TARGET_MIN_DURATION_SEC=1.0`).
+- For final output trim in non-target mode, `--non-target-noise-threshold` and `--non-target-min-duration` (if provided) are used; otherwise defaults from `src/core/constants.py` are used (`NON_TARGET_NOISE_THRESHOLD_DB=-50.0`, `NON_TARGET_MIN_DURATION_SEC=1.0`).
 - Before padding is applied, the non-target flow runs `prepare_silence_intervals_with_edges` (`EDGE_RESCAN_THRESHOLD_DB` / `EDGE_RESCAN_MIN_DURATION_SEC`) which replaces only the primary leading/trailing silence intervals and retains `EDGE_SILENCE_KEEP_SEC` (0.2s) at each edge.
 - Segment build flow is shared with target-mode: detect silences -> build keep segments -> concat.
-- In non-target mode, `pad_sec` is fixed to `NON_TARGET_PAD_SEC` from `src/core/constants.py` (no CLI override).
+- In non-target mode, `pad_sec` defaults to `NON_TARGET_PAD_SEC` from `src/core/constants.py` and can be overridden with `--non-target-pad-sec`.
 
 ## When target length is set (`--target-length`)
 

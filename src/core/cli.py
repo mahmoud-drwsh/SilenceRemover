@@ -110,7 +110,7 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--noise-threshold",
+        "--non-target-noise-threshold",
         type=float,
         default=None,
         help=(
@@ -119,7 +119,7 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--min-duration",
+        "--non-target-min-duration",
         type=_positive_float,
         default=None,
         help=(
@@ -128,7 +128,7 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--pad-sec",
+        "--non-target-pad-sec",
         type=_positive_float,
         default=None,
         help=(

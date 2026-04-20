@@ -16,7 +16,7 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& uv run main.py $inputDir --encoder QSV --noise-threshold -40 --min-duration 1.0 --pad-sec 0.5
+& uv run main.py $inputDir --encoder QSV --non-target-noise-threshold -40 --non-target-min-duration 1.0 --non-target-pad-sec 0.5
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Pipeline failed with exit code $LASTEXITCODE"

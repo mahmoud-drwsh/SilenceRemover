@@ -96,9 +96,9 @@ python main.py /path/to/video/directory
 ### Options
 
 - `--target-length FLOAT`: Target length in seconds for final output. This enables a fixed internal two-stage search: threshold `-60.0..-35.0 dB` on a `0.1 dB` grid, `0.100s` minimum silence detection, and padding search from `0.060s` in `0.01s` increments.
-- `--noise-threshold FLOAT`: Override silence detection threshold in dB for non-target mode. Ignored when `--target-length` is set.
-- `--min-duration FLOAT`: Override minimum silence duration in seconds for non-target mode. Ignored when `--target-length` is set.
-- `--pad-sec FLOAT`: Override padding in seconds for non-target mode. Ignored when `--target-length` is set.
+- `--non-target-noise-threshold FLOAT`: Override silence detection threshold in dB for non-target mode. Ignored when `--target-length` is set.
+- `--non-target-min-duration FLOAT`: Override minimum silence duration in seconds for non-target mode. Ignored when `--target-length` is set.
+- `--non-target-pad-sec FLOAT`: Override padding in seconds for non-target mode. Ignored when `--target-length` is set.
 - `--title-font`: Google Font family name used to render the title overlay. The font is auto-downloaded from Google Fonts on first use and cached under `output/temp/fonts/`.
 - `--enable-title-overlay`: Enable title overlay in final output (requires a title from Phase 3). By default, overlays are disabled.
 - `--enable-logo-overlay`: Enable logo overlay in final output (requires `logo/logo.png`). By default, overlays are disabled.
@@ -165,7 +165,7 @@ The tool processes videos sequentially through **ten** main phases:
 
 - **Snippet** (`packages/sr_snippet/`): extracts up to 3 minutes (`SNIPPET_MAX_DURATION_SEC` = 180s) of silence-removed snippet audio for transcription using the same edge policy as final trim (`build_trim_plan` in `packages/sr_trim_plan/`).
 - Saves as `.ogg` (Opus) under `output/temp/snippet/` (see `get_snippet_path` / `AUDIO_FILE_EXT`)
-- Phase-1 snippet extraction ignores `--noise-threshold`/`--min-duration` overrides and always uses `SNIPPET_NOISE_THRESHOLD_DB` (`-55dB`) and `SNIPPET_MIN_DURATION_SEC` (`0.01s`) via snippet defaults.
+- Phase-1 snippet extraction ignores `--non-target-noise-threshold`/`--non-target-min-duration` overrides and always uses `SNIPPET_NOISE_THRESHOLD_DB` (`-55dB`) and `SNIPPET_MIN_DURATION_SEC` (`0.01s`) via snippet defaults.
 - Reuses existing audio files if already extracted
 
 ### 3. Transcription & Title Generation
