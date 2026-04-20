@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from io import StringIO
 from pathlib import Path
@@ -72,9 +73,33 @@ def test_tty_skip_progress_reuses_one_live_line() -> None:
 
     assert stream.getvalue() == (
         "\n"
-        "\r[Transcription] Skip 1/3: a.mkv (transcript already exists) | skipped 1\033[K"
-        "\r[Transcription] Skip 2/3: b.mkv (transcript already exists) | skipped 2\033[K\n"
+        "\r[Transcription] Skip 1/3: a.mkv\033[K"
+        "\r[Transcription] Skip 2/3: b.mkv\033[K\n"
     )
+
+
+def test_tty_skip_progress_truncates_long_names_to_terminal_width(monkeypatch) -> None:
+    stream = _FakeStream(is_tty=True)
+    progress = pipeline._ConsolePhaseProgress(stream)
+    monkeypatch.setattr(pipeline.shutil, "get_terminal_size", lambda fallback=(80, 24): os.terminal_size((50, 24)))
+
+    progress.start_phase("Title Overlay Generation")
+    progress.show_skip(
+        "Title Overlay Generation",
+        1,
+        5,
+        "2026-03-27 14-11-22-vertical.mkv",
+        "title overlay already generated for current title",
+        1,
+    )
+    progress.finish_line()
+
+    assert stream.getvalue() == (
+        "\n"
+        "\r[Title Overlay Generation] Skip 1/5: 2026-03-27...\033[K\n"
+    )
+    rendered_line = stream.getvalue().split("\r", 1)[1].split("\033[K", 1)[0]
+    assert len(rendered_line) <= 50
 
 
 def test_tty_upload_progress_reuses_one_live_line() -> None:

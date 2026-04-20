@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,6 +79,28 @@ class _ConsolePhaseProgress:
         self._current_phase: str | None = None
         self._live_line_open = False
 
+    @staticmethod
+    def _ellipsize(text: str, max_len: int) -> str:
+        if max_len <= 0:
+            return ""
+        if len(text) <= max_len:
+            return text
+        if max_len <= 3:
+            return text[:max_len]
+        return text[: max_len - 3] + "..."
+
+    def _format_tty_skip_message(
+        self,
+        *,
+        label: str,
+        video_index: int,
+        total_videos: int,
+        name: str,
+    ) -> str:
+        terminal_width = shutil.get_terminal_size(fallback=(80, 24)).columns
+        message = f"[{label}] Skip {video_index}/{total_videos}: {name}"
+        return self._ellipsize(message, terminal_width)
+
     def start_phase(self, label: str) -> None:
         if self._current_phase == label:
             return
@@ -105,9 +128,11 @@ class _ConsolePhaseProgress:
         message = f"  skip: {name} ({reason})"
         if self._is_tty:
             clear_suffix = "\033[K"
-            message = (
-                f"[{label}] Skip {video_index}/{total_videos}: "
-                f"{name} ({reason}) | skipped {skip_count}"
+            message = self._format_tty_skip_message(
+                label=label,
+                video_index=video_index,
+                total_videos=total_videos,
+                name=name,
             )
             self.stream.write(f"\r{message}{clear_suffix}")
             self._live_line_open = True
