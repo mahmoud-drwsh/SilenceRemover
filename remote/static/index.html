@@ -516,7 +516,7 @@
                 const dlText = isDownloaded ? '✓ Downloaded' : '⬇️ Download';
                 
                 actionsHtml = `
-                    <button class="btn btn-primary" onclick="playVideo('${safeId}', '${escapeHtml(title)}')">▶️ Play</button>
+                    <button class="btn btn-primary" onclick="playVideo('${safeId}', '${safeTitle}')">▶️ Play</button>
                     <a href="${videoStreamUrl}" class="${dlClass}" download id="dl-btn-${safeId}" onclick="sessionStorage.setItem('dl-' + '${safeId}', '1'); this.classList.add('btn-downloaded'); this.textContent='✓ Downloaded';">${dlText}</a>
                     <div class="menu-container">
                         <button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button>
@@ -858,127 +858,15 @@
         }
 
         function playVideo(id, title) {
-            const streamUrl = `/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(id)}?type=${TYPE_VIDEO}`;
+            const playerWindow = window.open(
+                `/projects/${encodeURIComponent(TOKEN)}/${encodeURIComponent(PROJECT)}/video-player?file=${encodeURIComponent(id)}&title=${encodeURIComponent(title || '')}`,
+                '_blank'
+            );
 
-            // Create full-page overlay
-            const overlay = document.createElement('div');
-            overlay.id = 'video-player-overlay';
-            overlay.style.cssText = `
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                width: 100vw;
-                height: 100vh;
-                background: #000;
-                z-index: 9999;
-                display: flex;
-                flex-direction: column;
-            `;
-
-            // Header with title and close button
-            const header = document.createElement('div');
-            header.style.cssText = `
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                padding: 0.75rem 1rem;
-                background: #1a1a1a;
-                border-bottom: 1px solid #333;
-                flex-shrink: 0;
-            `;
-            header.innerHTML = `
-                <div style="
-                    color: #fff;
-                    font-size: 0.95rem;
-                    font-weight: 500;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    flex: 1;
-                    margin-right: 1rem;
-                ">${escapeHtml(title)}</div>
-                <button id="close-video-player" style="
-                    padding: 0.5rem 1rem;
-                    background: #ff4444;
-                    color: #fff;
-                    border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    font-size: 0.9rem;
-                    font-weight: 600;
-                    flex-shrink: 0;
-                ">✕ Close</button>
-            `;
-
-            // Video container - fills remaining space
-            const videoContainer = document.createElement('div');
-            videoContainer.style.cssText = `
-                flex: 1;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                background: #000;
-                position: relative;
-                overflow: hidden;
-            `;
-
-            // Video element - scales to fit container while maintaining aspect ratio
-            const video = document.createElement('video');
-            video.style.cssText = `
-                max-width: 100%;
-                max-height: 100%;
-                width: 100%;
-                height: 100%;
-                object-fit: contain;
-            `;
-            video.controls = true;
-            video.playsInline = true;
-            video.preload = 'metadata';
-            
-            // Set source directly (works better for streaming)
-            video.src = streamUrl;
-            videoContainer.appendChild(video);
-            overlay.appendChild(header);
-            overlay.appendChild(videoContainer);
-
-            // Close handlers
-            const closePlayer = () => {
-                video.pause();
-                overlay.remove();
-                document.removeEventListener('keydown', handleKeydown);
-            };
-
-            const handleKeydown = (e) => {
-                if (e.key === 'Escape') {
-                    closePlayer();
-                }
-            };
-
-            document.addEventListener('keydown', handleKeydown);
-
-            // Close button click
-            header.querySelector('#close-video-player').addEventListener('click', closePlayer);
-
-            // Prevent clicks on video from closing (only background would, but video fills container)
-            video.addEventListener('click', (e) => {
-                e.stopPropagation();
-            });
-
-            // Add to DOM
-            document.body.appendChild(overlay);
-
-            // Handle video errors
-            video.addEventListener('error', () => {
-                videoContainer.innerHTML = `
-                    <div style="color: #fff; text-align: center; padding: 2rem;">
-                        <div style="font-size: 3rem; margin-bottom: 1rem;">⚠️</div>
-                        <div style="font-size: 1.2rem; margin-bottom: 0.5rem;">Unable to play video</div>
-                        <div style="color: #888; font-size: 0.9rem;">The video may be in an unsupported format</div>
-                    </div>
-                `;
-            });
+            if (!playerWindow) {
+                // Fallback if popup is blocked
+                window.location.href = `/projects/${encodeURIComponent(TOKEN)}/${encodeURIComponent(PROJECT)}/video-player?file=${encodeURIComponent(id)}&title=${encodeURIComponent(title || '')}`;
+            }
         }
 
         async function updateTags(id, tags, type) {

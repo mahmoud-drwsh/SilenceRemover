@@ -821,6 +821,14 @@ async def stream_file(token: str, project: str, id: str, request: Request, type:
 
 
 
+@app.get("/projects/{token}/{project}/video-player")
+def serve_video_player(token: str, project: str):
+    """Serve dedicated video player page (opened in a new tab)."""
+    verify_token(token)
+    player_page = Path(__file__).parent / 'static' / 'video-player.html'
+    return FileResponse(player_page)
+
+
 @app.get("/projects/{token}/{project}/static/{filepath:path}")
 def serve_static(token: str, project: str, filepath: str):
     """Serve static files (JS/CSS) with token authentication."""
