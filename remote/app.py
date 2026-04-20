@@ -12,6 +12,8 @@ Environment variables:
 import os
 import json
 import sqlite3
+import secrets
+import threading
 import magic
 from pathlib import Path
 from datetime import datetime
@@ -31,6 +33,87 @@ DATA_DIR = Path(os.environ.get('DATA_DIR', '/var/lib/media-manager'))
 STORAGE_DIR = DATA_DIR / 'storage'
 DB_PATH = DATA_DIR / 'database.db'
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
+TOKEN_LOCK = threading.Lock()
+
+
+def _generate_token() -> str:
+    """Generate a new secure random token string."""
+    return secrets.token_hex(16)
+
+
+def _set_runtime_token(kind: str, value: str):
+    """Update runtime token value for authentication checks."""
+    global TOKEN, ADMIN_TOKEN
+    if kind == "media":
+        TOKEN = value
+        os.environ["MEDIA_TOKEN"] = value
+    elif kind == "admin":
+        ADMIN_TOKEN = value
+        os.environ["ADMIN_TOKEN"] = value
+    else:
+        raise ValueError(f"Unknown token kind: {kind}")
+
+
+def _read_env_lines(env_path: Path) -> list[str]:
+    """Read env file lines from disk while preserving comments and order."""
+    if not env_path.exists():
+        return []
+    return env_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+
+
+def _rewrite_env_file(updates: dict[str, str]) -> bool:
+    """Rewrite environment file with requested updates, preserving unknown variables."""
+    env_path = DATA_DIR / ".env"
+    with TOKEN_LOCK:
+        try:
+            env_path.parent.mkdir(parents=True, exist_ok=True)
+            lines = _read_env_lines(env_path)
+
+            updated = []
+            updated_keys = set()
+
+            for line in lines:
+                if "=" not in line or line.lstrip().startswith("#"):
+                    updated.append(line)
+                    continue
+                key, _ = line.split("=", 1)
+                key = key.strip()
+                if key in updates:
+                    updated.append(f"{key}={updates[key]}")
+                    updated_keys.add(key)
+                else:
+                    updated.append(line)
+
+            for key, value in updates.items():
+                if key not in updated_keys and not any(line.startswith(f"{key}=") for line in lines):
+                    updated.append(f"{key}={value}")
+
+            payload = "\n".join(updated)
+            if payload and not payload.endswith("\n"):
+                payload += "\n"
+
+            temp_path = env_path.with_suffix(".tmp")
+            temp_path.write_text(payload, encoding="utf-8")
+            temp_path.replace(env_path)
+            return True
+        except Exception as exc:
+            print(f"Failed to update env file {env_path}: {exc}")
+            return False
+
+
+def _rotate_token(kind: str) -> tuple[str, str, bool]:
+    """
+    Rotate and persist a token.
+
+    Returns (old_token, new_token, persisted).
+    """
+    old_token = TOKEN if kind == "media" else ADMIN_TOKEN
+    new_token = _generate_token()
+    _set_runtime_token(kind, new_token)
+    persisted = _rewrite_env_file({
+        "MEDIA_TOKEN" if kind == "media" else "ADMIN_TOKEN": new_token
+    })
+    return old_token or "", new_token, persisted
 
 # Audio MIME types
 AUDIO_MIME = {
@@ -768,6 +851,38 @@ def serve_spa(token: str, project: str, path: str = ""):
 
 
 # Admin Dashboard Endpoints
+@app.post("/admin/{admin_token}/api/refresh-token")
+@app.post("/admin/{admin_token}/api/refresh-admin-token")
+def refresh_admin_token(admin_token: str):
+    """
+    Rotate the admin token and persist the new value into DATA_DIR/.env.
+    """
+    verify_admin_token(admin_token)
+
+    _, new_admin_token, persisted = _rotate_token("admin")
+    return {
+        "admin_token": new_admin_token,
+        "media_token": TOKEN,
+        "admin_url": f"/admin/{new_admin_token}/",
+        "persisted": persisted
+    }
+
+
+@app.post("/admin/{admin_token}/api/refresh-media-token")
+def refresh_media_token(admin_token: str):
+    """
+    Rotate the media/project token and persist the new value into DATA_DIR/.env.
+    """
+    verify_admin_token(admin_token)
+
+    _, new_media_token, persisted = _rotate_token("media")
+    return {
+        "admin_token": ADMIN_TOKEN,
+        "media_token": new_media_token,
+        "persisted": persisted
+    }
+
+
 @app.get("/admin/{admin_token}/api/projects")
 def list_admin_projects(admin_token: str):
     """

@@ -104,6 +104,9 @@ curl "https://your-domain.com/projects/$TOKEN/ihya/api/files?type=audio&check_id
 | `/projects/<token>/<project>/api/files/<id>?type=audio\|video` | DELETE | Delete file permanently (**type required**) |
 | `/projects/<token>/<project>/stream/<id>?type=audio\|video` | GET | Stream file (**type required**) |
 | `/admin/<admin_token>/api/projects` | GET | Admin: List all projects with stats |
+| `/admin/<admin_token>/api/refresh-token` | POST | Rotate admin token (project token preserved) |
+| `/admin/<admin_token>/api/refresh-admin-token` | POST | Rotate admin token (legacy alias) |
+| `/admin/<admin_token>/api/refresh-media-token` | POST | Rotate global project token (`MEDIA_TOKEN`) |
 | `/admin/<admin_token>/` | GET | Admin dashboard SPA |
 
 ## Migration from Old (Flask) Schema
@@ -217,6 +220,13 @@ python3 scripts/test_migration.py
 - `DATA_DIR` - Data directory (default: `/var/lib/media-manager`)
 
 **Required tokens for startup:** Both `MEDIA_TOKEN` and `ADMIN_TOKEN` must be set.
+
+**Token rotation (admin dashboard):**
+- Call `/admin/<admin_token>/api/refresh-token` to rotate the admin token.
+- Call `/admin/<admin_token>/api/refresh-media-token` to rotate the media/project token.
+- Project URLs returned by the dashboard now target `/audio#admin` and `/videos#admin` so they open with admin controls.
+- Rotating either token invalidates the previous value immediately.
+- `MEDIA_TOKEN` and `ADMIN_TOKEN` are also written back to `DATA_DIR/.env` for persistence across restarts.
 
 ## Tag-Based Workflow
 

@@ -24,6 +24,7 @@
             gap: 1rem; 
             align-items: center; 
             flex-shrink: 0; 
+            flex-wrap: wrap; 
         }
         header h1 { font-size: 1.2rem; flex: 1; }
         .refresh-btn { 
@@ -36,6 +37,12 @@
             font-size: 0.9rem;
         }
         .refresh-btn:hover { background: #4a4a4a; }
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            justify-content: flex-end;
+        }
 
         /* Main content */
         main { 
@@ -152,6 +159,15 @@
         .open-btn:hover {
             background: #3a8eef;
         }
+        .open-btn.secondary {
+            background: #2d5a2d;
+        }
+        .open-btn.secondary:hover {
+            background: #2b8f4e;
+        }
+        .open-btn + .open-btn {
+            margin-top: 0.5rem;
+        }
 
         /* Loading and empty states */
         .loading, .empty, .error {
@@ -176,7 +192,11 @@
 <body>
     <header>
         <h1>🛡️ Media Manager Admin</h1>
-        <button class="refresh-btn" onclick="loadProjects()">🔄 Refresh</button>
+        <div class="toolbar">
+            <button class="refresh-btn" onclick="loadProjects()">🔄 Refresh</button>
+            <button class="refresh-btn" id="refresh-admin-token-btn" onclick="refreshAdminToken()">🛡️ Refresh Admin Token</button>
+            <button class="refresh-btn" id="refresh-media-token-btn" onclick="refreshMediaToken()">📹 Refresh Project Token</button>
+        </div>
     </header>
 
     <main>
@@ -189,10 +209,57 @@
         // Parse URL to get admin token
         // Format: /admin/{admin_token}/
         const pathParts = window.location.pathname.split('/').filter(p => p);
-        const ADMIN_TOKEN = pathParts[1];  // pathParts[0] = 'admin'
-        const API_BASE = `/admin/${ADMIN_TOKEN}/api`;
+        let ADMIN_TOKEN = pathParts[1];  // pathParts[0] = 'admin'
+        let API_BASE = `/admin/${ADMIN_TOKEN}/api`;
 
         let mediaToken = null;
+
+        function setAdminToken(newAdminToken) {
+            const normalized = newAdminToken?.trim();
+            if (!normalized) {
+                return;
+            }
+
+            if (normalized !== ADMIN_TOKEN) {
+                ADMIN_TOKEN = normalized;
+                API_BASE = `/admin/${ADMIN_TOKEN}/api`;
+                const nextPath = `/admin/${encodeURIComponent(ADMIN_TOKEN)}/`;
+                if (window.location.pathname !== nextPath) {
+                    window.history.replaceState(null, '', nextPath);
+                }
+            }
+        }
+
+        async function refreshAdminToken() {
+            const content = document.getElementById('content');
+            try {
+                const res = await fetch(`${API_BASE}/refresh-token`, { method: 'POST' });
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+                const payload = await res.json();
+                setAdminToken(payload.admin_token);
+                mediaToken = payload.media_token;
+                await loadProjects();
+            } catch (err) {
+                content.innerHTML = `<div class="error">Error refreshing admin token: ${err.message}</div>`;
+            }
+        }
+
+        async function refreshMediaToken() {
+            const content = document.getElementById('content');
+            try {
+                const res = await fetch(`${API_BASE}/refresh-media-token`, { method: 'POST' });
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+                const payload = await res.json();
+                mediaToken = payload.media_token;
+                await loadProjects();
+            } catch (err) {
+                content.innerHTML = `<div class="error">Error refreshing project token: ${err.message}</div>`;
+            }
+        }
 
         async function loadProjects() {
             const content = document.getElementById('content');
@@ -276,7 +343,10 @@
             const gridHtml = projects.map(p => {
                 const audio = p.audio;
                 const video = p.video;
-                const projectUrl = `/projects/${mediaToken}/${p.project}/audio`;
+                const encodedProject = encodeURIComponent(p.project);
+                const encodedToken = encodeURIComponent(mediaToken || '');
+                const audioUrl = `/projects/${encodedToken}/${encodedProject}/audio#admin`;
+                const videoUrl = `/projects/${encodedToken}/${encodedProject}/videos#admin`;
                 
                 return `
                     <div class="project-card">
@@ -302,7 +372,8 @@
                             💾 ${formatBytes(p.storage_bytes)} • 🕒 ${formatTimeAgo(p.last_updated)}
                         </div>
                         
-                        <a href="${projectUrl}" class="open-btn" target="_blank">🚀 Open Project</a>
+                        <a href="${audioUrl}" class="open-btn" target="_blank">🎵 Open Audio</a>
+                        <a href="${videoUrl}" class="open-btn secondary" target="_blank">🎬 Open Video</a>
                     </div>
                 `;
             }).join('');
