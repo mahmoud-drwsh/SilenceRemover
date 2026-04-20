@@ -26,14 +26,14 @@ class TestTargetSearchConstants:
 
     def test_target_search_constant_values(self):
         assert TARGET_SEARCH_LOW_DB == -60.0
-        assert TARGET_SEARCH_HIGH_DB == -40.0
+        assert TARGET_SEARCH_HIGH_DB == -35.0
         assert TARGET_SEARCH_STEP_DB == 0.1
-        assert TARGET_SEARCH_MIN_SILENCE_LEN_SEC == 0.1
-        assert TARGET_SEARCH_BASE_PADDING_SEC == 0.1
+        assert TARGET_SEARCH_MIN_SILENCE_LEN_SEC == 0.085
+        assert TARGET_SEARCH_BASE_PADDING_SEC == 0.085
         assert TARGET_SEARCH_PADDING_STEP_SEC == 0.01
 
         count = int(round((TARGET_SEARCH_HIGH_DB - TARGET_SEARCH_LOW_DB) / TARGET_SEARCH_STEP_DB)) + 1
-        assert count == 201
+        assert count == 251
 
     def test_target_defaults_ignore_overrides(self):
         defaults = resolve_trim_defaults(
@@ -63,7 +63,7 @@ class TestCacheFilenameEncoding:
     def test_primary_cache_key_is_stable(self):
         from packages.sr_silence_detection._cache import _get_primary_cache_key
 
-        assert _get_primary_cache_key(TARGET_SEARCH_MIN_SILENCE_LEN_SEC, -60.0) == "d:0.100|t:-60.000"
+        assert _get_primary_cache_key(TARGET_SEARCH_MIN_SILENCE_LEN_SEC, -60.0) == "d:0.085|t:-60.000"
         assert _get_primary_cache_key(0.375, -59.75) == "d:0.375|t:-59.750"
         assert _get_primary_cache_key(0.5, 0.0) == "d:0.500|t:0.000"
 
@@ -149,11 +149,11 @@ class TestPaddingBinarySearch:
             estimate_length=lambda pad_sec: 9.60 + pad_sec,
         )
 
-        assert pad_sec == pytest.approx(0.40)
+        assert pad_sec == pytest.approx(0.395)
 
     def test_returns_base_padding_when_no_expansion_is_possible(self):
         pad_sec = binary_search_padding(
-            target_length=9.80,
+            target_length=9.79,
             duration_sec=5.0,
             estimate_length=lambda pad_sec: 9.70 + pad_sec,
         )
@@ -172,7 +172,7 @@ class TestPaddingBinarySearch:
             estimate_length=estimate_length,
         )
 
-        assert pad_sec == pytest.approx(0.36)
+        assert pad_sec == pytest.approx(0.365)
 
     def test_invalid_base_padding_returns_default(self):
         pad_sec = binary_search_padding(

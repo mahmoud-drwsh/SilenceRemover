@@ -98,20 +98,13 @@ def _threshold_from_index(
     return round(low_db + index * step_db, 3)
 
 
-def _padding_to_index(
-    padding_sec: float,
-    *,
-    padding_step_sec: float = TARGET_SEARCH_PADDING_STEP_SEC,
-) -> int:
-    return int(round(padding_sec / padding_step_sec))
-
-
-def _padding_from_index(
-    index: int,
+def _padding_from_offset(
+    base_padding_sec: float,
+    offset_index: int,
     *,
     padding_step_sec: float = TARGET_SEARCH_PADDING_STEP_SEC,
 ) -> float:
-    return round(index * padding_step_sec, 2)
+    return round(base_padding_sec + offset_index * padding_step_sec, 3)
 
 
 def binary_search_threshold(
@@ -159,53 +152,71 @@ def binary_search_padding(
     epsilon_sec: float = TRIM_TIMESTAMP_EPSILON_SEC,
 ) -> float:
     """Return the largest padding on the discrete grid that stays at or under target."""
-    base_padding_sec = round(base_padding_sec, 2)
-    base_idx = _padding_to_index(base_padding_sec, padding_step_sec=padding_step_sec)
-    max_idx = max(
-        base_idx,
-        _padding_to_index(round(duration_sec, 2), padding_step_sec=padding_step_sec),
+    base_padding_sec = round(base_padding_sec, 3)
+    max_offset_idx = max(
+        0,
+        int(max(0.0, round(duration_sec, 3) - base_padding_sec) / padding_step_sec + 1e-9),
     )
 
     base_length = estimate_length(base_padding_sec)
     if base_length is None or base_length > target_length + epsilon_sec:
         return base_padding_sec
 
-    valid_idx = base_idx
-    current_idx = base_idx
-    upper_bound_idx: int | None = None
+    valid_offset_idx = 0
+    current_offset_idx = 1
+    upper_bound_offset_idx: int | None = None
 
-    while current_idx < max_idx:
-        next_idx = min(max_idx, current_idx * 2)
-        pad_sec = _padding_from_index(next_idx, padding_step_sec=padding_step_sec)
+    while current_offset_idx <= max_offset_idx:
+        pad_sec = _padding_from_offset(
+            base_padding_sec,
+            current_offset_idx,
+            padding_step_sec=padding_step_sec,
+        )
         estimated_length = estimate_length(pad_sec)
 
         if estimated_length is None or estimated_length > target_length + epsilon_sec:
-            upper_bound_idx = next_idx
+            upper_bound_offset_idx = current_offset_idx
             break
 
-        valid_idx = next_idx
-        if next_idx == max_idx:
-            return _padding_from_index(valid_idx, padding_step_sec=padding_step_sec)
-        current_idx = next_idx
+        valid_offset_idx = current_offset_idx
+        if current_offset_idx == max_offset_idx:
+            return _padding_from_offset(
+                base_padding_sec,
+                valid_offset_idx,
+                padding_step_sec=padding_step_sec,
+            )
+        current_offset_idx = min(max_offset_idx, current_offset_idx * 2)
 
-    if upper_bound_idx is None or valid_idx >= upper_bound_idx:
-        return _padding_from_index(valid_idx, padding_step_sec=padding_step_sec)
+    if upper_bound_offset_idx is None or valid_offset_idx >= upper_bound_offset_idx:
+        return _padding_from_offset(
+            base_padding_sec,
+            valid_offset_idx,
+            padding_step_sec=padding_step_sec,
+        )
 
-    low_idx = valid_idx
-    high_idx = upper_bound_idx - 1
+    low_offset_idx = valid_offset_idx
+    high_offset_idx = upper_bound_offset_idx - 1
 
-    while low_idx < high_idx:
-        mid_idx = (low_idx + high_idx + 1) // 2
-        pad_sec = _padding_from_index(mid_idx, padding_step_sec=padding_step_sec)
+    while low_offset_idx < high_offset_idx:
+        mid_offset_idx = (low_offset_idx + high_offset_idx + 1) // 2
+        pad_sec = _padding_from_offset(
+            base_padding_sec,
+            mid_offset_idx,
+            padding_step_sec=padding_step_sec,
+        )
         estimated_length = estimate_length(pad_sec)
 
         if estimated_length is not None and estimated_length <= target_length + epsilon_sec:
-            valid_idx = mid_idx
-            low_idx = mid_idx
+            valid_offset_idx = mid_offset_idx
+            low_offset_idx = mid_offset_idx
         else:
-            high_idx = mid_idx - 1
+            high_offset_idx = mid_offset_idx - 1
 
-    return _padding_from_index(valid_idx, padding_step_sec=padding_step_sec)
+    return _padding_from_offset(
+        base_padding_sec,
+        valid_offset_idx,
+        padding_step_sec=padding_step_sec,
+    )
 
 
 def build_trim_plan(
