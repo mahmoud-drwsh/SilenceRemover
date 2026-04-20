@@ -60,67 +60,82 @@ One detected silence: `silence_start=20.0`, `silence_end=22.0`, `pad_sec=0.5`.
 
 ## When target length is set (`--target-length`)
 
-When target length is set, behavior is driven by target constants: `TARGET_NOISE_THRESHOLDS_DB`, `TARGET_MIN_DURATION_SEC`, and `PAD_INCREMENT_SEC`.
+When target length is set, the live planner uses the fixed search constants in `src/core/constants.py`:
+
+- `TARGET_SEARCH_LOW_DB = -60.0`
+- `TARGET_SEARCH_HIGH_DB = -40.0`
+- `TARGET_SEARCH_STEP_DB = 0.1`
+- `TARGET_SEARCH_MIN_SILENCE_LEN_SEC = 0.2`
+- `TARGET_SEARCH_BASE_PADDING_SEC = 0.2`
+- `TARGET_SEARCH_PADDING_STEP_SEC = 0.01`
 
 ### Overview
 
-Goal: **preserve as much silence as possible** while trying to get the output to **at or under** the target length **without ever truncating content**.
+Goal: preserve as much silence as possible while trying to stay at or under the target length, without truncating content.
 
-We do this in two phases:
+The live planner always uses a two-stage binary search:
 
-1. **Threshold sweep (conservative → aggressive):** start at **-60 dB** and increase the threshold until trimming can reach the target (with `pad=0`). This ensures we pick the *least aggressive* threshold that can meet the target, preserving silence.
-2. **Padding tuning:** once we’ve found a threshold that can meet the target, increase uniform padding to get as close as possible to the target while staying **at or under** it.
+1. **Threshold search:** binary-search the threshold grid from `-60.0` to `-40.0` dB, always evaluating with `min_silence_len=0.2s` and `padding=0.2s`.
+2. **Padding search:** once a threshold can meet the target, binary-search padding on a `0.01s` grid to find the largest value that still stays at or under target.
 
-Min silence duration is fixed at `TARGET_MIN_DURATION_SEC` (**0.01s**) in target mode.
+If no threshold can reach target, the planner returns the best-effort over-target plan built from `-40.0 dB` and `0.2s` padding. There is no truncation fallback.
 
 ### Steps
 
-1. **Detect in passes** using `silencedetect=n={threshold}dB:d=0.01` for thresholds in `TARGET_NOISE_THRESHOLDS_DB` (starting at -60 dB).
-   - For each target run, use `prepare_silence_intervals_with_edges` with `EDGE_RESCAN_THRESHOLD_DB`/`EDGE_RESCAN_MIN_DURATION_SEC` after each threshold pass, then keep leading/trailing edge handling before base-length and padding checks.
+1. **Edge scan once:** run `detect_edge_only_cached(...)` a single time and reuse its result across the full target-mode search.
 
-2. **Base length at pad=0:** for each pass, compute:
-   - `base_length = calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.0)`
+2. **Threshold probe:** for each threshold sample, run `detect_primary_with_cached_edges(...)` with:
+   - `primary_min_duration=0.2`
+   - `primary_noise_threshold=<sampled threshold>`
+   - the cached edge intervals from step 1
+   - file-backed primary detection caching still enabled when `temp_dir` is available
 
-3. **Pick the first threshold where `base_length <= target`:**
-   - This is the **least aggressive** pass that can meet the target.
+3. **Estimate length at base padding:** compute
+   - `calculate_resulting_length(silence_starts, silence_ends, duration_sec, 0.2)`
+   - If the probe cannot be evaluated, treat that branch as overshoot and continue searching toward more aggressive thresholds.
 
-4. **Padding:** compute the largest uniform padding that stays at or under the target:
-   - `pad_sec = find_optimal_padding(silence_starts, silence_ends, duration_sec, target_length)`
-   - Search steps are controlled by `PAD_INCREMENT_SEC` in `src/core/constants.py` (default `0.001`).
-   - This guarantees the padded result is **at or under** the target (it may land slightly under). If `pad=0` already equals the target, padding stays at 0.
+4. **Select threshold:** choose the earliest threshold whose estimated output is `<= target`.
+   - If none qualify, use `-40.0 dB` as the final fallback threshold and keep padding at `0.2s`.
 
-5. **Segments:** build segments from the chosen `(silence_starts, silence_ends)` and `pad_sec`. Silences with **duration ≤ 2 × pad_sec** are treated as non-silence (skipped), so very short gaps are merged with adjacent speech.
+5. **Padding search:** for reachable target cases, reuse the selected threshold’s already-detected silence intervals and estimate lengths with `calculate_resulting_length(...)` only.
+   - Start from `0.2s`
+   - Expand upward geometrically to find an upper bound
+   - Binary-search the `0.01s` grid for the largest valid padding
+   - If a padding probe is invalid, treat it as overshoot
+   - If no safe expansion exists, fall back to `0.2s`
 
-6. **Truncation safeguard:** if the result still exceeds target after threshold sweep and padding tuning, segments are truncated via `truncate_segments_to_max_length` to force the output to exactly meet the target length.
+6. **Build segments:** build the final keep segments from the selected silence intervals and the resolved padding. No truncation step runs after this.
 
-### Example C: Target-mode sweep + padding tuning (end-to-end)
+### Example C: Target-mode binary search (end-to-end)
 
 Assume:
 
 - Original duration = 120.0s
 - Target length = 90.0s
-- Threshold candidates = \[-60, -55, -50, -45, ...\] dB
-- `min_duration=TARGET_MIN_DURATION_SEC` (**0.01s**) in target mode
+- Threshold grid = `[-60.0, -59.9, -59.8, ..., -40.0]` dB
+- `min_silence_len = 0.2s`
+- Base padding = `0.2s`
 
-The sweep checks each threshold with `pad=0`:
+Threshold search evaluates each probe with `pad=0.2s`:
 
 - At **-60 dB**, base result is 98.0s → **too long** (98 > 90), continue.
 - At **-55 dB**, base result is 92.0s → **too long**, continue.
 - At **-50 dB**, base result is 88.0s → **meets target** (88 ≤ 90), choose **-50 dB**.
 
-Then padding tuning tries to add uniform padding while staying under or at 90.0s:
+Padding search then reuses the `-50 dB` silence intervals and pushes padding upward:
 
-- `pad=0.00` → 88.0s
 - `pad=0.20` → 89.4s (**< 90.0**, still under)
-- `pad=0.25` → 90.2s (**≥ 90.0**, stop) ⇒ choose `pad=0.20`
+- `pad=0.40` → 89.9s (**< 90.0**, still under)
+- `pad=0.41` → 90.01s (**> 90.0**, overshoot) ⇒ choose `pad=0.40`
 
-Final settings used for segment building: `noise_threshold=-50dB`, `min_duration=TARGET_MIN_DURATION_SEC` (**0.01s**), `pad_sec=0.20s`.
+Final settings used for segment building: `noise_threshold=-50.0 dB`, `min_duration=0.2s`, `pad_sec=0.40s`.
 
 ### Edge cases
 
 - **Target length ≥ original duration:** Output is a copy of the input (no detection).
-- **No silences:** Base length = full duration; `find_optimal_padding` returns 0; output is the full file.
-- **Base length still > target even at the most aggressive threshold:** a final truncation step is applied to force the output to exactly meet the target length.
+- **No silences:** Every threshold probe resolves to the full duration, so the planner falls back to `-40.0 dB` with `0.2s` padding and returns the full file as best effort.
+- **Padding search cannot expand safely:** padding stays at `0.2s`.
+- **A threshold or padding probe is invalid:** that branch is treated as overshoot during search.
 
 ## Shared flow across modes
 
@@ -128,9 +143,9 @@ Final settings used for segment building: `noise_threshold=-50dB`, `min_duration
 - The mode difference is how `pad_sec` is selected and what detection parameters are used:
   - Both modes now use the same shared edge-normalization helper (`prepare_silence_intervals_with_edges`) to apply edge replacement/trimming.
   - Non-target mode: fixed `noise_threshold`, `min_duration`, and `pad_sec` (`NON_TARGET_PAD_SEC`) with the shared edge helper applied before padding.
-  - Target mode: threshold sweep + padding tuning, with `min_duration=TARGET_MIN_DURATION_SEC`, and the shared edge helper applied before each candidate length evaluation.
+  - Target mode: fixed-parameter threshold search + padding search, with `min_duration=0.2s`, `base_padding=0.2s`, and the shared edge helper applied before each candidate length evaluation.
 
-Implementation: `select_threshold_and_padding` in `packages/sr_threshold_selection/api.py`, `find_optimal_padding` in `packages/sr_threshold_selection/_padding.py`, and trim-plan assembly in `packages/sr_trim_plan/api.py`, with render execution in `trim_single_video` in `src/media/trim.py`.
+Implementation: `binary_search_threshold(...)` and `binary_search_padding(...)` live in `packages/sr_trim_plan/api.py`, alongside trim-plan assembly. The legacy `sr_threshold_selection` package remains for compatibility, but it is no longer the live target-mode planner.
 
 ## Title overlay PNG (`packages/sr_title_overlay/`)
 

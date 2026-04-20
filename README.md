@@ -95,9 +95,10 @@ python main.py /path/to/video/directory
 
 ### Options
 
-- `--target-length FLOAT`: Optimize padding to achieve a target video length (in seconds).
-- `--noise-threshold FLOAT`: Override silence detection threshold in dB (e.g. `-55`). Defaults are `TARGET_NOISE_THRESHOLD_DB` (`-55.0`) when `--target-length` is set, otherwise `NON_TARGET_NOISE_THRESHOLD_DB` (`-50.0`).
-- `--min-duration FLOAT`: Override minimum silence duration in seconds (applies in both modes). Defaults are `TARGET_MIN_DURATION_SEC` (`0.01`) with `--target-length` and `NON_TARGET_MIN_DURATION_SEC` (`1.0`) otherwise.
+- `--target-length FLOAT`: Target length in seconds for final output. This enables a fixed internal two-stage search: threshold `-60.0..-40.0 dB` on a `0.1 dB` grid, `0.2s` minimum silence length, and padding search from `0.2s` on a `0.01s` grid.
+- `--noise-threshold FLOAT`: Override silence detection threshold in dB for non-target mode. Ignored when `--target-length` is set.
+- `--min-duration FLOAT`: Override minimum silence duration in seconds for non-target mode. Ignored when `--target-length` is set.
+- `--pad-sec FLOAT`: Override padding in seconds for non-target mode. Ignored when `--target-length` is set.
 - `--title-font`: Google Font family name used to render the title overlay. The font is auto-downloaded from Google Fonts on first use and cached under `output/temp/fonts/`.
 - `--enable-title-overlay`: Enable title overlay in final output (requires a title from Phase 3). By default, overlays are disabled.
 - `--enable-logo-overlay`: Enable logo overlay in final output (requires `logo/logo.png`). By default, overlays are disabled.
@@ -118,7 +119,6 @@ The first run for each font downloads the family from Google Fonts into `output/
 Trimming precision controls (advanced):
 
 - `src/core/constants.py`: `TRIM_DECIMAL_PLACES` controls timestamp precision used when calculating and applying segment boundaries (default `6`).
-- `src/core/constants.py`: `PAD_INCREMENT_SEC` controls target-length padding search granularity (default `0.001`).
 - `src/core/constants.py`: `TRIM_TIMESTAMP_EPSILON_SEC` controls floating-point under-target tolerance in length checks.
 
 ### Examples
@@ -156,10 +156,10 @@ The tool processes videos sequentially through **ten** main phases:
 - Identifies silence segments based on configured threshold and duration
 - Removes silence while preserving padding around segments
 - For phase 1 transcription snippets, a fixed single sweep is used: `SNIPPET_NOISE_THRESHOLD_DB` (`-55dB`) and `SNIPPET_MIN_DURATION_SEC` (`0.01s`), and the same shared edge normalization helper as final trim.
-- Leading and trailing edge silences are re-scanned at `EDGE_RESCAN_THRESHOLD_DB` (`-55dB`) for both target and non-target final trim runs, then only the edge windows are replaced and reduced to a `EDGE_SILENCE_KEEP_SEC` (200ms) buffer before pad calculations.
+- Leading and trailing edge silences are re-scanned at `EDGE_RESCAN_THRESHOLD_DB` (`-40dB`) for both target and non-target final trim runs, then only the edge windows are replaced and reduced to a `EDGE_SILENCE_KEEP_SEC` (200ms) buffer before pad calculations.
 - Final encoded MP4s are written under **`output/`** (sibling to the input directory). Intermediate artifacts (snippets, transcripts, titles, FFmpeg scripts, title PNGs, fonts cache) live under **`output/temp/`** — see **Directory Structure** below.
 
-**Target Length Mode**: When `--target-length` is specified, the tool automatically calculates optimal padding to get as close as possible to the target duration.
+**Target Length Mode**: When `--target-length` is specified, the tool uses a fixed two-stage binary search. Stage 1 finds the earliest threshold in `[-60.0, -40.0]` whose estimated output at `0.2s` padding is at or under target. Stage 2 reuses those detected silences and increases padding on a `0.01s` grid without exceeding target. If even `-40.0 dB` with `0.2s` padding stays over target, the tool returns that best-effort result and does not truncate content.
 
 ### 2. Audio Extraction
 

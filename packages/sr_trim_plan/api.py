@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Callable, Literal, Optional
 
 from src.core.constants import (
     EDGE_RESCAN_MIN_DURATION_SEC,
     EDGE_RESCAN_THRESHOLD_DB,
     EDGE_SILENCE_KEEP_SEC,
+    TARGET_SEARCH_BASE_PADDING_SEC,
+    TARGET_SEARCH_HIGH_DB,
+    TARGET_SEARCH_LOW_DB,
+    TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
+    TARGET_SEARCH_PADDING_STEP_SEC,
+    TARGET_SEARCH_STEP_DB,
     TRIM_TIMESTAMP_EPSILON_SEC,
     TrimDefaults,
     resolve_trim_defaults,
@@ -21,20 +27,13 @@ from src.media.silence_detector import (
     normalize_timestamp,
 )
 from sr_silence_detection import (
-    detect_silence_with_edges,  # Keep for non-target mode
-    detect_edge_only_cached,     # NEW
-    detect_primary_with_cached_edges,  # NEW
+    detect_edge_only_cached,
+    detect_primary_with_cached_edges,
+    detect_silence_with_edges,
 )
-from sr_threshold_selection import find_optimal_padding
 
 TrimPlanMode = Literal["target", "non_target"]
-
-# Binary search constants for target mode
-# 50 tiers from 0.5s to 0.01s in 0.01s steps
-_MIN_DURATIONS_TIERS = [0.5 - i * 0.01 for i in range(50)]  # 0.5, 0.49, ..., 0.01
-_DB_SEARCH_LOW = -60.0
-_DB_SEARCH_HIGH = -25.0
-_DB_SEARCH_STEP = 0.05
+_LengthEstimator = Callable[[float], Optional[float]]
 
 
 @dataclass(frozen=True)
@@ -52,6 +51,23 @@ class TrimPlan:
     should_copy_input: bool = False
 
 
+@dataclass(frozen=True)
+class _ThresholdProbeResult:
+    silence_starts: list[float]
+    silence_ends: list[float]
+    estimated_length_sec: float
+
+
+def _full_duration_probe_result(duration_sec: float) -> _ThresholdProbeResult:
+    """Return a no-trim fallback probe that preserves the full input duration."""
+    normalized_duration = normalize_timestamp(duration_sec)
+    return _ThresholdProbeResult(
+        silence_starts=[],
+        silence_ends=[],
+        estimated_length_sec=normalized_duration,
+    )
+
+
 def should_copy_when_target_exceeds_input(duration_sec: float, target_length: Optional[float]) -> bool:
     """Return True when target mode can skip trimming because input is already short enough."""
     return target_length is not None and target_length >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC
@@ -64,13 +80,141 @@ def _probe_and_validate_duration(input_file: Path) -> float:
     return normalize_timestamp(duration_sec)
 
 
+def _threshold_grid_count(
+    *,
+    low_db: float = TARGET_SEARCH_LOW_DB,
+    high_db: float = TARGET_SEARCH_HIGH_DB,
+    step_db: float = TARGET_SEARCH_STEP_DB,
+) -> int:
+    return int(round((high_db - low_db) / step_db)) + 1
+
+
+def _threshold_from_index(
+    index: int,
+    *,
+    low_db: float = TARGET_SEARCH_LOW_DB,
+    step_db: float = TARGET_SEARCH_STEP_DB,
+) -> float:
+    return round(low_db + index * step_db, 3)
+
+
+def _padding_to_index(
+    padding_sec: float,
+    *,
+    padding_step_sec: float = TARGET_SEARCH_PADDING_STEP_SEC,
+) -> int:
+    return int(round(padding_sec / padding_step_sec))
+
+
+def _padding_from_index(
+    index: int,
+    *,
+    padding_step_sec: float = TARGET_SEARCH_PADDING_STEP_SEC,
+) -> float:
+    return round(index * padding_step_sec, 2)
+
+
+def binary_search_threshold(
+    *,
+    target_length: float,
+    estimate_length: _LengthEstimator,
+    low_db: float = TARGET_SEARCH_LOW_DB,
+    high_db: float = TARGET_SEARCH_HIGH_DB,
+    step_db: float = TARGET_SEARCH_STEP_DB,
+    epsilon_sec: float = TRIM_TIMESTAMP_EPSILON_SEC,
+) -> tuple[float, bool]:
+    """Return the earliest threshold on the discrete grid that keeps output at or under target."""
+    low_idx = 0
+    high_idx = _threshold_grid_count(low_db=low_db, high_db=high_db, step_db=step_db) - 1
+    best_idx: int | None = None
+
+    while low_idx <= high_idx:
+        mid_idx = (low_idx + high_idx) // 2
+        threshold_db = _threshold_from_index(mid_idx, low_db=low_db, step_db=step_db)
+        estimated_length = estimate_length(threshold_db)
+
+        if estimated_length is not None and estimated_length <= target_length + epsilon_sec:
+            best_idx = mid_idx
+            high_idx = mid_idx - 1
+        else:
+            low_idx = mid_idx + 1
+
+    if best_idx is None:
+        return _threshold_from_index(
+            _threshold_grid_count(low_db=low_db, high_db=high_db, step_db=step_db) - 1,
+            low_db=low_db,
+            step_db=step_db,
+        ), False
+
+    return _threshold_from_index(best_idx, low_db=low_db, step_db=step_db), True
+
+
+def binary_search_padding(
+    *,
+    target_length: float,
+    duration_sec: float,
+    estimate_length: _LengthEstimator,
+    base_padding_sec: float = TARGET_SEARCH_BASE_PADDING_SEC,
+    padding_step_sec: float = TARGET_SEARCH_PADDING_STEP_SEC,
+    epsilon_sec: float = TRIM_TIMESTAMP_EPSILON_SEC,
+) -> float:
+    """Return the largest padding on the discrete grid that stays at or under target."""
+    base_padding_sec = round(base_padding_sec, 2)
+    base_idx = _padding_to_index(base_padding_sec, padding_step_sec=padding_step_sec)
+    max_idx = max(
+        base_idx,
+        _padding_to_index(round(duration_sec, 2), padding_step_sec=padding_step_sec),
+    )
+
+    base_length = estimate_length(base_padding_sec)
+    if base_length is None or base_length > target_length + epsilon_sec:
+        return base_padding_sec
+
+    valid_idx = base_idx
+    current_idx = base_idx
+    upper_bound_idx: int | None = None
+
+    while current_idx < max_idx:
+        next_idx = min(max_idx, current_idx * 2)
+        pad_sec = _padding_from_index(next_idx, padding_step_sec=padding_step_sec)
+        estimated_length = estimate_length(pad_sec)
+
+        if estimated_length is None or estimated_length > target_length + epsilon_sec:
+            upper_bound_idx = next_idx
+            break
+
+        valid_idx = next_idx
+        if next_idx == max_idx:
+            return _padding_from_index(valid_idx, padding_step_sec=padding_step_sec)
+        current_idx = next_idx
+
+    if upper_bound_idx is None or valid_idx >= upper_bound_idx:
+        return _padding_from_index(valid_idx, padding_step_sec=padding_step_sec)
+
+    low_idx = valid_idx
+    high_idx = upper_bound_idx - 1
+
+    while low_idx < high_idx:
+        mid_idx = (low_idx + high_idx + 1) // 2
+        pad_sec = _padding_from_index(mid_idx, padding_step_sec=padding_step_sec)
+        estimated_length = estimate_length(pad_sec)
+
+        if estimated_length is not None and estimated_length <= target_length + epsilon_sec:
+            valid_idx = mid_idx
+            low_idx = mid_idx
+        else:
+            high_idx = mid_idx - 1
+
+    return _padding_from_index(valid_idx, padding_step_sec=padding_step_sec)
+
+
 def build_trim_plan(
     input_file: Path,
     target_length: Optional[float],
     noise_threshold: float,
     min_duration: float,
     pad_sec: float,
-    temp_dir: Optional[Path] = None,  # NEW parameter for cached edge detection (target mode only)
+    temp_dir: Optional[Path] = None,
 ) -> TrimPlan:
     """Resolve mode policy and return a reusable trim plan."""
     trim_defaults = resolve_trim_defaults(
@@ -88,7 +232,7 @@ def build_trim_plan(
             resulting_length_sec=duration_sec,
             resolved_noise_threshold=trim_defaults.noise_threshold,
             resolved_min_duration=trim_defaults.min_duration,
-            resolved_pad_sec=0.0,
+            resolved_pad_sec=trim_defaults.pad_sec,
             target_length=target_length,
             should_copy_input=True,
         )
@@ -98,10 +242,9 @@ def build_trim_plan(
 
     return _build_target_trim_plan(
         input_file=input_file,
-        temp_dir=temp_dir,  # NEW
+        temp_dir=temp_dir,
         duration_sec=duration_sec,
         target_length=target_length,
-        trim_defaults=trim_defaults,
     )
 
 
@@ -138,50 +281,37 @@ def _build_non_target_trim_plan(
     )
 
 
-def _collect_threshold_candidates_binary(
+def _build_target_trim_plan(
     input_file: Path,
-    temp_dir: Path,
-    basename: str,
+    temp_dir: Optional[Path],
     duration_sec: float,
     target_length: float,
-    edge_starts: list[float],
-    edge_ends: list[float],
-) -> tuple[list[float], list[float], float, float, float]:
-    """Binary search for optimal (min_duration, dB) combination.
+) -> TrimPlan:
+    """Build a target-mode trim plan with fixed two-stage binary search."""
+    basename = input_file.stem
+    edge_starts, edge_ends = detect_edge_only_cached(
+        input_file=input_file,
+        temp_dir=temp_dir,
+        basename=basename,
+        edge_noise_threshold=EDGE_RESCAN_THRESHOLD_DB,
+        edge_min_duration=EDGE_RESCAN_MIN_DURATION_SEC,
+        edge_keep_seconds=EDGE_SILENCE_KEEP_SEC,
+        duration_sec=duration_sec,
+    )
 
-    Optimality criteria:
-    - Maximize min_duration (longer gaps preserved)
-    - Minimize dB (quieter threshold = more natural audio)
-    - Constraint: result_length <= target_length
+    threshold_probe_cache: dict[float, _ThresholdProbeResult | None] = {}
 
-    Search space:
-    - Min durations: 17 tiers from 0.5s to 0.1s in 0.025s steps
-    - dB range: -60.0 to -30.0 in 0.25dB steps (121 values)
+    def get_threshold_probe(threshold_db: float) -> _ThresholdProbeResult | None:
+        threshold_key = round(threshold_db, 3)
+        cached_result = threshold_probe_cache.get(threshold_key)
+        if cached_result is not None or threshold_key in threshold_probe_cache:
+            return cached_result
 
-    Algorithm:
-    - For each min_duration (longest first), binary search dB to find
-      the quietest threshold that satisfies target_length constraint
-    - Early termination: return at first tier where a valid dB is found
-    - Cache all detection attempts (handled by detect_primary_with_cached_edges)
-
-    Returns:
-        Tuple of (silence_starts, silence_ends, chosen_min_dur, chosen_dB, pad_sec)
-    """
-    for min_dur_raw in _MIN_DURATIONS_TIERS:  # Try longest first
-        min_dur = round(min_dur_raw, 3)
-        # Binary search dB at this min_dur
-        low_db, high_db = _DB_SEARCH_LOW, _DB_SEARCH_HIGH
-        best_db = None
-        best_starts, best_ends = None, None
-
-        while low_db <= high_db:
-            mid_db = round((low_db + high_db) / 2, 3)
-
-            # Detect with (min_dur, mid_db)
+        try:
             silence_starts, silence_ends = detect_primary_with_cached_edges(
                 input_file=input_file,
-                primary_noise_threshold=mid_db,
-                primary_min_duration=min_dur,
+                primary_noise_threshold=threshold_key,
+                primary_min_duration=TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
                 edge_starts=edge_starts,
                 edge_ends=edge_ends,
                 edge_keep_seconds=EDGE_SILENCE_KEEP_SEC,
@@ -189,97 +319,64 @@ def _collect_threshold_candidates_binary(
                 temp_dir=temp_dir,
                 basename=basename,
             )
-
-            # Calculate base trimmed length
-            base_length = calculate_resulting_length(
-                silence_starts, silence_ends, duration_sec, 0.0
+            estimated_length_sec = calculate_resulting_length(
+                silence_starts,
+                silence_ends,
+                duration_sec,
+                TARGET_SEARCH_BASE_PADDING_SEC,
             )
-
-            if base_length <= target_length:
-                # This works, try quieter (better quality)
-                best_db = mid_db
-                best_starts, best_ends = silence_starts, silence_ends
-                high_db = round(mid_db - _DB_SEARCH_STEP, 3)
-            else:
-                # Doesn't work, need louder (more aggressive)
-                low_db = round(mid_db + _DB_SEARCH_STEP, 3)
-
-        if best_db is not None:
-            # Found optimal at this min_dur!
-            # Now compute optimal padding
-            pad_sec = find_optimal_padding(
-                best_starts, best_ends, duration_sec, target_length
+            cached_result = _ThresholdProbeResult(
+                silence_starts=silence_starts,
+                silence_ends=silence_ends,
+                estimated_length_sec=estimated_length_sec,
             )
-            return (best_starts, best_ends, min_dur, best_db, pad_sec)
+        except Exception:
+            cached_result = None
 
-    # Fallback: most aggressive settings (no truncation - accept over-target)
-    # Use min_dur=0.01, dB=-25.0
-    silence_starts, silence_ends = detect_primary_with_cached_edges(
-        input_file=input_file,
-        primary_noise_threshold=_DB_SEARCH_HIGH,  # -25.0
-        primary_min_duration=_MIN_DURATIONS_TIERS[-1],  # 0.01
-        edge_starts=edge_starts,
-        edge_ends=edge_ends,
-        edge_keep_seconds=EDGE_SILENCE_KEEP_SEC,
-        duration_sec=duration_sec,
-        temp_dir=temp_dir,
-        basename=basename,
-    )
-    return (silence_starts, silence_ends, _MIN_DURATIONS_TIERS[-1], _DB_SEARCH_HIGH, 0.0)
+        threshold_probe_cache[threshold_key] = cached_result
+        return cached_result
 
-
-def _build_target_trim_plan(
-    input_file: Path,
-    temp_dir: Path,  # NEW parameter
-    duration_sec: float,
-    target_length: float,
-    trim_defaults: TrimDefaults,
-) -> TrimPlan:
-    """Build a target-mode trim plan with binary search for optimal threshold/padding policy."""
-    # Derive basename from input file for cache naming
-    basename = input_file.stem
-
-    # Step 1: Run edge detection ONCE (cached) with pre-probed duration
-    edge_starts, edge_ends = detect_edge_only_cached(
-        input_file, temp_dir, basename,
-        EDGE_RESCAN_THRESHOLD_DB, EDGE_RESCAN_MIN_DURATION_SEC, EDGE_SILENCE_KEEP_SEC,
-        duration_sec=duration_sec
-    )
-
-    # Step 2: Binary search for optimal (min_duration, dB) combination
-    silence_starts, silence_ends, chosen_min_dur, chosen_db, pad_sec = _collect_threshold_candidates_binary(
-        input_file=input_file,
-        temp_dir=temp_dir,
-        basename=basename,
-        duration_sec=duration_sec,
+    chosen_threshold_db, reached_target = binary_search_threshold(
         target_length=target_length,
-        edge_starts=edge_starts,
-        edge_ends=edge_ends,
+        estimate_length=lambda threshold_db: (
+            None
+            if (probe := get_threshold_probe(threshold_db)) is None
+            else probe.estimated_length_sec
+        ),
     )
 
-    # Step 3: Build segments with chosen padding
+    chosen_probe = get_threshold_probe(chosen_threshold_db)
+    if chosen_probe is None:
+        chosen_probe = _full_duration_probe_result(duration_sec)
+
+    chosen_pad_sec = TARGET_SEARCH_BASE_PADDING_SEC
+    if reached_target:
+        chosen_pad_sec = binary_search_padding(
+            target_length=target_length,
+            duration_sec=duration_sec,
+            estimate_length=lambda pad_sec: calculate_resulting_length(
+                chosen_probe.silence_starts,
+                chosen_probe.silence_ends,
+                duration_sec,
+                pad_sec,
+            ),
+        )
+
     segments_to_keep = build_keep_segments_from_silences(
-        silence_starts=silence_starts,
-        silence_ends=silence_ends,
+        silence_starts=chosen_probe.silence_starts,
+        silence_ends=chosen_probe.silence_ends,
         duration_sec=duration_sec,
-        pad_sec=pad_sec,
+        pad_sec=chosen_pad_sec,
     )
     resulting_length = normalize_timestamp(sum(end - start for start, end in segments_to_keep))
-
-    # Note: No truncation - we accept over-target results to preserve all content
-
-    # Determine if we used most aggressive settings
-    used_most_aggressive = (
-        chosen_min_dur == _MIN_DURATIONS_TIERS[-1] and chosen_db == _DB_SEARCH_HIGH
-    )
 
     return TrimPlan(
         mode="target",
         segments_to_keep=segments_to_keep,
         input_duration_sec=duration_sec,
         resulting_length_sec=resulting_length,
-        resolved_noise_threshold=chosen_db,
-        resolved_min_duration=chosen_min_dur,
-        resolved_pad_sec=pad_sec,
+        resolved_noise_threshold=chosen_threshold_db,
+        resolved_min_duration=TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
+        resolved_pad_sec=chosen_pad_sec,
         target_length=target_length,
     )

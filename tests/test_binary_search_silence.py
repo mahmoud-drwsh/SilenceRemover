@@ -1,68 +1,57 @@
-"""Tests for binary search silence detection algorithm.
-
-Tests cover:
-- Binary search finds optimal (min_duration, dB) combination
-- Early termination behavior
-- Fractional cache filename encoding
-- Fallback to aggressive settings
-"""
+"""Pure unit tests for the live target-mode binary-search helpers."""
 
 from pathlib import Path
 import sys
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "packages"))
 
-import pytest
+import sr_trim_plan.api as trim_plan_api
+from sr_trim_plan.api import binary_search_padding, binary_search_threshold
+from src.core.constants import (
+    TARGET_SEARCH_BASE_PADDING_SEC,
+    TARGET_SEARCH_HIGH_DB,
+    TARGET_SEARCH_LOW_DB,
+    TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
+    TARGET_SEARCH_PADDING_STEP_SEC,
+    TARGET_SEARCH_STEP_DB,
+    resolve_trim_defaults,
+)
 
 
-class TestBinarySearchConstants:
-    """Verify computed constant ranges."""
-    
-    def test_min_duration_tiers_count(self):
-        """Should have exactly 50 min_duration tiers."""
-        from src.core.constants import TARGET_MIN_DURATION_TIERS
-        assert len(TARGET_MIN_DURATION_TIERS) == 50
-    
-    def test_min_duration_tiers_start(self):
-        """First tier should be 0.5s."""
-        from src.core.constants import TARGET_MIN_DURATION_TIERS
-        assert TARGET_MIN_DURATION_TIERS[0] == 0.5
-    
-    def test_min_duration_tiers_end(self):
-        """Last tier should be approximately 0.01s."""
-        from src.core.constants import TARGET_MIN_DURATION_TIERS
-        assert abs(TARGET_MIN_DURATION_TIERS[-1] - 0.01) < 0.0001
-    
-    def test_min_duration_tiers_step(self):
-        """Step size should be approximately 0.01s."""
-        from src.core.constants import TARGET_MIN_DURATION_TIERS
-        for i in range(1, len(TARGET_MIN_DURATION_TIERS)):
-            step = TARGET_MIN_DURATION_TIERS[i-1] - TARGET_MIN_DURATION_TIERS[i]
-            assert abs(step - 0.01) < 0.0001
-    
-    def test_db_range(self):
-        """dB range should be -60 to -25 with 0.05 step (fine precision)."""
-        from src.core.constants import (
-            TARGET_NOISE_THRESHOLD_START_DB,
-            TARGET_NOISE_THRESHOLD_END_DB,
-            TARGET_NOISE_THRESHOLD_STEP_DB,
+class TestTargetSearchConstants:
+    """Verify the live target-mode search constants and defaults."""
+
+    def test_target_search_constant_values(self):
+        assert TARGET_SEARCH_LOW_DB == -60.0
+        assert TARGET_SEARCH_HIGH_DB == -40.0
+        assert TARGET_SEARCH_STEP_DB == 0.1
+        assert TARGET_SEARCH_MIN_SILENCE_LEN_SEC == 0.2
+        assert TARGET_SEARCH_BASE_PADDING_SEC == 0.2
+        assert TARGET_SEARCH_PADDING_STEP_SEC == 0.01
+
+        count = int(round((TARGET_SEARCH_HIGH_DB - TARGET_SEARCH_LOW_DB) / TARGET_SEARCH_STEP_DB)) + 1
+        assert count == 201
+
+    def test_target_defaults_ignore_overrides(self):
+        defaults = resolve_trim_defaults(
+            target_length=90.0,
+            noise_threshold=-12.0,
+            min_duration=9.0,
+            pad_sec=4.0,
         )
-        assert TARGET_NOISE_THRESHOLD_START_DB == -60.0
-        assert TARGET_NOISE_THRESHOLD_END_DB == -25.0
-        assert TARGET_NOISE_THRESHOLD_STEP_DB == 0.05
-        
-        # Verify 701 values (with 0.05 step)
-        count = int((TARGET_NOISE_THRESHOLD_END_DB - TARGET_NOISE_THRESHOLD_START_DB) 
-                    / TARGET_NOISE_THRESHOLD_STEP_DB) + 1
-        assert count == 701
+
+        assert defaults.noise_threshold == TARGET_SEARCH_LOW_DB
+        assert defaults.min_duration == TARGET_SEARCH_MIN_SILENCE_LEN_SEC
+        assert defaults.pad_sec == TARGET_SEARCH_BASE_PADDING_SEC
 
 
 class TestCacheFilenameEncoding:
     """Verify single-file cache addressing for silence analysis."""
 
     def test_cache_path_is_single_file_per_video(self):
-        """Each video should now map to one cache file."""
         from packages.sr_silence_detection._cache import _get_cache_path
 
         temp_dir = Path("/tmp/temp")
@@ -72,54 +61,124 @@ class TestCacheFilenameEncoding:
         assert path == expected
 
     def test_primary_cache_key_is_stable(self):
-        """Primary variants should be stored under stable in-file keys."""
         from packages.sr_silence_detection._cache import _get_primary_cache_key
 
-        assert _get_primary_cache_key(0.1, -60.0) == "d:0.100|t:-60.000"
+        assert _get_primary_cache_key(0.2, -60.0) == "d:0.200|t:-60.000"
         assert _get_primary_cache_key(0.375, -59.75) == "d:0.375|t:-59.750"
         assert _get_primary_cache_key(0.5, 0.0) == "d:0.500|t:0.000"
 
 
-class TestBinarySearchAlgorithm:
-    """Test binary search finds optimal combination."""
-    
-    def test_finds_quietest_db_at_first_working_tier(self):
-        """Should find quietest dB at first tier where target is met."""
-        # This is implicitly tested through integration tests
-        # A full unit test would require mocking detect_primary_with_cached_edges
-        pass
-    
-    def test_early_termination_at_first_valid_tier(self):
-        """Should stop at first min_dur tier where valid dB is found."""
-        # Verified by integration tests
-        pass
-    
-    def test_fallback_to_aggressive_settings(self):
-        """Should use most aggressive (0.01, -25) when no valid combo found."""
-        # Integration test: test_target_mode_long_video covers fallback
-        pass
+class TestThresholdBinarySearch:
+    """Verify threshold binary search behavior without FFmpeg."""
+
+    def test_chooses_earliest_valid_threshold(self):
+        threshold_db, reached_target = binary_search_threshold(
+            target_length=10.0,
+            estimate_length=lambda threshold_db: 12.0 if threshold_db < -52.3 else 9.0,
+        )
+
+        assert reached_target is True
+        assert threshold_db == pytest.approx(-52.3)
+
+    def test_falls_back_to_high_threshold_when_unreachable(self):
+        threshold_db, reached_target = binary_search_threshold(
+            target_length=10.0,
+            estimate_length=lambda _threshold_db: 12.0,
+        )
+
+        assert reached_target is False
+        assert threshold_db == TARGET_SEARCH_HIGH_DB
+
+    def test_invalid_probe_is_treated_as_overshoot(self):
+        def estimate_length(threshold_db: float) -> float | None:
+            if threshold_db <= -49.0:
+                return None
+            if threshold_db < -47.0:
+                return 12.0
+            return 9.0
+
+        threshold_db, reached_target = binary_search_threshold(
+            target_length=10.0,
+            estimate_length=estimate_length,
+        )
+
+        assert reached_target is True
+        assert threshold_db == pytest.approx(-47.0)
+
+    def test_build_trim_plan_uses_best_effort_fallback_when_all_threshold_probes_fail(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ):
+        input_file = tmp_path / "input.mp4"
+        input_file.write_bytes(b"video")
+
+        monkeypatch.setattr(trim_plan_api, "probe_duration", lambda _path: 12.0)
+        monkeypatch.setattr(trim_plan_api, "detect_edge_only_cached", lambda *args, **kwargs: ([], []))
+
+        def _raise_invalid_probe(*args, **kwargs):
+            raise RuntimeError("probe failed")
+
+        monkeypatch.setattr(trim_plan_api, "detect_primary_with_cached_edges", _raise_invalid_probe)
+
+        plan = trim_plan_api.build_trim_plan(
+            input_file=input_file,
+            target_length=5.0,
+            noise_threshold=-55.0,
+            min_duration=0.01,
+            pad_sec=0.0,
+            temp_dir=tmp_path,
+        )
+
+        assert plan.mode == "target"
+        assert plan.should_copy_input is False
+        assert plan.resolved_noise_threshold == TARGET_SEARCH_HIGH_DB
+        assert plan.resolved_min_duration == TARGET_SEARCH_MIN_SILENCE_LEN_SEC
+        assert plan.resolved_pad_sec == TARGET_SEARCH_BASE_PADDING_SEC
+        assert plan.segments_to_keep == [(0.0, 12.0)]
+        assert plan.resulting_length_sec == 12.0
 
 
-class TestBinarySearchPerformance:
-    """Verify binary search complexity."""
-    
-    def test_max_iterations_upper_bound(self):
-        """Max iterations should be ~500 (50 tiers × 10 dB steps for 701 values)."""
-        import math
-        
-        tiers = 50
-        db_steps = math.ceil(math.log2(701))  # Binary search over 701 values
-        max_iterations = tiers * db_steps
-        
-        assert max_iterations <= 500  # 50 × 10
-        assert max_iterations < 11217  # Linear search worst case
-    
-    def test_early_termination_performance(self):
-        """Early termination should happen in first few tiers typically."""
-        # If target is easily met, should terminate in tier 1-5
-        # This is a behavioral expectation, not strict test
-        pass
+class TestPaddingBinarySearch:
+    """Verify padding binary search behavior without FFmpeg re-runs."""
 
+    def test_chooses_largest_valid_padding_step(self):
+        pad_sec = binary_search_padding(
+            target_length=10.0,
+            duration_sec=5.0,
+            estimate_length=lambda pad_sec: 9.60 + pad_sec,
+        )
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        assert pad_sec == pytest.approx(0.40)
+
+    def test_returns_base_padding_when_no_expansion_is_possible(self):
+        pad_sec = binary_search_padding(
+            target_length=9.90,
+            duration_sec=5.0,
+            estimate_length=lambda pad_sec: 9.70 + pad_sec,
+        )
+
+        assert pad_sec == TARGET_SEARCH_BASE_PADDING_SEC
+
+    def test_invalid_padding_probe_falls_back_safely(self):
+        def estimate_length(pad_sec: float) -> float | None:
+            if pad_sec >= 0.37:
+                return None
+            return 9.50 + pad_sec
+
+        pad_sec = binary_search_padding(
+            target_length=10.0,
+            duration_sec=5.0,
+            estimate_length=estimate_length,
+        )
+
+        assert pad_sec == pytest.approx(0.36)
+
+    def test_invalid_base_padding_returns_default(self):
+        pad_sec = binary_search_padding(
+            target_length=10.0,
+            duration_sec=5.0,
+            estimate_length=lambda _pad_sec: None,
+        )
+
+        assert pad_sec == TARGET_SEARCH_BASE_PADDING_SEC

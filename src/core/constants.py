@@ -77,6 +77,15 @@ TARGET_NOISE_THRESHOLD_END_DB = -25.0
 TARGET_NOISE_THRESHOLD_STEP_DB = 0.05
 # Total: (-25 - (-60)) / 0.05 + 1 = 701 values
 
+# --- Live target-mode search policy ---
+
+TARGET_SEARCH_LOW_DB = -60.0
+TARGET_SEARCH_HIGH_DB = -40.0
+TARGET_SEARCH_STEP_DB = 0.1
+TARGET_SEARCH_MIN_SILENCE_LEN_SEC = 0.2
+TARGET_SEARCH_BASE_PADDING_SEC = 0.2
+TARGET_SEARCH_PADDING_STEP_SEC = 0.01
+
 # --- Snippet defaults ---
 
 SNIPPET_NOISE_THRESHOLD_DB = TARGET_NOISE_THRESHOLD_DB
@@ -113,9 +122,9 @@ def resolve_trim_defaults(
         )
 
     return TrimDefaults(
-        noise_threshold=TARGET_NOISE_THRESHOLD_DB if noise_threshold is None else noise_threshold,
-        min_duration=TARGET_MIN_DURATION_SEC if min_duration is None else min_duration,
-        pad_sec=NON_TARGET_PAD_SEC if pad_sec is None else pad_sec,
+        noise_threshold=TARGET_SEARCH_LOW_DB,
+        min_duration=TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
+        pad_sec=TARGET_SEARCH_BASE_PADDING_SEC,
     )
 
 
@@ -227,6 +236,12 @@ __all__ = [
     "TARGET_NOISE_THRESHOLD_START_DB",
     "TARGET_NOISE_THRESHOLD_END_DB",
     "TARGET_NOISE_THRESHOLD_STEP_DB",
+    "TARGET_SEARCH_LOW_DB",
+    "TARGET_SEARCH_HIGH_DB",
+    "TARGET_SEARCH_STEP_DB",
+    "TARGET_SEARCH_MIN_SILENCE_LEN_SEC",
+    "TARGET_SEARCH_BASE_PADDING_SEC",
+    "TARGET_SEARCH_PADDING_STEP_SEC",
     "VIDEO_EXTENSIONS",
     "SNIPPET_DIR",
     "TRANSCRIPT_DIR",

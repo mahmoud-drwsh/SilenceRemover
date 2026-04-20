@@ -11,6 +11,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "packages"))
 
 from sr_trim_plan import TrimPlan
+from src.core.constants import (
+    TARGET_SEARCH_BASE_PADDING_SEC,
+    TARGET_SEARCH_LOW_DB,
+    TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
+)
 from src.ffmpeg import trim_script_bundle
 
 
@@ -105,6 +110,30 @@ def test_is_trim_script_ready_derives_missing_snippet_without_reanalysis(
         "[0:a]atrim=start=0.0:end=1.0,asetpts=PTS-STARTPTS[a0];"
         "[a0]concat=n=1:v=0:a=1[outa]"
     )
+
+
+def test_get_trim_script_path_canonicalizes_target_mode_overrides(tmp_path: Path) -> None:
+    input_file = tmp_path / "input.mkv"
+    input_file.write_bytes(b"video")
+
+    canonical_path = trim_script_bundle.get_trim_script_path(
+        input_file=input_file,
+        temp_dir=tmp_path,
+        target_length=90.0,
+        noise_threshold=TARGET_SEARCH_LOW_DB,
+        min_duration=TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
+        pad_sec=TARGET_SEARCH_BASE_PADDING_SEC,
+    )
+    overridden_path = trim_script_bundle.get_trim_script_path(
+        input_file=input_file,
+        temp_dir=tmp_path,
+        target_length=90.0,
+        noise_threshold=-10.0,
+        min_duration=9.0,
+        pad_sec=4.0,
+    )
+
+    assert overridden_path == canonical_path
 
 
 def test_derive_snippet_trim_script_handles_video_only_final_graph(tmp_path: Path) -> None:

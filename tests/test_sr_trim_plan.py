@@ -19,8 +19,10 @@ from src.core.constants import (
     NON_TARGET_NOISE_THRESHOLD_DB,
     NON_TARGET_PAD_SEC,
     SNIPPET_MAX_DURATION_SEC,
-    TARGET_MIN_DURATION_SEC,
-    TARGET_NOISE_THRESHOLD_DB,
+    TARGET_SEARCH_BASE_PADDING_SEC,
+    TARGET_SEARCH_HIGH_DB,
+    TARGET_SEARCH_LOW_DB,
+    TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
 )
 
 
@@ -59,13 +61,12 @@ def validate_trim_plan(plan: TrimPlan, video_path: Path) -> None:
     
     # Target mode specific
     if plan.mode == "target" and plan.target_length is not None:
-        # Note: Without truncation, result may exceed target
-        # This preserves content rather than forcing hard cut
-        # Just verify resulting_length is reasonable
+        assert plan.resolved_min_duration == TARGET_SEARCH_MIN_SILENCE_LEN_SEC
+        assert plan.resolved_pad_sec >= TARGET_SEARCH_BASE_PADDING_SEC
+        assert TARGET_SEARCH_LOW_DB <= plan.resolved_noise_threshold <= TARGET_SEARCH_HIGH_DB
         assert plan.resulting_length_sec <= plan.input_duration_sec + 0.001, \
             f"Result exceeds input duration: {plan.resulting_length_sec:.2f}s > {plan.input_duration_sec:.2f}s"
-        
-        # If should_copy_input, resulting length should equal input
+
         if plan.should_copy_input:
             assert abs(plan.resulting_length_sec - plan.input_duration_sec) < 0.001, \
                 f"Copy mode: resulting length should equal input duration"
@@ -118,50 +119,77 @@ class TestNonTargetMode:
 
 class TestTargetMode:
     """Test target mode with various video lengths."""
-    
-    def test_target_mode_short_video(self, sample_short):
-        """Test target mode on short 2-second video."""
+
+    def test_target_mode_copy_through_uses_canonical_metadata(self, sample_short):
+        """Target copy-through still reports the fixed target-mode search policy."""
         plan = build_trim_plan(
             input_file=sample_short,
-            target_length=TARGET_MIN_DURATION_SEC,
-            noise_threshold=TARGET_NOISE_THRESHOLD_DB,
-            min_duration=TARGET_MIN_DURATION_SEC,
-            pad_sec=0.0,
+            target_length=5.0,
+            noise_threshold=-10.0,
+            min_duration=9.0,
+            pad_sec=9.0,
         )
-        
+
         validate_trim_plan(plan, sample_short)
         assert plan.mode == "target"
-        
-        # Note: Without truncation, result may exceed target if no valid combo found
-        # This is expected behavior - we preserve all content rather than truncate
-    
-    def test_target_mode_long_video(self, sample_vertical):
-        """Test target mode on 5-second video."""
+        assert plan.should_copy_input is True
+        assert plan.resolved_noise_threshold == TARGET_SEARCH_LOW_DB
+        assert plan.resolved_min_duration == TARGET_SEARCH_MIN_SILENCE_LEN_SEC
+        assert plan.resolved_pad_sec == TARGET_SEARCH_BASE_PADDING_SEC
+
+    def test_target_mode_reachable_target_stays_under_target(self, sample_with_silence):
+        """Reachable target cases should stay at or under target without truncation."""
+        target_length = 3.5
         plan = build_trim_plan(
-            input_file=sample_vertical,
-            target_length=TARGET_MIN_DURATION_SEC,
-            noise_threshold=TARGET_NOISE_THRESHOLD_DB,
-            min_duration=TARGET_MIN_DURATION_SEC,
+            input_file=sample_with_silence,
+            target_length=target_length,
+            noise_threshold=-55.0,
+            min_duration=0.01,
             pad_sec=0.0,
         )
-        
-        validate_trim_plan(plan, sample_vertical)
+
+        validate_trim_plan(plan, sample_with_silence)
         assert plan.mode == "target"
-        # Note: Without truncation, result may exceed target if aggressive settings insufficient
-        # This preserves content rather than forcing hard cut
-    
-    def test_target_mode_with_padding(self, sample_vertical):
-        """Test target mode with padding enabled."""
+        assert plan.should_copy_input is False
+        assert plan.resulting_length_sec <= target_length + 0.001
+        assert plan.resolved_pad_sec >= TARGET_SEARCH_BASE_PADDING_SEC
+
+    def test_target_mode_unreachable_target_returns_best_effort(self, sample_vertical):
+        """Unreachable targets should fall back to -40 dB / 0.2s without truncation."""
+        target_length = 1.0
         plan = build_trim_plan(
             input_file=sample_vertical,
-            target_length=TARGET_MIN_DURATION_SEC,
-            noise_threshold=TARGET_NOISE_THRESHOLD_DB,
-            min_duration=TARGET_MIN_DURATION_SEC,
-            pad_sec=0.5,  # Add 0.5s padding
+            target_length=target_length,
+            noise_threshold=-55.0,
+            min_duration=0.01,
+            pad_sec=0.0,
         )
-        
+
         validate_trim_plan(plan, sample_vertical)
         assert plan.mode == "target"
+        assert plan.should_copy_input is False
+        assert plan.resolved_noise_threshold == TARGET_SEARCH_HIGH_DB
+        assert plan.resolved_pad_sec == TARGET_SEARCH_BASE_PADDING_SEC
+        assert plan.resulting_length_sec > target_length
+
+    def test_target_mode_ignores_custom_overrides(self, sample_with_silence):
+        """Target mode should ignore caller overrides and resolve to the fixed internal policy."""
+        canonical_plan = build_trim_plan(
+            input_file=sample_with_silence,
+            target_length=3.5,
+            noise_threshold=TARGET_SEARCH_LOW_DB,
+            min_duration=TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
+            pad_sec=TARGET_SEARCH_BASE_PADDING_SEC,
+        )
+        overridden_plan = build_trim_plan(
+            input_file=sample_with_silence,
+            target_length=3.5,
+            noise_threshold=-10.0,
+            min_duration=9.0,
+            pad_sec=4.0,
+        )
+
+        assert overridden_plan == canonical_plan
 
 
 class TestSnippetMode:

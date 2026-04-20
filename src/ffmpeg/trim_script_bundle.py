@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from src.core.constants import resolve_trim_defaults
 from src.ffmpeg.filter_graph import write_filter_graph_script
 from src.ffmpeg.probing import probe_duration, probe_has_audio_stream
 from sr_filter_graph import build_audio_concat_filter_graph, build_video_audio_concat_filter_graph
@@ -49,6 +50,12 @@ def _script_name(
     min_duration: float,
     pad_sec: float,
 ) -> str:
+    trim_defaults = resolve_trim_defaults(
+        target_length=target_length,
+        noise_threshold=noise_threshold,
+        min_duration=min_duration,
+        pad_sec=pad_sec,
+    )
     stat = input_file.stat()
     payload = {
         "basename": input_file.stem,
@@ -56,17 +63,17 @@ def _script_name(
         "mtime_ns": stat.st_mtime_ns,
         "inode": getattr(stat, "st_ino", 0),
         "target_length": target_length,
-        "noise_threshold": noise_threshold,
-        "min_duration": min_duration,
-        "pad_sec": pad_sec,
+        "noise_threshold": trim_defaults.noise_threshold,
+        "min_duration": trim_defaults.min_duration,
+        "pad_sec": trim_defaults.pad_sec,
     }
     digest = hashlib.sha1(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:12]
     safe_base = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in input_file.stem)[:40] or "video"
     return (
-        f"{safe_base}__t-{_float_token(target_length)}__n-{_float_token(noise_threshold)}"
-        f"__d-{_float_token(min_duration)}__p-{_float_token(pad_sec)}__sig-{digest}.ffscript"
+        f"{safe_base}__t-{_float_token(target_length)}__n-{_float_token(trim_defaults.noise_threshold)}"
+        f"__d-{_float_token(trim_defaults.min_duration)}__p-{_float_token(trim_defaults.pad_sec)}__sig-{digest}.ffscript"
     )
 
 

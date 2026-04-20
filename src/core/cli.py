@@ -20,9 +20,12 @@ __all__ = [
 from src.core.constants import (
     NON_TARGET_MIN_DURATION_SEC,
     NON_TARGET_NOISE_THRESHOLD_DB,
+    NON_TARGET_PAD_SEC,
+    TARGET_SEARCH_BASE_PADDING_SEC,
+    TARGET_SEARCH_HIGH_DB,
+    TARGET_SEARCH_LOW_DB,
+    TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
     TITLE_FONT_DEFAULT,
-    TARGET_MIN_DURATION_SEC,
-    TARGET_NOISE_THRESHOLD_DB,
     VIDEO_EXTENSIONS,
 )
 
@@ -100,15 +103,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--target-length",
         type=_positive_float,
-        help="Target length in seconds for final output (Phase 7)",
+        help=(
+            "Target length in seconds for final output (Phase 7). Uses fixed internal search "
+            f"parameters: threshold {TARGET_SEARCH_LOW_DB}..{TARGET_SEARCH_HIGH_DB} dB, "
+            f"min silence {TARGET_SEARCH_MIN_SILENCE_LEN_SEC}s, base padding {TARGET_SEARCH_BASE_PADDING_SEC}s."
+        ),
     )
     parser.add_argument(
         "--noise-threshold",
         type=float,
         default=None,
         help=(
-            "Silence detection threshold in dB. Overrides config; with --target-length "
-            f"it defaults to {TARGET_NOISE_THRESHOLD_DB}."
+            "Silence detection threshold in dB for non-target mode. "
+            f"Ignored when --target-length is set; non-target default is {NON_TARGET_NOISE_THRESHOLD_DB}."
         ),
     )
     parser.add_argument(
@@ -116,8 +123,8 @@ def parse_args() -> argparse.Namespace:
         type=_positive_float,
         default=None,
         help=(
-            "Minimum silence duration in seconds. Overrides config. With --target-length, defaults to "
-            f"{TARGET_MIN_DURATION_SEC}; otherwise {NON_TARGET_MIN_DURATION_SEC}."
+            "Minimum silence duration in seconds for non-target mode. "
+            f"Ignored when --target-length is set; non-target default is {NON_TARGET_MIN_DURATION_SEC}."
         ),
     )
     parser.add_argument(
@@ -125,8 +132,8 @@ def parse_args() -> argparse.Namespace:
         type=_positive_float,
         default=None,
         help=(
-            "Padding to keep around retained segments in seconds. Overrides config defaults. "
-            "In non-target mode the default is 0.5 seconds."
+            "Padding to keep around retained segments in seconds for non-target mode. "
+            f"Ignored when --target-length is set; non-target default is {NON_TARGET_PAD_SEC:.1f} seconds."
         ),
     )
     parser.add_argument(
