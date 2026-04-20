@@ -95,7 +95,7 @@ python main.py /path/to/video/directory
 
 ### Options
 
-- `--target-length FLOAT`: Target length in seconds for final output. This enables a fixed internal two-stage search: threshold `-60.0..-35.0 dB` on a `0.1 dB` grid, `0.085s` minimum silence length, and padding search from `0.085s` in `0.01s` increments.
+- `--target-length FLOAT`: Target length in seconds for final output. This enables a fixed internal two-stage search: threshold `-60.0..-35.0 dB` on a `0.1 dB` grid, `0.100s` minimum silence detection, and padding search from `0.060s` in `0.01s` increments.
 - `--noise-threshold FLOAT`: Override silence detection threshold in dB for non-target mode. Ignored when `--target-length` is set.
 - `--min-duration FLOAT`: Override minimum silence duration in seconds for non-target mode. Ignored when `--target-length` is set.
 - `--pad-sec FLOAT`: Override padding in seconds for non-target mode. Ignored when `--target-length` is set.
@@ -159,7 +159,7 @@ The tool processes videos sequentially through **ten** main phases:
 - Leading and trailing edge silences are re-scanned at `EDGE_RESCAN_THRESHOLD_DB` (`-40dB`) for both target and non-target final trim runs, then only the edge windows are replaced and reduced to a `EDGE_SILENCE_KEEP_SEC` (200ms) buffer before pad calculations.
 - Final encoded MP4s are written under **`output/`** (sibling to the input directory). Intermediate artifacts (snippets, transcripts, titles, FFmpeg scripts, title PNGs, fonts cache) live under **`output/temp/`** — see **Directory Structure** below.
 
-**Target Length Mode**: When `--target-length` is specified, the tool uses a fixed two-stage binary search. Stage 1 finds the earliest threshold in `[-60.0, -35.0]` whose estimated output at `0.085s` padding is at or under target. Stage 2 reuses those detected silences and increases padding in `0.01s` steps without exceeding target. If even `-35.0 dB` with `0.085s` padding stays over target, the tool returns that best-effort result and does not truncate content.
+**Target Length Mode**: When `--target-length` is specified, the tool uses a fixed two-stage binary search. Stage 1 finds the earliest threshold in `[-60.0, -35.0]` whose estimated output at `0.060s` padding is at or under target, using `0.100s` minimum silence detection. Stage 2 reuses those detected silences and increases padding in `0.01s` steps without exceeding target. Because final segment building still keeps `pad_sec` on both sides of a cut silence, the practical removable-silence floor stays around `0.120s`. If even `-35.0 dB` with `0.060s` padding stays over target, the tool returns that best-effort result and does not truncate content.
 
 ### 2. Audio Extraction
 

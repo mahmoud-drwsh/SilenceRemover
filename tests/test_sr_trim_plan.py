@@ -155,7 +155,7 @@ class TestTargetMode:
         assert plan.resolved_pad_sec >= TARGET_SEARCH_BASE_PADDING_SEC
 
     def test_target_mode_unreachable_target_returns_best_effort(self, sample_vertical):
-        """Unreachable targets should fall back to -35 dB / 0.085s without truncation."""
+        """Unreachable targets should fall back to -35 dB / 0.060s without truncation."""
         target_length = 1.0
         plan = build_trim_plan(
             input_file=sample_vertical,
