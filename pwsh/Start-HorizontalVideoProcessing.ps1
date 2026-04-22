@@ -10,13 +10,36 @@ if (-not (Test-Path $inputDir)) {
     exit 1
 }
 
-& uv run python (Join-Path $PSScriptRoot "Move-IgnoredRawVideos.py")
+$preflightArgs = @(
+    "run"
+    "python"
+    (Join-Path $PSScriptRoot "Move-IgnoredRawVideos.py")
+    "--targets"
+    "horizontal"
+)
+
+& uv @preflightArgs
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Raw preflight scan failed with exit code $LASTEXITCODE"
     exit $LASTEXITCODE
 }
 
-& uv run main.py $inputDir --encoder QSV --non-target-noise-threshold -40 --non-target-min-duration 1.0 --non-target-pad-sec 0.5
+$pipelineArgs = @(
+    "run"
+    "python"
+    "main.py"
+    $inputDir
+    "--encoder"
+    "QSV"
+    "--non-target-noise-threshold"
+    "-40"
+    "--non-target-min-duration"
+    "1.0"
+    "--non-target-pad-sec"
+    "0.5"
+)
+
+& uv @pipelineArgs
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Pipeline failed with exit code $LASTEXITCODE"

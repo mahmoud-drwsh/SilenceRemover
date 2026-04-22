@@ -145,6 +145,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print move decisions without changing files.",
     )
+    parser.add_argument(
+        "--targets",
+        choices=("horizontal", "vertical", "both"),
+        default="both",
+        help="Which raw directories to scan. Defaults to both.",
+    )
     return parser.parse_args()
 
 
@@ -434,23 +440,22 @@ def main() -> int:
     require_tool("ffprobe")
 
     videos_root = Path(args.videos_root)
+    scan_specs: list[tuple[str, Path]] = []
+    if args.targets in ("horizontal", "both"):
+        scan_specs.append(("Horizontal", videos_root / "raw"))
+    if args.targets in ("vertical", "both"):
+        scan_specs.append(("Vertical", videos_root / "Vertical" / "raw"))
+
     summaries = [
         invoke_raw_preflight_scan(
-            label="Horizontal",
-            raw_path=videos_root / "raw",
+            label=label,
+            raw_path=raw_path,
             short_duration_seconds=args.short_duration_seconds,
             silence_threshold_db=args.silence_threshold_db,
             silence_min_duration_seconds=args.silence_min_duration_seconds,
             dry_run=args.dry_run,
-        ),
-        invoke_raw_preflight_scan(
-            label="Vertical",
-            raw_path=videos_root / "Vertical" / "raw",
-            short_duration_seconds=args.short_duration_seconds,
-            silence_threshold_db=args.silence_threshold_db,
-            silence_min_duration_seconds=args.silence_min_duration_seconds,
-            dry_run=args.dry_run,
-        ),
+        )
+        for label, raw_path in scan_specs
     ]
 
     LIVE_SKIP_STATUS.close()
