@@ -1,3 +1,8 @@
+param(
+    [ValidateSet("QSV", "AMF", "X265")]
+    [string]$Encoder = "QSV"
+)
+
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $repoRoot
@@ -16,7 +21,7 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& uv run main.py $inputDir --encoder QSV --target-length 179 --enable-media-manager --enable-title-overlay --enable-logo-overlay
+& uv run main.py $inputDir --encoder $Encoder --target-length 179 --enable-media-manager --enable-title-overlay --enable-logo-overlay
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Pipeline failed with exit code $LASTEXITCODE"
