@@ -575,6 +575,8 @@ def run_encode_phase(
     total_videos: int = 1,
     enable_title_overlay: bool = False,
     enable_logo_overlay: bool = False,
+    title_y_fraction: float | None = None,
+    title_height_fraction: float | None = None,
 ) -> bool | None:
     """Phase 7: Full video trim with title-based output filename."""
     basename = video_path.stem
@@ -605,6 +607,8 @@ def run_encode_phase(
             title_font=title_font,
             enable_title_overlay=enable_title_overlay,
             enable_logo_overlay=enable_logo_overlay,
+            title_y_fraction=title_y_fraction,
+            title_height_fraction=title_height_fraction,
             temp_dir=temp_dir,
             metadata_title=clean_title,
             trim_script_path=trim_script_path,
@@ -1133,6 +1137,8 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 total_videos=vn,
                 enable_title_overlay=startup.enable_title_overlay,
                 enable_logo_overlay=startup.enable_logo_overlay,
+                title_y_fraction=getattr(args, 'title_y_fraction', None),
+                title_height_fraction=getattr(args, 'title_height_fraction', None),
             ),
             skip_reason=lambda video_file: ("already completed"
                 if is_completed(temp_dir, video_file.stem)

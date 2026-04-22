@@ -1,6 +1,6 @@
 #!/bin/bash
 # Deploy Media Manager to server and auto-install services.
-# Usage: ./deploy.sh [--sync-only] [--sync-caddy] [--caddy-domain DOMAIN] [--skip-caddy-reload] root@server
+# Usage: ./deploy.sh [--sync-only] [--caddy-domain DOMAIN] root@server
 #
 # IMPORTANT SAFETY GUARANTEE:
 #   This script NEVER deletes files on the remote server - ever.
@@ -9,16 +9,13 @@
 #
 # Options:
 #   --sync-only         Sync files without restarting services (safe deploy).
-#   --sync-caddy        Sync local Caddyfile -> /etc/caddy/Caddyfile and validate before reload.
 #   --caddy-domain      Replace YOUR_DOMAIN in local Caddyfile before validation/upload.
-#   --skip-caddy-reload Skip caddy reload/restart even when not in --sync-only mode.
+#   Caddyfile is always synced to /etc/caddy/Caddyfile (when caddy exists) and Caddy is restarted.
 
 set -e
 
 # Parse arguments
 SYNC_ONLY=false
-SYNC_CADDY=false
-SKIP_CADDY_RELOAD=false
 CADDY_DOMAIN="${CADDY_DOMAIN:-}"
 SERVER=""
 
@@ -26,14 +23,6 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --sync-only)
             SYNC_ONLY=true
-            shift
-            ;;
-        --sync-caddy)
-            SYNC_CADDY=true
-            shift
-            ;;
-        --skip-caddy-reload)
-            SKIP_CADDY_RELOAD=true
             shift
             ;;
         --caddy-domain)
@@ -46,7 +35,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -*)
             echo "Unknown option: $1"
-            echo "Usage: ./deploy.sh [--sync-only] [--sync-caddy] [--caddy-domain DOMAIN] [--skip-caddy-reload] root@myserver.com"
+            echo "Usage: ./deploy.sh [--sync-only] [--caddy-domain DOMAIN] root@myserver.com"
             exit 1
             ;;
         *)
@@ -59,13 +48,12 @@ done
 REMOTE_DIR="/var/lib/media-manager"
 
 if [ -z "$SERVER" ]; then
-    echo "Usage: ./deploy.sh [--sync-only] [--sync-caddy] [--caddy-domain DOMAIN] [--skip-caddy-reload] root@myserver.com"
+    echo "Usage: ./deploy.sh [--sync-only] [--caddy-domain DOMAIN] root@myserver.com"
     echo ""
     echo "Options:"
     echo "  --sync-only         Sync files without restarting services"
-    echo "  --sync-caddy        Sync local Caddyfile to /etc/caddy/Caddyfile and validate"
     echo "  --caddy-domain      Replace YOUR_DOMAIN in Caddyfile before validation/upload"
-    echo "  --skip-caddy-reload Skip caddy reload/restart"
+    echo "  Caddyfile is always synced (if present) and Caddy is restarted when available."
     echo ""
     echo "SAFETY: This script NEVER deletes remote files."
     echo "        Local deletions will NOT propagate to the server."
@@ -149,11 +137,10 @@ ssh "$SERVER" "
     ./scripts/install-service.sh
 "
 
-# 3. Optional Caddy sync/reload (non-destructive)
-if [ "$SYNC_CADDY" = true ]; then
-    echo ""
-    echo "Checking Caddy configuration..."
-    ssh "$SERVER" "CADDY_DOMAIN='$CADDY_DOMAIN' SYNC_ONLY='$SYNC_ONLY' SKIP_CADDY_RELOAD='$SKIP_CADDY_RELOAD' REMOTE_DIR='$REMOTE_DIR' bash -s" <<'REMOTE_CMD'
+# 3. Sync Caddyfile and restart Caddy (non-destructive)
+echo ""
+echo "Checking Caddy configuration..."
+ssh "$SERVER" "CADDY_DOMAIN='$CADDY_DOMAIN' REMOTE_DIR='$REMOTE_DIR' bash -s" <<'REMOTE_CMD'
 set -e
 
 if ! command -v caddy >/dev/null 2>&1; then
@@ -194,19 +181,19 @@ mkdir -p /etc/caddy
 cp "$SRC_FILE" /etc/caddy/Caddyfile
 echo 'Caddyfile synced and validated.'
 
-if [ "${SKIP_CADDY_RELOAD}" != "true" ] && [ "${SYNC_ONLY}" != "true" ]; then
-    if command -v systemctl >/dev/null 2>&1; then
-        if systemctl is-active --quiet caddy; then
-            systemctl reload caddy || echo 'Caddy reload failed. You may need to restart caddy manually.'
-        else
-            echo 'Caddy is not active. Start with: systemctl start caddy'
+if command -v systemctl >/dev/null 2>&1; then
+    if systemctl list-unit-files caddy.service >/dev/null 2>&1; then
+        systemctl restart caddy
+    else
+        systemctl restart caddy || true
+        if ! systemctl is-active --quiet caddy; then
+            echo 'Caddy service is not active after restart. You may need to run: systemctl start caddy'
         fi
     fi
 fi
 
 [ -f "$TMP_FILE" ] && rm -f "$TMP_FILE"
 REMOTE_CMD
-fi
 
 # 4. Restart services (unless --sync-only)
 if [ "$SYNC_ONLY" = true ]; then
@@ -219,9 +206,7 @@ if [ "$SYNC_ONLY" = true ]; then
     echo "Remote deletions: NONE (safety preserved)"
     echo "Media Manager status:   $(ssh "$SERVER" 'systemctl is-active media-manager 2>/dev/null || echo \"unknown\"')"
     echo "File Browser status:    $(ssh "$SERVER" 'systemctl is-active filebrowser 2>/dev/null || echo \"not installed\"')"
-    if [ "$SYNC_CADDY" = true ]; then
-        echo "Caddy status:          $(ssh "$SERVER" 'systemctl is-active caddy 2>/dev/null || echo \"not installed\"')"
-    fi
+    echo "Caddy status:          $(ssh "$SERVER" 'systemctl is-active caddy 2>/dev/null || echo \"not installed\"')"
     echo ""
     echo "The service is still running the old code."
     echo "New code is synced but NOT active."
@@ -229,7 +214,7 @@ if [ "$SYNC_ONLY" = true ]; then
     echo "To activate new code, restart manually:"
     echo "  ssh $SERVER 'systemctl restart media-manager'"
     echo "  (if installed) ssh $SERVER 'systemctl restart filebrowser'"
-    echo "  (if installed) ssh $SERVER 'systemctl reload caddy'"
+    echo "  ssh $SERVER 'systemctl restart caddy'"
     echo ""
     exit 0
 fi
@@ -237,10 +222,6 @@ fi
 # Full deploy with restart
 ssh "$SERVER" "systemctl daemon-reload && systemctl restart media-manager && (systemctl list-unit-files filebrowser.service >/dev/null 2>&1 && systemctl restart filebrowser || true)"
 echo "✓ Service(s) restarted with new code"
-
-if [ "$SYNC_CADDY" = true ] && [ "$SKIP_CADDY_RELOAD" != true ]; then
-    ssh "$SERVER" "if command -v caddy >/dev/null 2>&1; then if systemctl is-active --quiet caddy; then systemctl reload caddy || true; fi; fi"
-fi
 
 # Wait a moment for service to initialize and get token
 sleep 2
@@ -286,7 +267,5 @@ fi
 echo "Service status:"
 echo "  ssh $SERVER 'systemctl status media-manager'"
 echo "  (if installed) ssh $SERVER 'systemctl status filebrowser'"
-if [ "$SYNC_CADDY" = true ]; then
-    echo "  (if installed) ssh $SERVER 'systemctl status caddy'"
-    echo "  Caddy config: $REMOTE_DIR/Caddyfile -> /etc/caddy/Caddyfile"
-fi
+echo "  (if installed) ssh $SERVER 'systemctl status caddy'"
+echo "  Caddy config: $REMOTE_DIR/Caddyfile -> /etc/caddy/Caddyfile"
