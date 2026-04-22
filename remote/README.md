@@ -29,6 +29,7 @@ A secure, lightweight FastAPI application for audio and video file management wi
 
 ```bash
 ./deploy.sh root@myserver.com
+./deploy.sh --sync-caddy --caddy-domain mydomain.com root@myserver.com
 ```
 
 Outputs your tokens and URLs automatically.
@@ -176,6 +177,7 @@ systemctl enable caddy
 ```bash
 # From local machine
 ./deploy.sh root@your-domain.com
+./deploy.sh --sync-caddy --caddy-domain your-domain.com root@your-domain.com
 ```
 
 This will:
@@ -183,6 +185,7 @@ This will:
 2. Install systemd service
 3. Start the service
 4. Print your token
+5. (Optional) With `--sync-caddy`, sync `/etc/caddy/Caddyfile` and reload Caddy
 
 ### Service Commands
 
