@@ -107,6 +107,7 @@ curl "https://your-domain.com/projects/$TOKEN/ihya/api/files?type=audio&check_id
 | `/admin/<admin_token>/api/refresh-token` | POST | Rotate admin token (project token preserved) |
 | `/admin/<admin_token>/api/refresh-admin-token` | POST | Rotate admin token (legacy alias) |
 | `/admin/<admin_token>/api/refresh-media-token` | POST | Rotate global project token (`MEDIA_TOKEN`) |
+| `/admin/<admin_token>/files/*` | GET | File Browser UI proxied behind admin token |
 | `/admin/<admin_token>/` | GET | Admin dashboard SPA |
 
 ## Migration from Old (Flask) Schema
@@ -218,6 +219,7 @@ python3 scripts/test_migration.py
 - `MEDIA_TOKEN` - Project authentication token (auto-generated on first run)
 - `ADMIN_TOKEN` - Admin dashboard authentication token (auto-generated on first run)
 - `DATA_DIR` - Data directory (default: `/var/lib/media-manager`)
+- `FILE_BROWSER_BASE_URL` - File Browser sidecar base URL (default: `http://127.0.0.1:8082`)
 
 **Required tokens for startup:** Both `MEDIA_TOKEN` and `ADMIN_TOKEN` must be set.
 

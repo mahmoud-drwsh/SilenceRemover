@@ -122,11 +122,9 @@ ssh "$SERVER" "
     echo 'Installing/updating dependencies...'
     venv/bin/pip install -r requirements.txt >/dev/null 2>&1 && echo 'Dependencies up to date'
     
-    # Install systemd service if not already installed
-    if [ ! -f /etc/systemd/system/media-manager.service ]; then
-        echo 'Installing systemd service...'
-        ./scripts/install-service.sh
-    fi
+    # Install/update systemd services (media-manager + file-browser sidecar)
+    echo 'Installing/updating systemd services...'
+    ./scripts/install-service.sh
 "
 
 # 3. Restart service (unless --sync-only)
@@ -138,20 +136,23 @@ if [ "$SYNC_ONLY" = true ]; then
     echo ""
     echo "Files synced to: $REMOTE_DIR"
     echo "Remote deletions: NONE (safety preserved)"
-    echo "Service status:   $(ssh "$SERVER" 'systemctl is-active media-manager 2>/dev/null || echo "unknown"')"
+    echo "Media Manager status:   $(ssh "$SERVER" 'systemctl is-active media-manager 2>/dev/null || echo "unknown"')"
+    echo "File Browser status:    $(ssh "$SERVER" 'systemctl is-active filebrowser 2>/dev/null || echo "not installed"')"
     echo ""
     echo "The service is still running the OLD code."
     echo "New code is synced but NOT active."
     echo ""
     echo "To activate new code, restart manually:"
     echo "  ssh $SERVER 'systemctl restart media-manager'"
+    echo "  (if installed) ssh $SERVER 'systemctl restart filebrowser'"
     echo ""
     exit 0
 fi
 
 # Full deploy with restart
-ssh "$SERVER" "systemctl daemon-reload && systemctl restart media-manager"
-echo "✓ Service restarted with new code"
+# Ensure both services have latest unit files and restart where available
+ssh "$SERVER" "systemctl daemon-reload && systemctl restart media-manager && (systemctl list-unit-files filebrowser.service >/dev/null 2>&1 && systemctl restart filebrowser || true)"
+echo "✓ Service(s) restarted with new code"
 
 # Wait a moment for service to initialize and get token
 sleep 2
@@ -189,6 +190,11 @@ if [ -n "$ADMIN_TOKEN" ]; then
     echo "Admin Dashboard:"
     echo "  https://$SERVER/admin/\$ADMIN_TOKEN/"
     echo ""
+    echo "File Browser:"
+    echo "  https://$SERVER/admin/\$ADMIN_TOKEN/files/"
+    echo ""
 fi
 
-echo "Service status: ssh $SERVER 'systemctl status media-manager'"
+echo "Service status:"
+echo "  ssh $SERVER 'systemctl status media-manager'"
+echo "  (if installed) ssh $SERVER 'systemctl status filebrowser'"

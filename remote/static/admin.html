@@ -193,6 +193,7 @@
     <header>
         <h1>🛡️ Media Manager Admin</h1>
         <div class="toolbar">
+            <button class="refresh-btn" id="open-file-browser-btn" onclick="openFileBrowser()">📂 Open File Browser</button>
             <button class="refresh-btn" onclick="loadProjects()">🔄 Refresh</button>
             <button class="refresh-btn" id="refresh-admin-token-btn" onclick="refreshAdminToken()">🛡️ Refresh Admin Token</button>
             <button class="refresh-btn" id="refresh-media-token-btn" onclick="refreshMediaToken()">📹 Refresh Project Token</button>
@@ -211,6 +212,7 @@
         const pathParts = window.location.pathname.split('/').filter(p => p);
         let ADMIN_TOKEN = pathParts[1];  // pathParts[0] = 'admin'
         let API_BASE = `/admin/${ADMIN_TOKEN}/api`;
+        let FILE_BROWSER_BASE = `/admin/${encodeURIComponent(ADMIN_TOKEN)}/files/`;
 
         let mediaToken = null;
 
@@ -223,11 +225,16 @@
             if (normalized !== ADMIN_TOKEN) {
                 ADMIN_TOKEN = normalized;
                 API_BASE = `/admin/${ADMIN_TOKEN}/api`;
+                FILE_BROWSER_BASE = `/admin/${encodeURIComponent(ADMIN_TOKEN)}/files/`;
                 const nextPath = `/admin/${encodeURIComponent(ADMIN_TOKEN)}/`;
                 if (window.location.pathname !== nextPath) {
                     window.history.replaceState(null, '', nextPath);
                 }
             }
+        }
+
+        function openFileBrowser() {
+            window.open(FILE_BROWSER_BASE, '_blank');
         }
 
         async function refreshAdminToken() {

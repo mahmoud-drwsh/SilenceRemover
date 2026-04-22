@@ -15,13 +15,14 @@ import sqlite3
 import secrets
 import threading
 import magic
+import httpx
 from pathlib import Path
 from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import List, Optional, Literal
 
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 import aiofiles
 from pydantic import BaseModel
@@ -32,8 +33,19 @@ ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN')
 DATA_DIR = Path(os.environ.get('DATA_DIR', '/var/lib/media-manager'))
 STORAGE_DIR = DATA_DIR / 'storage'
 DB_PATH = DATA_DIR / 'database.db'
+FILE_BROWSER_BASE_URL = os.environ.get('FILE_BROWSER_BASE_URL', 'http://127.0.0.1:8082').rstrip('/')
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 TOKEN_LOCK = threading.Lock()
+HOP_BY_HOP_HEADERS = {
+    'connection',
+    'keep-alive',
+    'proxy-authenticate',
+    'proxy-authorization',
+    'te',
+    'trailers',
+    'transfer-encoding',
+    'upgrade'
+}
 
 
 def _generate_token() -> str:
@@ -345,6 +357,55 @@ def verify_admin_token(admin_token: str):
         raise HTTPException(500, "ADMIN_TOKEN not configured on server")
     if admin_token != ADMIN_TOKEN:
         raise HTTPException(401, "Invalid admin token")
+
+
+def _filtered_headers(headers) -> dict:
+    """Remove hop-by-hop headers for proxy requests and responses."""
+    return {
+        key: value
+        for key, value in headers.items()
+        if key.lower() not in HOP_BY_HOP_HEADERS
+        and key.lower() not in {'host', 'accept-encoding'}
+    }
+
+
+async def _forward_file_browser_request(
+    admin_token: str,
+    request: Request,
+    path: Optional[str] = None
+):
+    """Proxy an admin-authenticated request to the local File Browser sidecar."""
+    verify_admin_token(admin_token)
+
+    prefix = f"/admin/{admin_token}/files"
+    suffix = f"/{path}" if path else request.url.path[len(prefix):]
+    if not suffix or suffix == '/':
+        suffix = '/'
+    suffix = "/" + suffix.lstrip("/")
+    target_url = f"{FILE_BROWSER_BASE_URL}{suffix}"
+    if request.url.query:
+        target_url = f"{target_url}?{request.url.query}"
+
+    upstream_headers = _filtered_headers(request.headers)
+    request_body = await request.body()
+
+    try:
+        async with httpx.AsyncClient(timeout=None) as client:
+            upstream = await client.request(
+                request.method,
+                target_url,
+                headers=upstream_headers,
+                content=request_body
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"File browser upstream error: {exc}")
+
+    response_headers = _filtered_headers(upstream.headers)
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        headers=response_headers
+    )
 
 
 # API Endpoints
@@ -944,6 +1005,24 @@ def list_admin_projects(admin_token: str):
         "media_token": TOKEN,  # Include media token so admin UI can construct project URLs
         "projects": projects
     }
+
+
+@app.api_route(
+    "/admin/{admin_token}/files",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+)
+@app.api_route(
+    "/admin/{admin_token}/files/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+)
+async def admin_file_browser(admin_token: str, request: Request, path: Optional[str] = None):
+    """
+    Proxy admin-only file browser traffic through the existing admin token.
+
+    All requests go through admin token validation so no separate file-browser
+    token is required.
+    """
+    return await _forward_file_browser_request(admin_token, request, path)
 
 
 @app.get("/admin/{admin_token}/")

@@ -1,0 +1,15 @@
+[Unit]
+Description=Media Manager File Browser
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Environment=DATA_DIR=/var/lib/media-manager
+EnvironmentFile=/var/lib/media-manager/.env
+ExecStart=/usr/local/bin/filebrowser --address 127.0.0.1 --port 8082 --root /var/lib/media-manager --auth.method=noauth --database /var/lib/media-manager/.filebrowser.db
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
