@@ -7,7 +7,7 @@ Type=simple
 User=root
 Environment=DATA_DIR=/var/lib/media-manager
 EnvironmentFile=/var/lib/media-manager/.env
-ExecStart=/usr/local/bin/filebrowser --address 127.0.0.1 --port 8082 --root /var/lib/media-manager --auth.method=noauth --database /var/lib/media-manager/.filebrowser.db
+ExecStart=/bin/sh -c 'if /usr/local/bin/filebrowser --help 2>&1 | grep -q -- \"--auth.method\"; then /usr/local/bin/filebrowser --address 127.0.0.1 --port 8082 --root /var/lib/media-manager --auth.method=noauth --database /var/lib/media-manager/.filebrowser.db; else /usr/local/bin/filebrowser --address 127.0.0.1 --port 8082 --root /var/lib/media-manager --noauth --database /var/lib/media-manager/.filebrowser.db; fi'
 Restart=always
 RestartSec=5
 

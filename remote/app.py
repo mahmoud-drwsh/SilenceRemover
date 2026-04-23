@@ -46,6 +46,10 @@ HOP_BY_HOP_HEADERS = {
     'transfer-encoding',
     'upgrade'
 }
+PROXY_STRIP_RESPONSE_HEADERS = {
+    'content-encoding',
+    'content-length',
+}
 
 
 def _generate_token() -> str:
@@ -342,7 +346,13 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Media Manager", lifespan=lifespan)
+app = FastAPI(
+    title="Media Manager",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 
 
 def verify_token(token: str):
@@ -367,6 +377,22 @@ def _filtered_headers(headers) -> dict:
         if key.lower() not in HOP_BY_HOP_HEADERS
         and key.lower() not in {'host', 'accept-encoding'}
     }
+
+
+def _rewrite_file_browser_html(content: bytes, prefix: str) -> bytes:
+    """Rewrite File Browser HTML so it can boot correctly under the tokened subpath."""
+    html = content.decode("utf-8")
+    replacements = {
+        '"BaseURL":""': f'"BaseURL":"{prefix}"',
+        '"StaticURL":"/static"': f'"StaticURL":"{prefix}/static"',
+        '"LogoutPage":"/login"': f'"LogoutPage":"{prefix}/login"',
+        'href="/static/': f'href="{prefix}/static/',
+        'src="/static/': f'src="{prefix}/static/',
+        'data-src="/static/': f'data-src="{prefix}/static/',
+    }
+    for old, new in replacements.items():
+        html = html.replace(old, new)
+    return html.encode("utf-8")
 
 
 async def _forward_file_browser_request(
@@ -401,8 +427,13 @@ async def _forward_file_browser_request(
         raise HTTPException(502, f"File browser upstream error: {exc}")
 
     response_headers = _filtered_headers(upstream.headers)
+    for header in PROXY_STRIP_RESPONSE_HEADERS:
+        response_headers.pop(header, None)
+    response_content = upstream.content
+    if "text/html" in response_headers.get("content-type", ""):
+        response_content = _rewrite_file_browser_html(upstream.content, prefix)
     return Response(
-        content=upstream.content,
+        content=response_content,
         status_code=upstream.status_code,
         headers=response_headers
     )

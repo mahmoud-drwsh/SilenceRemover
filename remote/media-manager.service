@@ -1,6 +1,7 @@
 [Unit]
 Description=Media Manager
-After=network.target
+After=network.target filebrowser.service
+Wants=filebrowser.service
 
 [Service]
 Type=simple

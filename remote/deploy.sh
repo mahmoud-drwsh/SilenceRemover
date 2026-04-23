@@ -18,6 +18,7 @@ set -e
 SYNC_ONLY=false
 CADDY_DOMAIN="${CADDY_DOMAIN:-}"
 SERVER=""
+DEPLOY_HOST=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -74,6 +75,9 @@ fi
 DEPLOY_HOST="${SERVER#*@}"
 if [ "$DEPLOY_HOST" = "$SERVER" ]; then
     DEPLOY_HOST="$SERVER"
+fi
+if [ -n "$DEPLOY_HOST" ] && [[ "$DEPLOY_HOST" == *:* ]]; then
+    DEPLOY_HOST="${DEPLOY_HOST%:*}"
 fi
 
 echo "Deploying to $SERVER..."
@@ -140,7 +144,7 @@ ssh "$SERVER" "
 # 3. Sync Caddyfile and restart Caddy (non-destructive)
 echo ""
 echo "Checking Caddy configuration..."
-ssh "$SERVER" "CADDY_DOMAIN='$CADDY_DOMAIN' REMOTE_DIR='$REMOTE_DIR' bash -s" <<'REMOTE_CMD'
+ssh "$SERVER" "CADDY_DOMAIN='$CADDY_DOMAIN' DEPLOY_HOST='$DEPLOY_HOST' REMOTE_DIR='$REMOTE_DIR' bash -s" <<'REMOTE_CMD'
 set -e
 
 if ! command -v caddy >/dev/null 2>&1; then
@@ -156,18 +160,28 @@ fi
 SRC_FILE="$REMOTE_DIR/Caddyfile"
 TMP_FILE='/tmp/Caddyfile.deploy'
 if grep -q 'YOUR_DOMAIN' "$SRC_FILE"; then
-    if [ -n "$CADDY_DOMAIN" ]; then
-        sed "s/YOUR_DOMAIN/$CADDY_DOMAIN/g" "$SRC_FILE" > "$TMP_FILE"
-        SRC_FILE="$TMP_FILE"
-    else
-        echo 'Caddyfile still contains YOUR_DOMAIN placeholder. Set --caddy-domain and retry, or edit manually.'
+    if [ -z "$CADDY_DOMAIN" ] && [ -f /etc/caddy/Caddyfile ]; then
+        CADDY_DOMAIN="$(awk 'BEGIN{found=0} $1 !~ /^#/ && $1 !~ /^$/ && $2 == \"{\" {print $1; found=1; exit} END{if(!found) exit 1}' /etc/caddy/Caddyfile 2>/dev/null || true)"
+    fi
+    if [ -z "$CADDY_DOMAIN" ] && [ -n "$DEPLOY_HOST" ]; then
+        CADDY_DOMAIN="$DEPLOY_HOST"
+    fi
+    if [ -z "$CADDY_DOMAIN" ]; then
+        echo 'Caddyfile still contains YOUR_DOMAIN placeholder and no domain could be determined.'
+        echo 'Set --caddy-domain (or export CADDY_DOMAIN), or remove placeholder from remote/Caddyfile.'
+        [ -f "$TMP_FILE" ] && rm -f "$TMP_FILE"
         exit 0
     fi
+    sed "s/YOUR_DOMAIN/$CADDY_DOMAIN/g" "$SRC_FILE" > "$TMP_FILE"
+    SRC_FILE="$TMP_FILE"
 fi
 
 if [ -f /etc/caddy/Caddyfile ] && cmp -s "$SRC_FILE" /etc/caddy/Caddyfile; then
     echo 'Caddyfile unchanged; skip caddy sync.'
     [ -f "$TMP_FILE" ] && rm -f "$TMP_FILE"
+    if [ "$SRC_FILE" != "$REMOTE_DIR/Caddyfile" ] && [ -f "$SRC_FILE" ]; then
+        cp "$SRC_FILE" "$REMOTE_DIR/Caddyfile"
+    fi
     exit 0
 fi
 
@@ -179,6 +193,7 @@ fi
 
 mkdir -p /etc/caddy
 cp "$SRC_FILE" /etc/caddy/Caddyfile
+cp "$SRC_FILE" "$REMOTE_DIR/Caddyfile"
 echo 'Caddyfile synced and validated.'
 
 if command -v systemctl >/dev/null 2>&1; then
@@ -220,7 +235,11 @@ if [ "$SYNC_ONLY" = true ]; then
 fi
 
 # Full deploy with restart
-ssh "$SERVER" "systemctl daemon-reload && systemctl restart media-manager && (systemctl list-unit-files filebrowser.service >/dev/null 2>&1 && systemctl restart filebrowser || true)"
+# Restart sidecars and app, then Caddy so proxy and admin routes use current code.
+ssh "$SERVER" "systemctl daemon-reload && \
+    (systemctl list-unit-files filebrowser.service >/dev/null 2>&1 && systemctl restart filebrowser || true) && \
+    systemctl restart media-manager && \
+    (systemctl list-unit-files caddy.service >/dev/null 2>&1 && systemctl restart caddy || true)"
 echo "✓ Service(s) restarted with new code"
 
 # Wait a moment for service to initialize and get token

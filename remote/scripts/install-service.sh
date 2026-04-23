@@ -23,6 +23,34 @@ elif command -v filebrowser >/dev/null 2>&1; then
     FB_BINARY="$(command -v filebrowser)"
 fi
 
+if [ -z "$FB_BINARY" ]; then
+    echo "filebrowser binary not found. Installing File Browser automatically..."
+    FB_TMP_DIR="$(mktemp -d)"
+    trap 'rm -rf "$FB_TMP_DIR"' EXIT
+    FB_ARCHIVE_URL=""
+    if command -v jq >/dev/null 2>&1; then
+        FB_LATEST_TAG="$(curl -fsSL "https://api.github.com/repos/filebrowser/filebrowser/releases/latest" | jq -r '.tag_name' 2>/dev/null || true)"
+        if [ -n "$FB_LATEST_TAG" ] && [ "$FB_LATEST_TAG" != "null" ]; then
+            FB_ASSET_NAME="$(curl -fsSL "https://api.github.com/repos/filebrowser/filebrowser/releases/latest" | jq -r '.assets[] | select(.name | endswith("linux-amd64-filebrowser.tar.gz")) | .name' 2>/dev/null || true)"
+            if [ -n "$FB_ASSET_NAME" ] && [ "$FB_ASSET_NAME" != "null" ]; then
+                FB_ARCHIVE_URL="https://github.com/filebrowser/filebrowser/releases/download/$FB_LATEST_TAG/$FB_ASSET_NAME"
+            fi
+        fi
+    fi
+    if [ -z "$FB_ARCHIVE_URL" ]; then
+        FB_ARCHIVE_URL="https://github.com/filebrowser/filebrowser/releases/latest/download/linux-amd64-filebrowser.tar.gz"
+    fi
+    if curl -fsSL "$FB_ARCHIVE_URL" -o "$FB_TMP_DIR/filebrowser.tar.gz"; then
+        tar -xzf "$FB_TMP_DIR/filebrowser.tar.gz" -C "$FB_TMP_DIR" filebrowser
+        install -m 0755 "$FB_TMP_DIR/filebrowser" /usr/local/bin/filebrowser
+        FB_BINARY="/usr/local/bin/filebrowser"
+    else
+        echo "Failed to download File Browser. You can install it manually."
+        echo "  - download from https://github.com/filebrowser/filebrowser/releases/latest/download/linux-amd64-filebrowser.tar.gz"
+        echo "  - extract and place binary at /usr/local/bin/filebrowser"
+    fi
+fi
+
 if [ -n "$FB_BINARY" ] && [ -x "$FB_BINARY" ]; then
     if [ "$FB_BINARY" != "/usr/local/bin/filebrowser" ]; then
         ln -sf "$FB_BINARY" /usr/local/bin/filebrowser

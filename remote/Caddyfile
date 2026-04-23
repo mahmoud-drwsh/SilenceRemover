@@ -7,6 +7,8 @@ YOUR_DOMAIN {
         X-Frame-Options "DENY"
         X-Content-Type-Options "nosniff"
         X-XSS-Protection "1; mode=block"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' data: blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; manifest-src 'self' blob:"
     }
     
     # === MEDIA MANAGER (port 8080) - Everything proxied, token required ===
@@ -30,8 +32,4 @@ YOUR_DOMAIN {
     # All other routes (static files, SPA) - go to FastAPI with token auth
     reverse_proxy localhost:8080
     
-    # Automatic HTTPS (Caddy handles certificates)
-    tls {
-        # Use built-in ACME (Let's Encrypt) - no config needed
-    }
 }
