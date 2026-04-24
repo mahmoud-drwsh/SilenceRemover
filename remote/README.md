@@ -1,6 +1,6 @@
 # Media Manager
 
-A secure, lightweight FastAPI application for audio and video file management with tag-based organization. Built for the SilenceRemover pipeline 5-phase workflow.
+A secure FastAPI application for audio and video file management with tag-based organization. Clients talk only to the VPS app; metadata lives in Supabase Postgres and media files live in S3-compatible object storage.
 
 ## Features
 
@@ -9,7 +9,8 @@ A secure, lightweight FastAPI application for audio and video file management wi
 - **Tag-Based Organization**: Virtual folders via JSON tags (no file moving)
 - **Secure Access**: URL-based token authentication
 - **Web Interface**: Single-page application with inline audio player and title editing
-- **SQLite Database**: Lightweight with JSON tag storage
+- **Supabase Postgres Metadata**: Server-side database access only; clients never talk to Supabase directly
+- **S3 Object Storage**: Uploads, deletes, and range streams use an S3-compatible bucket
 - **HTTPS Support**: Automatic SSL certificates via Caddy
 - **Auto-Start**: systemd service for production
 
@@ -48,36 +49,22 @@ remote/
 ├── scripts/                # Helper scripts
 │   ├── local.sh            # Run locally (dev server)
 │   ├── start.sh            # Start manually on VPS
-│   ├── migrate_db.py       # Database migration (old → new schema)
-│   ├── migrate_project_storage.py  # Migrate flat → project-prefixed storage
-│   ├── test_migration.py   # Test migration script
 │   ├── install-service.sh  # Install systemd service
 │   ├── test-api.sh         # API test suite (bash)
 │   ├── test-api.py         # API test suite (Python)
-│   ├── list-db.sh          # View database
 │   └── generate-test-media.sh  # Create test files
 └── static/                 # Frontend SPA
     └── index.html          # Self-contained SPA (all-in-one)
 ```
 
-**VPS storage structure (project-prefixed):**
+**VPS runtime structure:**
 ```
 /var/lib/media-manager/
-├── .env                    # Token (auto-generated)
-├── database.db             # SQLite database
-├── storage/                # File storage
-│   ├── audio/              # Audio files by project
-│   │   ├── {project}/
-│   │   │   └── {id}.ogg
-│   │   └── ...
-│   └── video/              # Video files by project
-│       ├── {project}/
-│       │   └── {id}.mp4
-│       └── ...
+├── .env                    # Tokens plus Supabase/S3 credentials
 └── venv/                   # Python environment
 ```
 
-Projects are isolated both in the database (via `project` column) and on disk (via subdirectory). This allows the same file ID to exist in different projects without collision.
+Projects are isolated by the `project` column in Supabase and by object keys in S3: `{type}/{project}/{id}.{ext}`. This allows the same file ID to exist in different projects without collision.
 
 ## Query Parameters for GET /api/files
 
@@ -108,34 +95,7 @@ curl "https://your-domain.com/projects/$TOKEN/ihya/api/files?type=audio&check_id
 | `/admin/<admin_token>/api/refresh-token` | POST | Rotate admin token (project token preserved) |
 | `/admin/<admin_token>/api/refresh-admin-token` | POST | Rotate admin token (legacy alias) |
 | `/admin/<admin_token>/api/refresh-media-token` | POST | Rotate global project token (`MEDIA_TOKEN`) |
-| `/admin/<admin_token>/files/*` | GET | File Browser UI proxied behind admin token |
 | `/admin/<admin_token>/` | GET | Admin dashboard SPA |
-
-## Migration from Old (Flask) Schema
-
-If you have an existing database from the Flask version (with `ready`/`trashed` columns), migrate before deploying:
-
-```bash
-# On the server (after deploying code but before starting service)
-cd /var/lib/media-manager
-
-# 1. Backup old database
-cp /var/lib/mp3-manager/db.sqlite /var/lib/mp3-manager/db.sqlite.backup.$(date +%Y%m%d)
-
-# 2. Run migration (copies and converts)
-python3 scripts/migrate_db.py /var/lib/mp3-manager/db.sqlite /var/lib/media-manager/database.db
-
-# 3. Verify migration output shows correct tag distribution
-# 4. Start service
-sudo systemctl start media-manager
-```
-
-**What the migration does:**
-- Copies old DB to new location
-- Converts `ready=1` → `tags: ["ready"]`
-- Converts `trashed=1` → `tags: ["trash"]`
-- Converts default → `tags: ["todo"]`
-- Leaves source database untouched
 
 ## Production Setup
 
@@ -210,21 +170,22 @@ cat /var/lib/media-manager/.env
 # or
 python3 scripts/test-api.py
 
-# Test migration
-python3 scripts/test_migration.py
-
-# View database
-./scripts/list-db.sh
 ```
 
 ## Environment Variables
 
 - `MEDIA_TOKEN` - Project authentication token (auto-generated on first run)
 - `ADMIN_TOKEN` - Admin dashboard authentication token (auto-generated on first run)
-- `DATA_DIR` - Data directory (default: `/var/lib/media-manager`)
-- `FILE_BROWSER_BASE_URL` - File Browser sidecar base URL (default: `http://127.0.0.1:8082`)
+- `DATA_DIR` - Runtime config directory (default: `/var/lib/media-manager`)
+- `SUPABASE_DATABASE_URL` - Supabase/Postgres connection string for `media_manager.files`
+- `SUPABASE_DB_SCHEMA` - Postgres schema name (default: `media_manager`)
+- `S3_ENDPOINT_URL` - S3-compatible endpoint URL
+- `S3_BUCKET` - S3 bucket name
+- `S3_ACCESS_KEY` - S3 access key
+- `S3_SECRET_KEY` - S3 secret key
+- `S3_REGION` - S3 region
 
-**Required tokens for startup:** Both `MEDIA_TOKEN` and `ADMIN_TOKEN` must be set.
+**Required for startup:** Tokens, Supabase connection string, and S3 credentials must be set.
 
 **Token rotation (admin dashboard):**
 - Call `/admin/<admin_token>/api/refresh-token` to rotate the admin token.
@@ -308,55 +269,3 @@ This enables:
 **Video:** MP4, M4V, WebM, OGV, MOV, AVI, MKV
 
 Maximum file size: 500MB
-
-## Migration from Old Service
-
-If upgrading from the old Flask-based `mp3-manager`:
-
-1. **Stop old service:**
-   ```bash
-   sudo systemctl stop mp3-manager
-   sudo systemctl disable mp3-manager
-   ```
-
-2. **Deploy new code:**
-   ```bash
-   ./deploy.sh root@your-server
-   ```
-
-3. **Migrate database:**
-   ```bash
-   sudo python3 /var/lib/media-manager/scripts/migrate_db.py \
-     /var/lib/mp3-manager/db.sqlite \
-     /var/lib/media-manager/database.db
-   ```
-
-4. **Start new service:**
-   ```bash
-   sudo systemctl start media-manager
-   ```
-
-5. **Verify:**
-   ```bash
-   curl http://localhost:8080/projects/$TOKEN/ihya/api/files
-   ```
-
-## Migration to Project-Prefixed Storage
-
-If you have files in the old flat structure (pre-project subdirectories):
-
-```bash
-# 1. Check what would be migrated (dry run)
-python3 scripts/migrate_project_storage.py
-
-# 2. Backup and migrate
-python3 scripts/migrate_project_storage.py --execute
-
-# 3. Verify files are accessible
-./scripts/test-api.sh
-```
-
-The app supports **dual-path mode** during migration:
-- **New uploads** go to `storage/{type}/{project}/`
-- **Existing files** are found in either location (old or new)
-- **Zero downtime** - service works during migration

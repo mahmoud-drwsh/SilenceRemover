@@ -22,13 +22,6 @@ YOUR_DOMAIN {
         reverse_proxy localhost:8080
     }
 
-    # Admin-gated File Browser routes
-    # File Browser runs locally at 127.0.0.1:8082 and is only exposed through
-    # /admin/{admin_token}/files/... after app-level auth.
-    handle /admin/*/files* {
-        reverse_proxy localhost:8080
-    }
-    
     # All other routes (static files, SPA) - go to FastAPI with token auth
     reverse_proxy localhost:8080
     

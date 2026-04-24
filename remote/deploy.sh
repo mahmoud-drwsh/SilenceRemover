@@ -17,6 +17,7 @@ set -e
 # Parse arguments
 SYNC_ONLY=false
 CADDY_DOMAIN="${CADDY_DOMAIN:-}"
+NON_INTERACTIVE=false
 SERVER=""
 DEPLOY_HOST=""
 
@@ -34,9 +35,13 @@ while [[ $# -gt 0 ]]; do
             CADDY_DOMAIN="$2"
             shift 2
             ;;
+        --non-interactive)
+            NON_INTERACTIVE=true
+            shift
+            ;;
         -*)
             echo "Unknown option: $1"
-            echo "Usage: ./deploy.sh [--sync-only] [--caddy-domain DOMAIN] root@myserver.com"
+            echo "Usage: ./deploy.sh [--sync-only] [--caddy-domain DOMAIN] [--non-interactive] root@myserver.com"
             exit 1
             ;;
         *)
@@ -49,11 +54,12 @@ done
 REMOTE_DIR="/var/lib/media-manager"
 
 if [ -z "$SERVER" ]; then
-    echo "Usage: ./deploy.sh [--sync-only] [--caddy-domain DOMAIN] root@myserver.com"
+    echo "Usage: ./deploy.sh [--sync-only] [--caddy-domain DOMAIN] [--non-interactive] root@myserver.com"
     echo ""
     echo "Options:"
     echo "  --sync-only         Sync files without restarting services"
     echo "  --caddy-domain      Replace YOUR_DOMAIN in Caddyfile before validation/upload"
+    echo "  --non-interactive   Do not prompt for env updates; only generate missing tokens"
     echo "  Caddyfile is always synced (if present) and Caddy is restarted when available."
     echo ""
     echo "SAFETY: This script NEVER deletes remote files."
@@ -82,8 +88,203 @@ fi
 
 echo "Deploying to $SERVER..."
 
+generate_token() {
+    python3 -c 'import secrets; print(secrets.token_hex(16))' 2>/dev/null || LC_ALL=C tr -dc a-z0-9 </dev/urandom | head -c 32
+}
+
+mask_value() {
+    local value="$1"
+    if [ -z "$value" ]; then
+        printf "<unset>"
+    elif [ "${#value}" -le 8 ]; then
+        printf "********"
+    else
+        printf "%s...%s" "${value:0:4}" "${value: -4}"
+    fi
+}
+
+url_encode() {
+    python3 - "$1" <<'PY'
+import sys
+from urllib.parse import quote
+
+print(quote(sys.argv[1], safe=""))
+PY
+}
+
+env_get() {
+    local key="$1"
+    awk -F= -v k="$key" '$1 == k {sub(/^[^=]*=/, ""); print; exit}' "$ENV_SNAPSHOT" 2>/dev/null || true
+}
+
+env_set_local() {
+    local key="$1"
+    local value="$2"
+    if grep -q "^$key=" "$ENV_UPDATE_FILE" 2>/dev/null; then
+        local escaped_value
+        escaped_value="$(printf '%s' "$value" | sed 's/[\/&]/\\&/g')"
+        sed -i.bak "s/^$key=.*/$key=$escaped_value/" "$ENV_UPDATE_FILE"
+        rm -f "$ENV_UPDATE_FILE.bak"
+    else
+        printf '%s=%s\n' "$key" "$value" >> "$ENV_UPDATE_FILE"
+    fi
+}
+
+env_pending_or_existing() {
+    local key="$1"
+    local pending
+    pending="$(awk -F= -v k="$key" '$1 == k {sub(/^[^=]*=/, ""); print; exit}' "$ENV_UPDATE_FILE" 2>/dev/null || true)"
+    if [ -n "$pending" ]; then
+        printf "%s" "$pending"
+    else
+        env_get "$key"
+    fi
+}
+
+prompt_env_value() {
+    local key="$1"
+    local label="$2"
+    local default_value="$3"
+    local secret="${4:-false}"
+    local existing
+    local prompt
+    local answer
+
+    existing="$(env_get "$key")"
+    if [ "$NON_INTERACTIVE" = true ] || [ ! -t 0 ]; then
+        if [ -z "$existing" ] && [ -n "$default_value" ]; then
+            env_set_local "$key" "$default_value"
+        fi
+        return
+    fi
+
+    if [ -n "$existing" ]; then
+        if [ "$secret" = true ]; then
+            prompt="$label [$key] exists ($(mask_value "$existing")). Press Enter to keep, type a new value to update: "
+        else
+            prompt="$label [$key] exists ($existing). Press Enter to keep, type a new value to update: "
+        fi
+        if [ "$secret" = true ]; then
+            read -r -s -p "$prompt" answer
+            echo ""
+        else
+            read -r -p "$prompt" answer
+        fi
+        if [ -n "$answer" ]; then
+            env_set_local "$key" "$answer"
+        fi
+    else
+        if [ -n "$default_value" ]; then
+            if [ "$secret" = true ]; then
+                read -r -s -p "$label [$key] is missing. Press Enter for default, or type a value: " answer
+                echo ""
+            else
+                read -r -p "$label [$key] is missing. Press Enter for '$default_value', or type a value: " answer
+            fi
+            env_set_local "$key" "${answer:-$default_value}"
+        else
+            while true; do
+                if [ "$secret" = true ]; then
+                    read -r -s -p "$label [$key] is missing. Enter value: " answer
+                    echo ""
+                else
+                    read -r -p "$label [$key] is missing. Enter value: " answer
+                fi
+                if [ -n "$answer" ]; then
+                    env_set_local "$key" "$answer"
+                    break
+                fi
+            done
+        fi
+    fi
+}
+
+write_env_updates_file() {
+    chmod 600 "$ENV_UPDATE_FILE"
+}
+
 # 1. Ensure remote directory exists and sync files
 ssh "$SERVER" "mkdir -p $REMOTE_DIR"
+
+# 1a. Bootstrap or update remote environment configuration.
+ENV_SNAPSHOT="$(mktemp)"
+ENV_UPDATE_FILE="$(mktemp)"
+trap 'rm -f "$ENV_SNAPSHOT" "$ENV_UPDATE_FILE"' EXIT
+chmod 600 "$ENV_UPDATE_FILE"
+
+ssh "$SERVER" "cat '$REMOTE_DIR/.env' 2>/dev/null || true" > "$ENV_SNAPSHOT"
+
+if [ -z "$(env_get MEDIA_TOKEN)" ]; then
+    env_set_local MEDIA_TOKEN "$(generate_token)"
+fi
+if [ -z "$(env_get ADMIN_TOKEN)" ]; then
+    env_set_local ADMIN_TOKEN "$(generate_token)"
+fi
+
+echo ""
+echo "Configuring remote service environment..."
+if [ "$NON_INTERACTIVE" = true ] || [ ! -t 0 ]; then
+    echo "  Non-interactive mode: preserving existing values and filling safe defaults."
+else
+    echo "  Existing values are kept by default. Secrets are masked in prompts."
+fi
+
+env_set_local STORAGE_BACKEND "s3"
+env_set_local DATABASE_BACKEND "supabase"
+
+prompt_env_value S3_ENDPOINT_URL "S3 endpoint URL" "https://eu2.contabostorage.com"
+prompt_env_value S3_BUCKET "S3 bucket name" "media-manager"
+prompt_env_value S3_ACCESS_KEY "S3 access key" "" true
+prompt_env_value S3_SECRET_KEY "S3 secret key" "" true
+prompt_env_value S3_REGION "S3 region" "eu2"
+
+prompt_env_value SUPABASE_DB_HOST "Supabase database host" "aws-1-eu-central-2.pooler.supabase.com"
+prompt_env_value SUPABASE_DB_PORT "Supabase database port" "6543"
+prompt_env_value SUPABASE_DB_NAME "Supabase database name" "postgres"
+prompt_env_value SUPABASE_DB_USER "Supabase database user" "postgres.xzgdlobtuagircpnjmho"
+prompt_env_value SUPABASE_DB_PASSWORD "Supabase database password" "" true
+
+SUPABASE_DB_HOST_EFFECTIVE="$(env_pending_or_existing SUPABASE_DB_HOST)"
+SUPABASE_DB_PORT_EFFECTIVE="$(env_pending_or_existing SUPABASE_DB_PORT)"
+SUPABASE_DB_NAME_EFFECTIVE="$(env_pending_or_existing SUPABASE_DB_NAME)"
+SUPABASE_DB_USER_EFFECTIVE="$(env_pending_or_existing SUPABASE_DB_USER)"
+SUPABASE_DB_PASSWORD_EFFECTIVE="$(env_pending_or_existing SUPABASE_DB_PASSWORD)"
+
+if [ -n "$SUPABASE_DB_HOST_EFFECTIVE" ] && [ -n "$SUPABASE_DB_PORT_EFFECTIVE" ] && [ -n "$SUPABASE_DB_NAME_EFFECTIVE" ] && [ -n "$SUPABASE_DB_USER_EFFECTIVE" ] && [ -n "$SUPABASE_DB_PASSWORD_EFFECTIVE" ]; then
+    SUPABASE_DB_USER_ENCODED="$(url_encode "$SUPABASE_DB_USER_EFFECTIVE")"
+    SUPABASE_DB_PASSWORD_ENCODED="$(url_encode "$SUPABASE_DB_PASSWORD_EFFECTIVE")"
+    env_set_local SUPABASE_DATABASE_URL "postgresql://$SUPABASE_DB_USER_ENCODED:$SUPABASE_DB_PASSWORD_ENCODED@$SUPABASE_DB_HOST_EFFECTIVE:$SUPABASE_DB_PORT_EFFECTIVE/$SUPABASE_DB_NAME_EFFECTIVE"
+fi
+
+write_env_updates_file
+if [ -s "$ENV_UPDATE_FILE" ]; then
+    REMOTE_ENV_UPDATE="/tmp/media-manager-env-update.$$"
+    scp -q "$ENV_UPDATE_FILE" "$SERVER:$REMOTE_ENV_UPDATE"
+    ssh "$SERVER" "REMOTE_DIR='$REMOTE_DIR' REMOTE_ENV_UPDATE='$REMOTE_ENV_UPDATE' bash -s" <<'REMOTE_ENV'
+set -e
+ENV_FILE="$REMOTE_DIR/.env"
+TMP_FILE="$ENV_FILE.tmp"
+mkdir -p "$REMOTE_DIR"
+touch "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+cp "$ENV_FILE" "$TMP_FILE"
+while IFS='=' read -r key value; do
+    [ -n "$key" ] || continue
+    if grep -q "^$key=" "$TMP_FILE"; then
+        escaped_value="$(printf '%s' "$value" | sed 's/[\/&]/\\&/g')"
+        sed -i "s/^$key=.*/$key=$escaped_value/" "$TMP_FILE"
+    else
+        printf '%s=%s\n' "$key" "$value" >> "$TMP_FILE"
+    fi
+done < "$REMOTE_ENV_UPDATE"
+mv "$TMP_FILE" "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+rm -f "$REMOTE_ENV_UPDATE"
+REMOTE_ENV
+    echo "✓ Remote .env updated"
+else
+    echo "✓ Remote .env unchanged"
+fi
 
 echo ""
 echo "Syncing files with DELETION PROTECTION..."
@@ -99,11 +300,9 @@ rsync -avz \
     --exclude='.DS_Store' \
     --exclude='.env' \
     --exclude='data/' \
-    --exclude='storage/' \
     --exclude='venv/' \
     --exclude='__pycache__/' \
     --exclude='*.pyc' \
-    --exclude='database.db' \
     ./ "$SERVER:$REMOTE_DIR/"
 
 echo ""
@@ -220,7 +419,6 @@ if [ "$SYNC_ONLY" = true ]; then
     echo "Files synced to: $REMOTE_DIR"
     echo "Remote deletions: NONE (safety preserved)"
     echo "Media Manager status:   $(ssh "$SERVER" 'systemctl is-active media-manager 2>/dev/null || echo \"unknown\"')"
-    echo "File Browser status:    $(ssh "$SERVER" 'systemctl is-active filebrowser 2>/dev/null || echo \"not installed\"')"
     echo "Caddy status:          $(ssh "$SERVER" 'systemctl is-active caddy 2>/dev/null || echo \"not installed\"')"
     echo ""
     echo "The service is still running the old code."
@@ -228,16 +426,14 @@ if [ "$SYNC_ONLY" = true ]; then
     echo ""
     echo "To activate new code, restart manually:"
     echo "  ssh $SERVER 'systemctl restart media-manager'"
-    echo "  (if installed) ssh $SERVER 'systemctl restart filebrowser'"
     echo "  ssh $SERVER 'systemctl restart caddy'"
     echo ""
     exit 0
 fi
 
 # Full deploy with restart
-# Restart sidecars and app, then Caddy so proxy and admin routes use current code.
+# Restart app, then Caddy so proxy and admin routes use current code.
 ssh "$SERVER" "systemctl daemon-reload && \
-    (systemctl list-unit-files filebrowser.service >/dev/null 2>&1 && systemctl restart filebrowser || true) && \
     systemctl restart media-manager && \
     (systemctl list-unit-files caddy.service >/dev/null 2>&1 && systemctl restart caddy || true)"
 echo "✓ Service(s) restarted with new code"
@@ -278,13 +474,9 @@ if [ -n "$ADMIN_TOKEN" ]; then
     echo "Admin Dashboard:"
     echo "  https://$DEPLOY_HOST/admin/$ADMIN_TOKEN/"
     echo ""
-    echo "File Browser:"
-    echo "  https://$DEPLOY_HOST/admin/$ADMIN_TOKEN/files/"
-    echo ""
 fi
 
 echo "Service status:"
 echo "  ssh $SERVER 'systemctl status media-manager'"
-echo "  (if installed) ssh $SERVER 'systemctl status filebrowser'"
 echo "  (if installed) ssh $SERVER 'systemctl status caddy'"
 echo "  Caddy config: $REMOTE_DIR/Caddyfile -> /etc/caddy/Caddyfile"

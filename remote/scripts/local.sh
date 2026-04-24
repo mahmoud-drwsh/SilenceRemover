@@ -17,7 +17,9 @@ fi
 
 # Use fixed token for development
 export MEDIA_TOKEN="${MEDIA_TOKEN:-123}"
-echo "Token: $MEDIA_TOKEN"
+export ADMIN_TOKEN="${ADMIN_TOKEN:-admin123}"
+echo "Media token: $MEDIA_TOKEN"
+echo "Admin token: $ADMIN_TOKEN"
 
 # Create venv if missing
 if [ ! -d "venv" ]; then
@@ -34,17 +36,25 @@ fi
 # Data directory (local, not /var/lib)
 export DATA_DIR="./data"
 
-# Clean old database if it exists (dev mode - fresh start each time)
-if [ -f "$DATA_DIR/database.db" ]; then
-    echo "Removing old database..."
-    rm -f "$DATA_DIR/database.db"
+missing=()
+for key in SUPABASE_DATABASE_URL S3_ENDPOINT_URL S3_BUCKET S3_ACCESS_KEY S3_SECRET_KEY S3_REGION; do
+    if [ -z "${!key:-}" ]; then
+        missing+=("$key")
+    fi
+done
+
+if [ "${#missing[@]}" -gt 0 ]; then
+    echo "Error: local development now requires Supabase and S3 environment variables:"
+    printf '  %s\n' "${missing[@]}"
+    exit 1
 fi
 
-mkdir -p "$DATA_DIR/storage"
+mkdir -p "$DATA_DIR"
 
 echo ""
 echo "Starting server..."
-echo "URL: http://localhost:8080/$MEDIA_TOKEN/test-project/"
+echo "Project URL: http://localhost:8080/projects/$MEDIA_TOKEN/test-project/"
+echo "Admin URL: http://localhost:8080/admin/$ADMIN_TOKEN/"
 echo ""
 
 venv/bin/uvicorn app:app --host 0.0.0.0 --port 8080 --reload

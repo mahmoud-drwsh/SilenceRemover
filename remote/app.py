@@ -6,50 +6,129 @@ FastAPI service for audio/video file management with tag-based organization.
 Environment variables:
     MEDIA_TOKEN - Authentication token for projects (required)
     ADMIN_TOKEN - Authentication token for admin dashboard (required)
-    DATA_DIR - Where to store db and files (default: /var/lib/media-manager)
+    DATA_DIR - Where to store runtime env/config (default: /var/lib/media-manager)
+    SUPABASE_DATABASE_URL - Postgres connection string for metadata (required)
+    S3_ENDPOINT_URL / S3_BUCKET / S3_ACCESS_KEY / S3_SECRET_KEY / S3_REGION - S3-compatible storage (required)
 """
 
 import os
 import json
-import sqlite3
 import secrets
 import threading
+import tempfile
 import magic
-import httpx
+from dataclasses import dataclass
 from pathlib import Path
-from datetime import datetime
+from datetime import date, datetime
 from contextlib import asynccontextmanager
-from typing import List, Optional, Literal
+from typing import Any, List, Optional, Literal
+from urllib.parse import quote
 
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse, Response
-from fastapi.staticfiles import StaticFiles
-import aiofiles
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 # Config
 TOKEN = os.environ.get('MEDIA_TOKEN')
 ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN')
 DATA_DIR = Path(os.environ.get('DATA_DIR', '/var/lib/media-manager'))
-STORAGE_DIR = DATA_DIR / 'storage'
-DB_PATH = DATA_DIR / 'database.db'
-FILE_BROWSER_BASE_URL = os.environ.get('FILE_BROWSER_BASE_URL', 'http://127.0.0.1:8082').rstrip('/')
+SUPABASE_DATABASE_URL = os.environ.get('SUPABASE_DATABASE_URL')
+SUPABASE_DB_SCHEMA = os.environ.get('SUPABASE_DB_SCHEMA', 'media_manager')
+S3_ENDPOINT_URL = os.environ.get('S3_ENDPOINT_URL')
+S3_BUCKET = os.environ.get('S3_BUCKET', 'media-manager')
+S3_ACCESS_KEY = os.environ.get('S3_ACCESS_KEY')
+S3_SECRET_KEY = os.environ.get('S3_SECRET_KEY')
+S3_REGION = os.environ.get('S3_REGION', 'eu2')
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 TOKEN_LOCK = threading.Lock()
-HOP_BY_HOP_HEADERS = {
-    'connection',
-    'keep-alive',
-    'proxy-authenticate',
-    'proxy-authorization',
-    'te',
-    'trailers',
-    'transfer-encoding',
-    'upgrade'
-}
-PROXY_STRIP_RESPONSE_HEADERS = {
-    'content-encoding',
-    'content-length',
-}
+def quote_ident(identifier: str) -> str:
+    """Quote a trusted Postgres identifier from env/config."""
+    if not identifier or not identifier.replace("_", "").isalnum() or identifier[0].isdigit():
+        raise RuntimeError(f"Unsafe Postgres identifier: {identifier!r}")
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+SUPABASE_SCHEMA_IDENT = quote_ident(SUPABASE_DB_SCHEMA)
+
+
+def _to_api_scalar(value: Any) -> Any:
+    """Normalize DB driver values to the shapes the existing API expects."""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, (list, dict)):
+        return json.dumps(value)
+    return value
+
+
+class PgResult:
+    """Small psycopg result adapter matching the endpoint fetch calls."""
+
+    def __init__(self, cursor):
+        self.cursor = cursor
+
+    def _row(self, row):
+        if row is None:
+            return None
+        return {key: _to_api_scalar(value) for key, value in row.items()}
+
+    def fetchone(self):
+        return self._row(self.cursor.fetchone())
+
+    def fetchall(self):
+        return [self._row(row) for row in self.cursor.fetchall()]
+
+
+@dataclass
+class PgConnection:
+    """Tiny DB-API-ish wrapper for the Supabase/Postgres metadata store."""
+
+    conn: Any
+
+    def _normalize_sql(self, sql: str) -> str:
+        normalized = sql.replace("?", "%s")
+        normalized = normalized.replace("FROM files", f"FROM {SUPABASE_SCHEMA_IDENT}.files")
+        normalized = normalized.replace("INTO files", f"INTO {SUPABASE_SCHEMA_IDENT}.files")
+        normalized = normalized.replace("UPDATE files", f"UPDATE {SUPABASE_SCHEMA_IDENT}.files")
+        normalized = normalized.replace("DELETE FROM files", f"DELETE FROM {SUPABASE_SCHEMA_IDENT}.files")
+        normalized = normalized.replace("tags NOT LIKE", "tags::text NOT LIKE")
+        normalized = normalized.replace("tags LIKE", "tags::text LIKE")
+        return normalized
+
+    def _normalize_params(self, sql: str, params: Any):
+        if params is None:
+            return None
+        if not isinstance(params, (list, tuple)):
+            return params
+        if "tags" not in sql.lower():
+            return params
+
+        from psycopg.types.json import Jsonb
+
+        normalized = []
+        for value in params:
+            if isinstance(value, str) and value.startswith("[") and value.endswith("]"):
+                try:
+                    normalized.append(Jsonb(json.loads(value)))
+                    continue
+                except json.JSONDecodeError:
+                    pass
+            normalized.append(value)
+        return tuple(normalized)
+
+    def execute(self, sql: str, params: Any = None):
+        cur = self.conn.cursor()
+        cur.execute(self._normalize_sql(sql), self._normalize_params(sql, params))
+        return PgResult(cur)
+
+    def executescript(self, _sql: str):
+        # Supabase schema is managed outside app startup.
+        return None
+
+    def commit(self):
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
 
 
 def _generate_token() -> str:
@@ -196,52 +275,25 @@ class UploadResponse(BaseModel):
 
 
 def init_db():
-    """Initialize database with tag-based schema.
-    
-    Note: For migrating from old Flask schema (ready/trashed columns),
-    use scripts/migrate-db.py separately before starting the service.
-    """
+    """Verify the Supabase/Postgres metadata store is reachable."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    (STORAGE_DIR / 'audio').mkdir(parents=True, exist_ok=True)
-    (STORAGE_DIR / 'video').mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    
-    # Create project subdirectories for existing projects (dual-path support)
-    try:
-        projects = conn.execute('SELECT DISTINCT project FROM files').fetchall()
-        for row in projects:
-            (STORAGE_DIR / 'audio' / row['project']).mkdir(parents=True, exist_ok=True)
-            (STORAGE_DIR / 'video' / row['project']).mkdir(parents=True, exist_ok=True)
-    except sqlite3.OperationalError:
-        # Table doesn't exist yet (first run), will be created below
-        pass
-    conn.executescript('''
-        CREATE TABLE IF NOT EXISTS files (
-            id TEXT NOT NULL,
-            project TEXT NOT NULL,
-            type TEXT NOT NULL,
-            title TEXT,
-            tags TEXT NOT NULL DEFAULT '[]',
-            duration INTEGER DEFAULT 0,
-            file_size INTEGER DEFAULT 0,
-            mime_type TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id, type, project)
-        );
-        CREATE INDEX IF NOT EXISTS idx_project ON files(project);
-        CREATE INDEX IF NOT EXISTS idx_type ON files(type);
-    ''')
-    conn.commit()
+    if not SUPABASE_DATABASE_URL:
+        raise RuntimeError("SUPABASE_DATABASE_URL must be set")
+
+    conn = get_db()
+    conn.execute(f"SELECT 1 FROM {SUPABASE_SCHEMA_IDENT}.files LIMIT 1").fetchone()
     conn.close()
 
 
 def get_db():
-    """Get database connection with row factory."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Get a Supabase/Postgres metadata connection."""
+    if not SUPABASE_DATABASE_URL:
+        raise RuntimeError("SUPABASE_DATABASE_URL must be set")
+    import psycopg
+    from psycopg.rows import dict_row
+
+    return PgConnection(psycopg.connect(SUPABASE_DATABASE_URL, row_factory=dict_row))
 
 
 def get_mime_type(file_path: Path) -> str:
@@ -291,26 +343,127 @@ def sanitize_file_id(file_id: str) -> str:
     return cleaned[:200]  # Limit length
 
 
-def resolve_file_path(file_type: str, project: str, file_id: str, ext: str) -> Path:
-    """
-    Resolve file path with dual-path compatibility.
-    
-    NEW structure: storage/{type}/{project}/{id}.{ext}
-    OLD structure: storage/{type}/{id}.{ext} (legacy, pre-migration)
-    
-    Returns new path if it exists, otherwise falls back to old path.
-    Always returns new path for new uploads (doesn't check existence).
-    """
-    new_path = STORAGE_DIR / file_type / project / f"{file_id}{ext}"
-    old_path = STORAGE_DIR / file_type / f"{file_id}{ext}"
-    
-    # Prefer new path if it exists, fall back to old path for legacy files
-    if new_path.exists():
-        return new_path
-    if old_path.exists():
-        return old_path
-    # Neither exists - return new path (for upload/create operations)
-    return new_path
+def storage_object_key(file_type: str, project: str, file_id: str, ext: str) -> str:
+    """Return the S3 object key matching the existing storage tree layout."""
+    return f"{file_type}/{project}/{file_id}{ext}"
+
+
+def get_s3_client():
+    """Create an S3 client for the configured S3-compatible endpoint."""
+    if not S3_ENDPOINT_URL or not S3_ACCESS_KEY or not S3_SECRET_KEY:
+        raise RuntimeError("S3_ENDPOINT_URL, S3_ACCESS_KEY, and S3_SECRET_KEY must be set")
+    import boto3
+    from botocore.config import Config
+
+    return boto3.client(
+        "s3",
+        endpoint_url=S3_ENDPOINT_URL,
+        aws_access_key_id=S3_ACCESS_KEY,
+        aws_secret_access_key=S3_SECRET_KEY,
+        region_name=S3_REGION,
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+    )
+
+
+def ensure_storage_backend_ready():
+    """Fail startup early if S3 storage is not usable."""
+    get_s3_client().head_bucket(Bucket=S3_BUCKET)
+
+
+def storage_delete(file_type: str, project: str, file_id: str, ext: str):
+    """Delete one object from S3."""
+    get_s3_client().delete_object(Bucket=S3_BUCKET, Key=storage_object_key(file_type, project, file_id, ext))
+
+
+def storage_delete_any_extension(file_type: str, project: str, file_id: str) -> bool:
+    """Best-effort delete for legacy rows whose stored MIME may imply the wrong extension."""
+    deleted = False
+    for ext in set(MIME_TO_EXT.values()):
+        try:
+            storage_delete(file_type, project, file_id, ext)
+            deleted = True
+        except Exception:
+            continue
+    return deleted
+
+
+def storage_put_bytes(file_type: str, project: str, file_id: str, ext: str, content: bytes, mime: str):
+    """Write bytes to S3."""
+    get_s3_client().put_object(
+        Bucket=S3_BUCKET,
+        Key=storage_object_key(file_type, project, file_id, ext),
+        Body=content,
+        ContentType=mime,
+    )
+
+
+def _parse_range_header(range_header: Optional[str], size: int) -> tuple[int, int] | None:
+    """Parse a single HTTP bytes range into inclusive start/end offsets."""
+    if not range_header or not range_header.startswith("bytes="):
+        return None
+    raw_range = range_header.removeprefix("bytes=").split(",", 1)[0].strip()
+    if "-" not in raw_range:
+        return None
+    start_raw, end_raw = raw_range.split("-", 1)
+    if not start_raw:
+        try:
+            suffix_len = int(end_raw)
+        except ValueError:
+            return None
+        if suffix_len <= 0:
+            return None
+        return max(size - suffix_len, 0), size - 1
+    try:
+        start = int(start_raw)
+        end = int(end_raw) if end_raw else size - 1
+    except ValueError:
+        return None
+    if start >= size or end < start:
+        return None
+    return start, min(end, size - 1)
+
+
+def storage_stream_response(
+    request: Request,
+    file_type: str,
+    project: str,
+    file_id: str,
+    ext: str,
+    mime: str,
+    download_filename: str,
+):
+    """Build a streaming response from S3."""
+    client = get_s3_client()
+    key = storage_object_key(file_type, project, file_id, ext)
+    try:
+        head = client.head_object(Bucket=S3_BUCKET, Key=key)
+    except Exception:
+        raise HTTPException(404, f"File content not found: {file_id}{ext}")
+
+    size = int(head.get("ContentLength", 0))
+    byte_range = _parse_range_header(request.headers.get("range"), size)
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f"inline; filename*=UTF-8''{quote(download_filename)}",
+    }
+    get_kwargs = {"Bucket": S3_BUCKET, "Key": key}
+    status_code = 200
+    if byte_range:
+        start, end = byte_range
+        get_kwargs["Range"] = f"bytes={start}-{end}"
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+        headers["Content-Length"] = str(end - start + 1)
+        status_code = 206
+    else:
+        headers["Content-Length"] = str(size)
+
+    obj = client.get_object(**get_kwargs)
+    return StreamingResponse(
+        obj["Body"].iter_chunks(chunk_size=1024 * 1024),
+        status_code=status_code,
+        media_type=mime,
+        headers=headers,
+    )
 
 
 def parse_tags(tags_param: Optional[str]) -> Optional[List[str]]:
@@ -343,6 +496,7 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("MEDIA_TOKEN environment variable not set")
     if not ADMIN_TOKEN:
         raise RuntimeError("ADMIN_TOKEN environment variable not set")
+    ensure_storage_backend_ready()
     yield
 
 
@@ -367,76 +521,6 @@ def verify_admin_token(admin_token: str):
         raise HTTPException(500, "ADMIN_TOKEN not configured on server")
     if admin_token != ADMIN_TOKEN:
         raise HTTPException(401, "Invalid admin token")
-
-
-def _filtered_headers(headers) -> dict:
-    """Remove hop-by-hop headers for proxy requests and responses."""
-    return {
-        key: value
-        for key, value in headers.items()
-        if key.lower() not in HOP_BY_HOP_HEADERS
-        and key.lower() not in {'host', 'accept-encoding'}
-    }
-
-
-def _rewrite_file_browser_html(content: bytes, prefix: str) -> bytes:
-    """Rewrite File Browser HTML so it can boot correctly under the tokened subpath."""
-    html = content.decode("utf-8")
-    replacements = {
-        '"BaseURL":""': f'"BaseURL":"{prefix}"',
-        '"StaticURL":"/static"': f'"StaticURL":"{prefix}/static"',
-        '"LogoutPage":"/login"': f'"LogoutPage":"{prefix}/login"',
-        'href="/static/': f'href="{prefix}/static/',
-        'src="/static/': f'src="{prefix}/static/',
-        'data-src="/static/': f'data-src="{prefix}/static/',
-    }
-    for old, new in replacements.items():
-        html = html.replace(old, new)
-    return html.encode("utf-8")
-
-
-async def _forward_file_browser_request(
-    admin_token: str,
-    request: Request,
-    path: Optional[str] = None
-):
-    """Proxy an admin-authenticated request to the local File Browser sidecar."""
-    verify_admin_token(admin_token)
-
-    prefix = f"/admin/{admin_token}/files"
-    suffix = f"/{path}" if path else request.url.path[len(prefix):]
-    if not suffix or suffix == '/':
-        suffix = '/'
-    suffix = "/" + suffix.lstrip("/")
-    target_url = f"{FILE_BROWSER_BASE_URL}{suffix}"
-    if request.url.query:
-        target_url = f"{target_url}?{request.url.query}"
-
-    upstream_headers = _filtered_headers(request.headers)
-    request_body = await request.body()
-
-    try:
-        async with httpx.AsyncClient(timeout=None) as client:
-            upstream = await client.request(
-                request.method,
-                target_url,
-                headers=upstream_headers,
-                content=request_body
-            )
-    except httpx.RequestError as exc:
-        raise HTTPException(502, f"File browser upstream error: {exc}")
-
-    response_headers = _filtered_headers(upstream.headers)
-    for header in PROXY_STRIP_RESPONSE_HEADERS:
-        response_headers.pop(header, None)
-    response_content = upstream.content
-    if "text/html" in response_headers.get("content-type", ""):
-        response_content = _rewrite_file_browser_html(upstream.content, prefix)
-    return Response(
-        content=response_content,
-        status_code=upstream.status_code,
-        headers=response_headers
-    )
 
 
 # API Endpoints
@@ -662,13 +746,11 @@ async def upload_file(
             
             # Delete old physical file
             old_ext = get_file_extension(existing['mime_type'])
-            old_path = resolve_file_path(type, project, id, old_ext)
-            if old_path.exists():
-                try:
-                    old_path.unlink()
-                    print(f"[OVERWRITE] Deleted old file: {old_path}")
-                except Exception as e:
-                    print(f"[OVERWRITE WARNING] Failed to delete old file {old_path}: {e}")
+            try:
+                storage_delete(type, project, id, old_ext)
+                print(f"[OVERWRITE] Deleted old stored object: {storage_object_key(type, project, id, old_ext)}")
+            except Exception as e:
+                print(f"[OVERWRITE WARNING] Failed to delete old stored object {id}{old_ext}: {e}")
             
             # Delete from database
             conn.execute('DELETE FROM files WHERE id = ? AND project = ? AND type = ?', (id, project, type))
@@ -692,41 +774,44 @@ async def upload_file(
     if not tag_list or tag_list == []:
         tag_list = ['all']
 
-    # Save file to storage (project-prefixed path)
-    storage_subdir = STORAGE_DIR / type / project
-    storage_subdir.mkdir(parents=True, exist_ok=True)
     content = await file.read()
 
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(413, f"File too large (max {MAX_FILE_SIZE} bytes)")
 
     # Write to temp file to check MIME type
-    temp_path = storage_subdir / f"temp_{id}"
-    temp_path.write_bytes(content)
-
-    mime = get_mime_type(temp_path)
-    if mime not in ALLOWED_MIME:
-        temp_path.unlink()
-        raise HTTPException(400, f"Invalid file type: {mime}")
-
-    # Determine extension and move to final location
-    ext = get_file_extension(mime)
-    final_filename = f"{id}{ext}"
-    final_path = storage_subdir / final_filename
-    temp_path.rename(final_path)
-
-    # Get duration via ffprobe
-    duration = 0
+    temp_file = tempfile.NamedTemporaryFile(prefix=f"media-manager-{id}-", delete=False)
+    temp_path = Path(temp_file.name)
     try:
-        import subprocess
-        result = subprocess.run(
-            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-             '-of', 'default=noprint_wrappers=1:nokey=1', str(final_path)],
-            capture_output=True, text=True
-        )
-        duration = int(float(result.stdout.strip()))
-    except Exception:
-        pass
+        temp_file.write(content)
+        temp_file.close()
+
+        mime = get_mime_type(temp_path)
+        if mime not in ALLOWED_MIME:
+            raise HTTPException(400, f"Invalid file type: {mime}")
+
+        # Determine extension before persisting to the active storage backend.
+        ext = get_file_extension(mime)
+
+        # Get duration via ffprobe
+        duration = 0
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                 '-of', 'default=noprint_wrappers=1:nokey=1', str(temp_path)],
+                capture_output=True, text=True
+            )
+            duration = int(float(result.stdout.strip()))
+        except Exception:
+            pass
+
+        storage_put_bytes(type, project, id, ext, content, mime)
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
 
     # Insert into database
     conn.execute('''
@@ -834,19 +919,13 @@ def delete_file(
         conn.close()
         raise HTTPException(400, "Only trashed files can be deleted. Add 'trash' tag first.")
 
-    # Delete physical file (dual-path: check both new and old locations)
+    # Delete stored object/file from the active backend.
     file_type = row['type']
     ext = get_file_extension(row['mime_type'])
-    file_path = resolve_file_path(file_type, project, id, ext)
-    if file_path.exists():
-        file_path.unlink()
-    else:
-        # Fallback: try all extensions (for legacy files where mime_type might be wrong)
-        for ext in MIME_TO_EXT.values():
-            legacy_path = STORAGE_DIR / file_type / f"{id}{ext}"
-            if legacy_path.exists():
-                legacy_path.unlink()
-                break
+    try:
+        storage_delete(file_type, project, id, ext)
+    except Exception:
+        storage_delete_any_extension(file_type, project, id)
 
     # Delete from database - include type to ensure we delete the correct row
     conn.execute('DELETE FROM files WHERE id = ? AND project = ? AND type = ?', (id, project, file_type))
@@ -886,15 +965,10 @@ async def stream_file(token: str, project: str, id: str, request: Request, type:
     if 'trash' in tags:
         raise HTTPException(404, "File is in trash")
 
-    # Find the physical file - dual-path support (new location preferred)
     file_type = row['type']
     # Get the correct extension for this MIME type
     ext = MIME_TO_EXT.get(row['mime_type'], '.bin')
-    file_path = resolve_file_path(file_type, project, decoded_id, ext)
-    
-    if not file_path.exists():
-        raise HTTPException(404, f"File content not found: {decoded_id}{ext}")
-    
+
     # Determine download filename: use title (sanitized) if available, otherwise use ID
     title = row['title'] or ""
     safe_title = sanitize_filename(title)
@@ -903,11 +977,14 @@ async def stream_file(token: str, project: str, id: str, request: Request, type:
     else:
         download_filename = f"{decoded_id}{ext}"
     
-    # Use FileResponse (handles HTTP range requests for seeking)
-    return FileResponse(
-        file_path,
-        media_type=row['mime_type'],
-        filename=download_filename
+    return storage_stream_response(
+        request,
+        file_type,
+        project,
+        decoded_id,
+        ext,
+        row['mime_type'],
+        download_filename,
     )
 
 
@@ -1046,14 +1123,10 @@ def list_admin_projects(admin_token: str):
     "/admin/{admin_token}/files/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 )
-async def admin_file_browser(admin_token: str, request: Request, path: Optional[str] = None):
-    """
-    Proxy admin-only file browser traffic through the existing admin token.
-
-    All requests go through admin token validation so no separate file-browser
-    token is required.
-    """
-    return await _forward_file_browser_request(admin_token, request, path)
+def removed_admin_file_browser(admin_token: str, path: Optional[str] = None):
+    """Return a clear 404 for the removed admin File Browser route."""
+    verify_admin_token(admin_token)
+    raise HTTPException(404, "Admin File Browser has been removed")
 
 
 @app.get("/admin/{admin_token}/")
