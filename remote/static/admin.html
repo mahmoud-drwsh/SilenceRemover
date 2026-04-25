@@ -213,6 +213,11 @@
         let API_BASE = `/admin/${ADMIN_TOKEN}/api`;
 
         let mediaToken = null;
+        let latestProjects = [];
+        let latestS3StorageByProject = null;
+        let latestTotalS3Storage = null;
+        let s3StorageStatus = 'idle';
+        let projectLoadSequence = 0;
 
         function setAdminToken(newAdminToken) {
             const normalized = newAdminToken?.trim();
@@ -262,6 +267,7 @@
         }
 
         async function loadProjects() {
+            const loadSequence = ++projectLoadSequence;
             const content = document.getElementById('content');
             content.innerHTML = '<div class="loading">Loading projects...</div>';
 
@@ -276,13 +282,49 @@
 
                 const data = await res.json();
                 mediaToken = data.media_token;
-                renderProjects(data.projects);
+                latestProjects = data.projects;
+                latestS3StorageByProject = null;
+                latestTotalS3Storage = null;
+                s3StorageStatus = 'loading';
+                renderProjects();
+                loadS3StorageTotals(loadSequence);
             } catch (err) {
                 content.innerHTML = `<div class="error">Error: ${err.message}</div>`;
             }
         }
 
+        async function loadS3StorageTotals(loadSequence) {
+            try {
+                const res = await fetch(`${API_BASE}/projects/s3-storage`);
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+
+                const data = await res.json();
+                if (loadSequence !== projectLoadSequence) {
+                    return;
+                }
+
+                latestS3StorageByProject = {};
+                data.projects.forEach(p => {
+                    latestS3StorageByProject[p.project] = p.s3_storage_bytes;
+                });
+                latestTotalS3Storage = data.total_s3_storage_bytes;
+                s3StorageStatus = 'loaded';
+                renderProjects();
+            } catch (err) {
+                if (loadSequence !== projectLoadSequence) {
+                    return;
+                }
+                latestS3StorageByProject = null;
+                latestTotalS3Storage = null;
+                s3StorageStatus = 'error';
+                renderProjects();
+            }
+        }
+
         function formatBytes(bytes) {
+            if (bytes === null || bytes === undefined) return '0 B';
             if (bytes === 0) return '0 B';
             const k = 1024;
             const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -303,8 +345,23 @@
             return date.toLocaleDateString();
         }
 
-        function renderProjects(projects) {
+        function formatS3Storage(projectName) {
+            if (s3StorageStatus === 'loading') return 'loading...';
+            if (s3StorageStatus === 'error') return 'unavailable';
+            if (!latestS3StorageByProject) return 'not loaded';
+            return formatBytes(latestS3StorageByProject[projectName] || 0);
+        }
+
+        function formatTotalS3Storage() {
+            if (s3StorageStatus === 'loading') return 'loading...';
+            if (s3StorageStatus === 'error') return 'unavailable';
+            if (latestTotalS3Storage === null || latestTotalS3Storage === undefined) return 'not loaded';
+            return formatBytes(latestTotalS3Storage);
+        }
+
+        function renderProjects() {
             const content = document.getElementById('content');
+            const projects = latestProjects;
 
             if (projects.length === 0) {
                 content.innerHTML = '<div class="empty">No projects found</div>';
@@ -334,8 +391,12 @@
                         <div class="summary-value">${totalVideo}</div>
                     </div>
                     <div class="summary-item">
-                        <div class="summary-label">Storage</div>
+                        <div class="summary-label">DB Storage</div>
                         <div class="summary-value">${formatBytes(totalStorage)}</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">S3 Storage</div>
+                        <div class="summary-value">${formatTotalS3Storage()}</div>
                     </div>
                 </div>
             `;
@@ -369,7 +430,7 @@
                         </div>
                         
                         <div class="project-meta">
-                            💾 ${formatBytes(p.storage_bytes)} • 🕒 ${formatTimeAgo(p.last_updated)}
+                            💾 DB ${formatBytes(p.storage_bytes)} • S3 ${formatS3Storage(p.project)} • 🕒 ${formatTimeAgo(p.last_updated)}
                         </div>
                         
                         <a href="${audioUrl}" class="open-btn" target="_blank">🎵 Open Audio</a>

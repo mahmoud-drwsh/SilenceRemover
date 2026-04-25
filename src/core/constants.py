@@ -93,7 +93,7 @@ SNIPPET_MIN_DURATION_SEC = TARGET_MIN_DURATION_SEC
 SNIPPET_MAX_DURATION_SEC = 180.0
 
 # --- OpenRouter LLM defaults (transcription + title packages) ---
-OPENROUTER_DEFAULT_MODEL = "google/gemini-3.1-flash-lite-preview"
+OPENROUTER_DEFAULT_MODEL = "google/gemini-3-flash-preview"
 
 # --- Shared runtime defaults ---
 

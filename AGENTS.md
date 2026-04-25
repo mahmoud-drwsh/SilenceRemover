@@ -1,10 +1,12 @@
 # Session change summaries for AI agents
 
-After code or config changes, agents append short notes here. When this file grows past ~50 lines, **replace** the changelog with an updated condensed section instead of keeping one bullet per file forever.
+After code or config changes, agents append short notes here. When this file grows past ~20 lines, **replace** the changelog with an updated condensed section instead of keeping one bullet per file forever.
 
 ## Agent Workflow Rules
 
 - **ALWAYS use the `question` tool** when clarification is needed, when weighing tradeoffs, or when the user might have a preference. Do not ask questions inline in text responses—use the dedicated tool.
+
+- **NEVER** hardcode the domain name in the code.
 
 ## Condensed changelog
 
@@ -31,6 +33,7 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/trim.py`: Modified `trim_single_video()` to accept `encoder: str` parameter (default `"libx265"`) instead of `VideoEncoderProfile | None`. Added import for `get_encoder_config`. Updated encoder resolution logic to use `.codec` attribute when falling back to `resolve_video_encoder()`. Updated all `command_label` references to use the string encoder directly.
 
 ## Latest session edits
+- `src/core/constants.py` / `packages/openrouter_transport/client.py`: Switched shared OpenRouter default model for transcription and title generation to `google/gemini-3-flash-preview`; capped default OpenRouter output tokens at `1024`.
 - `pwsh/Move-IgnoredRawVideos.ps1`: Added a coarse fast path that skips expensive preflight checks whenever the existing `output/temp/completed/{raw_stem}.txt` marker exists for an unlocked raw video; summary output now includes completed-marker skips.
 - `src/core/fs_utils.py`: Added Windows-only `is_file_locked()` using `CreateFileW` exclusive-open probing so active OBS recordings can be detected without waiting for release.
 - `src/core/cli.py`: `collect_video_files()` now filters out locked Windows input files before pipeline startup and prints a short skip message naming those recordings.
@@ -269,3 +272,7 @@ After code or config changes, agents append short notes here. When this file gro
 - `remote/app.py` / `remote/deploy.sh`: Made Media Manager S3-only and Supabase-only. Removed filesystem storage branches, MinIO env fallbacks, local storage path resolution, and deploy backend selection.
 - `remote/scripts/` / `remote/README.md`: Removed obsolete SQLite/local-storage migration helpers and updated local dev/docs to require Supabase plus S3 environment variables.
 - `remote/scripts/migrate_sqlite_to_supabase.py` deleted after the completed migration; deploy no longer carries stale `storage/` or `database.db` rsync exclusions.
+- VPS cleanup: After final Contabo verification (`1939` objects, `54,771,685,726` bytes), deleted old local media tree `/var/lib/media-manager/storage`; post-delete admin API and S3 stream checks remained healthy.
+- `remote/app.py`: Added `/admin/{admin_token}/api/projects/s3-storage`, which directly lists S3 `audio/` and `video/` prefixes and returns exact per-project object-byte totals plus an overall S3 total.
+- `remote/static/admin.html`: Admin dashboard now renders DB-backed storage immediately, then loads S3 storage totals in the background and displays both DB and S3 size fields.
+- `remote/deploy.sh`: Caddy deploy now prefers the tracked `remote/Caddyfile` template when deploying from repo root, substitutes `--caddy-domain` only at deploy time, and keeps the app directory copy placeholder-based while `/etc/caddy/Caddyfile` receives the generated runtime config.

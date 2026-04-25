@@ -17,6 +17,7 @@ import secrets
 import threading
 import tempfile
 import magic
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import date, datetime
@@ -395,6 +396,36 @@ def storage_put_bytes(file_type: str, project: str, file_id: str, ext: str, cont
         Body=content,
         ContentType=mime,
     )
+
+
+def storage_project_size_totals() -> dict[str, int]:
+    """Return exact object-byte totals per project by listing S3 storage."""
+    client = get_s3_client()
+    totals: dict[str, int] = defaultdict(int)
+
+    for file_type in ("audio", "video"):
+        prefix = f"{file_type}/"
+        continuation_token = None
+        while True:
+            kwargs = {"Bucket": S3_BUCKET, "Prefix": prefix}
+            if continuation_token:
+                kwargs["ContinuationToken"] = continuation_token
+
+            page = client.list_objects_v2(**kwargs)
+            for obj in page.get("Contents", []):
+                key = obj.get("Key", "")
+                parts = key.split("/", 2)
+                if len(parts) < 3 or not parts[1] or key.endswith("/"):
+                    continue
+                totals[parts[1]] += int(obj.get("Size", 0) or 0)
+
+            if not page.get("IsTruncated"):
+                break
+            continuation_token = page.get("NextContinuationToken")
+            if not continuation_token:
+                break
+
+    return dict(totals)
 
 
 def _parse_range_header(range_header: Optional[str], size: int) -> tuple[int, int] | None:
@@ -1112,6 +1143,28 @@ def list_admin_projects(admin_token: str):
     return {
         "media_token": TOKEN,  # Include media token so admin UI can construct project URLs
         "projects": projects
+    }
+
+
+@app.get("/admin/{admin_token}/api/projects/s3-storage")
+def list_admin_project_s3_storage(admin_token: str):
+    """
+    Admin endpoint: List exact S3 object-byte totals by project.
+
+    This is separate from the main project list so the dashboard can render
+    immediately from database metadata, then fill in S3 totals.
+    """
+    verify_admin_token(admin_token)
+    totals = storage_project_size_totals()
+    return {
+        "projects": [
+            {
+                "project": project,
+                "s3_storage_bytes": size,
+            }
+            for project, size in sorted(totals.items())
+        ],
+        "total_s3_storage_bytes": sum(totals.values()),
     }
 
 

@@ -129,7 +129,7 @@ def request(
     model: str,
     messages: list[dict],
     max_input_tokens: int | None = 10_000,
-    max_output_tokens: int | None = 10_000,
+    max_output_tokens: int | None = 1024,
     max_attempts: int = 5,
     initial_backoff_sec: float = 1.0,
     max_backoff_sec: float = 30.0,

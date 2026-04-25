@@ -351,13 +351,18 @@ if ! command -v caddy >/dev/null 2>&1; then
     exit 0
 fi
 
-if [ ! -f "$REMOTE_DIR/Caddyfile" ]; then
+if [ -f "$REMOTE_DIR/remote/Caddyfile" ]; then
+    SRC_FILE="$REMOTE_DIR/remote/Caddyfile"
+elif [ -f "$REMOTE_DIR/Caddyfile" ]; then
+    SRC_FILE="$REMOTE_DIR/Caddyfile"
+else
     echo 'No local Caddyfile was synced to remote. Skipping caddy sync.'
     exit 0
 fi
 
-SRC_FILE="$REMOTE_DIR/Caddyfile"
 TMP_FILE='/tmp/Caddyfile.deploy'
+GENERATED_CADDYFILE=false
+CADDY_TEMPLATE_FILE="$SRC_FILE"
 if grep -q 'YOUR_DOMAIN' "$SRC_FILE"; then
     if [ -z "$CADDY_DOMAIN" ] && [ -f /etc/caddy/Caddyfile ]; then
         CADDY_DOMAIN="$(awk 'BEGIN{found=0} $1 !~ /^#/ && $1 !~ /^$/ && $2 == \"{\" {print $1; found=1; exit} END{if(!found) exit 1}' /etc/caddy/Caddyfile 2>/dev/null || true)"
@@ -373,14 +378,15 @@ if grep -q 'YOUR_DOMAIN' "$SRC_FILE"; then
     fi
     sed "s/YOUR_DOMAIN/$CADDY_DOMAIN/g" "$SRC_FILE" > "$TMP_FILE"
     SRC_FILE="$TMP_FILE"
+    GENERATED_CADDYFILE=true
 fi
 
 if [ -f /etc/caddy/Caddyfile ] && cmp -s "$SRC_FILE" /etc/caddy/Caddyfile; then
     echo 'Caddyfile unchanged; skip caddy sync.'
-    [ -f "$TMP_FILE" ] && rm -f "$TMP_FILE"
-    if [ "$SRC_FILE" != "$REMOTE_DIR/Caddyfile" ] && [ -f "$SRC_FILE" ]; then
-        cp "$SRC_FILE" "$REMOTE_DIR/Caddyfile"
+    if [ "$GENERATED_CADDYFILE" = true ]; then
+        cp "$CADDY_TEMPLATE_FILE" "$REMOTE_DIR/Caddyfile"
     fi
+    [ -f "$TMP_FILE" ] && rm -f "$TMP_FILE"
     exit 0
 fi
 
@@ -392,7 +398,11 @@ fi
 
 mkdir -p /etc/caddy
 cp "$SRC_FILE" /etc/caddy/Caddyfile
-cp "$SRC_FILE" "$REMOTE_DIR/Caddyfile"
+if [ "$GENERATED_CADDYFILE" = true ]; then
+    cp "$CADDY_TEMPLATE_FILE" "$REMOTE_DIR/Caddyfile"
+else
+    cp "$SRC_FILE" "$REMOTE_DIR/Caddyfile"
+fi
 echo 'Caddyfile synced and validated.'
 
 if command -v systemctl >/dev/null 2>&1; then
