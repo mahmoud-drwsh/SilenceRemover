@@ -7,15 +7,20 @@ __all__ = [
 ]
 
 TITLE_PROMPT_TEMPLATE = """\
-Generate one YouTube video title in Arabic from the transcript below. The title must be in Arabic. Output only the title text on one line—no commentary, no explanation, no quotes around it, and nothing else.
+Generate one YouTube video title in Arabic from the transcript below. The title must be in Arabic. Output only the title text on one line, with no commentary, explanation, quotes, or extra text.
 
-Rules: one title only. Use YouTube title length (up to 100 characters).
+The title is expected near the beginning of the transcript, usually within the first few complete sentences. Extract the title only from those opening title-introduction sentences.
 
-1. Verbatim constraint: the title must be a verbatim contiguous span from the provided transcript (exact same Arabic words in the same order). Do not paraphrase, do not rephrase, and do not add any words.
-2. Beginning-only extraction: the title is always stated at the beginning of the transcript. Extract it only from the opening complete-sentence part at the start of the transcript.
-3. Do NOT use later answer/explanation body text. If a candidate phrase appears in later explanatory content, reject it and choose from the opening complete sentences instead.
-4. Keep sentence integrity while selecting: choose a natural contiguous span from those opening complete sentences.
-5. Length fit: if you must shorten for YouTube length limits, truncate only by removing leading/trailing words from that same opening span (keep the remaining words identical to the transcript).
+Rules:
+1. Verbatim only: the title must be copied as one contiguous span from the transcript, using the exact same Arabic words in the same order.
+2. Opening only: use only the first few complete sentences where the title is introduced.
+3. Skip prefatory invocations: do not choose a title that is only a formulaic opening invocation, prayer, praise, greeting, or blessing, such as "بسم الله الرحمن الرحيم", "الحمد لله", "الصلاة والسلام على رسول الله", "السلام عليكم", or similar generic opening phrases.
+4. Narrow exclusion: do not reject a meaningful title merely because it contains religious words. Only reject the phrase when it functions as a standalone prefatory opening rather than the actual subject/title.
+5. Reject later content: do not use phrases from later explanation, answer, commentary, or body text, even if they sound like good titles.
+6. No added words: do not add labels such as "العنوان", "عنوان الفيديو", "Title:", quotes, punctuation wrappers, or explanatory words.
+7. Natural span: prefer a complete, natural title-like phrase from the opening sentences after any prefatory invocation.
+8. Length: the title must be suitable for YouTube, up to 100 characters.
+9. If shortening is needed, remove only leading or trailing words from the same verbatim opening span.
 
 Transcript:
 {transcript}
@@ -23,22 +28,28 @@ Transcript:
 
 # Used by `sr_title.api` for one-shot candidate pool generation (JSON array output).
 TITLE_CANDIDATES_PROMPT_TEMPLATE = """\
-Generate exactly {candidate_count} distinct YouTube video titles in Arabic from the transcript below. Each title must be in Arabic.
+Generate exactly {candidate_count} distinct YouTube video title candidates in Arabic from the transcript below.
 
-Output format (required):
-- Output only a single JSON array of exactly {candidate_count} strings, e.g. ["title1","title2","title3","title4","title5"].
-- No markdown, no code fences, no commentary before or after the array—only valid JSON.
-- Each string must be a single line (no newline characters inside a title).
-- All {candidate_count} titles must be different from each other.
+The title is expected near the beginning of the transcript, usually within the first few complete sentences. Extract candidates only from those opening title-introduction sentences.
+
+Output format:
+- Output only a single valid JSON array of exactly {candidate_count} strings.
+- No markdown, no code fences, no commentary, and no text before or after the JSON array.
+- Each string must be one line.
+- All {candidate_count} titles must be different.
 
 Rules for every title:
-1. Verbatim constraint: each title must be a verbatim contiguous span from the transcript (exact same Arabic words in the same order). Do not paraphrase, rephrase, or add words.
-2. Beginning-only extraction: titles come from the opening complete-sentence part at the start of the transcript (where the title is introduced).
-3. Do NOT use later answer/explanation body text.
-4. Keep natural contiguous spans from those opening sentences; for length, truncate only by removing leading/trailing words within the same span (words must stay identical to the transcript).
-5. YouTube length: each title up to 100 characters.
+1. Verbatim only: each title must be copied as one contiguous span from the transcript, using the exact same Arabic words in the same order.
+2. Opening only: use only the first few complete sentences where the title is introduced.
+3. Skip prefatory invocations: do not choose a title that is only a formulaic opening invocation, prayer, praise, greeting, or blessing, such as "بسم الله الرحمن الرحيم", "الحمد لله", "الصلاة والسلام على رسول الله", "السلام عليكم", or similar generic opening phrases.
+4. Narrow exclusion: do not reject a meaningful title merely because it contains religious words. Only reject the phrase when it functions as a standalone prefatory opening rather than the actual subject/title.
+5. Reject later content: do not use phrases from later explanation, answer, commentary, or body text, even if they sound like good titles.
+6. No added words: do not add labels such as "العنوان", "عنوان الفيديو", "Title:", quotes, punctuation wrappers, or explanatory words.
+7. Natural span: prefer a complete, natural title-like phrase from the opening sentences after any prefatory invocation.
+8. Length: each title must be suitable for YouTube, up to 100 characters.
+9. If shortening is needed, remove only leading or trailing words from the same verbatim opening span.
 
-Vary the chosen spans when possible (e.g. slightly different lengths) while staying verbatim and beginning-only.
+Vary the chosen spans when possible, such as shorter and longer versions of the same opening title phrase, while staying verbatim and opening-only.
 
 Transcript:
 {transcript}
@@ -48,27 +59,40 @@ Transcript:
 TITLE_CANDIDATES_SCORE_PROMPT_TEMPLATE = """\
 You evaluate Arabic video title candidates against a transcript. Score every candidate in order.
 
+The correct title is expected near the beginning of the transcript, usually within the first few complete sentences. A good candidate must be copied verbatim from that opening title-introduction region, after any standalone prefatory invocation or greeting.
+
 Transcript:
 {transcript}
 
-Candidates (JSON array, fixed order — evaluation index i corresponds to candidates[i]):
+Candidates (JSON array, fixed order; evaluation index i corresponds to candidates[i]):
 {candidates_json}
 
-For each candidate, output two integer scores from 0 to 10 (inclusive):
+For each candidate, output two integer scores from 0 to 10:
 
-1) verbatim_score (0–10): How well the string matches a single contiguous verbatim span of the transcript (same Arabic words in the same order). No paraphrase, no added words.
-   - 10: exact contiguous substring match (minor whitespace/punctuation differences only).
-   - 5–9: mostly verbatim but small mismatches or alignment issues.
-   - 0–4: clearly not a verbatim substring or largely invented wording.
+1) verbatim_score:
+How well the candidate matches one contiguous verbatim span from the transcript.
+- 10: exact contiguous transcript span, with only minor punctuation or whitespace differences.
+- 5-9: mostly verbatim, but has small wording, punctuation, or boundary issues.
+- 0-4: not a contiguous transcript span, paraphrased, invented, or contains added words.
 
-2) correctness_score (0–10): Whether it behaves like a proper title from the opening/title-intro portion (not from later answer/explanation body), with no junk prefix/suffix (e.g. "العنوان", "Title:", wrapping quotes, extra commentary).
-   - 10: clearly from the opening complete-sentence title-intro region, clean single title.
-   - 5–9: mostly correct position/format with minor issues.
-   - 0–4: drawn from later body text, or has labels/extra commentary, or otherwise violates title-intro rules.
+2) correctness_score:
+How well the candidate behaves like the actual title from the opening title-introduction sentences.
+- 10: clean title-like phrase from the first few complete sentences after any standalone prefatory invocation, with no labels, quotes, commentary, or junk text.
+- 5-9: mostly from the opening region, but slightly too broad, too short, awkwardly cut, or has minor formatting issues.
+- 0-4: taken from later explanation/body text, not title-like, includes labels/commentary, violates the opening-only rule, or is only a formulaic prefatory invocation/prayer/greeting.
 
-Output format (required):
-- Output only one JSON object, no markdown fences, no commentary.
+Hard scoring rules:
+- If the candidate is not verbatim, verbatim_score must be 4 or lower.
+- If the candidate appears only after the opening title-introduction sentences, correctness_score must be 4 or lower.
+- If the candidate adds words not present in the transcript, verbatim_score must be 4 or lower.
+- If the candidate includes labels such as "العنوان", "عنوان الفيديو", or "Title:", correctness_score must be 4 or lower.
+- If the candidate is only a standalone prefatory invocation, prayer, praise, greeting, or blessing, such as "بسم الله الرحمن الرحيم", "الحمد لله", "الصلاة والسلام على رسول الله", "السلام عليكم", or similar generic opening phrasing, correctness_score must be 4 or lower.
+- Do not penalize a meaningful subject/title phrase merely because it contains religious vocabulary; penalize only generic prefatory openings that are not the actual title.
+
+Output format:
+- Output only one valid JSON object.
+- No markdown, no code fences, no commentary.
 - Shape: {{"evaluations":[{{"verbatim_score":int,"correctness_score":int}}, ...]}}
-- The "evaluations" array must have exactly the same length as the Candidates array above, in the same order.
+- The evaluations array must have exactly the same length as the Candidates array, in the same order.
 - Each score must be an integer from 0 through 10.
 """

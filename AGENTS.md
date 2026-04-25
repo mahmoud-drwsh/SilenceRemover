@@ -33,6 +33,8 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/trim.py`: Modified `trim_single_video()` to accept `encoder: str` parameter (default `"libx265"`) instead of `VideoEncoderProfile | None`. Added import for `get_encoder_config`. Updated encoder resolution logic to use `.codec` attribute when falling back to `resolve_video_encoder()`. Updated all `command_label` references to use the string encoder directly.
 
 ## Latest session edits
+- `packages/sr_transcription/prompt.py` / `packages/sr_title/prompt.py`: Tightened transcription anti-hallucination wording and title extraction prompts to use first opening title-introduction sentences while excluding standalone prefatory invocations/prayers/greetings without penalizing meaningful religious titles.
+- `src/core/constants.py`: Reduced transcription snippet max duration from 180s to 60s because titles are expected within the first minute after silence removal.
 - `src/core/constants.py` / `packages/openrouter_transport/client.py`: Switched shared OpenRouter default model for transcription and title generation to `google/gemini-3-flash-preview`; capped default OpenRouter output tokens at `1024`.
 - `pwsh/Move-IgnoredRawVideos.ps1`: Added a coarse fast path that skips expensive preflight checks whenever the existing `output/temp/completed/{raw_stem}.txt` marker exists for an unlocked raw video; summary output now includes completed-marker skips.
 - `src/core/fs_utils.py`: Added Windows-only `is_file_locked()` using `CreateFileW` exclusive-open probing so active OBS recordings can be detected without waiting for release.
