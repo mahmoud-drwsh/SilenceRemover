@@ -192,10 +192,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-shorter-than",
         type=_positive_float,
-        default=10.0,
+        default=30.0,
         help=(
             "Minimum video duration in seconds (preflight input screening). Videos shorter than this "
-            "are moved to input/ignored/ and skipped. Default: 10.0."
+            "are moved to input/ignored/ and skipped. Default: 30.0."
         ),
     )
     return parser.parse_args()

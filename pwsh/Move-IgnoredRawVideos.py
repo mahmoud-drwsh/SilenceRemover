@@ -125,7 +125,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--short-duration-seconds",
         type=float,
-        default=10.0,
+        default=30.0,
         help="Move unlocked videos shorter than this many seconds to ignored/.",
     )
     parser.add_argument(
