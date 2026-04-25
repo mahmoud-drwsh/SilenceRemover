@@ -33,6 +33,7 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/trim.py`: Modified `trim_single_video()` to accept `encoder: str` parameter (default `"libx265"`) instead of `VideoEncoderProfile | None`. Added import for `get_encoder_config`. Updated encoder resolution logic to use `.codec` attribute when falling back to `resolve_video_encoder()`. Updated all `command_label` references to use the string encoder directly.
 
 ## Latest session edits
+- `packages/sr_title/prompt.py`: Added conditional lesson/book-series detection guidance so structured openings preserve lesson number plus book/series/course title verbatim when present, without inventing that structure for general videos.
 - `packages/sr_transcription/prompt.py` / `packages/sr_title/prompt.py`: Tightened transcription anti-hallucination wording and title extraction prompts to use first opening title-introduction sentences while excluding standalone prefatory invocations/prayers/greetings without penalizing meaningful religious titles.
 - `src/core/constants.py`: Reduced transcription snippet max duration from 180s to 60s because titles are expected within the first minute after silence removal.
 - `src/core/constants.py` / `packages/openrouter_transport/client.py`: Switched shared OpenRouter default model for transcription and title generation to `google/gemini-3-flash-preview`; capped default OpenRouter output tokens at `1024`.
