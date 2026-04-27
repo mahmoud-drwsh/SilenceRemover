@@ -147,18 +147,23 @@ def _auth_table_name() -> str:
 
 
 def _bootstrap_auth_tokens(conn: PgConnection):
-    """Seed Supabase auth tokens from env only when rows are missing."""
+    """Seed Supabase auth tokens from env only when the table is empty."""
     bootstrap = {
         "media": BOOTSTRAP_MEDIA_TOKEN,
         "admin": BOOTSTRAP_ADMIN_TOKEN,
     }
+    rows = conn.execute(
+        f"SELECT kind FROM {_auth_table_name()} ORDER BY kind"
+    ).fetchall()
+    if rows:
+        existing_kinds = {row["kind"] for row in rows}
+        missing_kinds = set(bootstrap) - existing_kinds
+        if missing_kinds:
+            missing = ", ".join(sorted(missing_kinds))
+            raise RuntimeError(f"Supabase auth token rows are incomplete; missing: {missing}")
+        return
+
     for kind, token in bootstrap.items():
-        existing = conn.execute(
-            f"SELECT 1 FROM {_auth_table_name()} WHERE kind = ?",
-            (kind,),
-        ).fetchone()
-        if existing:
-            continue
         if not token:
             raise RuntimeError(f"{kind.upper()} token is missing from Supabase and no bootstrap env token was provided")
         conn.execute(

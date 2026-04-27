@@ -33,6 +33,7 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/trim.py`: Modified `trim_single_video()` to accept `encoder: str` parameter (default `"libx265"`) instead of `VideoEncoderProfile | None`. Added import for `get_encoder_config`. Updated encoder resolution logic to use `.codec` attribute when falling back to `resolve_video_encoder()`. Updated all `command_label` references to use the string encoder directly.
 
 ## Latest session edits
+- `remote/app.py`: Tightened Supabase token bootstrap so env tokens seed only an empty `auth_tokens` table; partial token rows now fail startup instead of silently resurrecting an old env token.
 - `remote/app.py` / `remote/static/admin.html`: Moved Media Manager token validation and rotation to Supabase-backed hash-only token state; env tokens are now one-time bootstrap values and admin UI preserves the media token locally after it is returned once.
 - `remote/media-manager.service` / `remote/README.md` / `remote/deploy.sh`: Removed the service `DATA_DIR` dependency and updated token rotation/deploy wording for Supabase hash-only token persistence.
 - `remote/Dockerfile` / `remote/.dockerignore`: Added an explicit Docker image for the Media Manager service so Coolify can deploy `remote/` deterministically without relying on Nixpacks Python/pip detection.
