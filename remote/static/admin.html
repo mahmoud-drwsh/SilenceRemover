@@ -212,7 +212,8 @@
         let ADMIN_TOKEN = pathParts[1];  // pathParts[0] = 'admin'
         let API_BASE = `/admin/${ADMIN_TOKEN}/api`;
 
-        let mediaToken = null;
+        const MEDIA_TOKEN_STORAGE_KEY = 'media-manager-admin-media-token';
+        let mediaToken = window.localStorage.getItem(MEDIA_TOKEN_STORAGE_KEY) || null;
         let latestProjects = [];
         let latestS3StorageByProject = null;
         let latestTotalS3Storage = null;
@@ -235,6 +236,15 @@
             }
         }
 
+        function setMediaToken(newMediaToken) {
+            const normalized = newMediaToken?.trim();
+            if (!normalized) {
+                return;
+            }
+            mediaToken = normalized;
+            window.localStorage.setItem(MEDIA_TOKEN_STORAGE_KEY, normalized);
+        }
+
         async function refreshAdminToken() {
             const content = document.getElementById('content');
             try {
@@ -244,7 +254,7 @@
                 }
                 const payload = await res.json();
                 setAdminToken(payload.admin_token);
-                mediaToken = payload.media_token;
+                setMediaToken(payload.media_token);
                 await loadProjects();
             } catch (err) {
                 content.innerHTML = `<div class="error">Error refreshing admin token: ${err.message}</div>`;
@@ -259,7 +269,7 @@
                     throw new Error(`HTTP ${res.status}: ${res.statusText}`);
                 }
                 const payload = await res.json();
-                mediaToken = payload.media_token;
+                setMediaToken(payload.media_token);
                 await loadProjects();
             } catch (err) {
                 content.innerHTML = `<div class="error">Error refreshing project token: ${err.message}</div>`;
@@ -281,7 +291,7 @@
                 }
 
                 const data = await res.json();
-                mediaToken = data.media_token;
+                setMediaToken(data.media_token);
                 latestProjects = data.projects;
                 latestS3StorageByProject = null;
                 latestTotalS3Storage = null;

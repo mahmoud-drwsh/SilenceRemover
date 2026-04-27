@@ -4,9 +4,8 @@ Media Manager Backend
 FastAPI service for audio/video file management with tag-based organization.
 
 Environment variables:
-    MEDIA_TOKEN - Authentication token for projects (required)
-    ADMIN_TOKEN - Authentication token for admin dashboard (required)
-    DATA_DIR - Where to store runtime env/config (default: /var/lib/media-manager)
+    MEDIA_TOKEN - Optional one-time bootstrap token for projects
+    ADMIN_TOKEN - Optional one-time bootstrap token for admin dashboard
     SUPABASE_DATABASE_URL - Postgres connection string for metadata (required)
     S3_ENDPOINT_URL / S3_BUCKET / S3_ACCESS_KEY / S3_SECRET_KEY / S3_REGION - S3-compatible storage (required)
 """
@@ -14,7 +13,8 @@ Environment variables:
 import os
 import json
 import secrets
-import threading
+import hashlib
+import hmac
 import tempfile
 import magic
 from collections import defaultdict
@@ -30,9 +30,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel
 
 # Config
-TOKEN = os.environ.get('MEDIA_TOKEN')
-ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN')
-DATA_DIR = Path(os.environ.get('DATA_DIR', '/var/lib/media-manager'))
+BOOTSTRAP_MEDIA_TOKEN = os.environ.get('MEDIA_TOKEN')
+BOOTSTRAP_ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN')
 SUPABASE_DATABASE_URL = os.environ.get('SUPABASE_DATABASE_URL')
 SUPABASE_DB_SCHEMA = os.environ.get('SUPABASE_DB_SCHEMA', 'media_manager')
 S3_ENDPOINT_URL = os.environ.get('S3_ENDPOINT_URL')
@@ -41,7 +40,8 @@ S3_ACCESS_KEY = os.environ.get('S3_ACCESS_KEY')
 S3_SECRET_KEY = os.environ.get('S3_SECRET_KEY')
 S3_REGION = os.environ.get('S3_REGION', 'eu2')
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
-TOKEN_LOCK = threading.Lock()
+
+
 def quote_ident(identifier: str) -> str:
     """Quote a trusted Postgres identifier from env/config."""
     if not identifier or not identifier.replace("_", "").isalnum() or identifier[0].isdigit():
@@ -134,82 +134,86 @@ class PgConnection:
 
 def _generate_token() -> str:
     """Generate a new secure random token string."""
-    return secrets.token_hex(16)
+    return secrets.token_urlsafe(32)
 
 
-def _set_runtime_token(kind: str, value: str):
-    """Update runtime token value for authentication checks."""
-    global TOKEN, ADMIN_TOKEN
-    if kind == "media":
-        TOKEN = value
-        os.environ["MEDIA_TOKEN"] = value
-    elif kind == "admin":
-        ADMIN_TOKEN = value
-        os.environ["ADMIN_TOKEN"] = value
-    else:
-        raise ValueError(f"Unknown token kind: {kind}")
+def _token_hash(token: str) -> str:
+    """Return the database-safe hash for a token without storing plaintext."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _read_env_lines(env_path: Path) -> list[str]:
-    """Read env file lines from disk while preserving comments and order."""
-    if not env_path.exists():
-        return []
-    return env_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+def _auth_table_name() -> str:
+    return f"{SUPABASE_SCHEMA_IDENT}.auth_tokens"
 
 
-def _rewrite_env_file(updates: dict[str, str]) -> bool:
-    """Rewrite environment file with requested updates, preserving unknown variables."""
-    env_path = DATA_DIR / ".env"
-    with TOKEN_LOCK:
-        try:
-            env_path.parent.mkdir(parents=True, exist_ok=True)
-            lines = _read_env_lines(env_path)
-
-            updated = []
-            updated_keys = set()
-
-            for line in lines:
-                if "=" not in line or line.lstrip().startswith("#"):
-                    updated.append(line)
-                    continue
-                key, _ = line.split("=", 1)
-                key = key.strip()
-                if key in updates:
-                    updated.append(f"{key}={updates[key]}")
-                    updated_keys.add(key)
-                else:
-                    updated.append(line)
-
-            for key, value in updates.items():
-                if key not in updated_keys and not any(line.startswith(f"{key}=") for line in lines):
-                    updated.append(f"{key}={value}")
-
-            payload = "\n".join(updated)
-            if payload and not payload.endswith("\n"):
-                payload += "\n"
-
-            temp_path = env_path.with_suffix(".tmp")
-            temp_path.write_text(payload, encoding="utf-8")
-            temp_path.replace(env_path)
-            return True
-        except Exception as exc:
-            print(f"Failed to update env file {env_path}: {exc}")
-            return False
+def _bootstrap_auth_tokens(conn: PgConnection):
+    """Seed Supabase auth tokens from env only when rows are missing."""
+    bootstrap = {
+        "media": BOOTSTRAP_MEDIA_TOKEN,
+        "admin": BOOTSTRAP_ADMIN_TOKEN,
+    }
+    for kind, token in bootstrap.items():
+        existing = conn.execute(
+            f"SELECT 1 FROM {_auth_table_name()} WHERE kind = ?",
+            (kind,),
+        ).fetchone()
+        if existing:
+            continue
+        if not token:
+            raise RuntimeError(f"{kind.upper()} token is missing from Supabase and no bootstrap env token was provided")
+        conn.execute(
+            f"""
+            INSERT INTO {_auth_table_name()} (kind, token_hash)
+            VALUES (?, ?)
+            ON CONFLICT (kind) DO NOTHING
+            """,
+            (kind, _token_hash(token)),
+        )
+    conn.commit()
 
 
-def _rotate_token(kind: str) -> tuple[str, str, bool]:
-    """
-    Rotate and persist a token.
+def _get_token_hash(kind: str) -> str | None:
+    conn = get_db()
+    try:
+        row = conn.execute(
+            f"SELECT token_hash FROM {_auth_table_name()} WHERE kind = ?",
+            (kind,),
+        ).fetchone()
+        return row["token_hash"] if row else None
+    finally:
+        conn.close()
 
-    Returns (old_token, new_token, persisted).
-    """
-    old_token = TOKEN if kind == "media" else ADMIN_TOKEN
+
+def _verify_stored_token(kind: str, token: str) -> bool:
+    stored_hash = _get_token_hash(kind)
+    if not stored_hash:
+        return False
+    return hmac.compare_digest(stored_hash, _token_hash(token))
+
+
+def _rotate_token(kind: str) -> str:
+    """Rotate a token in Supabase and return the plaintext value once."""
     new_token = _generate_token()
-    _set_runtime_token(kind, new_token)
-    persisted = _rewrite_env_file({
-        "MEDIA_TOKEN" if kind == "media" else "ADMIN_TOKEN": new_token
-    })
-    return old_token or "", new_token, persisted
+    conn = get_db()
+    try:
+        row = conn.execute(
+            f"""
+            UPDATE {_auth_table_name()}
+            SET token_hash = ?, rotated_at = now(), version = version + 1
+            WHERE kind = ?
+            RETURNING version
+            """,
+            (_token_hash(new_token), kind),
+        ).fetchone()
+        if not row:
+            conn.execute(
+                f"INSERT INTO {_auth_table_name()} (kind, token_hash) VALUES (?, ?)",
+                (kind, _token_hash(new_token)),
+            )
+        conn.commit()
+        return new_token
+    finally:
+        conn.close()
 
 # Audio MIME types
 AUDIO_MIME = {
@@ -277,13 +281,13 @@ class UploadResponse(BaseModel):
 
 def init_db():
     """Verify the Supabase/Postgres metadata store is reachable."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
     if not SUPABASE_DATABASE_URL:
         raise RuntimeError("SUPABASE_DATABASE_URL must be set")
 
     conn = get_db()
     conn.execute(f"SELECT 1 FROM {SUPABASE_SCHEMA_IDENT}.files LIMIT 1").fetchone()
+    conn.execute(f"SELECT 1 FROM {_auth_table_name()} LIMIT 1").fetchone()
+    _bootstrap_auth_tokens(conn)
     conn.close()
 
 
@@ -523,10 +527,6 @@ def normalize_title(title: Optional[str]) -> str:
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     init_db()
-    if not TOKEN:
-        raise RuntimeError("MEDIA_TOKEN environment variable not set")
-    if not ADMIN_TOKEN:
-        raise RuntimeError("ADMIN_TOKEN environment variable not set")
     ensure_storage_backend_ready()
     yield
 
@@ -541,17 +541,22 @@ app = FastAPI(
 
 
 def verify_token(token: str):
-    """Verify the provided token matches expected MEDIA_TOKEN."""
-    if token != TOKEN:
+    """Verify the provided token matches the Supabase-backed media token."""
+    if not _verify_stored_token("media", token):
         raise HTTPException(401, "Invalid token")
 
 
 def verify_admin_token(admin_token: str):
-    """Verify the provided token matches expected ADMIN_TOKEN."""
-    if not ADMIN_TOKEN:
-        raise HTTPException(500, "ADMIN_TOKEN not configured on server")
-    if admin_token != ADMIN_TOKEN:
+    """Verify the provided token matches the Supabase-backed admin token."""
+    if not _verify_stored_token("admin", admin_token):
         raise HTTPException(401, "Invalid admin token")
+
+
+def get_current_plaintext_media_token() -> str | None:
+    """Return the bootstrap media token only while it still matches Supabase."""
+    if BOOTSTRAP_MEDIA_TOKEN and _verify_stored_token("media", BOOTSTRAP_MEDIA_TOKEN):
+        return BOOTSTRAP_MEDIA_TOKEN
+    return None
 
 
 # API Endpoints
@@ -1063,31 +1068,33 @@ def serve_spa(token: str, project: str, path: str = ""):
 @app.post("/admin/{admin_token}/api/refresh-admin-token")
 def refresh_admin_token(admin_token: str):
     """
-    Rotate the admin token and persist the new value into DATA_DIR/.env.
+    Rotate the admin token in Supabase and return the plaintext token once.
     """
     verify_admin_token(admin_token)
 
-    _, new_admin_token, persisted = _rotate_token("admin")
+    new_admin_token = _rotate_token("admin")
     return {
         "admin_token": new_admin_token,
-        "media_token": TOKEN,
+        "media_token": get_current_plaintext_media_token(),
         "admin_url": f"/admin/{new_admin_token}/",
-        "persisted": persisted
+        "persisted": True,
+        "persistence": "supabase"
     }
 
 
 @app.post("/admin/{admin_token}/api/refresh-media-token")
 def refresh_media_token(admin_token: str):
     """
-    Rotate the media/project token and persist the new value into DATA_DIR/.env.
+    Rotate the media/project token in Supabase and return the plaintext token once.
     """
     verify_admin_token(admin_token)
 
-    _, new_media_token, persisted = _rotate_token("media")
+    new_media_token = _rotate_token("media")
     return {
-        "admin_token": ADMIN_TOKEN,
+        "admin_token": admin_token,
         "media_token": new_media_token,
-        "persisted": persisted
+        "persisted": True,
+        "persistence": "supabase"
     }
 
 
@@ -1141,7 +1148,7 @@ def list_admin_projects(admin_token: str):
         })
     
     return {
-        "media_token": TOKEN,  # Include media token so admin UI can construct project URLs
+        "media_token": get_current_plaintext_media_token(),
         "projects": projects
     }
 

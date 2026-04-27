@@ -174,9 +174,8 @@ python3 scripts/test-api.py
 
 ## Environment Variables
 
-- `MEDIA_TOKEN` - Project authentication token (auto-generated on first run)
-- `ADMIN_TOKEN` - Admin dashboard authentication token (auto-generated on first run)
-- `DATA_DIR` - Runtime config directory (default: `/var/lib/media-manager`)
+- `MEDIA_TOKEN` - Optional one-time bootstrap project token; active token hashes live in Supabase
+- `ADMIN_TOKEN` - Optional one-time bootstrap admin token; active token hashes live in Supabase
 - `SUPABASE_DATABASE_URL` - Supabase/Postgres connection string for `media_manager.files`
 - `SUPABASE_DB_SCHEMA` - Postgres schema name (default: `media_manager`)
 - `S3_ENDPOINT_URL` - S3-compatible endpoint URL
@@ -185,14 +184,14 @@ python3 scripts/test-api.py
 - `S3_SECRET_KEY` - S3 secret key
 - `S3_REGION` - S3 region
 
-**Required for startup:** Tokens, Supabase connection string, and S3 credentials must be set.
+**Required for startup:** Supabase connection string and S3 credentials must be set. Env tokens are only needed to bootstrap missing Supabase token rows.
 
 **Token rotation (admin dashboard):**
 - Call `/admin/<admin_token>/api/refresh-token` to rotate the admin token.
 - Call `/admin/<admin_token>/api/refresh-media-token` to rotate the media/project token.
 - Project URLs returned by the dashboard now target `/audio#admin` and `/videos#admin` so they open with admin controls.
 - Rotating either token invalidates the previous value immediately.
-- `MEDIA_TOKEN` and `ADMIN_TOKEN` are also written back to `DATA_DIR/.env` for persistence across restarts.
+- Tokens are stored in Supabase as hashes only. A rotated token is returned once and cannot be recovered later from Supabase.
 
 ## Tag-Based Workflow
 

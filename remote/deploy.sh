@@ -465,7 +465,7 @@ MEDIA_TOKEN=$(ssh "$SERVER" "cat $REMOTE_DIR/.env 2>/dev/null | grep MEDIA_TOKEN
 ADMIN_TOKEN=$(ssh "$SERVER" "cat $REMOTE_DIR/.env 2>/dev/null | grep ADMIN_TOKEN | cut -d= -f2" || echo "")
 
 if [ -n "$MEDIA_TOKEN" ]; then
-    echo "Your MEDIA_TOKEN:"
+    echo "Your bootstrap/current MEDIA_TOKEN (valid until rotated in Supabase):"
     echo "  $MEDIA_TOKEN"
     echo ""
     echo "Project URLs:"
@@ -478,7 +478,7 @@ else
 fi
 
 if [ -n "$ADMIN_TOKEN" ]; then
-    echo "Your ADMIN_TOKEN:"
+    echo "Your bootstrap/current ADMIN_TOKEN (valid until rotated in Supabase):"
     echo "  $ADMIN_TOKEN"
     echo ""
     echo "Admin Dashboard:"
