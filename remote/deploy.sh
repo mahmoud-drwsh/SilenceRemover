@@ -214,13 +214,6 @@ chmod 600 "$ENV_UPDATE_FILE"
 
 ssh "$SERVER" "cat '$REMOTE_DIR/.env' 2>/dev/null || true" > "$ENV_SNAPSHOT"
 
-if [ -z "$(env_get MEDIA_TOKEN)" ]; then
-    env_set_local MEDIA_TOKEN "$(generate_token)"
-fi
-if [ -z "$(env_get ADMIN_TOKEN)" ]; then
-    env_set_local ADMIN_TOKEN "$(generate_token)"
-fi
-
 echo ""
 echo "Configuring remote service environment..."
 if [ "$NON_INTERACTIVE" = true ] || [ ! -t 0 ]; then
@@ -228,9 +221,6 @@ if [ "$NON_INTERACTIVE" = true ] || [ ! -t 0 ]; then
 else
     echo "  Existing values are kept by default. Secrets are masked in prompts."
 fi
-
-env_set_local STORAGE_BACKEND "s3"
-env_set_local DATABASE_BACKEND "supabase"
 
 prompt_env_value S3_ENDPOINT_URL "S3 endpoint URL" "https://eu2.contabostorage.com"
 prompt_env_value S3_BUCKET "S3 bucket name" "media-manager"
@@ -316,21 +306,6 @@ ssh "$SERVER" "
     if [ ! -d 'venv' ]; then
         echo 'Creating virtual environment...'
         python3 -m venv venv
-    fi
-
-    if [ ! -f '.env' ]; then
-        echo 'Creating .env with generated tokens...'
-        MEDIA_TOKEN=\$(python3 -c 'import secrets; print(secrets.token_hex(16))' 2>/dev/null || head /dev/urandom | tr -dc a-z0-9 | head -c 32)
-        ADMIN_TOKEN=\$(python3 -c 'import secrets; print(secrets.token_hex(16))' 2>/dev/null || head /dev/urandom | tr -dc a-z0-9 | head -c 32)
-        echo 'MEDIA_TOKEN='\$MEDIA_TOKEN > .env
-        echo 'ADMIN_TOKEN='\$ADMIN_TOKEN >> .env
-        echo 'Generated MEDIA_TOKEN: '\$MEDIA_TOKEN
-        echo 'Generated ADMIN_TOKEN: '\$ADMIN_TOKEN
-    elif ! grep -q '^ADMIN_TOKEN=' .env; then
-        echo 'Adding ADMIN_TOKEN to existing .env...'
-        ADMIN_TOKEN=\$(python3 -c 'import secrets; print(secrets.token_hex(16))' 2>/dev/null || head /dev/urandom | tr -dc a-z0-9 | head -c 32)
-        echo 'ADMIN_TOKEN='\$ADMIN_TOKEN >> .env
-        echo 'Generated ADMIN_TOKEN: '\$ADMIN_TOKEN
     fi
 
     echo 'Installing/updating dependencies...'
@@ -460,31 +435,11 @@ echo "SAFETY REMINDER: No files were deleted on the remote server."
 echo "If you need to clean up old files, do it manually via SSH."
 echo ""
 
-# Get and display the tokens
-MEDIA_TOKEN=$(ssh "$SERVER" "cat $REMOTE_DIR/.env 2>/dev/null | grep MEDIA_TOKEN | cut -d= -f2" || echo "")
-ADMIN_TOKEN=$(ssh "$SERVER" "cat $REMOTE_DIR/.env 2>/dev/null | grep ADMIN_TOKEN | cut -d= -f2" || echo "")
-
-if [ -n "$MEDIA_TOKEN" ]; then
-    echo "Your bootstrap/current MEDIA_TOKEN (valid until rotated in Supabase):"
-    echo "  $MEDIA_TOKEN"
-    echo ""
-    echo "Project URLs:"
-    echo "  https://$DEPLOY_HOST/projects/$MEDIA_TOKEN/<project>/"
-    echo "  https://$DEPLOY_HOST/projects/$MEDIA_TOKEN/test-project/"
-    echo ""
-else
-    echo "MEDIA_TOKEN not yet generated. First run may be initializing."
-    echo "Check with: ssh $SERVER 'cat $REMOTE_DIR/.env'"
-fi
-
-if [ -n "$ADMIN_TOKEN" ]; then
-    echo "Your bootstrap/current ADMIN_TOKEN (valid until rotated in Supabase):"
-    echo "  $ADMIN_TOKEN"
-    echo ""
-    echo "Admin Dashboard:"
-    echo "  https://$DEPLOY_HOST/admin/$ADMIN_TOKEN/"
-    echo ""
-fi
+echo "Admin Dashboard:"
+echo "  https://$DEPLOY_HOST/admin/<admin-token>/"
+echo ""
+echo "Use the current admin token from Supabase auth_tokens, then rotate it from the dashboard."
+echo ""
 
 echo "Service status:"
 echo "  ssh $SERVER 'systemctl status media-manager'"

@@ -4,8 +4,6 @@ Media Manager Backend
 FastAPI service for audio/video file management with tag-based organization.
 
 Environment variables:
-    MEDIA_TOKEN - Optional one-time bootstrap token for projects
-    ADMIN_TOKEN - Optional one-time bootstrap token for admin dashboard
     SUPABASE_DATABASE_URL - Postgres connection string for metadata (required)
     S3_ENDPOINT_URL / S3_BUCKET / S3_ACCESS_KEY / S3_SECRET_KEY / S3_REGION - S3-compatible storage (required)
 """
@@ -17,6 +15,7 @@ import hashlib
 import hmac
 import tempfile
 import magic
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,8 +29,6 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel
 
 # Config
-BOOTSTRAP_MEDIA_TOKEN = os.environ.get('MEDIA_TOKEN')
-BOOTSTRAP_ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN')
 SUPABASE_DATABASE_URL = os.environ.get('SUPABASE_DATABASE_URL')
 SUPABASE_DB_SCHEMA = os.environ.get('SUPABASE_DB_SCHEMA', 'media_manager')
 S3_ENDPOINT_URL = os.environ.get('S3_ENDPOINT_URL')
@@ -40,6 +37,27 @@ S3_ACCESS_KEY = os.environ.get('S3_ACCESS_KEY')
 S3_SECRET_KEY = os.environ.get('S3_SECRET_KEY')
 S3_REGION = os.environ.get('S3_REGION', 'eu2')
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
+MEDIA_TOKEN_VAULT_NAME = "media-manager-media-token"
+LOGIN_RATE_LIMIT_WINDOW_SEC = 15 * 60
+LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 8
+SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'; "
+        "connect-src 'self'; "
+        "img-src 'self' data: blob:; "
+        "media-src 'self' blob:; "
+        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'"
+    ),
+}
+_login_attempts: dict[str, list[float]] = {}
 
 
 def quote_ident(identifier: str) -> str:
@@ -137,6 +155,11 @@ def _generate_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def _generate_admin_token() -> str:
+    """Generate a high-entropy URL-safe admin token."""
+    return "mm_admin_" + secrets.token_urlsafe(48)
+
+
 def _token_hash(token: str) -> str:
     """Return the database-safe hash for a token without storing plaintext."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -144,37 +167,6 @@ def _token_hash(token: str) -> str:
 
 def _auth_table_name() -> str:
     return f"{SUPABASE_SCHEMA_IDENT}.auth_tokens"
-
-
-def _bootstrap_auth_tokens(conn: PgConnection):
-    """Seed Supabase auth tokens from env only when the table is empty."""
-    bootstrap = {
-        "media": BOOTSTRAP_MEDIA_TOKEN,
-        "admin": BOOTSTRAP_ADMIN_TOKEN,
-    }
-    rows = conn.execute(
-        f"SELECT kind FROM {_auth_table_name()} ORDER BY kind"
-    ).fetchall()
-    if rows:
-        existing_kinds = {row["kind"] for row in rows}
-        missing_kinds = set(bootstrap) - existing_kinds
-        if missing_kinds:
-            missing = ", ".join(sorted(missing_kinds))
-            raise RuntimeError(f"Supabase auth token rows are incomplete; missing: {missing}")
-        return
-
-    for kind, token in bootstrap.items():
-        if not token:
-            raise RuntimeError(f"{kind.upper()} token is missing from Supabase and no bootstrap env token was provided")
-        conn.execute(
-            f"""
-            INSERT INTO {_auth_table_name()} (kind, token_hash)
-            VALUES (?, ?)
-            ON CONFLICT (kind) DO NOTHING
-            """,
-            (kind, _token_hash(token)),
-        )
-    conn.commit()
 
 
 def _get_token_hash(kind: str) -> str | None:
@@ -196,27 +188,169 @@ def _verify_stored_token(kind: str, token: str) -> bool:
     return hmac.compare_digest(stored_hash, _token_hash(token))
 
 
-def _rotate_token(kind: str) -> str:
-    """Rotate a token in Supabase and return the plaintext value once."""
-    new_token = _generate_token()
+def _set_token_hash(kind: str, token: str):
+    conn = get_db()
+    try:
+        conn.execute(
+            f"""
+            INSERT INTO {_auth_table_name()} (kind, token_hash)
+            VALUES (?, ?)
+            ON CONFLICT (kind) DO UPDATE
+            SET token_hash = EXCLUDED.token_hash,
+                rotated_at = now(),
+                version = {_auth_table_name()}.version + 1
+            """,
+            (kind, _token_hash(token)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _rotate_admin_token() -> str:
+    new_token = _generate_admin_token()
+    _set_token_hash("admin", new_token)
+    return new_token
+
+
+def _get_media_token_plaintext() -> str | None:
+    """Return the recoverable media token from Supabase Vault for admin links."""
     conn = get_db()
     try:
         row = conn.execute(
             f"""
-            UPDATE {_auth_table_name()}
-            SET token_hash = ?, rotated_at = now(), version = version + 1
-            WHERE kind = ?
-            RETURNING version
+            SELECT ds.decrypted_secret
+            FROM {_auth_table_name()} t
+            JOIN vault.decrypted_secrets ds ON ds.id = t.vault_secret_id
+            WHERE t.kind = 'media'
             """,
-            (_token_hash(new_token), kind),
         ).fetchone()
-        if not row:
+        return row["decrypted_secret"] if row else None
+    finally:
+        conn.close()
+
+
+def _set_media_token(token: str):
+    """Store media token hash for access checks and plaintext in Supabase Vault."""
+    normalized = token.strip()
+    if not normalized:
+        raise HTTPException(400, "Project token cannot be empty")
+
+    conn = get_db()
+    try:
+        row = conn.execute(
+            f"SELECT vault_secret_id FROM {_auth_table_name()} WHERE kind = 'media'"
+        ).fetchone()
+        vault_secret_id = row["vault_secret_id"] if row and row.get("vault_secret_id") else None
+
+        if not vault_secret_id:
+            existing_secret = conn.execute(
+                "SELECT id FROM vault.decrypted_secrets WHERE name = ?",
+                (MEDIA_TOKEN_VAULT_NAME,),
+            ).fetchone()
+            vault_secret_id = existing_secret["id"] if existing_secret else None
+
+        if vault_secret_id:
             conn.execute(
-                f"INSERT INTO {_auth_table_name()} (kind, token_hash) VALUES (?, ?)",
-                (kind, _token_hash(new_token)),
+                "SELECT vault.update_secret(?::uuid, ?, ?, ?)",
+                (
+                    vault_secret_id,
+                    normalized,
+                    MEDIA_TOKEN_VAULT_NAME,
+                    "Media Manager project URL token",
+                ),
             )
+        else:
+            created = conn.execute(
+                "SELECT vault.create_secret(?, ?, ?) AS id",
+                (
+                    normalized,
+                    MEDIA_TOKEN_VAULT_NAME,
+                    "Media Manager project URL token",
+                ),
+            ).fetchone()
+            vault_secret_id = created["id"]
+
+        conn.execute(
+            f"""
+            INSERT INTO {_auth_table_name()} (kind, token_hash, vault_secret_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT (kind) DO UPDATE
+            SET token_hash = EXCLUDED.token_hash,
+                vault_secret_id = EXCLUDED.vault_secret_id,
+                rotated_at = now(),
+                version = {_auth_table_name()}.version + 1
+            """,
+            ("media", _token_hash(normalized), vault_secret_id),
+        )
         conn.commit()
-        return new_token
+        return vault_secret_id
+    finally:
+        conn.close()
+
+
+def _client_ip(request: Request) -> str:
+    """Return the direct peer IP only; forwarded headers are proxy-controlled config."""
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_limit_key(request: Request, email: str) -> str:
+    return f"{_client_ip(request)}:{email.strip().lower()}"
+
+
+def _check_login_rate_limit(request: Request, email: str):
+    key = _rate_limit_key(request, email)
+    now = time.monotonic()
+    cutoff = now - LOGIN_RATE_LIMIT_WINDOW_SEC
+    recent = [stamp for stamp in _login_attempts.get(key, []) if stamp >= cutoff]
+    if len(recent) >= LOGIN_RATE_LIMIT_MAX_ATTEMPTS:
+        retry_after = max(1, int(LOGIN_RATE_LIMIT_WINDOW_SEC - (now - recent[0])))
+        raise HTTPException(
+            status_code=429,
+            detail="Too many admin login attempts. Try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    _login_attempts[key] = recent
+
+
+def _record_failed_login(request: Request, email: str):
+    key = _rate_limit_key(request, email)
+    now = time.monotonic()
+    cutoff = now - LOGIN_RATE_LIMIT_WINDOW_SEC
+    recent = [stamp for stamp in _login_attempts.get(key, []) if stamp >= cutoff]
+    recent.append(now)
+    _login_attempts[key] = recent
+
+
+def _clear_login_rate_limit(request: Request, email: str):
+    _login_attempts.pop(_rate_limit_key(request, email), None)
+
+
+def _audit_admin_event(
+    email: str,
+    action: str,
+    request: Request,
+    details: dict[str, Any] | None = None,
+):
+    conn = get_db()
+    try:
+        conn.execute(
+            f"""
+            INSERT INTO {SUPABASE_SCHEMA_IDENT}.admin_audit_log
+                (email, action, ip_address, user_agent, details)
+            VALUES (?, ?, ?, ?, ?::jsonb)
+            """,
+            (
+                email,
+                action,
+                _client_ip(request),
+                request.headers.get("user-agent", ""),
+                json.dumps(details or {}),
+            ),
+        )
+        conn.commit()
+    except Exception as exc:
+        print(f"[ADMIN AUDIT WARNING] Failed to write audit event {action!r}: {exc}")
     finally:
         conn.close()
 
@@ -284,6 +418,10 @@ class UploadResponse(BaseModel):
     overwritten: bool = False
 
 
+class SetMediaTokenRequest(BaseModel):
+    token: str
+
+
 def init_db():
     """Verify the Supabase/Postgres metadata store is reachable."""
     if not SUPABASE_DATABASE_URL:
@@ -292,7 +430,7 @@ def init_db():
     conn = get_db()
     conn.execute(f"SELECT 1 FROM {SUPABASE_SCHEMA_IDENT}.files LIMIT 1").fetchone()
     conn.execute(f"SELECT 1 FROM {_auth_table_name()} LIMIT 1").fetchone()
-    _bootstrap_auth_tokens(conn)
+    conn.execute(f"SELECT 1 FROM {SUPABASE_SCHEMA_IDENT}.admin_audit_log LIMIT 1").fetchone()
     conn.close()
 
 
@@ -545,23 +683,36 @@ app = FastAPI(
 )
 
 
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
 def verify_token(token: str):
     """Verify the provided token matches the Supabase-backed media token."""
     if not _verify_stored_token("media", token):
         raise HTTPException(401, "Invalid token")
 
 
-def verify_admin_token(admin_token: str):
-    """Verify the provided token matches the Supabase-backed admin token."""
-    if not _verify_stored_token("admin", admin_token):
-        raise HTTPException(401, "Invalid admin token")
-
-
 def get_current_plaintext_media_token() -> str | None:
-    """Return the bootstrap media token only while it still matches Supabase."""
-    if BOOTSTRAP_MEDIA_TOKEN and _verify_stored_token("media", BOOTSTRAP_MEDIA_TOKEN):
-        return BOOTSTRAP_MEDIA_TOKEN
-    return None
+    """Return the recoverable media token for authenticated admin links."""
+    return _get_media_token_plaintext()
+
+
+def verify_admin_token(admin_token: str, request: Request | None = None):
+    """Verify admin token and rate-limit invalid attempts by peer IP."""
+    if request is not None:
+        _check_login_rate_limit(request, "admin-token")
+    if _verify_stored_token("admin", admin_token):
+        if request is not None:
+            _clear_login_rate_limit(request, "admin-token")
+        return
+    if request is not None:
+        _record_failed_login(request, "admin-token")
+    raise HTTPException(401, "Invalid admin token")
 
 
 # API Endpoints
@@ -1053,7 +1204,7 @@ def serve_static(token: str, project: str, filepath: str):
         raise HTTPException(404, "File not found")
     return FileResponse(static_file)
 
-# API endpoints start with /projects/ or /admin/
+# API endpoints start with /projects/ or /admin/{admin_token}/.
 # Everything else serves the SPA (for client-side routing)
 @app.get("/projects/{token}/{project}/")
 @app.get("/projects/{token}/{project}/{path:path}")
@@ -1069,42 +1220,45 @@ def serve_spa(token: str, project: str, path: str = ""):
 
 
 # Admin Dashboard Endpoints
-@app.post("/admin/{admin_token}/api/refresh-token")
 @app.post("/admin/{admin_token}/api/refresh-admin-token")
-def refresh_admin_token(admin_token: str):
-    """
-    Rotate the admin token in Supabase and return the plaintext token once.
-    """
-    verify_admin_token(admin_token)
-
-    new_admin_token = _rotate_token("admin")
+def refresh_admin_token(admin_token: str, request: Request):
+    verify_admin_token(admin_token, request)
+    new_admin_token = _rotate_admin_token()
+    _audit_admin_event("token-admin", "refresh_admin_token", request)
     return {
+        "ok": True,
         "admin_token": new_admin_token,
-        "media_token": get_current_plaintext_media_token(),
         "admin_url": f"/admin/{new_admin_token}/",
         "persisted": True,
         "persistence": "supabase"
     }
 
 
-@app.post("/admin/{admin_token}/api/refresh-media-token")
-def refresh_media_token(admin_token: str):
-    """
-    Rotate the media/project token in Supabase and return the plaintext token once.
-    """
-    verify_admin_token(admin_token)
+@app.post("/admin/{admin_token}/api/refresh-token")
+def refresh_admin_token_legacy(admin_token: str, request: Request):
+    return refresh_admin_token(admin_token, request)
 
-    new_media_token = _rotate_token("media")
+
+@app.post("/admin/{admin_token}/api/media-token")
+def set_media_token(admin_token: str, payload: SetMediaTokenRequest, request: Request):
+    verify_admin_token(admin_token, request)
+    _set_media_token(payload.token)
+    _audit_admin_event(
+        "token-admin",
+        "set_media_token",
+        request,
+        {"token_length": len(payload.token.strip())},
+    )
     return {
-        "admin_token": admin_token,
-        "media_token": new_media_token,
+        "ok": True,
+        "media_token": payload.token.strip(),
         "persisted": True,
-        "persistence": "supabase"
+        "persistence": "supabase-vault"
     }
 
 
 @app.get("/admin/{admin_token}/api/projects")
-def list_admin_projects(admin_token: str):
+def list_admin_projects(admin_token: str, request: Request):
     """
     Admin endpoint: List all projects with aggregated stats.
     
@@ -1114,7 +1268,7 @@ def list_admin_projects(admin_token: str):
     - Total storage bytes
     - Last updated timestamp
     """
-    verify_admin_token(admin_token)
+    verify_admin_token(admin_token, request)
     
     conn = get_db()
     
@@ -1159,14 +1313,14 @@ def list_admin_projects(admin_token: str):
 
 
 @app.get("/admin/{admin_token}/api/projects/s3-storage")
-def list_admin_project_s3_storage(admin_token: str):
+def list_admin_project_s3_storage(admin_token: str, request: Request):
     """
     Admin endpoint: List exact S3 object-byte totals by project.
 
     This is separate from the main project list so the dashboard can render
     immediately from database metadata, then fill in S3 totals.
     """
-    verify_admin_token(admin_token)
+    verify_admin_token(admin_token, request)
     totals = storage_project_size_totals()
     return {
         "projects": [
@@ -1188,20 +1342,20 @@ def list_admin_project_s3_storage(admin_token: str):
     "/admin/{admin_token}/files/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 )
-def removed_admin_file_browser(admin_token: str, path: Optional[str] = None):
+def removed_admin_file_browser(admin_token: str, request: Request, path: Optional[str] = None):
     """Return a clear 404 for the removed admin File Browser route."""
-    verify_admin_token(admin_token)
+    verify_admin_token(admin_token, request)
     raise HTTPException(404, "Admin File Browser has been removed")
 
 
 @app.get("/admin/{admin_token}/")
 @app.get("/admin/{admin_token}/{path:path}")
-def serve_admin(admin_token: str, path: str = ""):
+def serve_admin(admin_token: str, request: Request, path: str = ""):
     """
     Serve the admin dashboard SPA.
     All admin routes lead to the same HTML (client-side routing).
     """
-    verify_admin_token(admin_token)
+    verify_admin_token(admin_token, request)
     admin_path = Path(__file__).parent / 'static' / 'admin.html'
     return FileResponse(admin_path)
 

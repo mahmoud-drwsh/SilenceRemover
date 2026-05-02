@@ -22,7 +22,7 @@ A secure FastAPI application for audio and video file management with tag-based 
 ./scripts/local.sh
 ```
 
-**Project Access:** `http://localhost:8080/projects/$MEDIA_TOKEN/test-project/`
+**Project Access:** `http://localhost:8080/projects/$PROJECT_TOKEN/test-project/`
 
 **Admin Dashboard:** `http://localhost:8080/admin/$ADMIN_TOKEN/`
 
@@ -92,9 +92,9 @@ curl "https://your-domain.com/projects/$TOKEN/ihya/api/files?type=audio&check_id
 | `/projects/<token>/<project>/api/files/<id>?type=audio\|video` | DELETE | Delete file permanently (**type required**) |
 | `/projects/<token>/<project>/stream/<id>?type=audio\|video` | GET | Stream file (**type required**) |
 | `/admin/<admin_token>/api/projects` | GET | Admin: List all projects with stats |
-| `/admin/<admin_token>/api/refresh-token` | POST | Rotate admin token (project token preserved) |
-| `/admin/<admin_token>/api/refresh-admin-token` | POST | Rotate admin token (legacy alias) |
-| `/admin/<admin_token>/api/refresh-media-token` | POST | Rotate global project token (`MEDIA_TOKEN`) |
+| `/admin/<admin_token>/api/refresh-admin-token` | POST | Rotate admin token |
+| `/admin/<admin_token>/api/refresh-token` | POST | Rotate admin token (legacy alias) |
+| `/admin/<admin_token>/api/media-token` | POST | Set global project token from plaintext |
 | `/admin/<admin_token>/` | GET | Admin dashboard SPA |
 
 ## Production Setup
@@ -174,8 +174,6 @@ python3 scripts/test-api.py
 
 ## Environment Variables
 
-- `MEDIA_TOKEN` - Optional one-time bootstrap project token; active token hashes live in Supabase
-- `ADMIN_TOKEN` - Optional one-time bootstrap admin token; active token hashes live in Supabase
 - `SUPABASE_DATABASE_URL` - Supabase/Postgres connection string for `media_manager.files`
 - `SUPABASE_DB_SCHEMA` - Postgres schema name (default: `media_manager`)
 - `S3_ENDPOINT_URL` - S3-compatible endpoint URL
@@ -184,14 +182,18 @@ python3 scripts/test-api.py
 - `S3_SECRET_KEY` - S3 secret key
 - `S3_REGION` - S3 region
 
-**Required for startup:** Supabase connection string and S3 credentials must be set. Env tokens are only needed to bootstrap missing Supabase token rows.
+**Required for startup:** Supabase connection string and S3 credentials must be set. Runtime env tokens are not used.
 
-**Token rotation (admin dashboard):**
-- Call `/admin/<admin_token>/api/refresh-token` to rotate the admin token.
-- Call `/admin/<admin_token>/api/refresh-media-token` to rotate the media/project token.
+**Admin auth and project token management:**
+- Run `scripts/setup_supabase_admin_auth.sql` once to add audit logging, Vault support, and `auth_tokens.vault_secret_id`.
+- Generate the first admin token SQL with `python scripts/generate_admin_token_sql.py`, then apply the printed SQL in Supabase.
+- Admin tokens are opaque URL tokens generated as `mm_admin_` plus 48 bytes of URL-safe randomness.
+- Admin token hashes are stored in `media_manager.auth_tokens`; plaintext admin tokens are returned only when generated or refreshed.
+- Admins open `/admin/<admin_token>/` and can manually refresh the admin token from the dashboard.
+- Admin events such as admin-token refresh and project-token replacement are written to `media_manager.admin_audit_log`.
+- Admins set the project/media token from the dashboard. The backend stores its hash in `media_manager.auth_tokens` and recoverable plaintext in Supabase Vault.
 - Project URLs returned by the dashboard now target `/audio#admin` and `/videos#admin` so they open with admin controls.
-- Rotating either token invalidates the previous value immediately.
-- Tokens are stored in Supabase as hashes only. A rotated token is returned once and cannot be recovered later from Supabase.
+- Replacing the project token invalidates the previous project URL token immediately.
 
 ## Tag-Based Workflow
 
@@ -245,8 +247,7 @@ curl "https://your-domain.com/projects/$TOKEN/ihya/api/files?type=audio&tags=rea
 # List all files
 curl "https://your-domain.com/projects/$TOKEN/ihya/api/files"
 
-# Admin: List all projects with stats
-curl "https://your-domain.com/admin/$ADMIN_TOKEN/api/projects"
+# Admin: open /admin/$ADMIN_TOKEN/ in a browser and use the dashboard
 ```
 
 ## SilenceRemover Integration

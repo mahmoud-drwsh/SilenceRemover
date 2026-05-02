@@ -33,6 +33,8 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/trim.py`: Modified `trim_single_video()` to accept `encoder: str` parameter (default `"libx265"`) instead of `VideoEncoderProfile | None`. Added import for `get_encoder_config`. Updated encoder resolution logic to use `.codec` attribute when falling back to `resolve_video_encoder()`. Updated all `command_label` references to use the string encoder directly.
 
 ## Latest session edits
+- `remote/app.py` / `remote/static/admin.html` / `remote/scripts/setup_supabase_admin_auth.sql`: Replaced admin URL-token auth with Supabase Auth login + HttpOnly cookie sessions; admin dashboard now lets signed-in admins set the project token, storing its hash in `auth_tokens` and recoverable plaintext in Supabase Vault.
+- `remote/README.md` / `remote/deploy.sh`: Removed runtime `ADMIN_TOKEN` / `MEDIA_TOKEN` bootstrap guidance and documented Supabase Auth + Vault-driven project token management.
 - `remote/app.py`: Tightened Supabase token bootstrap so env tokens seed only an empty `auth_tokens` table; partial token rows now fail startup instead of silently resurrecting an old env token.
 - `remote/app.py` / `remote/static/admin.html`: Moved Media Manager token validation and rotation to Supabase-backed hash-only token state; env tokens are now one-time bootstrap values and admin UI preserves the media token locally after it is returned once.
 - `remote/media-manager.service` / `remote/README.md` / `remote/deploy.sh`: Removed the service `DATA_DIR` dependency and updated token rotation/deploy wording for Supabase hash-only token persistence.
@@ -284,3 +286,5 @@ After code or config changes, agents append short notes here. When this file gro
 - `remote/app.py`: Added `/admin/{admin_token}/api/projects/s3-storage`, which directly lists S3 `audio/` and `video/` prefixes and returns exact per-project object-byte totals plus an overall S3 total.
 - `remote/static/admin.html`: Admin dashboard now renders DB-backed storage immediately, then loads S3 storage totals in the background and displays both DB and S3 size fields.
 - `remote/deploy.sh`: Caddy deploy now prefers the tracked `remote/Caddyfile` template when deploying from repo root, substitutes `--caddy-domain` only at deploy time, and keeps the app directory copy placeholder-based while `/etc/caddy/Caddyfile` receives the generated runtime config.
+- `remote/app.py` / `remote/static/admin.html` / `remote/scripts/setup_supabase_admin_auth.sql`: Reverted the in-progress password/session admin auth back to simpler hash-only admin URL tokens under `/admin/{admin_token}/`, with stronger `mm_admin_` token generation and admin-token refresh.
+- `remote/scripts/generate_admin_token_sql.py` / `remote/README.md` / `remote/deploy.sh`: Added first-admin-token SQL generation docs and restored deploy/admin documentation around single-segment token URLs while leaving project/media token routes unchanged.
