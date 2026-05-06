@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Media Manager</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a1a; color: #fff; display: flex; flex-direction: column; }
+
+        /* Header at top */
+        header { background: #2a2a2a; padding: 1rem; border-bottom: 1px solid #333; display: flex; gap: 1rem; align-items: center; flex-shrink: 0; }
+        header h1 { font-size: 1.2rem; flex: 1; }
+        .section-tabs { display: flex; gap: 0.5rem; }
+        .section-tabs button { padding: 0.5rem 1rem; border: none; background: #333; color: #fff; border-radius: 4px; cursor: pointer; }
+        .section-tabs button.active { background: #4a9eff; }
+        .sort-toggle { background: #333; border: none; color: #fff; padding: 0.5rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 1rem; display: flex; align-items: center; gap: 0.25rem; }
+        .sort-toggle:hover { background: #4a4a4a; }
+        .section-toggle { background: #333; border: none; color: #fff; padding: 0.5rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 1rem; display: none; align-items: center; gap: 0.25rem; margin-right: 0.5rem; }
+        .section-toggle:hover { background: #4a4a4a; }
+        .section-toggle.admin-visible { display: flex; }
+
+        /* Main content area - scrollable */
+        main { flex: 1; overflow-y: auto; padding: 1rem; max-width: 1200px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+
+        /* Mobile viewport fix */
+        @media (max-width: 480px) {
+            main { padding: 0.5rem; }
+        }
+
+        /* Bottom navigation - fixed at bottom */
+        #bottom-nav { background: #2a2a2a; border-top: 1px solid #333; padding: 0.75rem; flex-shrink: 0; }
+        .filter-tabs { display: flex; gap: 0.35rem; }
+        .filter-tabs button { flex: 1; padding: 0.6rem 0.4rem; border: none; background: #333; color: #fff; border-radius: 4px; cursor: pointer; font-size: 0.9rem; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .filter-tabs button.active { background: #4a9eff; }
+
+        /* File list */
+        .file-list { display: flex; flex-direction: column; gap: 0.5rem; padding-bottom: 0.5rem; width: 100%; }
+        .file-card { background: #2a2a2a; padding: 0.75rem; border-radius: 8px; display: flex; gap: 0.5rem; align-items: center; width: 100%; box-sizing: border-box; max-width: 100%; }
+        .file-card.audio-card { display: block; padding: 0.25rem; }
+        .file-icon { width: 48px; height: 48px; background: #3a3a3a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+        .file-info { flex: 1; min-width: 0; max-width: 100%; }
+        .file-title { font-weight: 500; margin-bottom: 0.25rem; line-height: 1.3; }
+        .file-meta { font-size: 0.85rem; color: #888; }
+        .file-tags { display: flex; gap: 0.25rem; margin-top: 0.5rem; flex-wrap: wrap; }
+        .tag { background: #4a9eff; color: #fff; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; }
+        .tag.trash { background: #ff4444; }
+        .tag.ready { background: #2d5a2d; color: #fff; }
+        .tag.todo { background: #ffaa00; }
+        .file-actions { display: flex; gap: 0.5rem; flex-shrink: 0; align-items: center; }
+        .file-actions button, .file-actions a.btn { padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; white-space: nowrap; text-align: center; text-decoration: none; }
+        .file-actions .btn-primary, .file-actions .btn-secondary { flex: none; }
+        .file-actions .btn-menu { flex-shrink: 0; padding: 0.5rem 0.75rem; min-width: 44px; }
+
+        /* Audio card - zero spacing, compact layout */
+        .audio-card { display: block; padding: 0.25rem; }
+        .audio-row { display: flex; gap: 0.25rem; align-items: center; margin: 0; padding: 0; }
+        .audio-player { flex: 1; margin: 0; padding: 0; }
+        .audio-player audio { width: 100%; height: 32px; margin: 0; padding: 0; display: block; }
+        .audio-title-edit { width: 100%; margin: 0.25rem 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
+        .audio-title-edit textarea { width: 100%; background: #1a1a1a; border: 1px solid #444; color: #fff; padding: 0.25rem; border-radius: 4px; font-family: inherit; font-size: 0.85rem; resize: none; min-height: 36px; margin: 0; display: block; line-height: 1.2; vertical-align: top; unicode-bidi: plaintext; }
+        .audio-title-edit textarea:focus { outline: none; border-color: #4a9eff; }
+        .save-status { font-size: 0.65rem; color: #888; height: auto; min-height: 0; margin: 0; padding: 0; line-height: 1; }
+        .save-status.saved { color: #44ff44; }
+        .save-status.saving { color: #ffaa00; }
+        .audio-actions { display: flex; gap: 0.25rem; margin: 0; padding: 0; min-height: 32px; }
+        .audio-actions button { flex: 1; padding: 0.4rem 0.25rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; min-width: 32px; min-height: 32px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; }
+        .btn { padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+        .btn-primary { background: #4a5568; color: #fff; }
+        .btn-secondary { background: #3a3a3a; color: #fff; }
+        .btn-secondary.btn-downloaded { background: #2d5a2d; color: #fff; opacity: 0.85; }
+        .btn-ready { background: #2d5a2d; color: #fff; }  /* Dark green for ready state */
+        .btn-todo { background: #3a3a3a; color: #fff; }   /* Dark gray for todo state */
+        .btn-danger { background: #ff4444; color: #fff; }
+        .btn-menu { background: #3a3a3a; color: #fff; font-size: 1.2rem; padding: 0.5rem 1rem; }
+        .context-menu { position: fixed; background: #2a2a2a; border: 1px solid #444; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 1000; min-width: 200px; max-width: 90vw; display: none; }
+        .context-menu.show { display: block; }
+        .context-menu-item { padding: 0.75rem 1rem; cursor: pointer; color: #fff; border-bottom: 1px solid #444; white-space: nowrap; }
+        .context-menu-item:last-child { border-bottom: none; }
+        .context-menu-item:hover { background: #3a3a3a; }
+        .context-menu-item.danger { color: #ff4444; }
+        .context-menu-item.danger:hover { background: #ff4444; color: #fff; }
+        .menu-container { position: relative; display: inline-block; }
+        /* Confirmation Modal */
+        .confirm-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 1rem; }
+        .confirm-overlay.show { display: flex; }
+        .confirm-modal { background: #2a2a2a; border-radius: 8px; max-width: 400px; width: 100%; padding: 1.5rem; text-align: center; }
+        .confirm-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; color: #fff; }
+        .confirm-message { font-size: 0.95rem; color: #aaa; margin-bottom: 1.5rem; line-height: 1.4; }
+        .confirm-actions { display: flex; gap: 0.75rem; }
+        .confirm-actions button { flex: 1; padding: 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.95rem; }
+        .confirm-cancel { background: #3a3a3a; color: #fff; }
+        .confirm-proceed { background: #ff4444; color: #fff; }
+        .confirm-proceed.secondary { background: #4a9eff; }
+
+        /* Folder Selection Modal */
+        .folder-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 1rem; }
+        .folder-overlay.show { display: flex; }
+        .folder-modal { background: #2a2a2a; border-radius: 8px; max-width: 400px; width: 100%; padding: 1.5rem; }
+        .folder-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; color: #fff; text-align: center; }
+        .folder-subtitle { font-size: 0.9rem; color: #aaa; margin-bottom: 1rem; text-align: center; }
+        .folder-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.5rem; }
+        .folder-option { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: #3a3a3a; border-radius: 6px; cursor: pointer; transition: background 0.2s; }
+        .folder-option:hover { background: #4a4a4a; }
+        .folder-option input[type="checkbox"] { width: 20px; height: 20px; accent-color: #4a9eff; cursor: pointer; }
+        .folder-option label { flex: 1; color: #fff; cursor: pointer; font-size: 0.95rem; }
+        .folder-actions { display: flex; gap: 0.75rem; }
+        .folder-actions button { flex: 1; padding: 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.95rem; }
+        .folder-cancel { background: #3a3a3a; color: #fff; }
+        .folder-save { background: #4a9eff; color: #fff; }
+
+        .empty { text-align: center; padding: 3rem; color: #666; }
+        .loading { text-align: center; padding: 2rem; color: #888; }
+        .error { text-align: center; padding: 2rem; color: #ff4444; }
+        audio { width: 200px; height: 40px; flex-shrink: 0; }
+        video { width: 200px; height: 112px; flex-shrink: 0; border-radius: 4px; }
+        .video-thumb { width: 120px; height: 68px; background: #3a3a3a; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 2rem; flex-shrink: 0; cursor: pointer; }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .file-card { flex-direction: column; align-items: stretch; }
+            .file-actions { justify-content: stretch; width: 100%; }
+            .file-actions .btn-primary, .file-actions .btn-secondary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+            audio { width: 100%; }
+        }
+    /* === MOBILE IMPROVEMENTS === */
+@media (max-width: 480px) {
+    html { font-size: 18px; }
+    body { gap: 0.5rem; }
+    header { padding: 0.75rem; gap: 0.75rem; }
+    header h1 { font-size: 1.1rem; }
+    .section-tabs button { padding: 0.6rem 0.8rem; font-size: 0.95rem; min-height: 44px; }
+    .sort-toggle { padding: 0.6rem; min-height: 44px; min-width: 44px; }
+    #bottom-nav { padding: 0.4rem; }
+    .filter-tabs button { padding: 0.55rem 0.35rem; font-size: 0.75rem; min-height: 48px; border-radius: 8px; }
+    main { padding: 0.5rem; }
+    .file-list { gap: 0.35rem; }
+    .file-card { padding: 0.5rem; gap: 0.35rem; border-radius: 8px; }
+    .file-icon { width: 56px; height: 56px; font-size: 1.75rem; }
+    .file-title { font-size: 1rem; }
+    .file-meta { font-size: 0.9rem; }
+    .tag { padding: 0.3rem 0.7rem; font-size: 0.85rem; border-radius: 6px; }
+    .file-actions button, .file-actions a.btn { padding: 0.6rem 1rem; font-size: 0.95rem; min-height: 44px; min-width: 44px; border-radius: 8px; }
+    .audio-card { padding: 0.5rem; }
+    .audio-player audio { height: 40px; }
+    .audio-title-edit textarea { font-size: 1.1rem; padding: 0.5rem; min-height: 44px; unicode-bidi: plaintext; }
+    .audio-actions button { min-height: 40px; font-size: 0.9rem; }
+    .context-menu { position: fixed; left: 50% !important; top: 50% !important; transform: translate(-50%, -50%); width: 90vw; max-width: 300px; border-radius: 12px; }
+    .context-menu-item { padding: 1rem; font-size: 1rem; }
+    .confirm-modal, .folder-modal { width: 90vw; max-width: none; margin: 1rem; padding: 1.5rem; }
+    .confirm-title, .folder-title { font-size: 1.25rem; }
+    .confirm-message { font-size: 1rem; }
+    .confirm-actions button, .folder-actions button { padding: 1rem; font-size: 1rem; min-height: 48px; }
+}
+@media (max-width: 360px) { html { font-size: 16px; } }
+@media (min-width: 481px) and (max-width: 768px) { html { font-size: 17px; } .file-card { padding: 1rem; } .filter-tabs button { min-height: 46px; } }
+</style>
+</head>
+<body>
+    <header>
+        <h1>📁 Media Manager</h1>
+        <button id="section-toggle" class="section-toggle" onclick="toggleSection()" title="Switch section">
+            <span id="section-icon">🎵</span> <span id="section-label">Audio</span>
+        </button>
+        <button id="sort-toggle" class="sort-toggle" onclick="toggleSort()" title="Toggle sort order">
+            <span id="sort-label">Oldest</span>
+        </button>
+    </header>
+
+    <main>
+        <div id="content">
+            <div class="loading">Loading...</div>
+        </div>
+    </main>
+
+    <nav id="bottom-nav">
+        <div id="filter-tabs" class="filter-tabs"></div>
+    </nav>
+
+    <!-- Confirmation Modal -->
+    <div id="confirm-overlay" class="confirm-overlay">
+        <div class="confirm-modal">
+            <div class="confirm-title" id="confirm-title">Confirm Action</div>
+            <div class="confirm-message" id="confirm-message">Are you sure?</div>
+            <div class="confirm-actions">
+                <button class="confirm-cancel" onclick="closeConfirmModal()">Cancel</button>
+                <button class="confirm-proceed" id="confirm-proceed-btn" onclick="executeConfirmedAction()">Proceed</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add to Folder Modal -->
+    <div id="folder-overlay" class="folder-overlay">
+        <div class="folder-modal">
+            <div class="folder-title" id="folder-title">Add to Folders</div>
+            <div class="folder-subtitle" id="folder-subtitle">Select folders for this video</div>
+            <div class="folder-list" id="folder-list">
+                <!-- Folders populated dynamically -->
+            </div>
+            <div class="folder-actions">
+                <button class="folder-cancel" onclick="closeFolderModal()">Cancel</button>
+                <button class="folder-save" onclick="saveFolderSelection()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Type constants for safety
+        const TYPE_AUDIO = 'audio';
+        const TYPE_VIDEO = 'video';
+
+        // Parse URL path to get token, project, section, and folder
+        // URL format: /projects/TOKEN/PROJECT/audio or /projects/TOKEN/PROJECT/videos/FB
+        const pathParts = window.location.pathname.split('/').filter(p => p);
+        // Skip 'projects' prefix: parts[0] = 'projects', parts[1] = TOKEN, parts[2] = PROJECT
+        const TOKEN = pathParts[1];
+        const PROJECT = pathParts[2] || 'test-project';
+        const API_BASE = `/projects/${TOKEN}/${PROJECT}/api`;
+
+        // Utility: Escape string for safe use in JavaScript context (onclick handlers, etc.)
+        function escapeJs(str) {
+            if (!str) return '';
+            return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+        }
+
+        // Utility: Get type constant based on current section
+        function getCurrentType() {
+            // Cross-type viewing: FB tab in audio section shows videos
+            if (currentSection === 'audio' && currentFilter === 'FB') {
+                return TYPE_VIDEO;
+            }
+            return currentSection === TYPE_AUDIO ? TYPE_AUDIO : TYPE_VIDEO;
+        }
+
+        // Parse path for section and folder
+        // Format: /projects/TOKEN/PROJECT/audio/todo or /projects/TOKEN/PROJECT/videos/FB
+        function parsePath() {
+            const path = window.location.pathname;
+            const parts = path.split('/').filter(p => p);
+            
+            // Skip 'projects' prefix: parts[1] = TOKEN, parts[2] = PROJECT
+            // parts[3] = section (audio, video, videos)
+            let section = parts[3] || 'audio';
+            
+            // Normalize video/videos to video
+            if (section === 'videos') section = 'video';
+            
+            // parts[4] = folder/filter (optional)
+            const folder = parts[4] || null;
+            
+            return { section, folder };
+        }
+
+        let currentSection = 'audio';
+        let currentFilter = 'todo';
+        let strictIsolation = false; // When specific folder in URL, hide tabs
+        let currentSort = 'asc'; // 'asc' or 'desc'
+
+        // Fixed tabs per section
+        // Audio section now includes FB tab to view uploaded videos (cross-type viewing)
+        const AUDIO_TABS = ['todo', 'FB', 'ready', 'all', 'trash'];
+        const VIDEO_TABS = ['FB', 'TT', 'all', 'trash', 'pending'];
+
+        function showSection(section, folder = null, isStrict = false) {
+            currentSection = section;
+            // Strict isolation only applies to VIDEO with specific folder (not all/trash)
+            strictIsolation = isStrict && section === 'video' && folder && !['all', 'trash'].includes(folder);
+
+            // Set filter: from folder, or default for section
+            if (folder) {
+                currentFilter = folder;
+            } else {
+                currentFilter = section === 'audio' ? 'todo' : 'all';
+            }
+
+            renderTabs();
+            loadFiles();
+        }
+
+        function updateURL(filter) {
+            if (strictIsolation) return; // Don't modify URL in strict mode
+            const sectionName = currentSection === 'video' ? 'videos' : currentSection;
+            let path = `/projects/${TOKEN}/${PROJECT}/${sectionName}`;
+            if (filter && filter !== 'all') {
+                path += `/${filter}`;
+            }
+            // Preserve hash fragment (e.g., #admin)
+            path += window.location.hash;
+            window.history.replaceState(null, '', path);
+        }
+
+        function switchToFolder(folder) {
+            const sectionName = currentSection === 'video' ? 'videos' : currentSection;
+            let path = `/projects/${TOKEN}/${PROJECT}/${sectionName}`;
+            if (folder && folder !== 'all') {
+                path += `/${folder}`;
+            }
+            // Preserve hash fragment (e.g., #admin)
+            path += window.location.hash;
+            window.history.pushState(null, '', path);
+            // Manually trigger update since pushState doesn't fire popstate
+            const { section, folder: newFolder } = parsePath();
+            const isStrict = newFolder !== null && !['all', 'trash'].includes(newFolder);
+            showSection(section, newFolder, isStrict);
+        }
+
+        function toggleSection() {
+            const newSection = currentSection === 'audio' ? 'video' : 'audio';
+            const newFolder = newSection === 'audio' ? 'todo' : 'all';
+            switchToFolderForSection(newSection, newFolder);
+        }
+
+        function switchToFolderForSection(section, folder) {
+            const sectionName = section === 'video' ? 'videos' : section;
+            let path = `/projects/${TOKEN}/${PROJECT}/${sectionName}`;
+            if (folder && folder !== 'all') {
+                path += `/${folder}`;
+            }
+            // Preserve hash fragment (e.g., #admin)
+            path += window.location.hash;
+            window.history.pushState(null, '', path);
+            const { section: newSection, folder: newFolder } = parsePath();
+            const isStrict = newFolder !== null && !['all', 'trash'].includes(newFolder);
+            updateSectionButton(newSection);
+            showSection(newSection, newFolder, isStrict);
+        }
+
+        function updateSectionButton(section) {
+            const icon = document.getElementById('section-icon');
+            const label = document.getElementById('section-label');
+            const btn = document.getElementById('section-toggle');
+            const isAdmin = window.location.hash.includes('admin');
+            
+            if (section === 'audio') {
+                icon.textContent = '🎵';
+                label.textContent = 'Audio';
+            } else {
+                icon.textContent = '📹';
+                label.textContent = 'Video';
+            }
+            
+            // Show/hide section toggle based on admin mode
+            if (isAdmin) {
+                btn.classList.add('admin-visible');
+            } else {
+                btn.classList.remove('admin-visible');
+            }
+        }
+
+        function renderTabs() {
+            const container = document.getElementById('filter-tabs');
+            const isAdmin = window.location.hash.includes('admin');
+
+            // Video section: show tabs only in admin mode
+            if (currentSection === 'video' && !isAdmin) {
+                container.style.display = 'none';
+                document.getElementById('bottom-nav').style.display = 'none';
+                return;
+            }
+
+            // Strict isolation mode (specific folder URL): hide unless admin
+            if (strictIsolation && !isAdmin) {
+                container.style.display = 'none';
+                document.getElementById('bottom-nav').style.display = 'none';
+                return;
+            }
+
+            // Show tabs normally (audio always, video only with #admin)
+            container.style.display = 'flex';
+            document.getElementById('bottom-nav').style.display = 'block';
+
+            // Filter out 'all' and 'trash' unless in admin mode
+            const adminOnlyTabs = ['all', 'trash', 'pending'];
+            const baseTabs = currentSection === 'audio' ? AUDIO_TABS : VIDEO_TABS;
+            const tabs = isAdmin ? baseTabs : baseTabs.filter(tab => !adminOnlyTabs.includes(tab));
+
+            container.innerHTML = tabs.map(tab => {
+                const isActive = tab === currentFilter;
+                const label = getTabLabel(tab);
+                return `<button class="${isActive ? 'active' : ''}" onclick="setFilter('${tab}')">${label}</button>`;
+            }).join('');
+        }
+
+        function getTabLabel(tab) {
+            const labels = {
+                'todo': '✏️ TODO',
+                'ready': '✅ Ready',
+                'all': '📋 All',
+                'trash': '🗑️ Trash',
+                'FB': '📘 Facebook',
+                'TT': '📱 TikTok',
+                'pending': '⏳ Pending'
+            };
+            return labels[tab] || tab;
+        }
+
+        function setFilter(filter) {
+            currentFilter = filter;
+            updateURL(filter);
+            renderTabs();
+            loadFiles();
+        }
+
+        function toggleSort() {
+            currentSort = currentSort === 'asc' ? 'desc' : 'asc';
+            updateSortButton();
+            // Save preference to localStorage
+            localStorage.setItem('mediaManagerSort', currentSort);
+            loadFiles();
+        }
+
+        function updateSortButton() {
+            const label = document.getElementById('sort-label');
+            label.textContent = currentSort === 'asc' ? 'Oldest' : 'Newest';
+        }
+
+        function initSortPreference() {
+            // Load saved preference from localStorage, default to 'asc'
+            const savedSort = localStorage.getItem('mediaManagerSort');
+            if (savedSort === 'asc' || savedSort === 'desc') {
+                currentSort = savedSort;
+            }
+            updateSortButton();
+        }
+
+        async function loadFiles() {
+            const content = document.getElementById('content');
+            const label = getTabLabel(currentFilter);
+            document.querySelector('header h1').innerHTML = `📁 ${label}`;
+            content.innerHTML = '<div class="loading">Loading...</div>';
+
+            try {
+                // Cross-type viewing: FB tab in audio section shows videos with FB tag
+                const isFbCrossView = currentSection === 'audio' && currentFilter === 'FB';
+                const fetchType = isFbCrossView ? 'video' : currentSection;
+                let url = `${API_BASE}/files?type=${fetchType}`;
+                if (currentFilter !== 'all') {
+                    url += `&tags=${currentFilter}`;
+                }
+                // Add sort parameter
+                url += `&sort=${currentSort}`;
+
+                const res = await fetch(url);
+
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+
+                const files = await res.json();
+
+                if (files.length === 0) {
+                    // Cross-type viewing: show correct file type in empty state
+                    const isFbCrossView = currentSection === 'audio' && currentFilter === 'FB';
+                    const displayType = isFbCrossView ? 'video' : currentSection;
+                    content.innerHTML = `<div class="empty">No ${displayType} files ${currentFilter !== 'all' ? `with "${currentFilter}" tag` : ''}</div>`;
+                    const label = getTabLabel(currentFilter);
+                    document.querySelector('header h1').innerHTML = `📁 ${label} (0)`;
+                    return;
+                }
+
+                content.innerHTML = `<div class="file-list">${files.map(f => renderFileCard(f)).join('')}</div>`;
+                
+                // Update header with count
+                const label = getTabLabel(currentFilter);
+                document.querySelector('header h1').innerHTML = `📁 ${label} (${files.length})`;
+            } catch (err) {
+                content.innerHTML = `<div class="error">Error: ${err.message}</div>`;
+            }
+        }
+
+        function renderFileCard(file) {
+            const isAudio = file.type === 'audio';
+            const title = file.title || file.id;
+            const duration = file.duration ? formatDuration(file.duration) : '';
+            const size = formatSize(file.file_size);
+            
+            // Audio and video have separate URLs with type parameter (file.id is URL-encoded)
+            const audioStreamUrl = `/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.id)}?type=${TYPE_AUDIO}`;
+            const videoStreamUrl = `/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.id)}?type=${TYPE_VIDEO}`;
+
+            if (isAudio) {
+                return renderAudioCard(file, audioStreamUrl, duration, size);
+            }
+
+            // Video card
+            const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
+            const safeId = escapeJs(file.id);  // Escape file ID for JavaScript context
+            let actionsHtml = '';
+
+            if (currentFilter === 'trash') {
+                // In trash view: show restore + delete buttons
+                actionsHtml = `
+                    <button class="btn btn-secondary" onclick="confirmRestore('${safeId}', '${safeTitle}')">♻️ Restore to All</button>
+                    <button class="btn btn-danger" onclick="confirmDeletePermanently('${safeId}', '${safeTitle}')">🗑️ Delete Permanently</button>
+                `;
+            } else {
+                // Normal view: play/download + context-aware menu
+                let menuItem = '';
+                if (currentFilter === 'all') {
+                    // In ALL folder: show Add to Folder + Move to Trash
+                    menuItem = `
+                        <div class="context-menu-item" onclick="openFolderModal('${safeId}', '${safeTitle}'); hideContextMenu('${safeId}')">📁 Add to Folder</div>
+                        <div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div>
+                    `;
+                } else if (currentFilter === 'FB') {
+                    // In Facebook folder: show Remove from Facebook
+                    menuItem = `<div class="context-menu-item danger" onclick="confirmRemoveFromFolder('${safeId}', '${safeTitle}', 'Facebook'); hideContextMenu('${safeId}')">📘 Remove from Facebook</div>`;
+                } else if (currentFilter === 'TT') {
+                    // In TikTok folder: show Remove from TikTok
+                    menuItem = `<div class="context-menu-item danger" onclick="confirmRemoveFromFolder('${safeId}', '${safeTitle}', 'TikTok'); hideContextMenu('${safeId}')">📱 Remove from TikTok</div>`;
+                }
+                const dlKey = 'dl-' + '${safeId}';
+                const isDownloaded = sessionStorage.getItem(dlKey);
+                const dlClass = isDownloaded ? 'btn btn-secondary btn-downloaded' : 'btn btn-secondary';
+                const dlText = isDownloaded ? '✓ Downloaded' : '⬇️ Download';
+                
+                actionsHtml = `
+                    <button class="btn btn-primary" onclick="playVideo('${safeId}', '${safeTitle}')">▶️ Play</button>
+                    <a href="${videoStreamUrl}" class="${dlClass}" download id="dl-btn-${safeId}" onclick="sessionStorage.setItem('dl-' + '${safeId}', '1'); this.classList.add('btn-downloaded'); this.textContent='✓ Downloaded';">${dlText}</a>
+                    <div class="menu-container">
+                        <button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button>
+                        <div class="context-menu" id="menu-${file.id}">
+                            ${menuItem}
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="file-card">
+                    <div class="file-info">
+                        <div class="file-title">${escapeHtml(title)}</div>
+                        <div class="file-meta">${duration} ${size ? '• ' + size : ''} • <span style="color: #666; font-size: 0.75rem;">${escapeHtml(file.id)}</span></div>
+                    </div>
+                    <div class="file-actions">${actionsHtml}</div>
+                </div>
+            `;
+        }
+
+        function renderAudioCard(file, streamUrl, duration, size) {
+            const title = file.title || file.id;
+            const tagsJson = JSON.stringify(file.tags).replace(/"/g, '&quot;');
+            const safeId = escapeJs(file.id);  // Escape file ID for JavaScript context
+
+            let actionsHtml = '';
+
+            if (currentFilter === 'trash') {
+                // In trash view: show restore + delete buttons
+                const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
+                actionsHtml = `
+                    <button class="btn btn-secondary" onclick="confirmRestore('${safeId}', '${safeTitle}')">♻️ Restore to All</button>
+                    <button class="btn btn-danger" onclick="confirmDeletePermanently('${safeId}', '${safeTitle}')">🗑️ Delete Permanently</button>
+                `;
+            } else {
+                // Normal view: ready/todo buttons + menu (all with confirmation)
+                const buttons = [];
+                if (currentFilter !== 'ready') {
+                    const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
+                    buttons.push(`<button class="btn btn-ready" onclick="confirmMoveToReady('${safeId}', '${safeTitle}')">✅ Ready</button>`);
+                }
+                if (currentFilter !== 'todo') {
+                    const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
+                    buttons.push(`<button class="btn btn-todo" onclick="confirmMoveToTodo('${safeId}', '${safeTitle}')">✏️ TODO</button>`);
+                }
+                actionsHtml = `${buttons.join('')}<div class="menu-container"><button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${file.id}"><div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div></div></div>`;
+            }
+
+            return `<div class="file-card audio-card" data-id="${file.id}" data-tags="${tagsJson}"><div class="audio-row"><div class="audio-player"><audio controls preload="none"><source src="${streamUrl}" type="${file.mime_type}"></audio></div></div><div class="audio-title-edit"><textarea data-file-id="${file.id}" placeholder="Title..." dir="auto" oninput="debouncedTitleUpdate(this)">${escapeHtml(title)}</textarea><div style="color: #666; font-size: 0.7rem; margin-top: 2px;">${escapeHtml(file.id)}</div><div class="save-status" id="status-${file.id}"></div></div><div class="audio-actions">${actionsHtml}</div></div>`;
+        }
+
+        async function deleteFile(fileId) {
+            try {
+                // Determine type based on current section
+                const type = getCurrentType();
+                const encodedId = encodeURIComponent(fileId);
+                const res = await fetch(`${API_BASE}/files/${encodedId}?type=${type}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error(await res.text());
+                loadFiles();
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        function toggleContextMenu(fileId, event) {
+            event.stopPropagation();
+            const menu = document.getElementById(`menu-${fileId}`);
+            const isShowing = menu.classList.contains('show');
+
+            // Hide all other menus
+            document.querySelectorAll('.context-menu').forEach(m => m.classList.remove('show'));
+
+            // Toggle this menu
+            if (!isShowing) {
+                // Get button position for menu placement
+                const button = event.target.closest('.btn-menu');
+                const buttonRect = button.getBoundingClientRect();
+                const menuHeight = menu.scrollHeight || 100; // Estimate if not rendered yet
+                const menuWidth = Math.max(menu.scrollWidth || 200, 200);
+
+                // Calculate optimal position
+                let top = buttonRect.bottom + 8; // Default: below button
+                let left = buttonRect.left;
+
+                // If too close to bottom, show above button
+                if (top + menuHeight > window.innerHeight - 20) {
+                    top = buttonRect.top - menuHeight - 8;
+                }
+
+                // Ensure top doesn't go above viewport
+                if (top < 10) {
+                    top = 10;
+                }
+
+                // If menu extends beyond right edge, align to right of button or viewport
+                if (left + menuWidth > window.innerWidth - 10) {
+                    left = Math.max(10, buttonRect.right - menuWidth);
+                }
+
+                // Apply fixed position
+                menu.style.top = `${top}px`;
+                menu.style.left = `${left}px`;
+                menu.style.right = 'auto';
+                menu.style.bottom = 'auto';
+
+                menu.classList.add('show');
+            }
+        }
+
+        function hideContextMenu(fileId) {
+            const menu = document.getElementById(`menu-${fileId}`);
+            if (menu) menu.classList.remove('show');
+        }
+
+        // Close menus and modal when clicking outside
+        document.addEventListener('click', (e) => {
+            document.querySelectorAll('.context-menu').forEach(m => m.classList.remove('show'));
+            // Close confirm modal if clicking outside the modal content
+            const overlay = document.getElementById('confirm-overlay');
+            if (overlay.classList.contains('show') && e.target === overlay) {
+                closeConfirmModal();
+            }
+        });
+
+        // Global audio coordinator - ensures only one audio plays at a time
+        let currentlyPlayingAudio = null;
+
+        function initAudioCoordinator() {
+            // Listen for play events on all audio elements (current and future)
+            document.addEventListener('play', function(e) {
+                if (e.target.tagName === 'AUDIO') {
+                    // If another audio is playing, pause it
+                    if (currentlyPlayingAudio && currentlyPlayingAudio !== e.target) {
+                        currentlyPlayingAudio.pause();
+                    }
+                    currentlyPlayingAudio = e.target;
+                }
+            }, true);
+
+            // Clear reference when audio ends or is paused
+            document.addEventListener('ended', function(e) {
+                if (e.target.tagName === 'AUDIO' && currentlyPlayingAudio === e.target) {
+                    currentlyPlayingAudio = null;
+                }
+            }, true);
+
+            document.addEventListener('pause', function(e) {
+                if (e.target.tagName === 'AUDIO' && currentlyPlayingAudio === e.target) {
+                    // Small timeout to allow new play event to fire first
+                    setTimeout(() => {
+                        if (e.target.paused) {
+                            currentlyPlayingAudio = null;
+                        }
+                    }, 50);
+                }
+            }, true);
+        }
+
+        // Initialize audio coordinator
+        initAudioCoordinator();
+
+        // Debounce timers for title updates
+        const titleTimers = {};
+
+        function debouncedTitleUpdate(textarea) {
+            const fileId = textarea.dataset.fileId;
+            const statusEl = document.getElementById(`status-${fileId}`);
+
+            // Show typing indicator
+            statusEl.textContent = 'Typing...';
+            statusEl.className = 'save-status saving';
+
+            // Clear existing timer
+            if (titleTimers[fileId]) {
+                clearTimeout(titleTimers[fileId]);
+            }
+
+            // Set new timer for 1 second delay
+            titleTimers[fileId] = setTimeout(() => {
+                statusEl.textContent = 'Saving...';
+                statusEl.className = 'save-status saving';
+
+                updateTitle(fileId, textarea.value, statusEl);
+            }, 1000);
+        }
+
+        async function updateTitle(fileId, title, statusEl) {
+            // Get current tags from the card's data attribute
+            const card = document.querySelector(`.audio-card[data-id="${fileId}"]`);
+            const currentTags = JSON.parse(card?.dataset.tags || '["todo"]');
+
+            try {
+                // Use encodeURIComponent and add type=audio since this is audio-only
+                const encodedId = encodeURIComponent(fileId);
+                const res = await fetch(`${API_BASE}/files/${encodedId}?type=${TYPE_AUDIO}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tags: currentTags, title: title })
+                });
+
+                if (!res.ok) throw new Error(await res.text());
+
+                statusEl.textContent = '✓ Saved';
+                statusEl.className = 'save-status saved';
+
+                // Clear saved message after 3 seconds
+                setTimeout(() => {
+                    if (statusEl.textContent === '✓ Saved') {
+                        statusEl.textContent = '';
+                    }
+                }, 3000);
+            } catch (err) {
+                statusEl.textContent = '✗ Error: ' + err.message;
+                statusEl.className = 'save-status';
+                statusEl.style.color = '#ff4444';
+            }
+        }
+
+        // Confirmation modal state
+        let confirmCallback = null;
+
+        function showConfirmModal(title, message, proceedText, isSecondary = false, callback) {
+            document.getElementById('confirm-title').textContent = title;
+            document.getElementById('confirm-message').textContent = message;
+            const proceedBtn = document.getElementById('confirm-proceed-btn');
+            proceedBtn.textContent = proceedText;
+            proceedBtn.className = isSecondary ? 'confirm-proceed secondary' : 'confirm-proceed';
+            confirmCallback = callback;
+            document.getElementById('confirm-overlay').classList.add('show');
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('confirm-overlay').classList.remove('show');
+            confirmCallback = null;
+        }
+
+        function executeConfirmedAction() {
+            if (confirmCallback) {
+                confirmCallback();
+                closeConfirmModal();
+            }
+        }
+
+        // Actions that need confirmation
+        function confirmMoveToTrash(fileId) {
+            // Determine type based on current section
+            const type = getCurrentType();
+            showConfirmModal(
+                '🗑️ Move to Trash?',
+                'This file will be moved to trash. You can restore it later.',
+                'Move to Trash',
+                false,
+                () => updateTags(fileId, ['trash'], type)
+            );
+        }
+
+        function confirmRemoveFromFolder(fileId, title, folderName) {
+            const displayTitle = title || fileId;
+            showConfirmModal(
+                `Remove from ${folderName}?`,
+                `"${escapeHtml(displayTitle)}" will be removed from the ${folderName} folder.`,
+                `Remove from ${folderName}`,
+                false,
+                () => removeTagFromFile(fileId, folderName === 'Facebook' ? 'FB' : 'TT')
+            );
+        }
+
+        async function removeTagFromFile(fileId, tagToRemove) {
+            try {
+                // Get current file info
+                const res = await fetch(`${API_BASE}/files?type=${TYPE_VIDEO}`);
+                const files = await res.json();
+                const file = files.find(f => f.id === fileId);
+                
+                if (!file) throw new Error('File not found');
+                
+                // Remove the tag
+                const newTags = file.tags.filter(t => t !== tagToRemove);
+                
+                // If no tags left, set to 'all'
+                if (newTags.length === 0) {
+                    newTags.push('all');
+                }
+                
+                // Update tags - pass TYPE_VIDEO since this is video-only function
+                await updateTags(fileId, newTags, TYPE_VIDEO);
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        function confirmMoveToReady(fileId, title) {
+            const displayTitle = title || fileId;
+            showConfirmModal(
+                '✅ Mark as Ready?',
+                `"${escapeHtml(displayTitle)}" will be moved to the Ready folder.`,
+                'Mark Ready',
+                true,
+                () => updateTags(fileId, ['ready'], TYPE_AUDIO)
+            );
+        }
+
+        function confirmMoveToTodo(fileId, title) {
+            const displayTitle = title || fileId;
+            showConfirmModal(
+                '✏️ Mark as TODO?',
+                `"${escapeHtml(displayTitle)}" will be moved to the TODO folder.`,
+                'Mark TODO',
+                true,
+                () => updateTags(fileId, ['todo'], TYPE_AUDIO)
+            );
+        }
+
+        function confirmRestore(fileId, title) {
+            const displayTitle = title || fileId;
+            // Determine type based on current section
+            const type = getCurrentType();
+            // Audio restores to 'todo', video restores to 'all'
+            const restoreTag = type === TYPE_AUDIO ? 'todo' : 'all';
+            showConfirmModal(
+                '♻️ Restore from Trash?',
+                `"${escapeHtml(displayTitle)}" will be restored to the All folder.`,
+                'Restore',
+                true,
+                () => updateTags(fileId, [restoreTag], type)
+            );
+        }
+
+        function confirmDeletePermanently(fileId, title) {
+            const displayTitle = title || fileId;
+            showConfirmModal(
+                '⚠️ Delete Permanently?',
+                `"${escapeHtml(displayTitle)}" will be permanently deleted. This cannot be undone.`,
+                'Delete Permanently',
+                false,
+                () => deleteFile(fileId)
+            );
+        }
+
+        function playVideo(id, title) {
+            const playerWindow = window.open(
+                `/projects/${encodeURIComponent(TOKEN)}/${encodeURIComponent(PROJECT)}/video-player?file=${encodeURIComponent(id)}&title=${encodeURIComponent(title || '')}`,
+                '_blank'
+            );
+
+            if (!playerWindow) {
+                // Fallback if popup is blocked
+                window.location.href = `/projects/${encodeURIComponent(TOKEN)}/${encodeURIComponent(PROJECT)}/video-player?file=${encodeURIComponent(id)}&title=${encodeURIComponent(title || '')}`;
+            }
+        }
+
+        async function updateTags(id, tags, type) {
+            // Type is REQUIRED - throw error if not provided
+            if (!type) {
+                throw new Error('Type parameter is required (audio or video)');
+            }
+            
+            try {
+                const encodedId = encodeURIComponent(id);
+                // Always include type parameter for safety
+                const url = `${API_BASE}/files/${encodedId}?type=${type}`;
+                const res = await fetch(url, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tags })
+                });
+
+                if (!res.ok) throw new Error(await res.text());
+
+                loadFiles();
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        // Folder modal state
+        let currentFolderFileId = null;
+        let currentFolderFileTitle = null;
+        const AVAILABLE_FOLDERS = [
+            { id: 'FB', name: '📘 Facebook', color: '#4a9eff' },
+            { id: 'TT', name: '📱 TikTok', color: '#ff6b9d' },
+            { id: 'YT', name: '📺 YouTube', color: '#ff4444' },
+            { id: 'IG', name: '📸 Instagram', color: '#e1306c' }
+        ];
+
+        async function openFolderModal(fileId, title) {
+            currentFolderFileId = fileId;
+            currentFolderFileTitle = title;
+            
+            // Get current file tags
+            try {
+                const res = await fetch(`${API_BASE}/files?type=${TYPE_VIDEO}`);
+                const files = await res.json();
+                const file = files.find(f => f.id === fileId);
+                const currentTags = file ? file.tags : [];
+                
+                // Build folder list with checkboxes
+                const folderList = document.getElementById('folder-list');
+                folderList.innerHTML = AVAILABLE_FOLDERS.map(folder => {
+                    const isChecked = currentTags.includes(folder.id) ? 'checked' : '';
+                    return `
+                        <div class="folder-option">
+                            <input type="checkbox" id="folder-${folder.id}" value="${folder.id}" ${isChecked}>
+                            <label for="folder-${folder.id}">${folder.name}</label>
+                        </div>
+                    `;
+                }).join('');
+                
+                // Update title
+                document.getElementById('folder-title').textContent = 'Add to Folders';
+                document.getElementById('folder-subtitle').textContent = 
+                    title ? `"${escapeHtml(title)}"` : fileId;
+                
+                // Show modal
+                document.getElementById('folder-overlay').classList.add('show');
+            } catch (err) {
+                alert('Error loading file info: ' + err.message);
+            }
+        }
+
+        function closeFolderModal() {
+            document.getElementById('folder-overlay').classList.remove('show');
+            currentFolderFileId = null;
+            currentFolderFileTitle = null;
+        }
+
+        async function saveFolderSelection() {
+            if (!currentFolderFileId) return;
+            
+            // Get selected folders
+            const checkboxes = document.querySelectorAll('#folder-list input[type="checkbox"]:checked');
+            const selectedFolders = Array.from(checkboxes).map(cb => cb.value);
+            
+            // Always include 'all' as base tag, plus selected folders
+            const newTags = ['all', ...selectedFolders];
+            
+            try {
+                await updateTags(currentFolderFileId, newTags, TYPE_VIDEO);
+                closeFolderModal();
+            } catch (err) {
+                alert('Error saving folders: ' + err.message);
+            }
+        }
+
+        function formatDuration(seconds) {
+            const m = Math.floor(seconds / 60);
+            const s = seconds % 60;
+            return `${m}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function formatSize(bytes) {
+            if (!bytes) return '';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let i = 0;
+            while (bytes >= 1024 && i < units.length - 1) {
+                bytes /= 1024;
+                i++;
+            }
+            return `${bytes.toFixed(1)} ${units[i]}`;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Handle browser back/forward (popstate event)
+        window.addEventListener('popstate', () => {
+            const { section, folder } = parsePath();
+            const isStrict = folder !== null && !['all', 'trash'].includes(folder);
+            showSection(section, folder, isStrict);
+        });
+
+        // ESC key to close modals
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeConfirmModal();
+                closeFolderModal();
+            }
+        });
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            initSortPreference();
+            const { section, folder } = parsePath();
+            const isStrict = folder !== null && !['all', 'trash'].includes(folder);
+            updateSectionButton(section);
+            showSection(section, folder, isStrict);
+        });
+
+        // Re-render tabs when URL hash changes (for #admin toggle)
+        window.addEventListener('hashchange', () => {
+            renderTabs();
+        });
+    </script>
+</body>
+</html>
