@@ -1,0 +1,557 @@
+/* Media Manager SPA - 2-Row Layout with Native Media Player */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans Arabic', sans-serif;
+  background: #f5f5f5;
+  padding: 0 12px 48px 12px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Mobile-first: larger base font for readability */
+@media (max-width: 480px) {
+  body {
+    font-size: 16px;
+  }
+}
+
+/* Header - Floating island style */
+.header {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-bottom: 1px solid #dee2e6;
+  padding: 10px 16px;
+  margin: 12px 4px;
+  position: sticky;
+  top: 12px;
+  z-index: 10;
+  height: 54px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  border-radius: 10px;
+}
+
+/* Card List */
+.card-list {
+  padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Card - 2 Row Layout */
+.card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-left: 3px solid transparent;
+}
+
+.card.ready {
+  border-left-color: #22c55e;
+}
+
+.card.trashed {
+  opacity: 0.7;
+  background: #fafafa;
+}
+
+/* Video card styling */
+.card.video {
+  background: linear-gradient(135deg, #fff 0%, #f8fbff 100%);
+}
+
+.card.video .native-player {
+  height: auto;
+  max-height: 200px;
+  width: 100%;
+  border-radius: 6px;
+}
+
+/* Row 1: Native Audio Player + Action Buttons */
+.row-player-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.row-player-actions.trashed {
+  justify-content: space-between;
+}
+
+.native-player {
+  flex: 1;
+  height: 36px;
+  min-width: 0;
+}
+
+/* Style native audio player */
+.native-player::-webkit-media-controls-panel {
+  background: #f5f5f5;
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.icon-btn:hover {
+  background: #f0f0f0;
+}
+
+.menu-btn {
+  font-size: 18px;
+  font-weight: bold;
+  color: #666;
+}
+
+/* Context Menu */
+.context-menu-container {
+  position: relative;
+}
+
+.context-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  min-width: 160px;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.menu-item:hover {
+  background: #f5f5f5;
+}
+
+.menu-item.trash:hover {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.menu-item.delete:hover {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.menu-item.restore:hover {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.menu-icon {
+  font-size: 14px;
+}
+
+.trash-btn:hover {
+  background: #ffebee;
+}
+
+/* Old button styles kept for compatibility */
+.restore-btn {
+  color: #2196F3;
+}
+
+.restore-btn:hover {
+  background: #e3f2fd;
+}
+
+.delete-btn:hover {
+  background: #ffebee;
+  color: #c62828;
+}
+
+/* Checkmark icons */
+.checkmark-ready {
+  color: #22c55e;
+  font-size: 20px;
+  font-weight: bold;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px;
+}
+
+.checkmark-ready:hover {
+  color: #16a34a;
+}
+
+.checkmark-done {
+  color: #dc2626;
+  font-size: 20px;
+  font-weight: bold;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px;
+}
+
+.checkmark-done:hover {
+  color: #991b1b;
+}
+
+/* Row 2: Title Textarea Only */
+.row-title-only {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.trashed-title {
+  font-size: 13px;
+  color: #666;
+  text-decoration: line-through;
+  padding: 4px 0;
+}
+
+.trashed-label {
+  font-size: 12px;
+  color: #999;
+  padding: 8px 0;
+}
+
+.title-textarea {
+  flex: 1;
+  min-height: 24px;
+  max-height: 96px;
+  padding: 6px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 15px;
+  font-family: inherit;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.4;
+}
+
+.title-textarea:focus {
+  outline: none;
+  border-color: #2196F3;
+}
+
+.save-indicator {
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+
+/* Bottom Navigation - Text only */
+#bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  background: #fff;
+  border-top: 1px solid #ddd;
+  z-index: 100;
+  height: 48px;
+}
+
+#bottom-nav a {
+  flex: 1;
+  text-align: center;
+  padding: 6px 4px;
+  text-decoration: none;
+  font-size: 11px;
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+}
+
+#bottom-nav a.active {
+  color: #2196F3;
+  background: #f0f7ff;
+  font-weight: 600;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+  font-size: 14px;
+}
+
+.error {
+  text-align: center;
+  padding: 40px;
+  color: #c62828;
+  font-size: 14px;
+}
+
+/* Responsive - Bigger on mobile */
+@media (max-width: 480px) {
+  html {
+    font-size: 20px;
+  }
+  
+  body {
+    padding: 0 12px 64px 12px;
+  }
+  
+  .header {
+    height: 64px;
+    padding: 10px 14px;
+    margin: 10px 4px;
+    border-radius: 12px;
+  }
+  
+  .card {
+    padding: 16px;
+    gap: 14px;
+    border-radius: 12px;
+  }
+  
+  .native-player {
+    height: 44px;
+  }
+  
+  .title-textarea {
+    font-size: 18px;
+    padding: 10px 14px;
+    min-height: 28px;
+  }
+  
+  .checkmark-ready, .checkmark-done {
+    font-size: 28px;
+    padding: 4px;
+  }
+  
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+  }
+  
+  .menu-btn {
+    font-size: 26px;
+  }
+  
+  .context-menu {
+    min-width: 200px;
+    border-radius: 10px;
+  }
+  
+  .menu-item {
+    font-size: 16px;
+    padding: 14px 16px;
+  }
+  
+  .menu-icon {
+    font-size: 18px;
+  }
+  
+  .save-indicator {
+    font-size: 16px;
+    margin-top: 8px;
+  }
+  
+  /* Larger bottom nav - text only */
+  #bottom-nav {
+    height: 56px;
+  }
+  
+  #bottom-nav a {
+    font-size: 14px;
+    padding: 12px 8px;
+  }
+  
+  .empty-state, .error {
+    font-size: 18px;
+    padding: 50px;
+  }
+}
+
+@media (max-width: 360px) {
+  .header {
+    padding: 0 8px;
+  }
+  
+  .action-buttons {
+    gap: 4px;
+  }
+  
+  .checkmark-ready, .checkmark-done {
+    font-size: 18px;
+    padding: 1px;
+  }
+  
+  .icon-btn {
+    width: 24px;
+    height: 24px;
+    font-size: 14px;
+  }
+}
+
+/* Modal Dialog */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 320px;
+  width: 100%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  animation: modalSlideIn 0.2s ease-out;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #212529;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.modal-message {
+  font-size: 14px;
+  color: #495057;
+  margin-bottom: 20px;
+  text-align: center;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.modal-btn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex: 1;
+}
+
+.modal-btn.cancel {
+  background: #e9ecef;
+  color: #495057;
+}
+
+.modal-btn.cancel:hover {
+  background: #dee2e6;
+}
+
+.modal-btn.confirm {
+  background: #28a745;
+  color: #fff;
+}
+
+.modal-btn.confirm:hover {
+  background: #218838;
+}
+
+.modal-btn.confirm.danger {
+  background: #dc3545;
+}
+
+.modal-btn.confirm.danger:hover {
+  background: #c82333;
+}
+
+.checkmark-ready,
+.checkmark-done {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 4px;
+  white-space: nowrap;
+  user-select: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+  transition: box-shadow 0.2s ease, background-color 0.2s ease;
+  border: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Material Design: Subtle press feedback */
+.checkmark-ready:active,
+.checkmark-done:active {
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.16), 0 3px 6px rgba(0, 0, 0, 0.23);
+}
+
+.checkmark-ready {
+  background: #22c55e;
+  color: #ffffff;
+}
+
+.checkmark-ready:active {
+  background: #16a34a;
+}
+
+.checkmark-done {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.checkmark-done:active {
+  background: #b91c1c;
+}
