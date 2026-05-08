@@ -1,7 +1,7 @@
 {
   "name": "media-manager",
   "version": "1.0.0",
-  "description": "Media Manager service - TypeScript port of the Python remote/ FastAPI service. Identical HTTP contract over Bun + Hono, talking to Supabase Postgres metadata and S3-compatible object storage.",
+  "description": "Media Manager service for SilenceRemover. HTTP contract over Bun + Hono, talking to Supabase Postgres metadata and S3-compatible object storage.",
   "type": "module",
   "module": "src/index.ts",
   "scripts": {

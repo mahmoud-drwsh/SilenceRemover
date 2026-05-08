@@ -15,9 +15,6 @@ downloads/
 eggs/
 .eggs/
 lib/
-# Allow Media Manager Next.js server modules (would otherwise match `lib/` above).
-!remote-next/src/lib/
-!remote-next/src/lib/**
 lib64/
 parts/
 sdist/

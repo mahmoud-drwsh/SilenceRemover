@@ -1,13 +1,12 @@
 /**
  * Print a fresh admin token plus the SQL needed to seed it into
- * `media_manager.auth_tokens`. TypeScript port of
- * remote/scripts/generate_admin_token_sql.py.
+ * `media_manager.auth_tokens`.
  *
  * Usage:
  *   bun run scripts/generate_admin_token.ts
  *   bun run generate-admin-token
  *
- * Output mirrors the Python version:
+ * Output:
  *   -- Admin token: <opaque token>
  *   insert into media_manager.auth_tokens (kind, token_hash) ...
  */

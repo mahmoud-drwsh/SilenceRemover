@@ -1,15 +1,15 @@
-# Media Manager (TypeScript / Bun)
+# Media Manager
 
-TypeScript port of the Python [`remote/`](../remote) FastAPI service. It exposes the same external HTTP contract on top of [Bun](https://bun.sh) + [Hono](https://hono.dev), proxies requests to a Supabase Postgres database (metadata) and an S3-compatible object store (media bytes), and is packaged as a single Docker image for [Dokploy](https://dokploy.com).
+Canonical Media Manager service for SilenceRemover. It exposes the pipeline/browser HTTP contract on top of [Bun](https://bun.sh) + [Hono](https://hono.dev), proxies requests to a Supabase Postgres database (metadata) and an S3-compatible object store (media bytes), and is packaged as a single Docker image for [Dokploy](https://dokploy.com).
 
-The Python pipeline client at [`packages/sr_media_manager/`](../packages/sr_media_manager) and the existing browser SPA in [`remote/static/`](../remote/static) talk to this service unchanged - the goal of the port is byte-identical request/response semantics with a faster, smaller runtime.
+The pipeline client at [`packages/sr_media_manager/`](../packages/sr_media_manager) and the bundled browser SPA talk to this service directly.
 
 ## Stack
 
 - **Runtime**: Bun (native multipart, native fetch, native streams, no build step)
 - **Framework**: Hono (small, fast, portable; runs natively on Bun)
 - **Postgres**: [`postgres`](https://github.com/porsager/postgres) (porsager) - parameterized SQL with schema awareness
-- **S3**: [`@aws-sdk/client-s3`](https://www.npmjs.com/package/@aws-sdk/client-s3) - mirrors the `boto3` calls used by the Python service (`PutObject`, `GetObject` with `Range`, `HeadObject`, `DeleteObject`, `ListObjectsV2`, `HeadBucket`)
+- **S3**: [`@aws-sdk/client-s3`](https://www.npmjs.com/package/@aws-sdk/client-s3) for object storage (`PutObject`, `GetObject` with `Range`, `HeadObject`, `DeleteObject`, `ListObjectsV2`, `HeadBucket`)
 - **MIME sniffing**: [`file-type`](https://www.npmjs.com/package/file-type) (replacement for libmagic / `python-magic`)
 - **Validation**: [`zod`](https://zod.dev) + [`@hono/zod-validator`](https://www.npmjs.com/package/@hono/zod-validator) (replacement for Pydantic)
 - **ffprobe**: shelled out via `Bun.spawn` (ffmpeg installed in the Docker image)
@@ -22,18 +22,18 @@ bun install
 bun run dev                # auto-reloads on file changes
 ```
 
-The server listens on `http://localhost:8080` by default. Project URLs follow the same shape as the Python service:
+The server listens on `http://localhost:8080` by default:
 
 - Project SPA: `http://localhost:8080/projects/$MEDIA_TOKEN/test-project/`
 - Admin dashboard: `http://localhost:8080/admin/$ADMIN_TOKEN/`
 
-## Smoke test against the existing Python suite
+## Smoke Test
 
-The existing [`remote/scripts/test-api.py`](../remote/scripts/test-api.py) runs unmodified against this server:
+Run the focused local checks:
 
 ```bash
-cd ../remote
-python3 scripts/test-api.py     # set BASE_URL/TOKEN/PROJECT inside the file as usual
+bun run typecheck
+bun test
 ```
 
 ## Deploying to Dokploy
@@ -50,7 +50,7 @@ Alternatively, drop the [`docker-compose.yml`](docker-compose.yml) into Dokploy'
 
 ## Schema bootstrap
 
-The Supabase schema (`media_manager.files`, `media_manager.auth_tokens`, `media_manager.admin_audit_log`, plus the `vault_secret_id` column) is shared with the Python service - run [`scripts/setup_supabase_admin_auth.sql`](scripts/setup_supabase_admin_auth.sql) once, then seed the first admin token with [`scripts/generate_admin_token.ts`](scripts/generate_admin_token.ts):
+Run [`scripts/setup_supabase_admin_auth.sql`](scripts/setup_supabase_admin_auth.sql) once to create the Supabase schema (`media_manager.files`, `media_manager.auth_tokens`, `media_manager.admin_audit_log`, plus the `vault_secret_id` column), then seed the first admin token with [`scripts/generate_admin_token.ts`](scripts/generate_admin_token.ts):
 
 ```bash
 bun run generate-admin-token
@@ -84,21 +84,15 @@ remote-js/
 │       ├── stream.ts       # GET /projects/:t/:p/stream/:id
 │       ├── projectSpa.ts   # /static/*, /video-player, SPA fallback
 │       └── admin.ts        # /admin/:admin_token/* dashboard + admin API
-├── static/                 # copied verbatim from remote/static/
+├── static/                 # Browser SPA assets
 └── scripts/
     ├── setup_supabase_admin_auth.sql
     └── generate_admin_token.ts
 ```
 
-## What is not ported
+## API Guarantees
 
-- `Caddyfile` / `media-manager.service` - Dokploy + Traefik replace TLS and process supervision.
-- `deploy.sh` / `scripts/install-service.sh` - Dokploy is git-driven.
-- `scripts/local.sh` - replaced by `bun run dev`.
-
-## Parity guarantees
-
-Things that are byte-for-byte identical to the Python service so the existing pipeline client and SPA work unchanged:
+The pipeline client and SPA depend on these stable behaviors:
 
 - HTTP paths, methods, query parameters, and body shapes
 - Raw video uploads via `PUT /projects/:token/:project/api/files/:id/content` with required `Content-Length`
