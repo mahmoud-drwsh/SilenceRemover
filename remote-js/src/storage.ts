@@ -14,6 +14,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { createReadStream } from "node:fs";
 import { loadConfig } from "./config.ts";
 import { MIME_TO_EXT } from "./mime.ts";
 
@@ -105,6 +106,28 @@ export async function storagePutBytes(
       Bucket: config.s3Bucket,
       Key: storageObjectKey(fileType, project, fileId, ext),
       Body: body,
+      ContentType: mime,
+    }),
+  );
+}
+
+/** Upload a local file stream to S3 without buffering the whole object in memory. */
+export async function storagePutFile(
+  fileType: "audio" | "video",
+  project: string,
+  fileId: string,
+  ext: string,
+  filePath: string,
+  fileSize: number,
+  mime: string,
+): Promise<void> {
+  const config = loadConfig();
+  await getS3Client().send(
+    new PutObjectCommand({
+      Bucket: config.s3Bucket,
+      Key: storageObjectKey(fileType, project, fileId, ext),
+      Body: createReadStream(filePath),
+      ContentLength: fileSize,
       ContentType: mime,
     }),
   );

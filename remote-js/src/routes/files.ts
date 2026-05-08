@@ -15,6 +15,7 @@ import {
   VIDEO_MIME,
   getExtensionForMime,
   sniffMimeFromBytes,
+  sniffMimeFromFile,
 } from "../mime.ts";
 import { loadConfig } from "../config.ts";
 import {
@@ -27,11 +28,12 @@ import { normalizeTitle, sanitizeFileId } from "../sanitize.ts";
 import {
   storageDelete,
   storageDeleteAnyExtension,
+  storagePutFile,
   storagePutBytes,
 } from "../storage.ts";
 import { probeDurationSeconds } from "../ffprobe.ts";
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
@@ -497,15 +499,14 @@ filesRouter.put("/projects/:token/:project/api/files/:id/content", async (c) => 
       );
     }
 
-    const contentBytes = await readFile(tempPath);
-    const mime = await sniffMimeFromBytes(contentBytes);
+    const mime = await sniffMimeFromFile(tempPath);
     if (!mime || !VIDEO_MIME.has(mime)) {
       throw new HttpError(400, `Invalid video file type: ${mime ?? "unknown"}`);
     }
 
     const ext = getExtensionForMime(mime);
     const duration = await probeDurationSeconds(tempPath);
-    await storagePutBytes(fileType, project, fileId, ext, contentBytes, mime);
+    await storagePutFile(fileType, project, fileId, ext, tempPath, bytesReceived, mime);
     console.log(
       `UPLOAD_STORED id=${JSON.stringify(fileId)} project=${JSON.stringify(project)} ` +
         `type=${JSON.stringify(fileType)} bytes=${bytesReceived} ` +

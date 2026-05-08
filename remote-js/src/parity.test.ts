@@ -17,6 +17,7 @@ import {
   MIME_TO_EXT,
   VIDEO_MIME,
   getExtensionForMime,
+  sniffMimeFromBytes,
 } from "./mime.ts";
 
 describe("parseRangeHeader", () => {
@@ -174,9 +175,21 @@ describe("MIME tables", () => {
   test("known mappings match Python MIME_TO_EXT", () => {
     expect(MIME_TO_EXT["audio/mpeg"]).toBe(".mp3");
     expect(MIME_TO_EXT["audio/ogg"]).toBe(".ogg");
+    expect(MIME_TO_EXT["audio/opus"]).toBe(".ogg");
+    expect(MIME_TO_EXT["application/ogg"]).toBe(".ogg");
     expect(MIME_TO_EXT["video/mp4"]).toBe(".mp4");
     expect(MIME_TO_EXT["video/quicktime"]).toBe(".mov");
     expect(MIME_TO_EXT["video/x-matroska"]).toBe(".mkv");
+  });
+
+  test("accepts Ogg audio snippets detected as application/ogg", async () => {
+    const bytes = new Uint8Array(
+      await Bun.file(new URL("../../tests/fixtures/test_audio.ogg", import.meta.url)).arrayBuffer(),
+    );
+    const mime = await sniffMimeFromBytes(bytes);
+    expect(mime).toBe("application/ogg");
+    expect(ALLOWED_MIME.has(mime!)).toBe(true);
+    expect(getExtensionForMime(mime!)).toBe(".ogg");
   });
 });
 

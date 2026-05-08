@@ -4,7 +4,7 @@
  * libmagic-based detection the Python service does with `python-magic`.
  */
 
-import { fileTypeFromBuffer } from "file-type";
+import { fileTypeFromBuffer, fileTypeFromStream } from "file-type";
 
 export const AUDIO_MIME = new Set<string>([
   "audio/mpeg",
@@ -13,6 +13,8 @@ export const AUDIO_MIME = new Set<string>([
   "audio/wav",
   "audio/x-wav",
   "audio/ogg",
+  "audio/opus",
+  "application/ogg",
   "audio/flac",
   "audio/x-flac",
   "audio/aac",
@@ -38,6 +40,8 @@ export const MIME_TO_EXT: Record<string, string> = {
   "audio/wav": ".wav",
   "audio/x-wav": ".wav",
   "audio/ogg": ".ogg",
+  "audio/opus": ".ogg",
+  "application/ogg": ".ogg",
   "audio/flac": ".flac",
   "audio/x-flac": ".flac",
   "audio/aac": ".aac",
@@ -73,6 +77,14 @@ export async function sniffMimeFromBytes(
   bytes: Uint8Array,
 ): Promise<string | null> {
   const detected = await fileTypeFromBuffer(bytes);
+  if (!detected) return null;
+  const raw = detected.mime;
+  return EXT_ALIASES[raw] ?? raw;
+}
+
+/** Sniff MIME from a file path without reading the whole file into memory. */
+export async function sniffMimeFromFile(filePath: string): Promise<string | null> {
+  const detected = await fileTypeFromStream(Bun.file(filePath).stream());
   if (!detected) return null;
   const raw = detected.mime;
   return EXT_ALIASES[raw] ?? raw;
