@@ -12,6 +12,7 @@ from sr_media_manager import (
     get_uploaded_video_ids,
     check_uploaded_with_title,
 )
+from sr_media_manager.api import VIDEO_UPLOAD_TIMEOUT
 
 
 class TestMediaManagerClient:
@@ -274,6 +275,27 @@ class TestVideoOverwrite:
 
         assert result.get("overwritten") is True
         assert result.get("uploaded") is True
+        assert http_client.return_value.post.call_args.kwargs["timeout"] is VIDEO_UPLOAD_TIMEOUT
+
+    def test_upload_video_failure_logs_context(self, tmp_path, capsys):
+        """Video upload failures should expose enough context to diagnose retry loops."""
+        with patch("httpx.Client") as http_client:
+            client = self._client(http_client)
+            http_client.return_value.post.side_effect = TimeoutError("upload timed out")
+
+            video_path = tmp_path / "video.mp4"
+            video_path.write_bytes(b"fake video")
+
+            result = client.upload_video("vid", "Title", video_path)
+
+        captured = capsys.readouterr()
+        assert result["success"] is False
+        assert result["uploaded"] is False
+        assert "MEDIA_MANAGER_VIDEO_UPLOAD_FAILED" in captured.err
+        assert "id='vid'" in captured.err
+        assert "size_bytes=10" in captured.err
+        assert "project='lessons'" in captured.err
+        assert "error_type=TimeoutError" in captured.err
 
     def test_check_uploaded_with_title_same_title(self):
         """Test 6: check_uploaded_with_title() helper - video exists, same title."""

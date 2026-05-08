@@ -2,11 +2,19 @@
 
 import json
 import os
+import sys
+import time
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 import httpx
 
 DEFAULT_TIMEOUT = 30.0
+VIDEO_UPLOAD_TIMEOUT = httpx.Timeout(
+    connect=30.0,
+    write=600.0,
+    read=600.0,
+    pool=30.0,
+)
 
 
 class MediaManagerClient:
@@ -334,6 +342,7 @@ class MediaManagerClient:
                 mime_type = 'video/webm'
 
             total_size = video_path.stat().st_size
+            started_at = time.monotonic()
 
             # Progress-tracking file wrapper
             class ProgressFile:
@@ -368,7 +377,8 @@ class MediaManagerClient:
                 resp = self._client.post(
                     self._url('/api/files'),
                     data=data,
-                    files=files
+                    files=files,
+                    timeout=VIDEO_UPLOAD_TIMEOUT,
                 )
                 resp.raise_for_status()
 
@@ -383,6 +393,19 @@ class MediaManagerClient:
                     'error': None
                 }
         except Exception as e:
+            elapsed = time.monotonic() - started_at if 'started_at' in locals() else 0.0
+            total_size = total_size if 'total_size' in locals() else 0
+            print(
+                "MEDIA_MANAGER_VIDEO_UPLOAD_FAILED "
+                f"id={file_id!r} "
+                f"size_bytes={total_size} "
+                f"elapsed_sec={elapsed:.1f} "
+                f"host={self.base_url!r} "
+                f"project={self.project!r} "
+                f"error_type={type(e).__name__} "
+                f"error={str(e)!r}",
+                file=sys.stderr,
+            )
             return {
                 'success': False,
                 'uploaded': False,

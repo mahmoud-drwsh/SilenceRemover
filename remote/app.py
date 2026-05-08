@@ -954,15 +954,28 @@ async def upload_file(
     if not tag_list or tag_list == []:
         tag_list = ['all']
 
-    content = await file.read()
+    upload_started_at = time.monotonic()
+    print(
+        f"UPLOAD_START id={id!r} project={project!r} type={type!r} "
+        f"filename={file.filename!r} tags={tag_list!r}",
+        flush=True,
+    )
 
-    if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(413, f"File too large (max {MAX_FILE_SIZE} bytes)")
-
-    # Write to temp file to check MIME type
-    temp_file = tempfile.NamedTemporaryFile(prefix=f"media-manager-{id}-", delete=False)
-    temp_path = Path(temp_file.name)
+    temp_path = None
     try:
+        content = await file.read()
+        print(
+            f"UPLOAD_RECEIVED id={id!r} project={project!r} type={type!r} "
+            f"bytes={len(content)} elapsed_sec={time.monotonic() - upload_started_at:.1f}",
+            flush=True,
+        )
+
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(413, f"File too large (max {MAX_FILE_SIZE} bytes)")
+
+        # Write to temp file to check MIME type
+        temp_file = tempfile.NamedTemporaryFile(prefix=f"media-manager-{id}-", delete=False)
+        temp_path = Path(temp_file.name)
         temp_file.write(content)
         temp_file.close()
 
@@ -987,24 +1000,45 @@ async def upload_file(
             pass
 
         storage_put_bytes(type, project, id, ext, content, mime)
+        print(
+            f"UPLOAD_STORED id={id!r} project={project!r} type={type!r} "
+            f"bytes={len(content)} elapsed_sec={time.monotonic() - upload_started_at:.1f}",
+            flush=True,
+        )
+
+        if overwritten:
+            conn.execute('DELETE FROM files WHERE id = ? AND project = ? AND type = ?', (id, project, type))
+
+        # Insert into database
+        conn.execute('''
+            INSERT INTO files (id, project, type, title, tags, duration, file_size, mime_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (id, project, type, title, json.dumps(tag_list), duration, len(content), mime))
+        conn.commit()
+        conn.close()
+        print(
+            f"UPLOAD_COMMITTED id={id!r} project={project!r} type={type!r} "
+            f"bytes={len(content)} overwritten={overwritten} "
+            f"elapsed_sec={time.monotonic() - upload_started_at:.1f}",
+            flush=True,
+        )
+
+        return UploadResponse(ok=True, id=id, type=type, overwritten=overwritten)
+    except Exception as e:
+        print(
+            f"UPLOAD_FAILED id={id!r} project={project!r} type={type!r} "
+            f"error_type={e.__class__.__name__} error={str(e)!r} "
+            f"elapsed_sec={time.monotonic() - upload_started_at:.1f}",
+            flush=True,
+        )
+        conn.close()
+        raise
     finally:
-        try:
-            temp_path.unlink()
-        except FileNotFoundError:
-            pass
-
-    if overwritten:
-        conn.execute('DELETE FROM files WHERE id = ? AND project = ? AND type = ?', (id, project, type))
-
-    # Insert into database
-    conn.execute('''
-        INSERT INTO files (id, project, type, title, tags, duration, file_size, mime_type)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (id, project, type, title, json.dumps(tag_list), duration, len(content), mime))
-    conn.commit()
-    conn.close()
-
-    return UploadResponse(ok=True, id=id, type=type, overwritten=overwritten)
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 @app.put("/projects/{token}/{project}/api/files/{id}")
