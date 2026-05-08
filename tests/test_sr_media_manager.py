@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 from unittest.mock import Mock, patch
+import httpx
 import pytest
 
 from sr_media_manager import (
@@ -12,7 +13,7 @@ from sr_media_manager import (
     get_uploaded_video_ids,
     check_uploaded_with_title,
 )
-from sr_media_manager.api import VIDEO_UPLOAD_TIMEOUT
+from sr_media_manager.api import ProgressFile, VIDEO_UPLOAD_TIMEOUT
 
 
 class TestMediaManagerClient:
@@ -62,6 +63,22 @@ class TestMediaManagerClient:
 
         assert get_uploaded_video_ids(client) == ["already-pending"]
         client.get_video_files.assert_any_call(include_pending=True)
+
+    def test_progress_file_preserves_multipart_content_length(self, tmp_path):
+        """Progress wrapper must not force chunked uploads through reverse proxies."""
+        video_path = tmp_path / "video.mp4"
+        video_path.write_bytes(b"fake video")
+
+        with ProgressFile(video_path, None, video_path.stat().st_size) as pf:
+            request = httpx.Request(
+                "POST",
+                "https://example.com/upload",
+                data={"id": "vid"},
+                files={"file": ("video.mp4", pf, "video/mp4")},
+            )
+
+        assert "content-length" in request.headers
+        assert request.headers.get("transfer-encoding") != "chunked"
 
 
 class TestSyncTitlesFromApi:

@@ -17,6 +17,42 @@ VIDEO_UPLOAD_TIMEOUT = httpx.Timeout(
 )
 
 
+class ProgressFile:
+    """File wrapper that preserves length detection for multipart uploads."""
+
+    def __init__(self, file_path: Path, callback: callable, total: int):
+        self._file = open(file_path, 'rb')
+        self._callback = callback
+        self._total = total
+        self._uploaded = 0
+
+    def read(self, size=-1):
+        data = self._file.read(size)
+        if data:
+            self._uploaded += len(data)
+            if self._callback:
+                self._callback(self._uploaded, self._total)
+        return data
+
+    def fileno(self):
+        return self._file.fileno()
+
+    def tell(self):
+        return self._file.tell()
+
+    def seek(self, offset, whence=0):
+        return self._file.seek(offset, whence)
+
+    def close(self):
+        self._file.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+
 class MediaManagerClient:
     """HTTP client for Media Manager API.
     
@@ -242,28 +278,6 @@ class MediaManagerClient:
         try:
             total_size = audio_path.stat().st_size
             
-            # Progress-tracking file wrapper
-            class ProgressFile:
-                def __init__(self, file_path, callback, total):
-                    self._file = open(file_path, 'rb')
-                    self._callback = callback
-                    self._total = total
-                    self._uploaded = 0
-                
-                def read(self, size=-1):
-                    data = self._file.read(size)
-                    if data:
-                        self._uploaded += len(data)
-                        if self._callback:
-                            self._callback(self._uploaded, self._total)
-                    return data
-                
-                def __enter__(self):
-                    return self
-                
-                def __exit__(self, *args):
-                    self._file.close()
-            
             with ProgressFile(audio_path, progress_callback, total_size) as pf:
                 files = {'file': (f'{file_id}.ogg', pf, 'audio/ogg')}
                 data = {
@@ -343,28 +357,6 @@ class MediaManagerClient:
 
             total_size = video_path.stat().st_size
             started_at = time.monotonic()
-
-            # Progress-tracking file wrapper
-            class ProgressFile:
-                def __init__(self, file_path, callback, total):
-                    self._file = open(file_path, 'rb')
-                    self._callback = callback
-                    self._total = total
-                    self._uploaded = 0
-
-                def read(self, size=-1):
-                    data = self._file.read(size)
-                    if data:
-                        self._uploaded += len(data)
-                        if self._callback:
-                            self._callback(self._uploaded, self._total)
-                    return data
-
-                def __enter__(self):
-                    return self
-
-                def __exit__(self, *args):
-                    self._file.close()
 
             with ProgressFile(video_path, progress_callback, total_size) as pf:
                 files = {'file': (video_path.name, pf, mime_type)}
