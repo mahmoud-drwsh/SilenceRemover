@@ -83,10 +83,19 @@ def test_run_video_upload_phase_notifies_on_success(
     notify_calls: list[tuple[int, int, str, str]] = []
 
     class FakeClient:
-        def upload_video(self, file_id, title, output_path, tags, progress_callback):
+        def upload_video(
+            self,
+            file_id,
+            title,
+            output_path,
+            tags,
+            progress_callback,
+            skip_if_exists_with_title,
+        ):
             upload_calls.append((file_id, title, output_path))
             assert tags == ["pending"]
             assert callable(progress_callback)
+            assert skip_if_exists_with_title is True
             progress_callback(512, 1024)
             return {"success": True, "uploaded": True, "skipped": False, "overwritten": False}
 
@@ -140,8 +149,17 @@ def test_run_video_upload_phase_skips_notification_on_non_uploaded_result(
     notify_calls: list[tuple[int, int, str, str]] = []
 
     class FakeClient:
-        def upload_video(self, file_id, title, output_path, tags, progress_callback):
+        def upload_video(
+            self,
+            file_id,
+            title,
+            output_path,
+            tags,
+            progress_callback,
+            skip_if_exists_with_title,
+        ):
             assert callable(progress_callback)
+            assert skip_if_exists_with_title is True
             return {
                 "success": True,
                 "uploaded": False,

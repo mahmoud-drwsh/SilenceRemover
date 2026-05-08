@@ -933,20 +933,8 @@ async def upload_file(
             conn.close()
             raise HTTPException(409, "Video with same title already exists")
         else:
-            # Different title → OVERWRITE
+            # Different title -> overwrite only after the replacement upload is valid.
             print(f"[OVERWRITE] Video '{id}': title changed from '{old_title}' to '{new_title}'")
-            
-            # Delete old physical file
-            old_ext = get_file_extension(existing['mime_type'])
-            try:
-                storage_delete(type, project, id, old_ext)
-                print(f"[OVERWRITE] Deleted old stored object: {storage_object_key(type, project, id, old_ext)}")
-            except Exception as e:
-                print(f"[OVERWRITE WARNING] Failed to delete old stored object {id}{old_ext}: {e}")
-            
-            # Delete from database
-            conn.execute('DELETE FROM files WHERE id = ? AND project = ? AND type = ?', (id, project, type))
-            conn.commit()
             overwritten = True
 
     # Parse and validate tags
@@ -1004,6 +992,9 @@ async def upload_file(
             temp_path.unlink()
         except FileNotFoundError:
             pass
+
+    if overwritten:
+        conn.execute('DELETE FROM files WHERE id = ? AND project = ? AND type = ?', (id, project, type))
 
     # Insert into database
     conn.execute('''

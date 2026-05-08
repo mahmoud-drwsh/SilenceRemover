@@ -774,7 +774,10 @@ def run_video_upload_phase(
                     video_index=video_index,
                     total_videos=total_videos,
                 ),
+                skip_if_exists_with_title=True,
             )
+            if isinstance(result, dict) and not result.get("success", False):
+                raise RuntimeError(f"Video upload failed: {result.get('error') or 'unknown error'}")
             uploaded = (
                 bool(result)
                 if isinstance(result, bool)
