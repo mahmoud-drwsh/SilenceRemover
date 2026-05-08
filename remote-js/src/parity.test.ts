@@ -179,3 +179,11 @@ describe("MIME tables", () => {
     expect(MIME_TO_EXT["video/x-matroska"]).toBe(".mkv");
   });
 });
+
+describe("static Media Manager UI", () => {
+  test("pending video options include Move to Trash", async () => {
+    const html = await Bun.file(new URL("../static/index.html", import.meta.url)).text();
+    expect(html).toContain("currentFilter === 'all' || currentFilter === 'pending'");
+    expect(html).toContain("confirmMoveToTrash('${safeId}')");
+  });
+});

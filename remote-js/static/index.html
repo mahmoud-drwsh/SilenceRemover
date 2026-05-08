@@ -497,8 +497,8 @@
             } else {
                 // Normal view: play/download + context-aware menu
                 let menuItem = '';
-                if (currentFilter === 'all') {
-                    // In ALL folder: show Add to Folder + Move to Trash
+                if (currentFilter === 'all' || currentFilter === 'pending') {
+                    // In ALL and Pending folders: show Add to Folder + Move to Trash
                     menuItem = `
                         <div class="context-menu-item" onclick="openFolderModal('${safeId}', '${safeTitle}'); hideContextMenu('${safeId}')">📁 Add to Folder</div>
                         <div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div>
