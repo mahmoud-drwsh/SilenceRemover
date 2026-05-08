@@ -8,7 +8,9 @@
 
 import { describe, expect, test } from "bun:test";
 import { parseRangeHeader } from "./range.ts";
+import { parseContentLengthHeader } from "./routes/files.ts";
 import { normalizeTitle, sanitizeFileId, sanitizeFilename } from "./sanitize.ts";
+import { HttpError } from "./schemas.ts";
 import {
   ALLOWED_MIME,
   AUDIO_MIME,
@@ -65,6 +67,36 @@ describe("parseRangeHeader", () => {
 
   test("suffix larger than size clamps to 0", () => {
     expect(parseRangeHeader("bytes=-200", 100)).toEqual({ start: 0, end: 99 });
+  });
+});
+
+describe("parseContentLengthHeader", () => {
+  test("parses decimal byte counts", () => {
+    expect(parseContentLengthHeader("0")).toBe(0);
+    expect(parseContentLengthHeader("1048576")).toBe(1048576);
+    expect(parseContentLengthHeader(" 42 ")).toBe(42);
+  });
+
+  test("requires the header", () => {
+    expect(() => parseContentLengthHeader(undefined)).toThrow(HttpError);
+    try {
+      parseContentLengthHeader(undefined);
+    } catch (err) {
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).status).toBe(411);
+    }
+  });
+
+  test("rejects invalid byte counts", () => {
+    for (const value of ["", "-1", "1.5", "abc", "10 bytes"]) {
+      try {
+        parseContentLengthHeader(value);
+        throw new Error(`Expected ${value} to fail`);
+      } catch (err) {
+        expect(err).toBeInstanceOf(HttpError);
+        expect((err as HttpError).status).toBe(400);
+      }
+    }
   });
 });
 

@@ -80,7 +80,7 @@ remote-js/
 │   ├── schemas.ts          # zod schemas
 │   ├── security.ts         # security-headers middleware
 │   └── routes/
-│       ├── files.ts        # GET/POST/PUT/DELETE /projects/:t/:p/api/files (+ pre-flight)
+│       ├── files.ts        # File list/upload/update/delete routes, including raw video PUT /content
 │       ├── stream.ts       # GET /projects/:t/:p/stream/:id
 │       ├── projectSpa.ts   # /static/*, /video-player, SPA fallback
 │       └── admin.ts        # /admin/:admin_token/* dashboard + admin API
@@ -101,7 +101,9 @@ remote-js/
 Things that are byte-for-byte identical to the Python service so the existing pipeline client and SPA work unchanged:
 
 - HTTP paths, methods, query parameters, and body shapes
+- Raw video uploads via `PUT /projects/:token/:project/api/files/:id/content` with required `Content-Length`
 - Status codes (200/201/400/401/404/409/413/429)
+- Upload lifecycle logs (`UPLOAD_START`, `UPLOAD_RECEIVED`, `UPLOAD_STORED`, `UPLOAD_COMMITTED`, `UPLOAD_FAILED`)
 - Headers (`Accept-Ranges`, `Content-Range`, `Content-Disposition: inline; filename*=UTF-8''<...>`), plus the same `SECURITY_HEADERS` block
 - `MAX_FILE_SIZE = 500 * 1024 * 1024` (500 MB upload cap)
 - Audio tag set `{todo, ready, all, trash}` (strict)

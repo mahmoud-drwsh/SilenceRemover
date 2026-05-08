@@ -12,6 +12,7 @@ import { getDb, schemaIdent } from "../db.ts";
 import { verifyMediaToken } from "../http.ts";
 import {
   ALLOWED_MIME,
+  VIDEO_MIME,
   getExtensionForMime,
   sniffMimeFromBytes,
 } from "../mime.ts";
@@ -27,12 +28,13 @@ import {
   storageDelete,
   storageDeleteAnyExtension,
   storagePutBytes,
-  storageObjectKey,
 } from "../storage.ts";
 import { probeDurationSeconds } from "../ffprobe.ts";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { once } from "node:events";
 
 export const filesRouter = new Hono();
 
@@ -88,6 +90,117 @@ function parseTagsParam(value: string | undefined): string[] | null {
     .map((t) => t.trim())
     .filter(Boolean);
   return split.length > 0 ? split : null;
+}
+
+function parseUploadTags(value: string, fileType: FileType): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) throw new Error("Tags must be an array");
+  } catch (err) {
+    throw new HttpError(
+      400,
+      `Invalid tags format: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  let tags = parsed.map(String);
+  if (fileType === "audio") {
+    tags = validateAudioTags(tags);
+  }
+  if (tags.length === 0) {
+    tags = ["all"];
+  }
+  return tags;
+}
+
+async function resolveUploadOverwrite(
+  fileId: string,
+  project: string,
+  fileType: FileType,
+  title: string,
+): Promise<boolean> {
+  const sql = getDb();
+  const ident = schemaIdent();
+  const rows = await sql.unsafe<{
+    id: string;
+    title: string | null;
+    mime_type: string;
+  }[]>(
+    `SELECT id, title, mime_type, file_size, duration
+       FROM ${ident}.files
+       WHERE id = $1 AND project = $2 AND type = $3`,
+    [fileId, project, fileType],
+  );
+  const existing = rows[0];
+  if (!existing) return false;
+
+  if (fileType === "audio") {
+    throw new HttpError(409, `Audio file with id '${fileId}' already exists`);
+  }
+
+  const oldTitle = normalizeTitle(existing.title);
+  const newTitle = normalizeTitle(title);
+  if (oldTitle === newTitle) {
+    throw new HttpError(409, "Video with same title already exists");
+  }
+
+  console.log(
+    `[OVERWRITE] Video '${fileId}': title changed from '${oldTitle}' to '${newTitle}'`,
+  );
+  return true;
+}
+
+async function commitUploadMetadata(args: {
+  fileId: string;
+  project: string;
+  fileType: FileType;
+  title: string;
+  tagList: string[];
+  duration: number;
+  fileSize: number;
+  mime: string;
+  overwritten: boolean;
+}): Promise<void> {
+  const sql = getDb();
+  const ident = schemaIdent();
+  if (args.overwritten) {
+    await sql.unsafe(
+      `DELETE FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = $3`,
+      [args.fileId, args.project, args.fileType],
+    );
+  }
+
+  await sql.unsafe(
+    `INSERT INTO ${ident}.files
+       (id, project, type, title, tags, duration, file_size, mime_type)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
+    [
+      args.fileId,
+      args.project,
+      args.fileType,
+      args.title,
+      JSON.stringify(args.tagList),
+      args.duration,
+      args.fileSize,
+      args.mime,
+    ],
+  );
+}
+
+function elapsedSeconds(startedAt: number): string {
+  return ((performance.now() - startedAt) / 1000).toFixed(1);
+}
+
+export function parseContentLengthHeader(value: string | undefined): number {
+  if (value === undefined) {
+    throw new HttpError(411, "Content-Length is required");
+  }
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new HttpError(400, "Invalid Content-Length");
+  }
+  return Number.parseInt(trimmed, 10);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -246,76 +359,11 @@ filesRouter.post("/projects/:token/:project/api/files", async (c) => {
     throw new HttpError(400, "Invalid file ID");
   }
 
-  const sql = getDb();
-  const ident = schemaIdent();
-
-  // Look up existing row to decide overwrite vs 409.
-  const existingRows = await sql.unsafe<{
-    id: string;
-    title: string | null;
-    mime_type: string;
-    file_size: number | null;
-    duration: number | null;
-  }[]>(
-    `SELECT id, title, mime_type, file_size, duration
-     FROM ${ident}.files
-     WHERE id = $1 AND project = $2 AND type = $3`,
-    [id, project, fileType],
+  const overwritten = await resolveUploadOverwrite(id, project, fileType, title);
+  const tagList = parseUploadTags(
+    typeof tagsRaw === "string" ? tagsRaw : "[]",
+    fileType,
   );
-  const existing = existingRows[0];
-
-  let overwritten = false;
-
-  if (existing) {
-    if (fileType === "audio") {
-      throw new HttpError(409, `Audio file with id '${id}' already exists`);
-    }
-    const oldTitle = normalizeTitle(existing.title);
-    const newTitle = normalizeTitle(title);
-    if (oldTitle === newTitle) {
-      throw new HttpError(409, "Video with same title already exists");
-    }
-    console.log(
-      `[OVERWRITE] Video '${id}': title changed from '${oldTitle}' to '${newTitle}'`,
-    );
-    const oldExt = getExtensionForMime(existing.mime_type);
-    try {
-      await storageDelete(fileType, project, id, oldExt);
-      console.log(
-        `[OVERWRITE] Deleted old stored object: ${storageObjectKey(fileType, project, id, oldExt)}`,
-      );
-    } catch (err) {
-      console.warn(
-        `[OVERWRITE WARNING] Failed to delete old stored object ${id}${oldExt}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
-    await sql.unsafe(
-      `DELETE FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = $3`,
-      [id, project, fileType],
-    );
-    overwritten = true;
-  }
-
-  // Parse and validate tags
-  let tagList: string[];
-  try {
-    const parsed = JSON.parse(typeof tagsRaw === "string" ? tagsRaw : "[]");
-    if (!Array.isArray(parsed)) throw new Error("Tags must be an array");
-    tagList = parsed.map(String);
-  } catch (err) {
-    throw new HttpError(
-      400,
-      `Invalid tags format: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  if (fileType === "audio") {
-    tagList = validateAudioTags(tagList);
-  }
-  if (tagList.length === 0) {
-    tagList = ["all"];
-  }
 
   // Read upload body
   const contentBytes = new Uint8Array(await file.arrayBuffer());
@@ -350,21 +398,17 @@ filesRouter.post("/projects/:token/:project/api/files", async (c) => {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 
-  await sql.unsafe(
-    `INSERT INTO ${ident}.files
-       (id, project, type, title, tags, duration, file_size, mime_type)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
-    [
-      id,
-      project,
-      fileType,
-      title,
-      JSON.stringify(tagList),
-      duration,
-      contentBytes.byteLength,
-      mime,
-    ],
-  );
+  await commitUploadMetadata({
+    fileId: id,
+    project,
+    fileType,
+    title,
+    tagList,
+    duration,
+    fileSize: contentBytes.byteLength,
+    mime,
+    overwritten,
+  });
 
   return c.json({
     ok: true,
@@ -372,6 +416,139 @@ filesRouter.post("/projects/:token/:project/api/files", async (c) => {
     type: fileType,
     overwritten,
   });
+});
+
+/* -------------------------------------------------------------------------- */
+/* PUT /api/files/:id/content                                                 */
+/* -------------------------------------------------------------------------- */
+
+filesRouter.put("/projects/:token/:project/api/files/:id/content", async (c) => {
+  const { token, project, id: idRaw } = c.req.param();
+  await verifyMediaToken(token);
+
+  const config = loadConfig();
+  const fileType: FileType = "video";
+  const fileId = sanitizeFileId(idRaw);
+  if (!fileId) {
+    throw new HttpError(400, "Invalid file ID");
+  }
+
+  const url = new URL(c.req.url);
+  const title = url.searchParams.get("title") ?? "";
+  const tagList = parseUploadTags(url.searchParams.get("tags") ?? "[]", fileType);
+  const overwritten = await resolveUploadOverwrite(fileId, project, fileType, title);
+
+  const expectedSize = parseContentLengthHeader(c.req.header("content-length"));
+  if (expectedSize > config.maxFileSizeBytes) {
+    throw new HttpError(413, `File too large (max ${config.maxFileSizeBytes} bytes)`);
+  }
+
+  const uploadStartedAt = performance.now();
+  console.log(
+    `UPLOAD_START id=${JSON.stringify(fileId)} project=${JSON.stringify(project)} ` +
+      `type=${JSON.stringify(fileType)} raw_body=True expected_bytes=${expectedSize} ` +
+      `tags=${JSON.stringify(tagList)}`,
+  );
+
+  let bytesReceived = 0;
+  let tempDir: string | null = null;
+  try {
+    const body = c.req.raw.body;
+    if (!body) {
+      throw new HttpError(400, "Missing request body");
+    }
+
+    tempDir = join(
+      tmpdir(),
+      `media-manager-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    await mkdir(tempDir, { recursive: true });
+    const tempPath = join(tempDir, "upload");
+    const writer = createWriteStream(tempPath, { flags: "wx" });
+
+    try {
+      for await (const chunk of body) {
+        if (chunk.byteLength === 0) continue;
+        bytesReceived += chunk.byteLength;
+        if (bytesReceived > config.maxFileSizeBytes) {
+          throw new HttpError(413, `File too large (max ${config.maxFileSizeBytes} bytes)`);
+        }
+        if (!writer.write(Buffer.from(chunk))) {
+          await once(writer, "drain");
+        }
+      }
+      writer.end();
+      await once(writer, "finish");
+    } catch (err) {
+      writer.destroy();
+      throw err;
+    }
+
+    console.log(
+      `UPLOAD_RECEIVED id=${JSON.stringify(fileId)} project=${JSON.stringify(project)} ` +
+        `type=${JSON.stringify(fileType)} bytes=${bytesReceived} ` +
+        `elapsed_sec=${elapsedSeconds(uploadStartedAt)}`,
+    );
+
+    if (bytesReceived !== expectedSize) {
+      throw new HttpError(
+        400,
+        `Incomplete upload: expected ${expectedSize} bytes, got ${bytesReceived}`,
+      );
+    }
+
+    const contentBytes = await readFile(tempPath);
+    const mime = await sniffMimeFromBytes(contentBytes);
+    if (!mime || !VIDEO_MIME.has(mime)) {
+      throw new HttpError(400, `Invalid video file type: ${mime ?? "unknown"}`);
+    }
+
+    const ext = getExtensionForMime(mime);
+    const duration = await probeDurationSeconds(tempPath);
+    await storagePutBytes(fileType, project, fileId, ext, contentBytes, mime);
+    console.log(
+      `UPLOAD_STORED id=${JSON.stringify(fileId)} project=${JSON.stringify(project)} ` +
+        `type=${JSON.stringify(fileType)} bytes=${bytesReceived} ` +
+        `elapsed_sec=${elapsedSeconds(uploadStartedAt)}`,
+    );
+
+    await commitUploadMetadata({
+      fileId,
+      project,
+      fileType,
+      title,
+      tagList,
+      duration,
+      fileSize: bytesReceived,
+      mime,
+      overwritten,
+    });
+    console.log(
+      `UPLOAD_COMMITTED id=${JSON.stringify(fileId)} project=${JSON.stringify(project)} ` +
+        `type=${JSON.stringify(fileType)} bytes=${bytesReceived} overwritten=${overwritten} ` +
+        `elapsed_sec=${elapsedSeconds(uploadStartedAt)}`,
+    );
+
+    return c.json({
+      ok: true,
+      id: fileId,
+      type: fileType,
+      overwritten,
+    });
+  } catch (err) {
+    console.log(
+      `UPLOAD_FAILED id=${JSON.stringify(fileId)} project=${JSON.stringify(project)} ` +
+        `type=${JSON.stringify(fileType)} bytes=${bytesReceived} ` +
+        `error_type=${err instanceof Error ? err.constructor.name : typeof err} ` +
+        `error=${JSON.stringify(err instanceof Error ? err.message : String(err))} ` +
+        `elapsed_sec=${elapsedSeconds(uploadStartedAt)}`,
+    );
+    throw err;
+  } finally {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
 });
 
 /* -------------------------------------------------------------------------- */
