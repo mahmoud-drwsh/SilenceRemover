@@ -5,7 +5,13 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 import pytest
 
-from sr_media_manager import MediaManagerClient, sync_titles_from_api, ensure_audio_uploaded
+from sr_media_manager import (
+    MediaManagerClient,
+    sync_titles_from_api,
+    ensure_audio_uploaded,
+    get_uploaded_video_ids,
+    check_uploaded_with_title,
+)
 
 
 class TestMediaManagerClient:
@@ -30,6 +36,31 @@ class TestMediaManagerClient:
         """Raise error if no URL provided."""
         with pytest.raises(ValueError, match="MEDIA_MANAGER_URL"):
             MediaManagerClient()
+
+    def test_get_video_files_can_include_pending(self):
+        """Pending uploads must be visible to idempotency checks."""
+        with patch("httpx.Client") as http_client:
+            response = Mock()
+            response.json.return_value = []
+            http_client.return_value.get.return_value = response
+
+            client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
+            client.get_video_files(include_trash=True, include_pending=True)
+
+        requested_url = http_client.return_value.get.call_args.args[0]
+        assert "include_trash=true" in requested_url
+        assert "include_pending=true" in requested_url
+
+    def test_uploaded_video_ids_include_pending_rows(self):
+        """Phase 9 should not re-upload videos already waiting for publish."""
+        client = Mock()
+        client.get_video_files.side_effect = [
+            [{"id": "already-pending", "tags": ["pending"]}],
+            [],
+        ]
+
+        assert get_uploaded_video_ids(client) == ["already-pending"]
+        client.get_video_files.assert_any_call(include_pending=True)
 
 
 class TestSyncTitlesFromApi:
@@ -161,132 +192,107 @@ class TestEnsureAudioUploaded:
 
 class TestVideoOverwrite:
     """Test video auto-overwrite feature - check_video_exists, upload_video with skip_if_exists_with_title."""
+
+    def _client(self, http_client):
+        return MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
     
     def test_check_video_exists_not_found(self):
         """Test 1: check_video_exists() - not found returns (False, False)."""
-        client = Mock()
-        # Mock empty response for get with title filter
-        mock_response = Mock()
-        mock_response.json.return_value = []
-        mock_response.status_code = 200
-        client._client.get.return_value = mock_response
-        
-        # Also mock check_exists to return False
-        client.check_exists.return_value = False
-        
-        # Call check_video_exists (assumed new method)
-        result = client.check_video_exists("test-vid", "Any Title")
-        
+        with patch("httpx.Client") as http_client:
+            mock_response = Mock()
+            mock_response.json.return_value = []
+            http_client.return_value.get.return_value = mock_response
+
+            client = self._client(http_client)
+            result = client.check_video_exists("test-vid", "Any Title")
+
         assert result == (False, False)
     
     def test_check_video_exists_found_matching_title(self):
         """Test 2: check_video_exists() - found with matching title returns (True, True)."""
-        client = Mock()
-        
-        # Mock response with matching title
-        mock_response = Mock()
-        mock_response.json.return_value = [{"id": "vid", "title": "Match"}]
-        mock_response.status_code = 200
-        client._client.get.return_value = mock_response
-        
-        result = client.check_video_exists("vid", "Match")
-        
+        with patch("httpx.Client") as http_client:
+            mock_response = Mock()
+            mock_response.json.return_value = [
+                {"id": "vid", "title": "Match", "exists": True, "would_overwrite": False}
+            ]
+            http_client.return_value.get.return_value = mock_response
+
+            client = self._client(http_client)
+            result = client.check_video_exists("vid", "Match")
+
         assert result == (True, True)
     
     def test_check_video_exists_found_different_title(self):
         """Test 3: check_video_exists() - found with different title returns (True, False)."""
-        client = Mock()
-        
-        # First call: get with title filter returns empty (no match)
-        # Second call: check_exists returns True
-        empty_response = Mock()
-        empty_response.json.return_value = []
-        
-        match_response = Mock()
-        match_response.json.return_value = [{"id": "vid", "title": "Different"}]
-        
-        client._client.get.side_effect = [empty_response, match_response]
-        client.check_exists.return_value = True
-        
-        result = client.check_video_exists("vid", "Expected Title")
-        
+        with patch("httpx.Client") as http_client:
+            mock_response = Mock()
+            mock_response.json.return_value = [
+                {"id": "vid", "title": "Different", "exists": True, "would_overwrite": True}
+            ]
+            http_client.return_value.get.return_value = mock_response
+
+            client = self._client(http_client)
+            result = client.check_video_exists("vid", "Expected Title")
+
         assert result == (True, False)
     
     def test_upload_video_skip_if_exists_exact_match(self):
         """Test 4: upload_video() with skip_if_exists_with_title=True - exact match skips."""
-        client = Mock()
-        
-        # Mock check_video_exists returns (exists=True, title_matches=True)
-        client.check_video_exists.return_value = (True, True)
-        
-        # Call upload_video with skip flag
-        result = client.upload_video(
-            "vid", 
-            "Same Title", 
-            Path("/fake/path.mp4"),
-            skip_if_exists_with_title=True
-        )
-        
-        # Assert: should not call POST, return skipped=True
-        client._client.post.assert_not_called()
+        with patch("httpx.Client") as http_client:
+            client = self._client(http_client)
+            with patch.object(client, "check_video_exists", return_value=(True, True)):
+                result = client.upload_video(
+                    "vid",
+                    "Same Title",
+                    Path("/fake/path.mp4"),
+                    skip_if_exists_with_title=True
+                )
+
+        http_client.return_value.post.assert_not_called()
         assert result.get("skipped") is True
         assert result.get("uploaded") is False
     
-    def test_upload_video_skip_if_exists_will_overwrite(self):
+    def test_upload_video_skip_if_exists_will_overwrite(self, tmp_path):
         """Test 5: upload_video() with skip_if_exists_with_title=True - different title triggers overwrite."""
-        client = Mock()
-        
-        # Mock check_video_exists returns (exists=True, title_matches=False)
-        client.check_video_exists.return_value = (True, False)
-        
-        # Mock POST returns 200 with overwritten:true
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"ok": True, "overwritten": True, "id": "vid"}
-        client._client.post.return_value = mock_response
-        
-        # Need to mock file existence for ProgressFile
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('pathlib.Path.stat') as mock_stat:
-                mock_stat.return_value = Mock(st_size=1000)
-                with patch('builtins.open', mock_open := Mock()):
-                    mock_open.return_value.__enter__ = Mock(return_value=Mock(read=Mock(return_value=b'')))
-                    mock_open.return_value.__exit__ = Mock(return_value=False)
-                    
-                    result = client.upload_video(
-                        "vid",
-                        "New Title",
-                        Path("/fake/path.mp4"),
-                        skip_if_exists_with_title=True
-                    )
-        
+        with patch("httpx.Client") as http_client:
+            client = self._client(http_client)
+
+            mock_response = Mock()
+            mock_response.json.return_value = {"ok": True, "overwritten": True, "id": "vid"}
+            http_client.return_value.post.return_value = mock_response
+
+            video_path = tmp_path / "video.mp4"
+            video_path.write_bytes(b"fake video")
+
+            with patch.object(client, "check_video_exists", return_value=(True, False)):
+                result = client.upload_video(
+                    "vid",
+                    "New Title",
+                    video_path,
+                    skip_if_exists_with_title=True
+                )
+
         assert result.get("overwritten") is True
         assert result.get("uploaded") is True
-    
+
     def test_check_uploaded_with_title_same_title(self):
         """Test 6: check_uploaded_with_title() helper - video exists, same title."""
         client = Mock()
-        
-        # Mock check_video_exists returns (exists=True, title_matches=True)
         client.check_video_exists.return_value = (True, True)
-        
-        # Call check_uploaded_with_title (assumed new helper)
-        result = client.check_uploaded_with_title("vid", "Same Title")
-        
+
+        result = check_uploaded_with_title(client, "vid", "Same Title")
+
         assert result.get("should_upload") is False
         assert result.get("will_overwrite") is False
         assert result.get("exists") is True
-    
+
     def test_check_uploaded_with_title_different_title(self):
         """Test 7: check_uploaded_with_title() helper - video exists, different title."""
         client = Mock()
-        
-        # Mock check_video_exists returns (exists=True, title_matches=False)
         client.check_video_exists.return_value = (True, False)
-        
-        # Call check_uploaded_with_title
-        result = client.check_uploaded_with_title("vid", "Different Title")
-        
+
+        result = check_uploaded_with_title(client, "vid", "Different Title")
+
         assert result.get("should_upload") is True
         assert result.get("will_overwrite") is True
         assert result.get("exists") is True

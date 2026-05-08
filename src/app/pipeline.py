@@ -696,7 +696,10 @@ def _rebuild_server_cache(media_manager_url: str) -> ServerDataCache | None:
         client = MediaManagerClient(media_manager_url)
         try:
             all_audio = client.get_audio_files(include_trash=True)
-            all_videos = client.get_video_files(include_trash=True)
+            all_videos = client.get_video_files(
+                include_trash=True,
+                include_pending=True,
+            )
 
             audio_files = {}
             audio_trash = set()

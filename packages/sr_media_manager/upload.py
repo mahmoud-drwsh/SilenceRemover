@@ -71,7 +71,7 @@ def get_uploaded_video_ids(client: MediaManagerClient) -> List[str]:
     """
     try:
         # Fetch both active and trashed files
-        active_files = client.get_video_files()
+        active_files = client.get_video_files(include_pending=True)
         trashed_files = client.get_video_files(tags='trash')
         all_files = active_files + trashed_files
         return [f.get('id') for f in all_files if f.get('id')]

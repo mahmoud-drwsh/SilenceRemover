@@ -47,12 +47,18 @@ class MediaManagerClient:
         base = f"/projects/{self.token}/{self.project}{endpoint}"
         return urljoin(self.base_url, base)
     
-    def get_audio_files(self, tags: str = None, include_trash: bool = False) -> list[dict]:
+    def get_audio_files(
+        self,
+        tags: str = None,
+        include_trash: bool = False,
+        include_pending: bool = False,
+    ) -> list[dict]:
         """Fetch audio files from API.
         
         Args:
             tags: Optional tag filter (e.g., "ready", "todo", "trash")
             include_trash: If True, include trashed files even when no tag filter (default: False)
+            include_pending: If True, include pending files even when no tag filter (default: False)
         
         Returns: [{"id": "...", "title": "...", "tags": [...], ...}, ...]
         """
@@ -62,18 +68,26 @@ class MediaManagerClient:
                 url += f'&tags={tags}'
             if include_trash:
                 url += '&include_trash=true'
+            if include_pending:
+                url += '&include_pending=true'
             resp = self._client.get(url)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:
             raise MediaManagerError(f"Failed to fetch audio files: {e}")
     
-    def get_video_files(self, tags: str = None, include_trash: bool = False) -> list[dict]:
+    def get_video_files(
+        self,
+        tags: str = None,
+        include_trash: bool = False,
+        include_pending: bool = False,
+    ) -> list[dict]:
         """Fetch video files from API.
         
         Args:
             tags: Optional tag filter (e.g., "FB", "TT", "trash")
             include_trash: If True, include trashed files even when no tag filter (default: False)
+            include_pending: If True, include pending files even when no tag filter (default: False)
         
         Returns: [{"id": "...", "title": "...", "tags": [...], ...}, ...]
         """
@@ -83,6 +97,8 @@ class MediaManagerClient:
                 url += f'&tags={tags}'
             if include_trash:
                 url += '&include_trash=true'
+            if include_pending:
+                url += '&include_pending=true'
             resp = self._client.get(url)
             resp.raise_for_status()
             return resp.json()
