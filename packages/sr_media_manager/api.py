@@ -5,7 +5,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 import httpx
 
 DEFAULT_TIMEOUT = 30.0
@@ -357,33 +357,45 @@ class MediaManagerClient:
 
             total_size = video_path.stat().st_size
             started_at = time.monotonic()
+            uploaded = 0
 
-            with ProgressFile(video_path, progress_callback, total_size) as pf:
-                files = {'file': (video_path.name, pf, mime_type)}
-                data = {
-                    'id': file_id,
+            def iter_video_chunks():
+                nonlocal uploaded
+                with open(video_path, 'rb') as file_obj:
+                    while True:
+                        chunk = file_obj.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        uploaded += len(chunk)
+                        if progress_callback:
+                            progress_callback(uploaded, total_size)
+                        yield chunk
+
+            resp = self._client.put(
+                self._url(f'/api/files/{quote(file_id, safe="")}/content'),
+                params={
                     'title': title,
-                    'type': 'video',
-                    'tags': json.dumps(tags)
-                }
-                resp = self._client.post(
-                    self._url('/api/files'),
-                    data=data,
-                    files=files,
-                    timeout=VIDEO_UPLOAD_TIMEOUT,
-                )
-                resp.raise_for_status()
+                    'tags': json.dumps(tags),
+                },
+                content=iter_video_chunks(),
+                headers={
+                    'Content-Type': mime_type,
+                    'Content-Length': str(total_size),
+                },
+                timeout=VIDEO_UPLOAD_TIMEOUT,
+            )
+            resp.raise_for_status()
 
-                response_json = resp.json()
-                overwritten = response_json.get('overwritten', False) if isinstance(response_json, dict) else False
+            response_json = resp.json()
+            overwritten = response_json.get('overwritten', False) if isinstance(response_json, dict) else False
 
-                return {
-                    'success': True,
-                    'uploaded': True,
-                    'skipped': False,
-                    'overwritten': overwritten,
-                    'error': None
-                }
+            return {
+                'success': True,
+                'uploaded': True,
+                'skipped': False,
+                'overwritten': overwritten,
+                'error': None
+            }
         except Exception as e:
             elapsed = time.monotonic() - started_at if 'started_at' in locals() else 0.0
             total_size = total_size if 'total_size' in locals() else 0

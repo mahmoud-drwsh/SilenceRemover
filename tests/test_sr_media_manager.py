@@ -266,7 +266,7 @@ class TestVideoOverwrite:
                     skip_if_exists_with_title=True
                 )
 
-        http_client.return_value.post.assert_not_called()
+        http_client.return_value.put.assert_not_called()
         assert result.get("skipped") is True
         assert result.get("uploaded") is False
     
@@ -277,7 +277,7 @@ class TestVideoOverwrite:
 
             mock_response = Mock()
             mock_response.json.return_value = {"ok": True, "overwritten": True, "id": "vid"}
-            http_client.return_value.post.return_value = mock_response
+            http_client.return_value.put.return_value = mock_response
 
             video_path = tmp_path / "video.mp4"
             video_path.write_bytes(b"fake video")
@@ -292,13 +292,20 @@ class TestVideoOverwrite:
 
         assert result.get("overwritten") is True
         assert result.get("uploaded") is True
-        assert http_client.return_value.post.call_args.kwargs["timeout"] is VIDEO_UPLOAD_TIMEOUT
+        call = http_client.return_value.put.call_args
+        assert call.args[0].endswith("/api/files/vid/content")
+        assert call.kwargs["params"]["title"] == "New Title"
+        assert call.kwargs["params"]["tags"] == '["FB", "TT"]'
+        assert call.kwargs["headers"]["Content-Type"] == "video/mp4"
+        assert call.kwargs["headers"]["Content-Length"] == "10"
+        assert call.kwargs["timeout"] is VIDEO_UPLOAD_TIMEOUT
+        assert b"".join(call.kwargs["content"]) == b"fake video"
 
     def test_upload_video_failure_logs_context(self, tmp_path, capsys):
         """Video upload failures should expose enough context to diagnose retry loops."""
         with patch("httpx.Client") as http_client:
             client = self._client(http_client)
-            http_client.return_value.post.side_effect = TimeoutError("upload timed out")
+            http_client.return_value.put.side_effect = TimeoutError("upload timed out")
 
             video_path = tmp_path / "video.mp4"
             video_path.write_bytes(b"fake video")

@@ -545,6 +545,80 @@ def storage_put_bytes(file_type: str, project: str, file_id: str, ext: str, cont
     )
 
 
+def _parse_upload_tags(tags: str, file_type: str) -> list[str]:
+    try:
+        tag_list = json.loads(tags)
+        if not isinstance(tag_list, list):
+            raise ValueError("Tags must be an array")
+    except (json.JSONDecodeError, ValueError) as e:
+        raise HTTPException(400, f"Invalid tags format: {e}") from e
+
+    if file_type == 'audio':
+        tag_list = validate_audio_tags(tag_list)
+
+    return tag_list or ['all']
+
+
+def _get_existing_upload_row(conn, file_id: str, project: str, file_type: str):
+    return conn.execute(
+        'SELECT id, title, mime_type, file_size, duration FROM files WHERE id = ? AND project = ? AND type = ?',
+        (file_id, project, file_type)
+    ).fetchone()
+
+
+def _resolve_upload_overwrite(conn, file_id: str, project: str, file_type: str, title: str) -> bool:
+    existing = _get_existing_upload_row(conn, file_id, project, file_type)
+    if not existing:
+        return False
+
+    if file_type == 'audio':
+        raise HTTPException(409, f"Audio file with id '{file_id}' already exists")
+
+    old_title = normalize_title(existing['title'])
+    new_title = normalize_title(title)
+    if old_title == new_title:
+        raise HTTPException(409, "Video with same title already exists")
+
+    print(f"[OVERWRITE] Video '{file_id}': title changed from '{old_title}' to '{new_title}'", flush=True)
+    return True
+
+
+def _probe_duration(temp_path: Path) -> int:
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+             '-of', 'default=noprint_wrappers=1:nokey=1', str(temp_path)],
+            capture_output=True, text=True
+        )
+        return int(float(result.stdout.strip()))
+    except Exception:
+        return 0
+
+
+def _commit_upload_metadata(
+    conn,
+    *,
+    file_id: str,
+    project: str,
+    file_type: str,
+    title: str,
+    tag_list: list[str],
+    duration: int,
+    file_size: int,
+    mime: str,
+    overwritten: bool,
+) -> None:
+    if overwritten:
+        conn.execute('DELETE FROM files WHERE id = ? AND project = ? AND type = ?', (file_id, project, file_type))
+
+    conn.execute('''
+        INSERT INTO files (id, project, type, title, tags, duration, file_size, mime_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (file_id, project, file_type, title, json.dumps(tag_list), duration, file_size, mime))
+    conn.commit()
+
+
 def storage_project_size_totals() -> dict[str, int]:
     """Return exact object-byte totals per project by listing S3 storage."""
     client = get_s3_client()
@@ -909,50 +983,17 @@ async def upload_file(
     if not id:
         raise HTTPException(400, "Invalid file ID")
     
-    conn = get_db()
-    overwritten = False
-    
-    # Check if ID+TYPE+PROJECT combination already exists with full details
-    existing = conn.execute(
-        'SELECT id, title, mime_type, file_size, duration FROM files WHERE id = ? AND project = ? AND type = ?',
-        (id, project, type)
-    ).fetchone()
-    
-    if existing:
-        # Audio: always 409 (strict, no overwrite)
-        if type == 'audio':
-            conn.close()
-            raise HTTPException(409, f"Audio file with id '{id}' already exists")
-        
-        # Video: compare titles to determine overwrite
-        old_title = normalize_title(existing['title'])
-        new_title = normalize_title(title)
-        
-        if old_title == new_title:
-            # Same title → 409 CONFLICT
-            conn.close()
-            raise HTTPException(409, "Video with same title already exists")
-        else:
-            # Different title -> overwrite only after the replacement upload is valid.
-            print(f"[OVERWRITE] Video '{id}': title changed from '{old_title}' to '{new_title}'")
-            overwritten = True
-
-    # Parse and validate tags
     try:
-        tag_list = json.loads(tags)
-        if not isinstance(tag_list, list):
-            raise ValueError("Tags must be an array")
-    except (json.JSONDecodeError, ValueError) as e:
+        tag_list = _parse_upload_tags(tags, type)
+    except HTTPException:
+        raise
+
+    conn = get_db()
+    try:
+        overwritten = _resolve_upload_overwrite(conn, id, project, type, title)
+    except HTTPException:
         conn.close()
-        raise HTTPException(400, f"Invalid tags format: {e}")
-
-    # Validate audio tags
-    if type == 'audio':
-        tag_list = validate_audio_tags(tag_list)
-
-    # If empty tags, auto-set to "all"
-    if not tag_list or tag_list == []:
-        tag_list = ['all']
+        raise
 
     upload_started_at = time.monotonic()
     print(
@@ -986,18 +1027,7 @@ async def upload_file(
         # Determine extension before persisting to the active storage backend.
         ext = get_file_extension(mime)
 
-        # Get duration via ffprobe
-        duration = 0
-        try:
-            import subprocess
-            result = subprocess.run(
-                ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                 '-of', 'default=noprint_wrappers=1:nokey=1', str(temp_path)],
-                capture_output=True, text=True
-            )
-            duration = int(float(result.stdout.strip()))
-        except Exception:
-            pass
+        duration = _probe_duration(temp_path)
 
         storage_put_bytes(type, project, id, ext, content, mime)
         print(
@@ -1006,15 +1036,18 @@ async def upload_file(
             flush=True,
         )
 
-        if overwritten:
-            conn.execute('DELETE FROM files WHERE id = ? AND project = ? AND type = ?', (id, project, type))
-
-        # Insert into database
-        conn.execute('''
-            INSERT INTO files (id, project, type, title, tags, duration, file_size, mime_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (id, project, type, title, json.dumps(tag_list), duration, len(content), mime))
-        conn.commit()
+        _commit_upload_metadata(
+            conn,
+            file_id=id,
+            project=project,
+            file_type=type,
+            title=title,
+            tag_list=tag_list,
+            duration=duration,
+            file_size=len(content),
+            mime=mime,
+            overwritten=overwritten,
+        )
         conn.close()
         print(
             f"UPLOAD_COMMITTED id={id!r} project={project!r} type={type!r} "
@@ -1028,6 +1061,127 @@ async def upload_file(
         print(
             f"UPLOAD_FAILED id={id!r} project={project!r} type={type!r} "
             f"error_type={e.__class__.__name__} error={str(e)!r} "
+            f"elapsed_sec={time.monotonic() - upload_started_at:.1f}",
+            flush=True,
+        )
+        conn.close()
+        raise
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
+@app.put("/projects/{token}/{project}/api/files/{id}/content", response_model=UploadResponse)
+async def upload_video_content(
+    token: str,
+    project: str,
+    id: str,
+    request: Request,
+    title: str = Query('', description="Title/caption"),
+    tags: str = Query('[]', description="JSON array of tags"),
+):
+    verify_token(token)
+    file_type = 'video'
+    file_id = sanitize_file_id(id)
+    if not file_id:
+        raise HTTPException(400, "Invalid file ID")
+
+    tag_list = _parse_upload_tags(tags, file_type)
+
+    conn = get_db()
+    try:
+        overwritten = _resolve_upload_overwrite(conn, file_id, project, file_type, title)
+    except HTTPException:
+        conn.close()
+        raise
+
+    content_length_header = request.headers.get("content-length")
+    if content_length_header is None:
+        conn.close()
+        raise HTTPException(411, "Content-Length is required")
+
+    try:
+        expected_size = int(content_length_header)
+    except ValueError as e:
+        conn.close()
+        raise HTTPException(400, "Invalid Content-Length") from e
+
+    if expected_size > MAX_FILE_SIZE:
+        conn.close()
+        raise HTTPException(413, f"File too large (max {MAX_FILE_SIZE} bytes)")
+
+    upload_started_at = time.monotonic()
+    print(
+        f"UPLOAD_START id={file_id!r} project={project!r} type={file_type!r} "
+        f"raw_body=True expected_bytes={expected_size} tags={tag_list!r}",
+        flush=True,
+    )
+
+    temp_path = None
+    bytes_received = 0
+    try:
+        temp_file = tempfile.NamedTemporaryFile(prefix=f"media-manager-{file_id}-", delete=False)
+        temp_path = Path(temp_file.name)
+        with temp_file:
+            async for chunk in request.stream():
+                if not chunk:
+                    continue
+                bytes_received += len(chunk)
+                if bytes_received > MAX_FILE_SIZE:
+                    raise HTTPException(413, f"File too large (max {MAX_FILE_SIZE} bytes)")
+                temp_file.write(chunk)
+
+        print(
+            f"UPLOAD_RECEIVED id={file_id!r} project={project!r} type={file_type!r} "
+            f"bytes={bytes_received} elapsed_sec={time.monotonic() - upload_started_at:.1f}",
+            flush=True,
+        )
+
+        if bytes_received != expected_size:
+            raise HTTPException(400, f"Incomplete upload: expected {expected_size} bytes, got {bytes_received}")
+
+        mime = get_mime_type(temp_path)
+        if mime not in VIDEO_MIME:
+            raise HTTPException(400, f"Invalid video file type: {mime}")
+
+        ext = get_file_extension(mime)
+        duration = _probe_duration(temp_path)
+        content = temp_path.read_bytes()
+        storage_put_bytes(file_type, project, file_id, ext, content, mime)
+        print(
+            f"UPLOAD_STORED id={file_id!r} project={project!r} type={file_type!r} "
+            f"bytes={bytes_received} elapsed_sec={time.monotonic() - upload_started_at:.1f}",
+            flush=True,
+        )
+
+        _commit_upload_metadata(
+            conn,
+            file_id=file_id,
+            project=project,
+            file_type=file_type,
+            title=title,
+            tag_list=tag_list,
+            duration=duration,
+            file_size=bytes_received,
+            mime=mime,
+            overwritten=overwritten,
+        )
+        conn.close()
+        print(
+            f"UPLOAD_COMMITTED id={file_id!r} project={project!r} type={file_type!r} "
+            f"bytes={bytes_received} overwritten={overwritten} "
+            f"elapsed_sec={time.monotonic() - upload_started_at:.1f}",
+            flush=True,
+        )
+
+        return UploadResponse(ok=True, id=file_id, type=file_type, overwritten=overwritten)
+    except Exception as e:
+        print(
+            f"UPLOAD_FAILED id={file_id!r} project={project!r} type={file_type!r} "
+            f"bytes={bytes_received} error_type={e.__class__.__name__} error={str(e)!r} "
             f"elapsed_sec={time.monotonic() - upload_started_at:.1f}",
             flush=True,
         )
