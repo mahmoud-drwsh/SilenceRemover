@@ -298,3 +298,4 @@ After code or config changes, agents append short notes here. When this file gro
 - `remote-js/static/index.html` / `remote-js/src/parity.test.ts`: Pending video cards now show the same options menu actions as the All videos view, including Move to Trash, with a static regression check.
 - `remote-js/src/routes/files.ts` / `remote-js/src/storage.ts` / `remote-js/src/mime.ts`: Raw video uploads now keep the temp file on disk through MIME sniffing and S3 `PutObject`, avoiding a full-file `readFile()` buffer before storage commit.
 - `remote-js/src/mime.ts` / `remote-js/src/parity.test.ts`: Audio uploads now accept Ogg/Opus snippets detected as `application/ogg` or `audio/opus`, mapping them to `.ogg`; fixes Bun `file-type` rejecting valid pipeline snippet uploads.
+- `remote-js/src/mime.ts` / `remote-js/src/parity.test.ts`: MIME detection now strips parameters such as `; codecs=opus` before allowlist checks, so `audio/ogg; codecs=opus` uploads are accepted as `.ogg`.

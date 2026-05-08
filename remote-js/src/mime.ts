@@ -62,6 +62,11 @@ const EXT_ALIASES: Record<string, string> = {
   "audio/m4a": "audio/x-m4a",
 };
 
+export function normalizeDetectedMime(mime: string): string {
+  const base = mime.split(";", 1)[0]?.trim().toLowerCase() ?? mime;
+  return EXT_ALIASES[base] ?? base;
+}
+
 /** Return the file extension (with dot) for a MIME type, falling back to .bin. */
 export function getExtensionForMime(mime: string): string {
   return MIME_TO_EXT[mime] ?? ".bin";
@@ -78,14 +83,12 @@ export async function sniffMimeFromBytes(
 ): Promise<string | null> {
   const detected = await fileTypeFromBuffer(bytes);
   if (!detected) return null;
-  const raw = detected.mime;
-  return EXT_ALIASES[raw] ?? raw;
+  return normalizeDetectedMime(detected.mime);
 }
 
 /** Sniff MIME from a file path without reading the whole file into memory. */
 export async function sniffMimeFromFile(filePath: string): Promise<string | null> {
   const detected = await fileTypeFromStream(Bun.file(filePath).stream());
   if (!detected) return null;
-  const raw = detected.mime;
-  return EXT_ALIASES[raw] ?? raw;
+  return normalizeDetectedMime(detected.mime);
 }

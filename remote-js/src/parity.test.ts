@@ -17,6 +17,7 @@ import {
   MIME_TO_EXT,
   VIDEO_MIME,
   getExtensionForMime,
+  normalizeDetectedMime,
   sniffMimeFromBytes,
 } from "./mime.ts";
 
@@ -190,6 +191,13 @@ describe("MIME tables", () => {
     expect(mime).toBe("application/ogg");
     expect(ALLOWED_MIME.has(mime!)).toBe(true);
     expect(getExtensionForMime(mime!)).toBe(".ogg");
+  });
+
+  test("accepts Ogg audio snippets detected with codec parameters", () => {
+    const mime = normalizeDetectedMime("audio/ogg; codecs=opus");
+    expect(mime).toBe("audio/ogg");
+    expect(ALLOWED_MIME.has(mime)).toBe(true);
+    expect(getExtensionForMime(mime)).toBe(".ogg");
   });
 });
 
