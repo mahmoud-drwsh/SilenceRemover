@@ -206,7 +206,7 @@ export function parseContentLengthHeader(value: string | undefined): number {
 
 export function addTagListConditions(args: {
   conditions: string[];
-  params: (string | number | boolean | null)[];
+  params: (string | number | boolean | null | string[])[];
   tagList: string[] | null;
   includeTrash: boolean;
   includePending: boolean;
@@ -216,14 +216,14 @@ export function addTagListConditions(args: {
 
   if (args.tagList) {
     for (const tag of args.tagList) {
-      args.params.push(JSON.stringify([tag]));
+      args.params.push([tag]);
       args.conditions.push(`${normalizedTagsSql} @> CAST($${args.params.length} AS jsonb)`);
     }
     return;
   }
 
   if (!args.includeTrash) {
-    args.params.push(JSON.stringify(["trash"]));
+    args.params.push(["trash"]);
     args.conditions.push(`NOT (${normalizedTagsSql} @> CAST($${args.params.length} AS jsonb))`);
   }
 }
@@ -302,7 +302,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const tagList = parseTagsParam(tagsParam);
 
   const conditions: string[] = ["project = $1"];
-  const params: (string | number | boolean | null)[] = [project];
+  const params: (string | number | boolean | null | string[])[] = [project];
 
   if (typeParam) {
     params.push(typeParam);

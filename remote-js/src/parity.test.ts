@@ -106,7 +106,7 @@ describe("parseContentLengthHeader", () => {
 describe("addTagListConditions", () => {
   test("uses jsonb containment for explicit trash filter", () => {
     const conditions = ["project = $1", "type = $2"];
-    const params: (string | number | boolean | null)[] = ["temp", "video"];
+    const params: (string | number | boolean | null | string[])[] = ["temp", "video"];
 
     addTagListConditions({
       conditions,
@@ -119,12 +119,12 @@ describe("addTagListConditions", () => {
     expect(conditions).toContain(
       "CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> CAST($3 AS jsonb)",
     );
-    expect(params[2]).toBe('["trash"]');
+    expect(params[2]).toEqual(["trash"]);
   });
 
   test("excludes only trash by default", () => {
     const conditions = ["project = $1"];
-    const params: (string | number | boolean | null)[] = ["temp"];
+    const params: (string | number | boolean | null | string[])[] = ["temp"];
 
     addTagListConditions({
       conditions,
@@ -140,7 +140,7 @@ describe("addTagListConditions", () => {
     expect(conditions).not.toContain(
       "NOT (CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> CAST($3 AS jsonb))",
     );
-    expect(params.slice(1)).toEqual(['["trash"]']);
+    expect(params.slice(1)).toEqual([["trash"]]);
   });
 });
 
