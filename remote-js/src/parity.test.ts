@@ -117,7 +117,7 @@ describe("addTagListConditions", () => {
     });
 
     expect(conditions).toContain(
-      "CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> $3::jsonb",
+      "CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> CAST($3 AS jsonb)",
     );
     expect(params[2]).toBe('["trash"]');
   });
@@ -135,10 +135,10 @@ describe("addTagListConditions", () => {
     });
 
     expect(conditions).toContain(
-      "NOT (CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> $2::jsonb)",
+      "NOT (CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> CAST($2 AS jsonb))",
     );
     expect(conditions).not.toContain(
-      "NOT (CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> $3::jsonb)",
+      "NOT (CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> CAST($3 AS jsonb))",
     );
     expect(params.slice(1)).toEqual(['["trash"]']);
   });

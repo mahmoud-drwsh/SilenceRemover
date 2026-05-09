@@ -217,14 +217,14 @@ export function addTagListConditions(args: {
   if (args.tagList) {
     for (const tag of args.tagList) {
       args.params.push(JSON.stringify([tag]));
-      args.conditions.push(`${normalizedTagsSql} @> $${args.params.length}::jsonb`);
+      args.conditions.push(`${normalizedTagsSql} @> CAST($${args.params.length} AS jsonb)`);
     }
     return;
   }
 
   if (!args.includeTrash) {
     args.params.push(JSON.stringify(["trash"]));
-    args.conditions.push(`NOT (${normalizedTagsSql} @> $${args.params.length}::jsonb)`);
+    args.conditions.push(`NOT (${normalizedTagsSql} @> CAST($${args.params.length} AS jsonb))`);
   }
 }
 
