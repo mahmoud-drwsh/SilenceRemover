@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { parseRangeHeader } from "./range.ts";
-import { parseContentLengthHeader } from "./routes/files.ts";
+import { addTagListConditions, parseContentLengthHeader } from "./routes/files.ts";
 import { normalizeTitle, sanitizeFileId, sanitizeFilename } from "./sanitize.ts";
 import { HttpError } from "./schemas.ts";
 import {
@@ -100,6 +100,41 @@ describe("parseContentLengthHeader", () => {
         expect((err as HttpError).status).toBe(400);
       }
     }
+  });
+});
+
+describe("addTagListConditions", () => {
+  test("uses jsonb containment for explicit trash filter", () => {
+    const conditions = ["project = $1", "type = $2"];
+    const params: (string | number | boolean | null)[] = ["temp", "video"];
+
+    addTagListConditions({
+      conditions,
+      params,
+      tagList: ["trash"],
+      includeTrash: false,
+      includePending: false,
+    });
+
+    expect(conditions).toContain("tags @> $3::jsonb");
+    expect(params[2]).toBe('["trash"]');
+  });
+
+  test("excludes trash and pending with jsonb containment by default", () => {
+    const conditions = ["project = $1"];
+    const params: (string | number | boolean | null)[] = ["temp"];
+
+    addTagListConditions({
+      conditions,
+      params,
+      tagList: null,
+      includeTrash: false,
+      includePending: false,
+    });
+
+    expect(conditions).toContain("NOT (tags @> $2::jsonb)");
+    expect(conditions).toContain("NOT (tags @> $3::jsonb)");
+    expect(params.slice(1)).toEqual(['["trash"]', '["pending"]']);
   });
 });
 

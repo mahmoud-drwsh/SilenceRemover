@@ -204,6 +204,31 @@ export function parseContentLengthHeader(value: string | undefined): number {
   return Number.parseInt(trimmed, 10);
 }
 
+export function addTagListConditions(args: {
+  conditions: string[];
+  params: (string | number | boolean | null)[];
+  tagList: string[] | null;
+  includeTrash: boolean;
+  includePending: boolean;
+}): void {
+  if (args.tagList) {
+    for (const tag of args.tagList) {
+      args.params.push(JSON.stringify([tag]));
+      args.conditions.push(`tags @> $${args.params.length}::jsonb`);
+    }
+    return;
+  }
+
+  if (!args.includeTrash) {
+    args.params.push(JSON.stringify(["trash"]));
+    args.conditions.push(`NOT (tags @> $${args.params.length}::jsonb)`);
+  }
+  if (!args.includePending) {
+    args.params.push(JSON.stringify(["pending"]));
+    args.conditions.push(`NOT (tags @> $${args.params.length}::jsonb)`);
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /* GET /api/files                                                             */
 /* -------------------------------------------------------------------------- */
@@ -285,32 +310,13 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     conditions.push(`type = $${params.length}`);
   }
 
-  if (tagList) {
-    if (tagList.includes("trash")) {
-      params.push('%"trash"%');
-      conditions.push(`tags::text LIKE $${params.length}`);
-      for (const tag of tagList) {
-        if (tag !== "trash") {
-          params.push(`%"${tag}"%`);
-          conditions.push(`tags::text LIKE $${params.length}`);
-        }
-      }
-    } else {
-      for (const tag of tagList) {
-        params.push(`%"${tag}"%`);
-        conditions.push(`tags::text LIKE $${params.length}`);
-      }
-    }
-  } else {
-    if (!includeTrash) {
-      params.push('"%"trash"%"');
-      conditions.push(`tags::text NOT LIKE $${params.length}`);
-    }
-    if (!includePending) {
-      params.push('"%"pending"%"');
-      conditions.push(`tags::text NOT LIKE $${params.length}`);
-    }
-  }
+  addTagListConditions({
+    conditions,
+    params,
+    tagList,
+    includeTrash,
+    includePending,
+  });
 
   const whereClause = conditions.join(" AND ");
   const sortDirection = sort === "asc" ? "ASC" : "DESC";
