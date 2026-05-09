@@ -28,12 +28,11 @@ import { normalizeTitle, sanitizeFileId } from "../sanitize.ts";
 import {
   storageDelete,
   storageDeleteAnyExtension,
-  storagePutFile,
   storagePutBytes,
 } from "../storage.ts";
 import { probeDurationSeconds } from "../ffprobe.ts";
 import { createWriteStream } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
@@ -506,7 +505,8 @@ filesRouter.put("/projects/:token/:project/api/files/:id/content", async (c) => 
 
     const ext = getExtensionForMime(mime);
     const duration = await probeDurationSeconds(tempPath);
-    await storagePutFile(fileType, project, fileId, ext, tempPath, bytesReceived, mime);
+    const contentBytes = await readFile(tempPath);
+    await storagePutBytes(fileType, project, fileId, ext, contentBytes, mime);
     console.log(
       `UPLOAD_STORED id=${JSON.stringify(fileId)} project=${JSON.stringify(project)} ` +
         `type=${JSON.stringify(fileType)} bytes=${bytesReceived} ` +
