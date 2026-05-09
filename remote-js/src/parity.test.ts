@@ -19,6 +19,7 @@ import {
   getExtensionForMime,
   normalizeDetectedMime,
   sniffMimeFromBytes,
+  sniffMimeFromFile,
 } from "./mime.ts";
 
 describe("parseRangeHeader", () => {
@@ -191,6 +192,13 @@ describe("MIME tables", () => {
     expect(mime).toBe("application/ogg");
     expect(ALLOWED_MIME.has(mime!)).toBe(true);
     expect(getExtensionForMime(mime!)).toBe(".ogg");
+  });
+
+  test("sniffs MIME from file without using incompatible web stream detector", async () => {
+    const mime = await sniffMimeFromFile(
+      new URL("../../tests/fixtures/test_audio.ogg", import.meta.url).pathname,
+    );
+    expect(mime).toBe("application/ogg");
   });
 
   test("accepts Ogg audio snippets detected with codec parameters", () => {

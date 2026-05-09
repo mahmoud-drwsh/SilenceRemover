@@ -4,7 +4,8 @@
  * libmagic-based detection the Python service does with `python-magic`.
  */
 
-import { fileTypeFromBuffer, fileTypeFromStream } from "file-type";
+import { open } from "node:fs/promises";
+import { fileTypeFromBuffer } from "file-type";
 
 export const AUDIO_MIME = new Set<string>([
   "audio/mpeg",
@@ -88,7 +89,15 @@ export async function sniffMimeFromBytes(
 
 /** Sniff MIME from a file path without reading the whole file into memory. */
 export async function sniffMimeFromFile(filePath: string): Promise<string | null> {
-  const detected = await fileTypeFromStream(Bun.file(filePath).stream());
-  if (!detected) return null;
-  return normalizeDetectedMime(detected.mime);
+  const handle = await open(filePath, "r");
+  try {
+    const buffer = new Uint8Array(8192);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0);
+    if (bytesRead === 0) return null;
+    const detected = await fileTypeFromBuffer(buffer.subarray(0, bytesRead));
+    if (!detected) return null;
+    return normalizeDetectedMime(detected.mime);
+  } finally {
+    await handle.close();
+  }
 }
