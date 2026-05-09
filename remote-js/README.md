@@ -100,8 +100,8 @@ The pipeline client and SPA depend on these stable behaviors:
 - Upload lifecycle logs (`UPLOAD_START`, `UPLOAD_RECEIVED`, `UPLOAD_STORED`, `UPLOAD_COMMITTED`, `UPLOAD_FAILED`)
 - Headers (`Accept-Ranges`, `Content-Range`, `Content-Disposition: inline; filename*=UTF-8''<...>`), plus the same `SECURITY_HEADERS` block
 - `MAX_FILE_SIZE = 500 * 1024 * 1024` (500 MB upload cap)
-- Audio tag set `{todo, ready, all, trash}` (strict)
-- Video tags freeform; same overwrite rules (audio = strict 409, video = different-title overwrite)
+- Audio tag set `{todo, ready, trash}` (strict); `all` is a virtual unfiltered view, not a stored tag
+- Video tags freeform; `all` is a virtual unfiltered view, not a stored tag; same overwrite rules (audio = strict 409, video = different-title overwrite)
 - Pre-flight `?check_id=...&check_title=...` envelope with `{exists, would_overwrite, existing_title, provided_title}`
 - Token storage: SHA-256 hashes in `media_manager.auth_tokens`; recoverable plaintext for the media token in Supabase Vault
 - IP-based admin login rate limit (8 attempts / 15 minutes)

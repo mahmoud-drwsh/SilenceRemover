@@ -799,11 +799,6 @@
                 const currentTags = getVideoCardTags(fileId);
                 const newTags = currentTags.filter(t => t !== tagToRemove);
 
-                // If no tags left, set to 'all'
-                if (newTags.length === 0) {
-                    newTags.push('all');
-                }
-
                 // Update tags - pass TYPE_VIDEO since this is video-only function
                 await updateTags(fileId, newTags, TYPE_VIDEO);
             } catch (err) {
@@ -837,14 +832,14 @@
             const displayTitle = title || fileId;
             // Determine type based on current section
             const type = getCurrentType();
-            // Audio restores to 'todo', video restores to 'all'
-            const restoreTag = type === TYPE_AUDIO ? 'todo' : 'all';
+            // Audio restores to 'todo'; video restores with no folder tags.
+            const restoreTags = type === TYPE_AUDIO ? ['todo'] : [];
             showConfirmModal(
                 '♻️ Restore from Trash?',
                 `"${escapeHtml(displayTitle)}" will be restored to the All folder.`,
                 'Restore',
                 true,
-                () => updateTags(fileId, [restoreTag], type)
+                () => updateTags(fileId, restoreTags, type)
             );
         }
 
@@ -949,8 +944,7 @@
             const checkboxes = document.querySelectorAll('#folder-list input[type="checkbox"]:checked');
             const selectedFolders = Array.from(checkboxes).map(cb => cb.value);
             
-            // Always include 'all' as base tag, plus selected folders
-            const newTags = ['all', ...selectedFolders];
+            const newTags = selectedFolders;
             
             try {
                 await updateTags(currentFolderFileId, newTags, TYPE_VIDEO);

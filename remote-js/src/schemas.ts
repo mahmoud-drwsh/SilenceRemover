@@ -46,7 +46,6 @@ export type SetMediaTokenRequest = z.infer<typeof SetMediaTokenRequestSchema>;
 export const AUDIO_TAGS: ReadonlySet<string> = new Set([
   "todo",
   "ready",
-  "all",
   "trash",
 ]);
 

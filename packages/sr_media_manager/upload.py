@@ -54,10 +54,7 @@ def get_uploaded_audio_ids(client: MediaManagerClient) -> List[str]:
     Returns empty list on error (fail-safe for upload decisions).
     """
     try:
-        # Fetch both active and trashed files
-        active_files = client.get_audio_files()
-        trashed_files = client.get_audio_files(tags='trash')
-        all_files = active_files + trashed_files
+        all_files = client.get_audio_files(include_trash=True)
         return [f.get('id') for f in all_files if f.get('id')]
     except Exception:
         return []
@@ -70,10 +67,7 @@ def get_uploaded_video_ids(client: MediaManagerClient) -> List[str]:
     Returns empty list on error (fail-safe for upload decisions).
     """
     try:
-        # Fetch both active and trashed files
-        active_files = client.get_video_files(include_pending=True)
-        trashed_files = client.get_video_files(tags='trash')
-        all_files = active_files + trashed_files
+        all_files = client.get_video_files(include_trash=True)
         return [f.get('id') for f in all_files if f.get('id')]
     except Exception:
         return []

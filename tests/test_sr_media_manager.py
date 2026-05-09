@@ -39,30 +39,27 @@ class TestMediaManagerClient:
         with pytest.raises(ValueError, match="MEDIA_MANAGER_URL"):
             MediaManagerClient()
 
-    def test_get_video_files_can_include_pending(self):
-        """Pending uploads must be visible to idempotency checks."""
+    def test_get_video_files_can_include_trash(self):
+        """All-list existence checks can include trash with one request."""
         with patch("httpx.Client") as http_client:
             response = Mock()
             response.json.return_value = []
             http_client.return_value.get.return_value = response
 
             client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
-            client.get_video_files(include_trash=True, include_pending=True)
+            client.get_video_files(include_trash=True)
 
         requested_url = http_client.return_value.get.call_args.args[0]
         assert "include_trash=true" in requested_url
-        assert "include_pending=true" in requested_url
+        assert "include_pending=true" not in requested_url
 
-    def test_uploaded_video_ids_include_pending_rows(self):
-        """Phase 9 should not re-upload videos already waiting for publish."""
+    def test_uploaded_video_ids_use_virtual_all_list(self):
+        """Phase 9 should use the all list plus trash inclusion for idempotency."""
         client = Mock()
-        client.get_video_files.side_effect = [
-            [{"id": "already-pending", "tags": ["pending"]}],
-            [],
-        ]
+        client.get_video_files.return_value = [{"id": "already-pending", "tags": ["pending"]}]
 
         assert get_uploaded_video_ids(client) == ["already-pending"]
-        client.get_video_files.assert_any_call(include_pending=True)
+        client.get_video_files.assert_called_once_with(include_trash=True)
 
     def test_progress_file_preserves_multipart_content_length(self, tmp_path):
         """Progress wrapper must not force chunked uploads through reverse proxies."""

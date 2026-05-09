@@ -153,7 +153,11 @@ class MediaManagerClient:
         """Check if file exists on server by ID and type."""
         try:
             # Check specific type (audio vs video can share same ID)
-            files = self.get_audio_files() if file_type == 'audio' else self.get_video_files()
+            files = (
+                self.get_audio_files(include_trash=True)
+                if file_type == 'audio'
+                else self.get_video_files(include_trash=True)
+            )
             return any(f.get('id') == file_id for f in files)
         except Exception:
             return False

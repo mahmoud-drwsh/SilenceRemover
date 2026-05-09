@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { parseRangeHeader } from "./range.ts";
 import { addTagListConditions, parseContentLengthHeader } from "./routes/files.ts";
 import { normalizeTitle, sanitizeFileId, sanitizeFilename } from "./sanitize.ts";
-import { HttpError } from "./schemas.ts";
+import { AUDIO_TAGS, HttpError } from "./schemas.ts";
 import {
   ALLOWED_MIME,
   AUDIO_MIME,
@@ -122,7 +122,7 @@ describe("addTagListConditions", () => {
     expect(params[2]).toBe('["trash"]');
   });
 
-  test("excludes trash and pending with normalized jsonb containment by default", () => {
+  test("excludes only trash by default", () => {
     const conditions = ["project = $1"];
     const params: (string | number | boolean | null)[] = ["temp"];
 
@@ -137,10 +137,17 @@ describe("addTagListConditions", () => {
     expect(conditions).toContain(
       "NOT (CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> $2::jsonb)",
     );
-    expect(conditions).toContain(
+    expect(conditions).not.toContain(
       "NOT (CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> $3::jsonb)",
     );
-    expect(params.slice(1)).toEqual(['["trash"]', '["pending"]']);
+    expect(params.slice(1)).toEqual(['["trash"]']);
+  });
+});
+
+describe("AUDIO_TAGS", () => {
+  test("all is a virtual view and not a persisted audio tag", () => {
+    expect(AUDIO_TAGS.has("all")).toBe(false);
+    expect(AUDIO_TAGS.has("trash")).toBe(true);
   });
 });
 
@@ -276,7 +283,16 @@ describe("static Media Manager UI", () => {
 
     expect(removeTagBody).toContain("async function removeTagFromFile");
     expect(openFolderBody).toContain("function openFolderModal");
+    expect(removeTagBody).not.toContain("newTags.push('all')");
     expect(removeTagBody).not.toContain("fetch(`${API_BASE}/files?type=${TYPE_VIDEO}`)");
     expect(openFolderBody).not.toContain("fetch(`${API_BASE}/files?type=${TYPE_VIDEO}`)");
+  });
+
+  test("video restore and folder save do not write an all tag", async () => {
+    const html = await Bun.file(new URL("../static/index.html", import.meta.url)).text();
+
+    expect(html).toContain("const restoreTags = type === TYPE_AUDIO ? ['todo'] : []");
+    expect(html).toContain("const newTags = selectedFolders;");
+    expect(html).not.toContain("const newTags = ['all', ...selectedFolders]");
   });
 });

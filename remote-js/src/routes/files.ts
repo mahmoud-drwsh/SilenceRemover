@@ -109,8 +109,8 @@ function parseUploadTags(value: string, fileType: FileType): string[] {
   if (fileType === "audio") {
     tags = validateAudioTags(tags);
   }
-  if (tags.length === 0) {
-    tags = ["all"];
+  if (tags.length === 0 && fileType === "audio") {
+    tags = ["todo"];
   }
   return tags;
 }
@@ -224,10 +224,6 @@ export function addTagListConditions(args: {
 
   if (!args.includeTrash) {
     args.params.push(JSON.stringify(["trash"]));
-    args.conditions.push(`NOT (${normalizedTagsSql} @> $${args.params.length}::jsonb)`);
-  }
-  if (!args.includePending) {
-    args.params.push(JSON.stringify(["pending"]));
     args.conditions.push(`NOT (${normalizedTagsSql} @> $${args.params.length}::jsonb)`);
   }
 }
@@ -608,8 +604,8 @@ filesRouter.put("/projects/:token/:project/api/files/:id", async (c) => {
   if (rowType === "audio") {
     tags = validateAudioTags(tags);
   }
-  if (tags.length === 0) {
-    tags = ["all"];
+  if (tags.length === 0 && rowType === "audio") {
+    tags = ["todo"];
   }
 
   if (title !== undefined) {
