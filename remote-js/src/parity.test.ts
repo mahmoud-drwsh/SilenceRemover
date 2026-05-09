@@ -116,11 +116,13 @@ describe("addTagListConditions", () => {
       includePending: false,
     });
 
-    expect(conditions).toContain("tags @> $3::jsonb");
+    expect(conditions).toContain(
+      "CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> $3::jsonb",
+    );
     expect(params[2]).toBe('["trash"]');
   });
 
-  test("excludes trash and pending with jsonb containment by default", () => {
+  test("excludes trash and pending with normalized jsonb containment by default", () => {
     const conditions = ["project = $1"];
     const params: (string | number | boolean | null)[] = ["temp"];
 
@@ -132,8 +134,12 @@ describe("addTagListConditions", () => {
       includePending: false,
     });
 
-    expect(conditions).toContain("NOT (tags @> $2::jsonb)");
-    expect(conditions).toContain("NOT (tags @> $3::jsonb)");
+    expect(conditions).toContain(
+      "NOT (CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> $2::jsonb)",
+    );
+    expect(conditions).toContain(
+      "NOT (CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> $3::jsonb)",
+    );
     expect(params.slice(1)).toEqual(['["trash"]', '["pending"]']);
   });
 });

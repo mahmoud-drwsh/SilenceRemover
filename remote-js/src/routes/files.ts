@@ -211,21 +211,24 @@ export function addTagListConditions(args: {
   includeTrash: boolean;
   includePending: boolean;
 }): void {
+  const normalizedTagsSql =
+    "CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END";
+
   if (args.tagList) {
     for (const tag of args.tagList) {
       args.params.push(JSON.stringify([tag]));
-      args.conditions.push(`tags @> $${args.params.length}::jsonb`);
+      args.conditions.push(`${normalizedTagsSql} @> $${args.params.length}::jsonb`);
     }
     return;
   }
 
   if (!args.includeTrash) {
     args.params.push(JSON.stringify(["trash"]));
-    args.conditions.push(`NOT (tags @> $${args.params.length}::jsonb)`);
+    args.conditions.push(`NOT (${normalizedTagsSql} @> $${args.params.length}::jsonb)`);
   }
   if (!args.includePending) {
     args.params.push(JSON.stringify(["pending"]));
-    args.conditions.push(`NOT (tags @> $${args.params.length}::jsonb)`);
+    args.conditions.push(`NOT (${normalizedTagsSql} @> $${args.params.length}::jsonb)`);
   }
 }
 
