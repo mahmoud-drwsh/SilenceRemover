@@ -486,6 +486,7 @@
             // Video card
             const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
             const safeId = escapeJs(file.id);  // Escape file ID for JavaScript context
+            const tagsJson = JSON.stringify(file.tags || []).replace(/"/g, '&quot;');
             let actionsHtml = '';
 
             if (currentFilter === 'trash') {
@@ -528,7 +529,7 @@
             }
 
             return `
-                <div class="file-card">
+                <div class="file-card video-card" data-id="${escapeHtml(file.id)}" data-tags="${tagsJson}">
                     <div class="file-info">
                         <div class="file-title">${escapeHtml(title)}</div>
                         <div class="file-meta">${duration} ${size ? '• ' + size : ''} • <span style="color: #666; font-size: 0.75rem;">${escapeHtml(file.id)}</span></div>
@@ -785,23 +786,24 @@
             );
         }
 
+        function getVideoCardTags(fileId) {
+            const card = document.querySelector(`.video-card[data-id="${CSS.escape(fileId)}"]`);
+            if (!card) {
+                throw new Error('File not found');
+            }
+            return JSON.parse(card.dataset.tags || '[]');
+        }
+
         async function removeTagFromFile(fileId, tagToRemove) {
             try {
-                // Get current file info
-                const res = await fetch(`${API_BASE}/files?type=${TYPE_VIDEO}`);
-                const files = await res.json();
-                const file = files.find(f => f.id === fileId);
-                
-                if (!file) throw new Error('File not found');
-                
-                // Remove the tag
-                const newTags = file.tags.filter(t => t !== tagToRemove);
-                
+                const currentTags = getVideoCardTags(fileId);
+                const newTags = currentTags.filter(t => t !== tagToRemove);
+
                 // If no tags left, set to 'all'
                 if (newTags.length === 0) {
                     newTags.push('all');
                 }
-                
+
                 // Update tags - pass TYPE_VIDEO since this is video-only function
                 await updateTags(fileId, newTags, TYPE_VIDEO);
             } catch (err) {
@@ -903,17 +905,13 @@
             { id: 'IG', name: '📸 Instagram', color: '#e1306c' }
         ];
 
-        async function openFolderModal(fileId, title) {
+        function openFolderModal(fileId, title) {
             currentFolderFileId = fileId;
             currentFolderFileTitle = title;
-            
-            // Get current file tags
+
             try {
-                const res = await fetch(`${API_BASE}/files?type=${TYPE_VIDEO}`);
-                const files = await res.json();
-                const file = files.find(f => f.id === fileId);
-                const currentTags = file ? file.tags : [];
-                
+                const currentTags = getVideoCardTags(fileId);
+
                 // Build folder list with checkboxes
                 const folderList = document.getElementById('folder-list');
                 folderList.innerHTML = AVAILABLE_FOLDERS.map(folder => {
@@ -925,12 +923,12 @@
                         </div>
                     `;
                 }).join('');
-                
+
                 // Update title
                 document.getElementById('folder-title').textContent = 'Add to Folders';
-                document.getElementById('folder-subtitle').textContent = 
+                document.getElementById('folder-subtitle').textContent =
                     title ? `"${escapeHtml(title)}"` : fileId;
-                
+
                 // Show modal
                 document.getElementById('folder-overlay').classList.add('show');
             } catch (err) {

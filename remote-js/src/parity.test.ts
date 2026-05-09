@@ -215,4 +215,27 @@ describe("static Media Manager UI", () => {
     expect(html).toContain("currentFilter === 'all' || currentFilter === 'pending'");
     expect(html).toContain("confirmMoveToTrash('${safeId}')");
   });
+
+  test("video folder actions use card tags instead of refetching all videos", async () => {
+    const html = await Bun.file(new URL("../static/index.html", import.meta.url)).text();
+
+    expect(html).toContain('class="file-card video-card"');
+    expect(html).toContain('data-tags="${tagsJson}"');
+    expect(html).toContain("function getVideoCardTags(fileId)");
+    expect(html).toContain("const currentTags = getVideoCardTags(fileId);");
+
+    const removeTagBody = html.slice(
+      html.indexOf("async function removeTagFromFile"),
+      html.indexOf("function confirmMoveToReady"),
+    );
+    const openFolderBody = html.slice(
+      html.indexOf("function openFolderModal"),
+      html.indexOf("function closeFolderModal"),
+    );
+
+    expect(removeTagBody).toContain("async function removeTagFromFile");
+    expect(openFolderBody).toContain("function openFolderModal");
+    expect(removeTagBody).not.toContain("fetch(`${API_BASE}/files?type=${TYPE_VIDEO}`)");
+    expect(openFolderBody).not.toContain("fetch(`${API_BASE}/files?type=${TYPE_VIDEO}`)");
+  });
 });
