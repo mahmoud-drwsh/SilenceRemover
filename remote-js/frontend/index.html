@@ -256,6 +256,7 @@
         let currentFilter = 'todo';
         let strictIsolation = false; // When specific folder in URL, hide tabs
         let currentSort = 'asc'; // 'asc' or 'desc'
+        let fileLoadSequence = 0;
 
         // Fixed tabs per section
         // Audio section now includes FB tab to view uploaded videos (cross-type viewing)
@@ -425,6 +426,7 @@
         }
 
         async function loadFiles() {
+            const loadSequence = ++fileLoadSequence;
             const content = document.getElementById('content');
             const label = getTabLabel(currentFilter);
             document.querySelector('header h1').innerHTML = `📁 ${label}`;
@@ -449,6 +451,8 @@
 
                 const files = await res.json();
 
+                if (loadSequence !== fileLoadSequence) return;
+
                 if (files.length === 0) {
                     // Cross-type viewing: show correct file type in empty state
                     const isFbCrossView = currentSection === 'audio' && currentFilter === 'FB';
@@ -465,6 +469,7 @@
                 const label = getTabLabel(currentFilter);
                 document.querySelector('header h1').innerHTML = `📁 ${label} (${files.length})`;
             } catch (err) {
+                if (loadSequence !== fileLoadSequence) return;
                 content.innerHTML = `<div class="error">Error: ${err.message}</div>`;
             }
         }
