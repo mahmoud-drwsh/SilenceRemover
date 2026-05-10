@@ -10,7 +10,7 @@ ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json tsconfig.json ./
 COPY src ./src
-COPY static ./static
+COPY frontend ./frontend
 COPY scripts ./scripts
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \

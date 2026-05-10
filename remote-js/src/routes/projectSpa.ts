@@ -15,9 +15,9 @@ import { HttpError } from "../schemas.ts";
 
 export const projectSpaRouter = new Hono();
 
-const STATIC_ROOT = new URL("../../static/", import.meta.url).pathname;
-const INDEX_HTML = join(STATIC_ROOT, "index.html");
-const VIDEO_PLAYER_HTML = join(STATIC_ROOT, "video-player.html");
+const FRONTEND_ROOT = new URL("../../frontend/", import.meta.url).pathname;
+const INDEX_HTML = join(FRONTEND_ROOT, "index.html");
+const VIDEO_PLAYER_HTML = join(FRONTEND_ROOT, "video-player.html");
 
 function contentTypeFor(filePath: string): string {
   const lower = filePath.toLowerCase();
@@ -64,8 +64,8 @@ projectSpaRouter.get(
     if (!rest) {
       throw new HttpError(404, "File not found");
     }
-    const requested = normalize(join(STATIC_ROOT, rest));
-    const rootWithSep = STATIC_ROOT.endsWith(sep) ? STATIC_ROOT : STATIC_ROOT + sep;
+    const requested = normalize(join(FRONTEND_ROOT, rest));
+    const rootWithSep = FRONTEND_ROOT.endsWith(sep) ? FRONTEND_ROOT : FRONTEND_ROOT + sep;
     if (!requested.startsWith(rootWithSep)) {
       throw new HttpError(403, "Invalid path");
     }

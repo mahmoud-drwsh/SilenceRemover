@@ -257,15 +257,15 @@ describe("MIME tables", () => {
   });
 });
 
-describe("static Media Manager UI", () => {
+describe("frontend Media Manager UI", () => {
   test("pending video options include Move to Trash", async () => {
-    const html = await Bun.file(new URL("../static/index.html", import.meta.url)).text();
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
     expect(html).toContain("currentFilter === 'all' || currentFilter === 'pending'");
     expect(html).toContain("confirmMoveToTrash('${safeId}')");
   });
 
   test("video folder actions use card tags instead of refetching all videos", async () => {
-    const html = await Bun.file(new URL("../static/index.html", import.meta.url)).text();
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
 
     expect(html).toContain('class="file-card video-card"');
     expect(html).toContain('data-tags="${tagsJson}"');
@@ -289,7 +289,7 @@ describe("static Media Manager UI", () => {
   });
 
   test("video restore and folder save do not write an all tag", async () => {
-    const html = await Bun.file(new URL("../static/index.html", import.meta.url)).text();
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
 
     expect(html).toContain("const restoreTags = type === TYPE_AUDIO ? ['todo'] : []");
     expect(html).toContain("const newTags = selectedFolders;");

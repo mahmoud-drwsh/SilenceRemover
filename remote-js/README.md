@@ -66,7 +66,7 @@ remote-js/
 ├── tsconfig.json
 ├── Dockerfile
 ├── docker-compose.yml
-├── src/
+├── src/                    # Backend service code
 │   ├── index.ts            # Bun.serve entrypoint, startup checks
 │   ├── config.ts           # env parsing
 │   ├── db.ts               # postgres connection + schema-prefixed helpers
@@ -84,7 +84,7 @@ remote-js/
 │       ├── stream.ts       # GET /projects/:t/:p/stream/:id
 │       ├── projectSpa.ts   # /static/*, /video-player, SPA fallback
 │       └── admin.ts        # /admin/:admin_token/* dashboard + admin API
-├── static/                 # Browser SPA assets
+├── frontend/               # Browser SPA assets served by the backend
 └── scripts/
     ├── setup_supabase_admin_auth.sql
     └── generate_admin_token.ts

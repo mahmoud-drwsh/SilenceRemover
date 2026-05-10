@@ -21,8 +21,8 @@ import { storageProjectSizeTotals } from "../storage.ts";
 
 export const adminRouter = new Hono();
 
-const STATIC_ROOT = new URL("../../static/", import.meta.url).pathname;
-const ADMIN_HTML = join(STATIC_ROOT, "admin.html");
+const FRONTEND_ROOT = new URL("../../frontend/", import.meta.url).pathname;
+const ADMIN_HTML = join(FRONTEND_ROOT, "admin.html");
 
 interface ProjectStatRow {
   project: string;
@@ -224,10 +224,10 @@ adminRouter.get("/admin/:admin_token/*", async (c) => {
     ? url.pathname.slice(prefix.length)
     : "";
   if (rest) {
-    const candidate = normalize(join(STATIC_ROOT, rest));
-    const rootWithSep = STATIC_ROOT.endsWith(sep)
-      ? STATIC_ROOT
-      : STATIC_ROOT + sep;
+    const candidate = normalize(join(FRONTEND_ROOT, rest));
+    const rootWithSep = FRONTEND_ROOT.endsWith(sep)
+      ? FRONTEND_ROOT
+      : FRONTEND_ROOT + sep;
     if (candidate.startsWith(rootWithSep)) {
       const file = Bun.file(candidate);
       if (await file.exists()) {
