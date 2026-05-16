@@ -14,7 +14,16 @@ import { getExtensionForMime } from "../mime.ts";
 import { parseRangeHeader } from "../range.ts";
 import { HttpError, type FileType } from "../schemas.ts";
 import { normalizeTitle, sanitizeFileId, sanitizeFilename } from "../sanitize.ts";
-import { storageGet, storageHead } from "../storage.ts";
+import { storageGet, storageGetBytes, storageHead } from "../storage.ts";
+
+/**
+ * Maximum body size (bytes) that will be buffered into memory to preserve the
+ * Content-Length header. Responses larger than this are streamed with chunked
+ * transfer encoding (no Content-Length visible to the client). Applies to both
+ * full-file and range requests. 256 MB covers all audio files and typical
+ * video exports while keeping per-request peak memory bounded.
+ */
+const BUFFER_THRESHOLD = 256 * 1024 * 1024;
 
 export const streamRouter = new Hono();
 
@@ -98,14 +107,13 @@ streamRouter.get("/projects/:token/:project/stream/:id", async (c) => {
     headers["Content-Length"] = String(totalSize);
   }
 
-  const fetched = await storageGet(
-    row.type,
-    project,
-    decodedId,
-    ext,
-    byteRange,
-    totalSize,
-  );
+  const bodySize = byteRange ? byteRange.end - byteRange.start + 1 : totalSize;
 
-  return new Response(fetched.body, { status, headers });
+  if (bodySize <= BUFFER_THRESHOLD) {
+    const buffer = await storageGetBytes(row.type, project, decodedId, ext, byteRange);
+    return new Response(buffer, { status, headers });
+  }
+
+  const stream = await storageGet(row.type, project, decodedId, ext, byteRange);
+  return new Response(stream, { status, headers });
 });

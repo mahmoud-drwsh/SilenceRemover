@@ -14,6 +14,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { loadConfig } from "./config.ts";
 import { MIME_TO_EXT } from "./mime.ts";
 
@@ -31,6 +32,9 @@ export function getS3Client(): S3Client {
       accessKeyId: config.s3AccessKey,
       secretAccessKey: config.s3SecretKey,
     },
+    requestHandler: new NodeHttpHandler({
+      requestTimeout: 600_000,
+    }),
   });
   return cachedClient;
 }
@@ -135,15 +139,11 @@ export async function storageHead(
   }
 }
 
-export interface StorageRangeResult {
-  body: ReadableStream<Uint8Array>;
-  size: number;
-  byteRange: { start: number; end: number } | null;
-}
-
 /**
- * Issue a GetObject (optionally with a `Range`). The caller is responsible
- * for forwarding the response stream and any headers.
+ * Issue a GetObject (optionally with a `Range`) and return the body as a web
+ * ReadableStream. Use this for large responses where buffering in memory would
+ * be impractical. Note: Bun will send the response with chunked transfer
+ * encoding, dropping any Content-Length header set by the caller.
  */
 export async function storageGet(
   fileType: "audio" | "video",
@@ -151,8 +151,7 @@ export async function storageGet(
   fileId: string,
   ext: string,
   byteRange: { start: number; end: number } | null,
-  totalSize: number,
-): Promise<StorageRangeResult> {
+): Promise<ReadableStream<Uint8Array>> {
   const config = loadConfig();
   const command = new GetObjectCommand({
     Bucket: config.s3Bucket,
@@ -166,11 +165,37 @@ export async function storageGet(
   if (!body || typeof (body as { transformToWebStream?: () => unknown }).transformToWebStream !== "function") {
     throw new Error("S3 GetObject returned no body");
   }
-  return {
-    body: (body as { transformToWebStream: () => ReadableStream<Uint8Array> }).transformToWebStream(),
-    size: totalSize,
-    byteRange,
-  };
+  return (body as { transformToWebStream: () => ReadableStream<Uint8Array> }).transformToWebStream();
+}
+
+/**
+ * Issue a GetObject (optionally with a `Range`) and buffer the full response
+ * into a Uint8Array. Using transformToByteArray() prevents Bun from switching
+ * to chunked transfer encoding, so the Content-Length header set by the caller
+ * is preserved and reaches the client. Only call this when the expected body
+ * size is within a safe in-memory limit.
+ */
+export async function storageGetBytes(
+  fileType: "audio" | "video",
+  project: string,
+  fileId: string,
+  ext: string,
+  byteRange: { start: number; end: number } | null,
+): Promise<Uint8Array> {
+  const config = loadConfig();
+  const command = new GetObjectCommand({
+    Bucket: config.s3Bucket,
+    Key: storageObjectKey(fileType, project, fileId, ext),
+    ...(byteRange
+      ? { Range: `bytes=${byteRange.start}-${byteRange.end}` }
+      : {}),
+  });
+  const result = await getS3Client().send(command);
+  const body = result.Body;
+  if (!body || typeof (body as { transformToByteArray?: () => unknown }).transformToByteArray !== "function") {
+    throw new Error("S3 GetObject returned no body");
+  }
+  return (body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray();
 }
 
 /**
