@@ -51,6 +51,7 @@ async function main(): Promise<void> {
   const server = Bun.serve({
     port: config.port,
     hostname: "0.0.0.0",
+    idleTimeout: 0,
     fetch: app.fetch,
     error(error) {
       console.error("[bun.serve error]", error);
