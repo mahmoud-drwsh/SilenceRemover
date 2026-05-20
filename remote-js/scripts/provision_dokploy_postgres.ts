@@ -213,8 +213,9 @@ async function main(): Promise<void> {
   );
 
   const postgresId = created.postgresId;
+  const databaseHost = created.appName ?? name;
   const envOutput = [
-    `DATABASE_URL=postgresql://${databaseUser}:${databasePassword}@${name}:5432/${databaseName}`,
+    `DATABASE_URL=postgresql://${databaseUser}:${databasePassword}@${databaseHost}:5432/${databaseName}`,
     "DB_SCHEMA=media_manager",
     `TOKEN_ENCRYPTION_KEY=${tokenEncryptionKey}`,
     "",
