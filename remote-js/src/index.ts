@@ -42,7 +42,7 @@ app.route("/", projectSpaRouter);
 async function main(): Promise<void> {
   const config = loadConfig();
   console.log(
-    `[startup] media-manager checking Supabase schema "${config.supabaseDbSchema}" and S3 bucket "${config.s3Bucket}" ...`,
+    `[startup] media-manager checking Postgres schema "${config.dbSchema}" and S3 bucket "${config.s3Bucket}" ...`,
   );
   await ensureDatabaseReady();
   await ensureStorageBackendReady();

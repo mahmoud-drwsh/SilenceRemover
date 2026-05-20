@@ -1,6 +1,6 @@
 # Media Manager
 
-Canonical Media Manager service for SilenceRemover. It exposes the pipeline/browser HTTP contract on top of [Bun](https://bun.sh) + [Hono](https://hono.dev), proxies requests to a Supabase Postgres database (metadata) and an S3-compatible object store (media bytes), and is packaged as a single Docker image for [Dokploy](https://dokploy.com).
+Canonical Media Manager service for SilenceRemover. It exposes the pipeline/browser HTTP contract on top of [Bun](https://bun.sh) + [Hono](https://hono.dev), proxies requests to a Postgres database (metadata) and an S3-compatible object store (media bytes), and is packaged as a single Docker image for [Dokploy](https://dokploy.com).
 
 The pipeline client at [`packages/sr_media_manager/`](../packages/sr_media_manager) and the bundled browser SPA talk to this service directly.
 
@@ -17,7 +17,7 @@ The pipeline client at [`packages/sr_media_manager/`](../packages/sr_media_manag
 ## Local development
 
 ```bash
-cp .env.example .env       # fill SUPABASE_DATABASE_URL, S3_*, etc.
+cp .env.example .env       # fill DATABASE_URL, TOKEN_ENCRYPTION_KEY, S3_*, etc.
 bun install
 bun run dev                # auto-reloads on file changes
 ```
@@ -48,15 +48,34 @@ This service is a Docker container that listens on port `8080`. Dokploy / Traefi
 
 Alternatively, drop the [`docker-compose.yml`](docker-compose.yml) into Dokploy's "Compose" mode.
 
-## Schema bootstrap
+## Dokploy Postgres
 
-Run [`scripts/setup_supabase_admin_auth.sql`](scripts/setup_supabase_admin_auth.sql) once to create the Supabase schema (`media_manager.files`, `media_manager.auth_tokens`, `media_manager.admin_audit_log`, plus the `vault_secret_id` column), then seed the first admin token with [`scripts/generate_admin_token.ts`](scripts/generate_admin_token.ts):
+The repo root `.env` can contain:
+
+```bash
+DOKPLOY_BASE=http://your-dokploy-host:3000
+DOKPLOY_TOKEN=...
+```
+
+Create a Dokploy-managed Postgres database:
+
+```bash
+bun run provision:dokploy-postgres
+```
+
+If Dokploy has more than one project or environment, add `DOKPLOY_PROJECT_ID` and `DOKPLOY_ENVIRONMENT_ID` to the repo root `.env`. The command prints `DATABASE_URL`, `DB_SCHEMA`, and `TOKEN_ENCRYPTION_KEY` values for the Media Manager app.
+
+## Schema Bootstrap
+
+The service creates/updates the plain Postgres schema on startup. [`scripts/setup_postgres.sql`](scripts/setup_postgres.sql) is kept as the explicit SQL version for manual bootstrap or review.
+
+Seed the first admin token with [`scripts/generate_admin_token.ts`](scripts/generate_admin_token.ts):
 
 ```bash
 bun run generate-admin-token
 ```
 
-The output is the same as the Python `generate_admin_token_sql.py` script: a plaintext token (used once) and a SQL `INSERT` to apply in Supabase.
+The output includes a plaintext token and a SQL `INSERT` to apply to the Postgres database.
 
 ## Layout
 
@@ -86,7 +105,8 @@ remote-js/
 │       └── admin.ts        # /admin/:admin_token/* dashboard + admin API
 ├── frontend/               # Browser SPA assets served by the backend
 └── scripts/
-    ├── setup_supabase_admin_auth.sql
+    ├── setup_postgres.sql
+    ├── provision_dokploy_postgres.ts
     └── generate_admin_token.ts
 ```
 
@@ -103,6 +123,6 @@ The pipeline client and SPA depend on these stable behaviors:
 - Audio tag set `{todo, ready, trash}` (strict); `all` is a virtual unfiltered view, not a stored tag
 - Video tags freeform; `all` is a virtual unfiltered view, not a stored tag; same overwrite rules (audio = strict 409, video = different-title overwrite)
 - Pre-flight `?check_id=...&check_title=...` envelope with `{exists, would_overwrite, existing_title, provided_title}`
-- Token storage: SHA-256 hashes in `media_manager.auth_tokens`; recoverable plaintext for the media token in Supabase Vault
+- Token storage: SHA-256 hashes in `media_manager.auth_tokens`; recoverable media token encrypted with `TOKEN_ENCRYPTION_KEY`
 - IP-based admin login rate limit (8 attempts / 15 minutes)
 - Admin audit log writes to `media_manager.admin_audit_log`

@@ -8,8 +8,9 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SUPABASE_DATABASE_URL: ${SUPABASE_DATABASE_URL}
-      SUPABASE_DB_SCHEMA: ${SUPABASE_DB_SCHEMA:-media_manager}
+      DATABASE_URL: ${DATABASE_URL}
+      DB_SCHEMA: ${DB_SCHEMA:-media_manager}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
       S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
       S3_BUCKET: ${S3_BUCKET:-media-manager}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}

@@ -67,7 +67,7 @@ async function refreshAdminTokenHandler(adminToken: string, c: Context) {
     admin_token: newAdminToken,
     admin_url: `/admin/${newAdminToken}/`,
     persisted: true,
-    persistence: "supabase",
+    persistence: "postgres",
   });
 }
 
@@ -109,7 +109,7 @@ adminRouter.post("/admin/:admin_token/api/media-token", async (c) => {
     ok: true,
     media_token: trimmed,
     persisted: true,
-    persistence: "supabase-vault",
+    persistence: "postgres-encrypted",
   });
 });
 

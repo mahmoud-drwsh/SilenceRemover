@@ -15,7 +15,7 @@ let cachedClient: postgres.Sql | undefined;
 export function getDb(): postgres.Sql {
   if (cachedClient) return cachedClient;
   const config = loadConfig();
-  cachedClient = postgres(config.supabaseDatabaseUrl, {
+  cachedClient = postgres(config.databaseUrl, {
     prepare: false,
     onnotice: () => {},
     transform: {
@@ -35,13 +35,53 @@ export async function closeDb(): Promise<void> {
 
 /** Pre-quoted schema identifier (e.g. `"media_manager"`). */
 export function schemaIdent(): string {
-  return loadConfig().supabaseSchemaIdent;
+  return loadConfig().schemaIdent;
 }
 
 /** Verify the schema and required tables exist; throws on failure. */
 export async function ensureDatabaseReady(): Promise<void> {
   const sql = getDb();
+  const schemaName = loadConfig().dbSchema;
   const ident = schemaIdent();
+  await sql`CREATE SCHEMA IF NOT EXISTS ${sql(schemaName)}`;
+  await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS ${ident}.files (
+      id text NOT NULL,
+      project text NOT NULL,
+      type text NOT NULL CHECK (type IN ('audio', 'video')),
+      title text,
+      tags jsonb NOT NULL DEFAULT '[]'::jsonb,
+      duration double precision NOT NULL DEFAULT 0,
+      file_size bigint NOT NULL DEFAULT 0,
+      mime_type text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (id, project, type)
+    )
+  `);
+  await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_project_type_idx ON ${ident}.files (project, type)`);
+  await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_tags_gin_idx ON ${ident}.files USING gin (tags)`);
+  await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS ${ident}.auth_tokens (
+      kind text PRIMARY KEY CHECK (kind IN ('admin', 'media')),
+      token_hash text NOT NULL,
+      encrypted_token text,
+      rotated_at timestamptz NOT NULL DEFAULT now(),
+      version integer NOT NULL DEFAULT 1
+    )
+  `);
+  await sql.unsafe(`ALTER TABLE ${ident}.auth_tokens ADD COLUMN IF NOT EXISTS encrypted_token text`);
+  await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS ${ident}.admin_audit_log (
+      id bigserial PRIMARY KEY,
+      email text NOT NULL,
+      action text NOT NULL,
+      ip_address text,
+      user_agent text,
+      details jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await sql.unsafe(`CREATE INDEX IF NOT EXISTS admin_audit_log_created_at_idx ON ${ident}.admin_audit_log (created_at DESC)`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.files LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.auth_tokens LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.admin_audit_log LIMIT 1`);

@@ -1,14 +1,15 @@
 {
   "name": "media-manager",
   "version": "1.0.0",
-  "description": "Media Manager service for SilenceRemover. HTTP contract over Bun + Hono, talking to Supabase Postgres metadata and S3-compatible object storage.",
+  "description": "Media Manager service for SilenceRemover. HTTP contract over Bun + Hono, talking to Postgres metadata and S3-compatible object storage.",
   "type": "module",
   "module": "src/index.ts",
   "scripts": {
     "dev": "bun --watch run src/index.ts",
     "start": "bun run src/index.ts",
     "typecheck": "bun --bun tsc --noEmit",
-    "generate-admin-token": "bun run scripts/generate_admin_token.ts"
+    "generate-admin-token": "bun run scripts/generate_admin_token.ts",
+    "provision:dokploy-postgres": "bun run scripts/provision_dokploy_postgres.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.658.1",

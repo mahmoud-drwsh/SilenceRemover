@@ -2,12 +2,18 @@
  * Auth helpers - 1:1 port of the Python `_token_hash` / `_verify_stored_token`
  * / `_set_token_hash` / `_set_media_token` / rate-limit logic in remote/app.py.
  *
- * Tokens are never stored in plaintext (except the media token, which lives in
- * Supabase Vault for the admin dashboard to surface as a one-time copyable
- * link).
+ * Tokens are never stored in plaintext. The media token is encrypted with an
+ * app-held key so the admin dashboard can surface project links without
+ * depending on a provider-specific vault.
  */
 
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 import { getDb, schemaIdent } from "./db.ts";
 import { loadConfig } from "./config.ts";
 
@@ -88,10 +94,9 @@ export async function rotateAdminToken(): Promise<string> {
   return newToken;
 }
 
-/**
- * Set the media (project) token. Stores the hash in `auth_tokens` and the
- * recoverable plaintext in Supabase Vault. Mirrors `_set_media_token`.
- */
+const MEDIA_TOKEN_CIPHER_VERSION = "v1";
+
+/** Set the media (project) token hash and encrypted recoverable token. */
 export async function setMediaToken(token: string): Promise<void> {
   const config = loadConfig();
   const normalized = token.trim();
@@ -102,75 +107,72 @@ export async function setMediaToken(token: string): Promise<void> {
   const sql = getDb();
   const ident = schemaIdent();
   const auth = `${ident}.auth_tokens`;
+  const encryptedToken = encryptSecret(normalized, config.tokenEncryptionKey);
 
-  await sql.begin(async (tx) => {
-    const existingRows = await tx.unsafe<{ vault_secret_id: string | null }[]>(
-      `SELECT vault_secret_id FROM ${auth} WHERE kind = 'media'`,
-    );
-    let vaultSecretId: string | null = existingRows[0]?.vault_secret_id ?? null;
-
-    if (!vaultSecretId) {
-      const lookup = await tx.unsafe<{ id: string }[]>(
-        `SELECT id FROM vault.decrypted_secrets WHERE name = $1`,
-        [config.mediaTokenVaultName],
-      );
-      vaultSecretId = lookup[0]?.id ?? null;
-    }
-
-    if (vaultSecretId) {
-      await tx.unsafe(
-        `SELECT vault.update_secret($1::uuid, $2, $3, $4)`,
-        [
-          vaultSecretId,
-          normalized,
-          config.mediaTokenVaultName,
-          "Media Manager project URL token",
-        ],
-      );
-    } else {
-      const created = await tx.unsafe<{ id: string }[]>(
-        `SELECT vault.create_secret($1, $2, $3) AS id`,
-        [
-          normalized,
-          config.mediaTokenVaultName,
-          "Media Manager project URL token",
-        ],
-      );
-      vaultSecretId = created[0]?.id ?? null;
-    }
-
-    await tx.unsafe(
-      `
-      INSERT INTO ${auth} (kind, token_hash, vault_secret_id)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (kind) DO UPDATE
-      SET token_hash = EXCLUDED.token_hash,
-          vault_secret_id = EXCLUDED.vault_secret_id,
-          rotated_at = now(),
-          version = ${auth}.version + 1
-      `,
-      ["media", tokenHash(normalized), vaultSecretId],
-    );
-  });
+  await sql.unsafe(
+    `
+    INSERT INTO ${auth} (kind, token_hash, encrypted_token)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (kind) DO UPDATE
+    SET token_hash = EXCLUDED.token_hash,
+        encrypted_token = EXCLUDED.encrypted_token,
+        rotated_at = now(),
+        version = ${auth}.version + 1
+    `,
+    ["media", tokenHash(normalized), encryptedToken],
+  );
 }
 
-/**
- * Return the recoverable media token from Supabase Vault, or null when none
- * is stored yet. Used by the admin dashboard to render copyable project URLs.
- */
+/** Return the recoverable media token, or null when none is stored yet. */
 export async function getMediaTokenPlaintext(): Promise<string | null> {
+  const config = loadConfig();
   const sql = getDb();
   const ident = schemaIdent();
   const auth = `${ident}.auth_tokens`;
-  const rows = await sql.unsafe<{ decrypted_secret: string | null }[]>(
-    `
-    SELECT ds.decrypted_secret
-    FROM ${auth} t
-    JOIN vault.decrypted_secrets ds ON ds.id = t.vault_secret_id
-    WHERE t.kind = 'media'
-    `,
+  const rows = await sql.unsafe<{ encrypted_token: string | null }[]>(
+    `SELECT encrypted_token FROM ${auth} WHERE kind = 'media'`,
   );
-  return rows[0]?.decrypted_secret ?? null;
+  const encryptedToken = rows[0]?.encrypted_token ?? null;
+  if (!encryptedToken) return null;
+  return decryptSecret(encryptedToken, config.tokenEncryptionKey);
+}
+
+function encryptSecret(secret: string, key: Buffer): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([
+    cipher.update(secret, "utf8"),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+  return [
+    MEDIA_TOKEN_CIPHER_VERSION,
+    iv.toString("base64url"),
+    tag.toString("base64url"),
+    encrypted.toString("base64url"),
+  ].join(".");
+}
+
+function decryptSecret(payload: string, key: Buffer): string {
+  const [version, ivRaw, tagRaw, encryptedRaw] = payload.split(".");
+  if (
+    version !== MEDIA_TOKEN_CIPHER_VERSION ||
+    !ivRaw ||
+    !tagRaw ||
+    !encryptedRaw
+  ) {
+    throw new Error("Unsupported encrypted token payload");
+  }
+  const decipher = createDecipheriv(
+    "aes-256-gcm",
+    key,
+    Buffer.from(ivRaw, "base64url"),
+  );
+  decipher.setAuthTag(Buffer.from(tagRaw, "base64url"));
+  return Buffer.concat([
+    decipher.update(Buffer.from(encryptedRaw, "base64url")),
+    decipher.final(),
+  ]).toString("utf8");
 }
 
 /* -------------------------------------------------------------------------- */

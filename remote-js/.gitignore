@@ -1,6 +1,7 @@
 node_modules/
 .env
 .env.local
+.dokploy-postgres.env
 *.log
 .DS_Store
 dist/
