@@ -459,6 +459,7 @@
                 const encodedToken = encodeURIComponent(mediaToken || '');
                 const audioUrl = `/projects/${encodedToken}/${encodedProject}/audio#admin`;
                 const videoUrl = `/projects/${encodedToken}/${encodedProject}/videos#admin`;
+                const publicShareButton = `<button class="open-btn share-btn" onclick="createPublicShareLink('${encodeURIComponent(p.project)}')">🔗 Create public ready-videos link</button>`;
                 const disabled = mediaToken ? '' : ' onclick="return false"';
                 const disabledLabel = mediaToken ? '' : ' (set project token first)';
                 
@@ -488,11 +489,25 @@
                         
                         <a href="${audioUrl}" class="open-btn" target="_blank"${disabled}>🎵 Open Audio${disabledLabel}</a>
                         <a href="${videoUrl}" class="open-btn secondary" target="_blank"${disabled}>🎬 Open Video${disabledLabel}</a>
+                        ${publicShareButton}
                     </div>
                 `;
             }).join('');
 
             content.innerHTML = summaryHtml + `<div class="project-grid">${gridHtml}</div>`;
+        }
+
+        async function createPublicShareLink(encodedProject) {
+            const project = decodeURIComponent(encodedProject);
+            try {
+                const res = await fetch(`${API_BASE}/share-links`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project }) });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const payload = await res.json();
+                const url = new URL(payload.url, window.location.origin).toString();
+                window.prompt('Copy this public view-only link:', url);
+            } catch (err) {
+                window.alert(`Could not create public link: ${err.message}`);
+            }
         }
 
         function escapeHtml(str) {

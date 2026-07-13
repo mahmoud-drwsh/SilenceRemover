@@ -83,6 +83,11 @@ This enables the **Phase-0-to-10 workflow**:
 
 Plus **two-way sync**: At startup, fetch edited titles from Media Manager and trigger re-encode if changed.
 
+The Media Manager admin dashboard can also create a separate public, view-only
+ready-videos link for a project. The link uses a dedicated share token and
+exposes only published, non-pending videos; it does not expose the project
+media token or any upload/edit endpoints.
+
 ## Usage
 
 ### Basic Usage

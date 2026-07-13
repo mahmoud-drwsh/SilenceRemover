@@ -82,7 +82,17 @@ export async function ensureDatabaseReady(): Promise<void> {
     )
   `);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS admin_audit_log_created_at_idx ON ${ident}.admin_audit_log (created_at DESC)`);
+  await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS ${ident}.public_share_links (
+      token_hash text PRIMARY KEY,
+      project text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      revoked_at timestamptz
+    )
+  `);
+  await sql.unsafe(`CREATE INDEX IF NOT EXISTS public_share_links_project_idx ON ${ident}.public_share_links (project, created_at DESC)`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.files LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.auth_tokens LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.admin_audit_log LIMIT 1`);
+  await sql.unsafe(`SELECT 1 FROM ${ident}.public_share_links LIMIT 1`);
 }

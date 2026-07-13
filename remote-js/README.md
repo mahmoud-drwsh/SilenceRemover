@@ -98,9 +98,11 @@ remote-js/
 │   ├── ffprobe.ts          # duration probe via Bun.spawn
 │   ├── schemas.ts          # zod schemas
 │   ├── security.ts         # security-headers middleware
+│   ├── shareLinks.ts       # hashed public share-token creation and verification
 │   └── routes/
 │       ├── files.ts        # File list/upload/update/delete routes, including raw video PUT /content
 │       ├── stream.ts       # GET /projects/:t/:p/stream/:id
+│       ├── public.ts       # Public share-token ready-video list and read-only streams
 │       ├── projectSpa.ts   # /static/*, /video-player, SPA fallback
 │       └── admin.ts        # /admin/:admin_token/* dashboard + admin API
 ├── frontend/               # Browser SPA assets served by the backend
@@ -126,3 +128,4 @@ The pipeline client and SPA depend on these stable behaviors:
 - Token storage: SHA-256 hashes in `media_manager.auth_tokens`; recoverable media token encrypted with `TOKEN_ENCRYPTION_KEY`
 - IP-based admin login rate limit (8 attempts / 15 minutes)
 - Admin audit log writes to `media_manager.admin_audit_log`
+- Public share links use dedicated hashed tokens and expose only non-trash, non-pending videos with `FB` or `TT` publication tags
