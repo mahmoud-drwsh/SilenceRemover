@@ -18,6 +18,7 @@ import { getDb, schemaIdent } from "../db.ts";
 import { getPeerIp, verifyAdminToken } from "../http.ts";
 import { HttpError, SetMediaTokenRequestSchema } from "../schemas.ts";
 import { storageProjectSizeTotals } from "../storage.ts";
+import { createPublicShareLink, listPublicShareLinks } from "../shareLinks.ts";
 
 export const adminRouter = new Hono();
 
@@ -111,6 +112,31 @@ adminRouter.post("/admin/:admin_token/api/media-token", async (c) => {
     persisted: true,
     persistence: "postgres-encrypted",
   });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Public read-only share links                                              */
+/* -------------------------------------------------------------------------- */
+
+adminRouter.post("/admin/:admin_token/api/share-links", async (c) => {
+  const adminToken = c.req.param("admin_token");
+  await verifyAdminToken(c, adminToken);
+  const json = await c.req.json().catch(() => null) as { project?: unknown } | null;
+  const project = typeof json?.project === "string" ? json.project.trim() : "";
+  if (!project) throw new HttpError(400, "Project is required");
+  const token = await createPublicShareLink(project);
+  await writeAdminAuditEvent("token-admin", "create_public_share_link", buildAuditRequest(c), { project });
+  return c.json({
+    ok: true,
+    project,
+    token,
+    url: `/public/${encodeURIComponent(token)}/`,
+  }, 201);
+});
+
+adminRouter.get("/admin/:admin_token/api/share-links", async (c) => {
+  await verifyAdminToken(c, c.req.param("admin_token"));
+  return c.json({ links: await listPublicShareLinks() });
 });
 
 /* -------------------------------------------------------------------------- */
