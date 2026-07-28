@@ -172,21 +172,37 @@ async function commitUploadMetadata(args: {
     );
   }
 
-  await sql.unsafe(
-    `INSERT INTO ${ident}.files
-       (id, project, type, title, tags, duration, file_size, mime_type)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
-    [
-      args.fileId,
-      args.project,
-      args.fileType,
-      args.title,
-      JSON.stringify(args.tagList),
-      args.duration,
-      args.fileSize,
-      args.mime,
-    ],
-  );
+  try {
+    await sql.unsafe(
+      `INSERT INTO ${ident}.files
+         (id, project, type, title, tags, duration, file_size, mime_type)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
+      [
+        args.fileId,
+        args.project,
+        args.fileType,
+        args.title,
+        JSON.stringify(args.tagList),
+        args.duration,
+        args.fileSize,
+        args.mime,
+      ],
+    );
+  } catch (error) {
+    throw mapUploadMetadataInsertError(error, args.fileId);
+  }
+}
+
+export function mapUploadMetadataInsertError(error: unknown, fileId: string): unknown {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "23505"
+  ) {
+    return new HttpError(409, `File with id '${fileId}' already exists`);
+  }
+  return error;
 }
 
 function elapsedSeconds(startedAt: number): string {

@@ -8,7 +8,11 @@
 
 import { describe, expect, test } from "bun:test";
 import { parseRangeHeader } from "./range.ts";
-import { addTagListConditions, parseContentLengthHeader } from "./routes/files.ts";
+import {
+  addTagListConditions,
+  mapUploadMetadataInsertError,
+  parseContentLengthHeader,
+} from "./routes/files.ts";
 import { normalizeTitle, sanitizeFileId, sanitizeFilename } from "./sanitize.ts";
 import { AUDIO_TAGS, HttpError } from "./schemas.ts";
 import {
@@ -100,6 +104,22 @@ describe("parseContentLengthHeader", () => {
         expect((err as HttpError).status).toBe(400);
       }
     }
+  });
+});
+
+describe("mapUploadMetadataInsertError", () => {
+  test("turns a concurrent duplicate metadata insert into a conflict", () => {
+    const error = mapUploadMetadataInsertError({ code: "23505" }, "upload-42");
+
+    expect(error).toBeInstanceOf(HttpError);
+    expect((error as HttpError).status).toBe(409);
+    expect((error as Error).message).toBe("File with id 'upload-42' already exists");
+  });
+
+  test("preserves non-unique database errors", () => {
+    const databaseError = { code: "42P01", message: "missing relation" };
+
+    expect(mapUploadMetadataInsertError(databaseError, "upload-42")).toBe(databaseError);
   });
 });
 
