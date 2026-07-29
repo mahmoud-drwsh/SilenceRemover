@@ -70,8 +70,10 @@ assert urllib.request.urlopen(download["url"], timeout=20).read() == source
 
 video = complete_session(initiate("derived-001", "video", digest, title="Derived", tags=["pending"], source_id="source-001"))
 assert video["ok"]
+clean_video = complete_session(initiate("derived-001-no-overlay", "video", digest, title="Derived (No Overlay)", tags=["pending"], source_id="source-001"))
+assert clean_video["ok"]
 derived = json.load(request("/api/originals/source-001/derived"))
-assert len(derived) == 1 and derived[0]["id"] == "derived-001"
+assert {item["id"] for item in derived} == {"derived-001", "derived-001-no-overlay"}
 renamed_download = json.load(request("/api/originals/source-001/download"))
 assert renamed_download["filename"] == "Derived.mp4"
 

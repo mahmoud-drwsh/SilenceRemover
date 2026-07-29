@@ -68,18 +68,21 @@ For integration with the external Media Manager service (VPS-based), set the ful
 MEDIA_MANAGER_URL=https://your-server.com/TOKEN/your-project/
 ```
 
-This enables the **Phase-0-to-10 workflow**:
+This enables the **Phase-0-to-13 workflow**:
 0. **Phase 0**: Generate reusable final-video and snippet-audio FFmpeg trim scripts from silence detection + trim policy
 1. **Phase 1**: Create silence-removed snippet for transcription from the Phase 0 artifact
 2. **Phase 2**: Transcribe snippet via OpenRouter
 3. **Phase 3**: Generate title from transcript
-4. **Phase 4**: Upload audio snippet with `tags: ["todo"]` for review
-5. **Phase 5**: Generate title overlay PNG
-6. **Phase 6**: Prepare pre-scaled logo overlay
-7. **Phase 7**: Create final video locally with overlays
-8. **Phase 8**: Reconcile video on server (delete if title changed)
-9. **Phase 9**: Upload video with `tags: ["pending"]`
-10. **Phase 10**: Promote `pending` video to `tags: ["FB", "TT"]` when audio approved
+4. **Phase 4**: Upload the immutable original source recording
+5. **Phase 5**: Upload audio snippet with `tags: ["todo"]` for review
+6. **Phase 6**: Generate title overlay PNG
+7. **Phase 7**: Prepare pre-scaled logo overlay
+8. **Phase 8**: Create final video locally with overlays
+9. **Phase 9**: Create a silence-removed no-overlay companion video locally
+10. **Phase 10**: Reconcile the overlaid video on the server if its title changed
+11. **Phase 11**: Upload the overlaid video with `tags: ["pending"]`
+12. **Phase 12**: Upload the no-overlay companion with `tags: ["pending"]`
+13. **Phase 13**: Promote the overlaid video from `pending` to `tags: ["FB", "TT"]` when audio is approved
 
 Plus **two-way sync**: At startup, fetch edited titles from Media Manager and trigger re-encode if changed.
 

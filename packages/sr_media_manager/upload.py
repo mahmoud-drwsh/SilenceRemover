@@ -1,4 +1,4 @@
-"""Idempotent upload logic for Media Manager (Phase 4 and Phase 9)."""
+"""Idempotent upload logic for Media Manager uploads."""
 
 from pathlib import Path
 from typing import List
