@@ -517,6 +517,22 @@ class ServerDataCache:
 
 
 _server_data_cache: ServerDataCache | None = None
+NO_OVERLAY_VIDEO_SUFFIX = "-no-overlay"
+
+
+def no_overlay_video_id(source_id: str) -> str:
+    """Return the stable Media Manager ID for the clean derived video."""
+    return f"{source_id}{NO_OVERLAY_VIDEO_SUFFIX}"
+
+
+def no_overlay_output_basename(output_basename: str) -> str:
+    """Return the local filename stem for the clean derived video."""
+    return f"{output_basename}{NO_OVERLAY_VIDEO_SUFFIX}"
+
+
+def no_overlay_video_title(title: str) -> str:
+    """Make the clean variant distinguishable in the project list."""
+    return f"{title} (No Overlay)"
 
 
 def run_audio_upload_phase(
@@ -675,6 +691,55 @@ def run_encode_phase(
         video_index=video_index,
         total_videos=total_videos,
         label="Final Encode",
+    )
+
+
+def run_no_overlay_encode_phase(
+    video_path: Path,
+    output_dir: Path,
+    temp_dir: Path,
+    noise_threshold: float,
+    min_duration: float,
+    pad_sec: float,
+    target_length: Optional[float],
+    trim_script_path: Path,
+    encoder: str,
+    video_index: int,
+    total_videos: int,
+) -> bool | None:
+    """Encode the silence-removed companion video without title or logo overlays."""
+    basename = video_path.stem
+    title_path = get_title_path(temp_dir, basename)
+    title_text = title_path.read_text(encoding="utf-8").strip()
+    output_basename = get_completed_output_filename(temp_dir, basename) or sanitize_filename(title_text)
+
+    def _perform() -> None:
+        trim_single_video(
+            input_file=video_path,
+            output_dir=output_dir,
+            noise_threshold=noise_threshold,
+            min_duration=min_duration,
+            pad_sec=pad_sec,
+            target_length=target_length,
+            output_basename=no_overlay_output_basename(output_basename),
+            encoder=encoder,
+            title_path=None,
+            title_font=None,
+            enable_title_overlay=False,
+            enable_logo_overlay=False,
+            title_y_fraction=None,
+            title_height_fraction=None,
+            temp_dir=temp_dir,
+            metadata_title=title_text,
+            trim_script_path=trim_script_path,
+        )
+
+    return _run_phase_step(
+        video_path=video_path,
+        work_fn=_perform,
+        video_index=video_index,
+        total_videos=total_videos,
+        label="No-Overlay Encode",
     )
 
 
@@ -861,6 +926,50 @@ def run_video_upload_phase(
     )
 
 
+def run_no_overlay_video_upload_phase(
+    video_path: Path,
+    output_dir: Path,
+    temp_dir: Path,
+    video_index: int,
+    total_videos: int,
+) -> bool | None:
+    """Upload the clean silence-removed companion video to the same project."""
+    basename = video_path.stem
+    title_text = get_title_path(temp_dir, basename).read_text(encoding="utf-8").strip()
+    output_basename = get_completed_output_filename(temp_dir, basename) or sanitize_filename(title_text)
+    output_path = output_dir / f"{no_overlay_output_basename(output_basename)}.mp4"
+
+    def _perform() -> None:
+        client = MediaManagerClient(os.getenv("MEDIA_MANAGER_URL"))
+        try:
+            result = client.upload_video(
+                no_overlay_video_id(basename),
+                no_overlay_video_title(title_text),
+                output_path,
+                tags=["pending"],
+                progress_callback=_build_upload_progress_callback(
+                    label="No-Overlay Upload",
+                    video_path=video_path,
+                    video_index=video_index,
+                    total_videos=total_videos,
+                ),
+                skip_if_exists_with_title=True,
+                source_id=basename,
+            )
+            if isinstance(result, dict) and not result.get("success", False):
+                raise RuntimeError(f"No-overlay video upload failed: {result.get('error') or 'unknown error'}")
+        finally:
+            client.close()
+
+    return _run_phase_step(
+        video_path=video_path,
+        work_fn=_perform,
+        video_index=video_index,
+        total_videos=total_videos,
+        label="No-Overlay Upload",
+    )
+
+
 def run_video_tag_promotion_phase(
     video_path: Path,
     output_dir: Path,
@@ -946,6 +1055,21 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             return {}
         video = server_cache.get_video(video_file.stem)
         return video if isinstance(video, dict) else {}
+
+    def _no_overlay_video_meta(video_file: Path) -> dict:
+        if server_cache is None:
+            return {}
+        video = server_cache.get_video(no_overlay_video_id(video_file.stem))
+        return video if isinstance(video, dict) else {}
+
+    def _no_overlay_output_path(video_file: Path) -> Path | None:
+        output_basename = get_completed_output_filename(temp_dir, video_file.stem)
+        if output_basename is None:
+            title_text = _title_text(video_file)
+            if not title_text:
+                return None
+            output_basename = sanitize_filename(title_text)
+        return startup.output_dir / f"{no_overlay_output_basename(output_basename)}.mp4"
 
     def _trim_script_path(video_file: Path) -> Path:
         return get_trim_script_path(
@@ -1252,9 +1376,40 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 str(_snippet_trim_script_path(video_file)),
             ],
         ),
-        # Phase 9 - Video Reconciliation (delete server video if local title differs)
+        # Phase 9 - Clean companion encode (same trim, no overlays)
         _PipelinePhase(
             9,
+            "No-Overlay Encode",
+            lambda video_file, vi, vn: run_no_overlay_encode_phase(
+                video_path=video_file,
+                output_dir=startup.output_dir,
+                temp_dir=temp_dir,
+                noise_threshold=startup.noise_threshold,
+                min_duration=startup.min_duration,
+                pad_sec=startup.pad_sec,
+                target_length=startup.target_length,
+                trim_script_path=_trim_script_path(video_file),
+                encoder=args.encoder,
+                video_index=vi,
+                total_videos=vn,
+            ),
+            skip_reason=lambda video_file: (
+                "final encode not completed"
+                if not is_completed(temp_dir, video_file.stem)
+                else (
+                    "no-overlay video already exists"
+                    if (output_path := _no_overlay_output_path(video_file)) is not None and output_path.is_file()
+                    else None
+                )
+            ),
+            checked_paths=lambda video_file: [
+                str(_no_overlay_output_path(video_file) or (startup.output_dir / f"{video_file.stem}{NO_OVERLAY_VIDEO_SUFFIX}.mp4")),
+                str(_trim_script_path(video_file)),
+            ],
+        ),
+        # Phase 10 - Video Reconciliation (delete server video if local title differs)
+        _PipelinePhase(
+            10,
             "Video Reconciliation",
             lambda video_file, vi, vn: run_video_reconciliation_phase(
                 video_path=video_file,
@@ -1289,9 +1444,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 f"server:video/{video_file.stem}",
             ],
         ),
-        # Phase 10 - Video Upload (existence-based skip)
+        # Phase 11 - Video Upload (existence-based skip)
         _PipelinePhase(
-            10,
+            11,
             "Video Upload",
             lambda video_file, vi, vn: run_video_upload_phase(
                 video_path=video_file,
@@ -1328,9 +1483,38 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 f"server:video/{video_file.stem}",
             ],
         ),
-        # Phase 11 - Publish Video (pending -> FB/TT only)
+        # Phase 12 - Clean companion upload
         _PipelinePhase(
-            11,
+            12,
+            "No-Overlay Upload",
+            lambda video_file, vi, vn: run_no_overlay_video_upload_phase(
+                video_path=video_file,
+                output_dir=startup.output_dir,
+                temp_dir=temp_dir,
+                video_index=vi,
+                total_videos=vn,
+            ),
+            skip_reason=lambda video_file: (
+                "no-overlay encode missing"
+                if (output_path := _no_overlay_output_path(video_file)) is None or not output_path.is_file()
+                else (
+                    "media manager disabled"
+                    if server_cache is None
+                    else (
+                        "no-overlay video already exists on server"
+                        if _no_overlay_video_meta(video_file)
+                        else None
+                    )
+                )
+            ),
+            checked_paths=lambda video_file: [
+                str(_no_overlay_output_path(video_file) or (startup.output_dir / f"{video_file.stem}{NO_OVERLAY_VIDEO_SUFFIX}.mp4")),
+                f"server:video/{no_overlay_video_id(video_file.stem)}",
+            ],
+        ),
+        # Phase 13 - Publish Video (pending -> FB/TT only)
+        _PipelinePhase(
+            13,
             "Publish Video",
             lambda video_file, vi, vn: run_video_tag_promotion_phase(
                 video_path=video_file,
@@ -1373,9 +1557,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
 
     for phase in phases:
         _run_phase(videos=videos, phase=phase)
-        # Rebuild cache after Phase 9 (reconciliation) and Phase 10 (upload)
+        # Rebuild cache after remote reconciliation and either video upload
         # so subsequent phases see fresh server state
-        if media_manager_enabled and phase.index in (9, 10):
+        if media_manager_enabled and phase.index in (10, 11, 12):
             server_cache = _rebuild_server_cache(os.getenv('MEDIA_MANAGER_URL') or '')
 
     return startup

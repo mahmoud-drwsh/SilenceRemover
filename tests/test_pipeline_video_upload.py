@@ -257,3 +257,87 @@ def test_run_video_upload_phase_skips_notification_on_non_uploaded_result(
 
     assert result is True
     assert notify_calls == []
+
+
+def test_no_overlay_variant_encodes_without_title_or_logo_and_uploads_with_same_source(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+    video_path = tmp_path / "clip.mkv"
+    video_path.write_text("video")
+    (temp_dir / "title").mkdir()
+    (temp_dir / "completed").mkdir()
+    (temp_dir / "title" / "clip.txt").write_text("My Title", encoding="utf-8")
+    (temp_dir / "completed" / "clip.txt").write_text("final-name", encoding="utf-8")
+
+    encode_calls: list[dict] = []
+    upload_calls: list[tuple[str, str, Path, str]] = []
+
+    monkeypatch.setattr(
+        pipeline,
+        "trim_single_video",
+        lambda **kwargs: encode_calls.append(kwargs) or output_dir / "final-name-no-overlay.mp4",
+    )
+
+    class FakeClient:
+        def upload_video(self, file_id, title, output_path, tags, progress_callback, skip_if_exists_with_title, source_id=None):
+            upload_calls.append((file_id, title, output_path, source_id))
+            return {"success": True, "uploaded": True, "skipped": False, "overwritten": False}
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(pipeline, "MediaManagerClient", lambda _url: FakeClient())
+    monkeypatch.setattr(
+        pipeline,
+        "_run_phase_step",
+        lambda *, video_path, work_fn, video_index, total_videos, label: work_fn() or True,
+    )
+
+    assert pipeline.run_no_overlay_encode_phase(
+        video_path=video_path,
+        output_dir=output_dir,
+        temp_dir=temp_dir,
+        noise_threshold=-40.0,
+        min_duration=0.2,
+        pad_sec=0.1,
+        target_length=178.0,
+        trim_script_path=temp_dir / "trim.ffscript",
+        encoder="libx265",
+        video_index=1,
+        total_videos=1,
+    ) is True
+    assert encode_calls == [{
+        "input_file": video_path,
+        "output_dir": output_dir,
+        "noise_threshold": -40.0,
+        "min_duration": 0.2,
+        "pad_sec": 0.1,
+        "target_length": 178.0,
+        "output_basename": "final-name-no-overlay",
+        "encoder": "libx265",
+        "title_path": None,
+        "title_font": None,
+        "enable_title_overlay": False,
+        "enable_logo_overlay": False,
+        "title_y_fraction": None,
+        "title_height_fraction": None,
+        "temp_dir": temp_dir,
+        "metadata_title": "My Title",
+        "trim_script_path": temp_dir / "trim.ffscript",
+    }]
+
+    assert pipeline.run_no_overlay_video_upload_phase(
+        video_path=video_path,
+        output_dir=output_dir,
+        temp_dir=temp_dir,
+        video_index=1,
+        total_videos=1,
+    ) is True
+    assert upload_calls == [
+        ("clip-no-overlay", "My Title (No Overlay)", output_dir / "final-name-no-overlay.mp4", "clip")
+    ]
