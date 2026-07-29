@@ -67,6 +67,21 @@ video = complete_session(initiate("derived-001", "video", digest, title="Derived
 assert video["ok"]
 derived = json.load(request("/api/originals/source-001/derived"))
 assert len(derived) == 1 and derived[0]["id"] == "derived-001"
+
+# file-type reports a real MKV as video/matroska; the server must normalize it
+# to the pipeline's canonical video/x-matroska value before strict validation.
+with open("/fixtures/original.mkv", "rb") as handle:
+    mkv = handle.read()
+mkv_digest = hashlib.sha256(mkv).hexdigest()
+mkv_init = json.load(request("/api/uploads/initiate", "POST", {
+    "id": "source-mkv-001", "type": "original", "original_filename": "source.mkv",
+    "mime_type": "video/x-matroska", "file_size": len(mkv), "checksum_sha256": mkv_digest,
+}))
+mkv_part = urllib.request.urlopen(urllib.request.Request(mkv_init["urls"][0], data=mkv, method="PUT"), timeout=20)
+mkv_complete = json.load(request(f"/api/uploads/{mkv_init['session_id']}/complete", "POST", {
+    "parts": [{"part_number": 1, "etag": mkv_part.headers["ETag"]}],
+}))
+assert mkv_complete["ok"]
 try:
     request("http://app:8080/public/test-token/test-project/api/originals/source-001/download", absolute=True)
 except urllib.error.HTTPError as exc:

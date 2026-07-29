@@ -46,7 +46,7 @@ services:
     volumes:
       - ../.local-test/fixtures:/fixtures
     entrypoint: ["/bin/sh"]
-    command: ["-ec", "ffmpeg -y -f lavfi -i testsrc2=size=320x180:rate=24 -f lavfi -i sine=frequency=440 -t 2 -c:v libx264 -pix_fmt yuv420p -c:a aac /fixtures/original.mp4; tail -f /dev/null"]
+    command: ["-ec", "ffmpeg -y -f lavfi -i testsrc2=size=320x180:rate=24 -f lavfi -i sine=frequency=440 -t 2 -c:v libx264 -pix_fmt yuv420p -c:a aac /fixtures/original.mp4; ffmpeg -y -f lavfi -i testsrc2=size=320x180:rate=24 -f lavfi -i sine=frequency=440 -t 2 -c:v libx264 -pix_fmt yuv420p -c:a aac /fixtures/original.mkv; tail -f /dev/null"]
     networks: [isolated]
 
   app:

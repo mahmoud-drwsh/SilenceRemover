@@ -275,6 +275,10 @@ describe("MIME tables", () => {
     expect(ALLOWED_MIME.has(mime)).toBe(true);
     expect(getExtensionForMime(mime)).toBe(".ogg");
   });
+
+  test("normalizes the Matroska MIME reported by file-type", () => {
+    expect(normalizeDetectedMime("video/matroska")).toBe("video/x-matroska");
+  });
 });
 
 describe("frontend Media Manager UI", () => {
