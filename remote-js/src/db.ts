@@ -138,3 +138,28 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`SELECT 1 FROM ${ident}.public_share_links LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.upload_sessions LIMIT 1`);
 }
+
+/**
+ * Link legacy derived files to their original upload when both use the same
+ * pipeline file ID. New uploads set source_id directly; this only repairs
+ * rows created before originals were tracked.
+ */
+export async function backfillLegacySourceLinks(): Promise<number> {
+  const sql = getDb();
+  const ident = schemaIdent();
+  const rows = await sql.unsafe<{ count: string }[]>(`
+    WITH updated AS (
+      UPDATE ${ident}.files AS derived
+      SET source_id = original.id
+      FROM ${ident}.files AS original
+      WHERE derived.project = original.project
+        AND derived.type IN ('audio', 'video')
+        AND derived.source_id IS NULL
+        AND original.type = 'original'
+        AND derived.id = original.id
+      RETURNING 1
+    )
+    SELECT COUNT(*)::text AS count FROM updated
+  `);
+  return Number(rows[0]?.count ?? 0);
+}
