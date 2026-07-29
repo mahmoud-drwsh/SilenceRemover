@@ -160,7 +160,6 @@
 <body>
     <header>
         <h1>📁 Media Manager</h1>
-        <a class="btn btn-secondary" href="./originals">Originals</a>
         <button id="section-toggle" class="section-toggle" onclick="toggleSection()" title="Switch section">
             <span id="section-icon">🎵</span> <span id="section-label">Audio</span>
         </button>
@@ -492,6 +491,7 @@
             // Video card
             const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
             const safeId = escapeJs(file.id);  // Escape file ID for JavaScript context
+            const safeSourceId = file.source_id ? escapeJs(file.source_id) : '';
             const tagsJson = JSON.stringify(file.tags || []).replace(/"/g, '&quot;');
             let actionsHtml = '';
 
@@ -521,10 +521,14 @@
                 const isDownloaded = sessionStorage.getItem(dlKey);
                 const dlClass = isDownloaded ? 'btn btn-secondary btn-downloaded' : 'btn btn-secondary';
                 const dlText = isDownloaded ? '✓ Downloaded' : '⬇️ Download';
+                const originalDownload = safeSourceId
+                    ? `<button class="btn btn-secondary" onclick="downloadOriginal('${safeSourceId}')">⬇️ Original</button>`
+                    : '';
                 
                 actionsHtml = `
                     <button class="btn btn-primary" onclick="playVideo('${safeId}', '${safeTitle}')">▶️ Play</button>
                     <a href="${videoStreamUrl}" class="${dlClass}" download id="dl-btn-${safeId}" onclick="sessionStorage.setItem('dl-' + '${safeId}', '1'); this.classList.add('btn-downloaded'); this.textContent='✓ Downloaded';">${dlText}</a>
+                    ${originalDownload}
                     <div class="menu-container">
                         <button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button>
                         <div class="context-menu" id="menu-${file.id}">
@@ -549,6 +553,7 @@
             const title = file.title || file.id;
             const tagsJson = JSON.stringify(file.tags).replace(/"/g, '&quot;');
             const safeId = escapeJs(file.id);  // Escape file ID for JavaScript context
+            const safeSourceId = file.source_id ? escapeJs(file.source_id) : '';
 
             let actionsHtml = '';
 
@@ -570,7 +575,10 @@
                     const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
                     buttons.push(`<button class="btn btn-todo" onclick="confirmMoveToTodo('${safeId}', '${safeTitle}')">✏️ TODO</button>`);
                 }
-                actionsHtml = `${buttons.join('')}<div class="menu-container"><button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${file.id}"><div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div></div></div>`;
+                const originalDownload = safeSourceId
+                    ? `<button class="btn btn-secondary" onclick="downloadOriginal('${safeSourceId}')">⬇️ Original</button>`
+                    : '';
+                actionsHtml = `${buttons.join('')}${originalDownload}<div class="menu-container"><button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${file.id}"><div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div></div></div>`;
             }
 
             return `<div class="file-card audio-card" data-id="${file.id}" data-tags="${tagsJson}"><div class="audio-row"><div class="audio-player"><audio controls preload="none"><source src="${streamUrl}" type="${file.mime_type}"></audio></div></div><div class="audio-title-edit"><textarea data-file-id="${file.id}" placeholder="Title..." dir="auto" oninput="debouncedTitleUpdate(this)">${escapeHtml(title)}</textarea><div style="color: #666; font-size: 0.7rem; margin-top: 2px;">${escapeHtml(file.id)}</div><div class="save-status" id="status-${file.id}"></div></div><div class="audio-actions">${actionsHtml}</div></div>`;
@@ -587,6 +595,12 @@
             } catch (err) {
                 alert('Error: ' + err.message);
             }
+        }
+
+        async function downloadOriginal(sourceId) {
+            const response = await fetch(`${API_BASE}/originals/${encodeURIComponent(sourceId)}/download`);
+            if (!response.ok) throw new Error('Original download unavailable');
+            location.assign((await response.json()).url);
         }
 
         function toggleContextMenu(fileId, event) {

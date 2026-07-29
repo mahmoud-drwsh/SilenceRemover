@@ -319,4 +319,15 @@ describe("frontend Media Manager UI", () => {
     expect(html).toContain("const newTags = selectedFolders;");
     expect(html).not.toContain("const newTags = ['all', ...selectedFolders]");
   });
+
+  test("linked derived cards offer original downloads without an Originals view", async () => {
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
+    const routes = await Bun.file(new URL("./routes/projectSpa.ts", import.meta.url)).text();
+
+    expect(html).toContain("function downloadOriginal(sourceId)");
+    expect(html).toContain("⬇️ Original");
+    expect(html).toContain("file.source_id ? escapeJs(file.source_id)");
+    expect(html).not.toContain('href="./originals"');
+    expect(routes).not.toContain("/originals");
+  });
 });
