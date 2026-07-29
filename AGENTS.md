@@ -33,6 +33,7 @@ After code or config changes, agents append short notes here. When this file gro
 - `src/media/trim.py`: Modified `trim_single_video()` to accept `encoder: str` parameter (default `"libx265"`) instead of `VideoEncoderProfile | None`. Added import for `get_encoder_config`. Updated encoder resolution logic to use `.codec` attribute when falling back to `resolve_video_encoder()`. Updated all `command_label` references to use the string encoder directly.
 
 ## Latest session edits
+- `remote-js/frontend/index.html` / `routes/projectSpa.ts`: Removed the separate Originals view; linked audio/video cards now expose an inline Original download button using their `source_id`.
 - `remote-js/src/routes/files.ts` / `routes/originals.ts` / `frontend/originals.html`: Originals now resolve a non-trashed linked output title (video first, then audio) for display and download names, falling back to the raw original filename without changing bytes or `source_id` links.
 - `remote-js/src/mime.ts` / isolated E2E: Normalized file-type's `video/matroska` to canonical `video/x-matroska`, fixing MKV original completion after direct presigned S3 uploads; added a real-MKV isolated Postgres/MinIO regression flow.
 - `remote-js/src/routes/uploads.ts` / `packages/sr_media_manager/api.py`: Replaced original/audio/video pipeline byte uploads with one presigned-S3 upload-session contract (`initiate` / `complete` / `abort`), 8 MiB multipart transfers where needed, checksum/media verification, retry/expiry cleanup, and no proxy fallback; legacy upload routes are no longer exposed.
