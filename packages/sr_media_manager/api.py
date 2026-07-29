@@ -3,6 +3,7 @@
 import json
 import hashlib
 import os
+import random
 import sys
 import time
 from pathlib import Path
@@ -16,6 +17,7 @@ VIDEO_UPLOAD_TIMEOUT = httpx.Timeout(
     read=600.0,
     pool=30.0,
 )
+PART_RETRY_DELAYS_SEC = (0.5, 1.0, 2.0)
 
 
 class ProgressFile:
@@ -265,6 +267,114 @@ class MediaManagerClient:
             # Fail open - assume doesn't exist to allow upload attempt
             return (False, False)
 
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open('rb') as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _is_expired_upload_url(error: Exception) -> bool:
+        response = getattr(error, 'response', None)
+        return response is not None and response.status_code in (401, 403)
+
+    @staticmethod
+    def _is_retryable_upload_error(error: Exception) -> bool:
+        if isinstance(error, (httpx.ConnectError, httpx.ReadError, httpx.WriteError, httpx.TimeoutException)):
+            return True
+        response = getattr(error, 'response', None)
+        return response is not None and response.status_code in (408, 429, 500, 502, 503, 504)
+
+    def _abort_upload_session(self, session_id: str) -> None:
+        try:
+            self._client.post(self._url(f'/api/uploads/{quote(session_id, safe="")}/abort')).raise_for_status()
+        except Exception:
+            pass
+
+    def _upload_presigned(
+        self, *, file_id: str, file_type: str, title: str, path: Path, tags: list,
+        source_id: str | None = None, original_filename: str | None = None,
+        progress_callback: callable = None,
+    ) -> dict:
+        """Transfer one file directly to S3 through the shared upload-session API."""
+        size = path.stat().st_size
+        mime = {
+            '.ogg': 'application/ogg', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/x-m4a',
+            '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska', '.webm': 'video/webm',
+        }.get(path.suffix.lower(), 'video/mp4' if file_type != 'audio' else 'audio/ogg')
+        payload = {
+            'id': file_id, 'type': file_type, 'title': title, 'tags': tags,
+            'mime_type': mime, 'file_size': size, 'checksum_sha256': self._sha256(path),
+        }
+        if source_id:
+            payload['source_id'] = source_id
+        if original_filename:
+            payload['original_filename'] = original_filename
+
+        for session_restart in range(2):
+            session = None
+            try:
+                response = self._client.post(self._url('/api/uploads/initiate'), json=payload)
+                response.raise_for_status()
+                session = response.json()
+                if session.get('already_uploaded'):
+                    return session
+                session_id = session['session_id']
+                uploaded = 0
+                etags = []
+                part_size = session.get('part_size')
+                urls = session.get('urls') or ([session['upload_url']] if session.get('upload_url') else [])
+                if not urls:
+                    raise MediaManagerError(f'Upload session {session_id} returned no transfer URL')
+                with path.open('rb') as source:
+                    for part_number, url in enumerate(urls, start=1):
+                        chunk = source.read(part_size or size)
+                        if not chunk:
+                            raise MediaManagerError(f'Upload {file_id} ended before part {part_number}')
+                        last_error = None
+                        for attempt, delay in enumerate(PART_RETRY_DELAYS_SEC, start=1):
+                            try:
+                                result = httpx.put(
+                                    url, content=chunk, timeout=VIDEO_UPLOAD_TIMEOUT,
+                                    headers={'Content-Type': mime} if not part_size else None,
+                                )
+                                result.raise_for_status()
+                                if part_size:
+                                    etag = result.headers.get('etag')
+                                    if not etag:
+                                        raise MediaManagerError(f'Upload {file_id} part {part_number} is missing an ETag')
+                                    etags.append({'part_number': part_number, 'etag': etag})
+                                uploaded += len(chunk)
+                                if progress_callback:
+                                    progress_callback(uploaded, size)
+                                break
+                            except Exception as exc:
+                                last_error = exc
+                                if self._is_expired_upload_url(exc):
+                                    raise
+                                if not self._is_retryable_upload_error(exc) or attempt == len(PART_RETRY_DELAYS_SEC):
+                                    raise MediaManagerError(
+                                        f'Upload {file_id} part {part_number} failed after {attempt} attempts: {exc}'
+                                    ) from exc
+                                time.sleep(delay * random.uniform(0.8, 1.2))
+                        else:
+                            raise MediaManagerError(f'Upload {file_id} part {part_number} failed: {last_error}')
+                complete = self._client.post(
+                    self._url(f'/api/uploads/{quote(session_id, safe="")}/complete'),
+                    json={'parts': etags} if part_size else {},
+                )
+                complete.raise_for_status()
+                return complete.json()
+            except Exception as exc:
+                if session:
+                    self._abort_upload_session(session['session_id'])
+                if self._is_expired_upload_url(exc) and session_restart == 0:
+                    continue
+                raise MediaManagerError(f'{file_type} upload failed for {file_id}: {exc}') from exc
+        raise MediaManagerError(f'{file_type} upload failed for {file_id}: presigned URL expired twice')
+
     def upload_audio(self, file_id: str, title: str, audio_path: Path, tags: list = None,
                      progress_callback: callable = None, source_id: str | None = None) -> bool:
         """Upload audio snippet with title and tags.
@@ -280,36 +390,11 @@ class MediaManagerClient:
         """
         tags = tags or ['todo']
         
-        try:
-            total_size = audio_path.stat().st_size
-            
-            with ProgressFile(audio_path, progress_callback, total_size) as pf:
-                files = {'file': (f'{file_id}.ogg', pf, 'audio/ogg')}
-                data = {
-                    'id': file_id,
-                    'title': title,
-                    'type': 'audio',
-                    'tags': json.dumps(tags)
-                }
-                if source_id:
-                    data['source_id'] = source_id
-                resp = self._client.post(
-                    self._url('/api/files'),
-                    data=data,
-                    files=files
-                )
-            if resp.status_code not in (200, 201, 409):
-                # Include response body for debugging
-                try:
-                    body = resp.text[:200]  # First 200 chars
-                except Exception:
-                    body = "<could not read response>"
-                raise MediaManagerError(f"Server returned {resp.status_code}: {body}")
-            return True
-        except Exception as e:
-            if isinstance(e, MediaManagerError):
-                raise
-            raise MediaManagerError(f"Audio upload failed for {file_id}: {e}")
+        self._upload_presigned(
+            file_id=file_id, file_type='audio', title=title, path=audio_path, tags=tags,
+            source_id=source_id, progress_callback=progress_callback,
+        )
+        return True
     
     def upload_video(
         self,
@@ -356,48 +441,14 @@ class MediaManagerClient:
                 }
             # If exists but title differs, continue to upload (overwrite)
 
+        total_size = video_path.stat().st_size
+        started_at = time.monotonic()
         try:
-            mime_type = 'video/mp4'
-            if video_path.suffix == '.mov':
-                mime_type = 'video/quicktime'
-            elif video_path.suffix == '.webm':
-                mime_type = 'video/webm'
-
-            total_size = video_path.stat().st_size
-            started_at = time.monotonic()
-            uploaded = 0
-
-            def iter_video_chunks():
-                nonlocal uploaded
-                with open(video_path, 'rb') as file_obj:
-                    while True:
-                        chunk = file_obj.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        uploaded += len(chunk)
-                        if progress_callback:
-                            progress_callback(uploaded, total_size)
-                        yield chunk
-
-            resp = self._client.put(
-                self._url(f'/api/files/{quote(file_id, safe="")}/content'),
-                params={
-                    'title': title,
-                    'tags': json.dumps(tags),
-                    **({'source_id': source_id} if source_id else {}),
-                },
-                content=iter_video_chunks(),
-                headers={
-                    'Content-Type': mime_type,
-                    'Content-Length': str(total_size),
-                },
-                timeout=VIDEO_UPLOAD_TIMEOUT,
+            response_json = self._upload_presigned(
+                file_id=file_id, file_type='video', title=title, path=video_path, tags=tags,
+                source_id=source_id, progress_callback=progress_callback,
             )
-            resp.raise_for_status()
-
-            response_json = resp.json()
             overwritten = response_json.get('overwritten', False) if isinstance(response_json, dict) else False
-
             return {
                 'success': True,
                 'uploaded': True,
@@ -406,8 +457,7 @@ class MediaManagerClient:
                 'error': None
             }
         except Exception as e:
-            elapsed = time.monotonic() - started_at if 'started_at' in locals() else 0.0
-            total_size = total_size if 'total_size' in locals() else 0
+            elapsed = time.monotonic() - started_at
             print(
                 "MEDIA_MANAGER_VIDEO_UPLOAD_FAILED "
                 f"id={file_id!r} "
@@ -428,57 +478,12 @@ class MediaManagerClient:
             }
 
     def upload_original(self, source_id: str, original_path: Path, progress_callback: callable = None) -> bool:
-        """Upload an original through short-lived, presigned multipart URLs."""
-        size = original_path.stat().st_size
-        checksum = hashlib.sha256()
-        with original_path.open('rb') as source:
-            for chunk in iter(lambda: source.read(1024 * 1024), b''):
-                checksum.update(chunk)
-        mime = {
-            '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska',
-            '.webm': 'video/webm',
-        }.get(original_path.suffix.lower(), 'video/mp4')
-        session = None
-        try:
-            response = self._client.post(self._url(f'/api/originals/{quote(source_id, safe="")}/upload'), json={
-                'original_filename': original_path.name,
-                'mime_type': mime,
-                'file_size': size,
-                'checksum_sha256': checksum.hexdigest(),
-            })
-            response.raise_for_status()
-            session = response.json()
-            if session.get('already_uploaded'):
-                return True
-            etags = []
-            uploaded = 0
-            with original_path.open('rb') as source:
-                for number, url in enumerate(session['urls'], start=1):
-                    payload = source.read(session['part_size'])
-                    part = httpx.put(url, content=payload, timeout=VIDEO_UPLOAD_TIMEOUT)
-                    part.raise_for_status()
-                    etag = part.headers.get('etag')
-                    if not etag:
-                        raise MediaManagerError(f'Missing ETag for original upload part {number}')
-                    etags.append({'part_number': number, 'etag': etag})
-                    uploaded += len(payload)
-                    if progress_callback:
-                        progress_callback(uploaded, size)
-            complete = self._client.post(self._url(f'/api/originals/{quote(source_id, safe="")}/complete'), json={
-                'upload_id': session['upload_id'], 'parts': etags,
-            })
-            complete.raise_for_status()
-            return True
-        except Exception as exc:
-            if session and session.get('upload_id'):
-                try:
-                    self._client.post(
-                        self._url(f'/api/originals/{quote(source_id, safe="")}/abort'),
-                        json={'upload_id': session['upload_id']},
-                    )
-                except Exception:
-                    pass
-            raise MediaManagerError(f'Original upload failed for {source_id}: {exc}') from exc
+        """Upload an original through the shared presigned session API."""
+        self._upload_presigned(
+            file_id=source_id, file_type='original', title=original_path.name, path=original_path,
+            tags=[], original_filename=original_path.name, progress_callback=progress_callback,
+        )
+        return True
     
     def update_tags(self, file_id: str, tags: list, file_type: str = 'audio') -> bool:
         """Update file tags.

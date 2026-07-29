@@ -117,7 +117,7 @@ remote-js/
 The pipeline client and SPA depend on these stable behaviors:
 
 - HTTP paths, methods, query parameters, and body shapes
-- Raw video uploads via `PUT /projects/:token/:project/api/files/:id/content` with required `Content-Length`
+- Pipeline media bytes use only `POST /projects/:token/:project/api/uploads/initiate`, `POST .../api/uploads/:sessionId/complete`, and `POST .../api/uploads/:sessionId/abort`; Media Manager authorizes and verifies transfers but does not proxy them.
 - Status codes (200/201/400/401/404/409/413/429)
 - Upload lifecycle logs (`UPLOAD_START`, `UPLOAD_RECEIVED`, `UPLOAD_STORED`, `UPLOAD_COMMITTED`, `UPLOAD_FAILED`)
 - Headers (`Accept-Ranges`, `Content-Range`, `Content-Disposition: inline; filename*=UTF-8''<...>`), plus the same `SECURITY_HEADERS` block

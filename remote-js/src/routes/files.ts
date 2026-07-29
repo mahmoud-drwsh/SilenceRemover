@@ -99,7 +99,7 @@ function parseTagsParam(value: string | undefined): string[] | null {
   return split.length > 0 ? split : null;
 }
 
-function parseUploadTags(value: string, fileType: FileType): string[] {
+export function parseUploadTags(value: string, fileType: FileType): string[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
@@ -121,7 +121,7 @@ function parseUploadTags(value: string, fileType: FileType): string[] {
   return tags;
 }
 
-async function assertSourceOriginalExists(project: string, sourceId: string | null): Promise<void> {
+export async function assertSourceOriginalExists(project: string, sourceId: string | null): Promise<void> {
   if (!sourceId) return;
   const sql = getDb();
   const ident = schemaIdent();
@@ -134,7 +134,7 @@ async function assertSourceOriginalExists(project: string, sourceId: string | nu
   }
 }
 
-async function resolveUploadOverwrite(
+export async function resolveUploadOverwrite(
   fileId: string,
   project: string,
   fileType: FileType,
@@ -171,7 +171,7 @@ async function resolveUploadOverwrite(
   return true;
 }
 
-async function commitUploadMetadata(args: {
+export async function commitUploadMetadata(args: {
   fileId: string;
   project: string;
   fileType: FileType;
@@ -182,6 +182,8 @@ async function commitUploadMetadata(args: {
   mime: string;
   overwritten: boolean;
   sourceId?: string | null;
+  originalFilename?: string | null;
+  checksumSha256?: string | null;
 }): Promise<void> {
   const sql = getDb();
   const ident = schemaIdent();
@@ -195,8 +197,8 @@ async function commitUploadMetadata(args: {
   try {
     await sql.unsafe(
       `INSERT INTO ${ident}.files
-         (id, project, type, title, tags, duration, file_size, mime_type, source_id)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)`,
+         (id, project, type, title, tags, duration, file_size, mime_type, source_id, original_filename, checksum_sha256)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11)`,
       [
         args.fileId,
         args.project,
@@ -207,6 +209,8 @@ async function commitUploadMetadata(args: {
         args.fileSize,
         args.mime,
         args.sourceId ?? null,
+        args.originalFilename ?? null,
+        args.checksumSha256 ?? null,
       ],
     );
   } catch (error) {
@@ -372,7 +376,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
 /* POST /api/files                                                            */
 /* -------------------------------------------------------------------------- */
 
-filesRouter.post("/projects/:token/:project/api/files", async (c) => {
+filesRouter.post("/_removed/projects/:token/:project/api/files", async (c) => {
   const { token, project } = c.req.param();
   await verifyMediaToken(token);
 
@@ -470,7 +474,7 @@ filesRouter.post("/projects/:token/:project/api/files", async (c) => {
 /* PUT /api/files/:id/content                                                 */
 /* -------------------------------------------------------------------------- */
 
-filesRouter.put("/projects/:token/:project/api/files/:id/content", async (c) => {
+filesRouter.put("/_removed/projects/:token/:project/api/files/:id/content", async (c) => {
   const { token, project, id: idRaw } = c.req.param();
   await verifyMediaToken(token);
 
