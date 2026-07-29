@@ -61,6 +61,9 @@ const EXT_ALIASES: Record<string, string> = {
   // shapes; we normalize to whichever the Python service actually emits.
   "audio/x-m4a": "audio/x-m4a",
   "audio/m4a": "audio/x-m4a",
+  // file-type reports Matroska as the standards MIME, while the pipeline and
+  // storage contract use the established x-matroska canonical value.
+  "video/matroska": "video/x-matroska",
 };
 
 export function normalizeDetectedMime(mime: string): string {
