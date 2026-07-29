@@ -18,6 +18,7 @@ export const projectSpaRouter = new Hono();
 const FRONTEND_ROOT = new URL("../../frontend/", import.meta.url).pathname;
 const INDEX_HTML = join(FRONTEND_ROOT, "index.html");
 const VIDEO_PLAYER_HTML = join(FRONTEND_ROOT, "video-player.html");
+const ORIGINALS_HTML = join(FRONTEND_ROOT, "originals.html");
 
 function contentTypeFor(filePath: string): string {
   const lower = filePath.toLowerCase();
@@ -48,6 +49,12 @@ projectSpaRouter.get("/projects/:token/:project/video-player", async (c) => {
   const { token } = c.req.param();
   await verifyMediaToken(token);
   return serveFile(VIDEO_PLAYER_HTML);
+});
+
+projectSpaRouter.get("/projects/:token/:project/originals", async (c) => {
+  const { token } = c.req.param();
+  await verifyMediaToken(token);
+  return serveFile(ORIGINALS_HTML);
 });
 
 projectSpaRouter.get(

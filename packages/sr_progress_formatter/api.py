@@ -104,4 +104,4 @@ class DefaultProgressFormatter:
             f"{size_str}"
         )
         
-        return
+        print(line, end="", flush=True)

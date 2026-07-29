@@ -6,6 +6,9 @@
  */
 
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
@@ -13,8 +16,11 @@ import {
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
+import { createHash } from "node:crypto";
 import { loadConfig } from "./config.ts";
 import { MIME_TO_EXT } from "./mime.ts";
 
@@ -41,7 +47,7 @@ export function getS3Client(): S3Client {
 
 /** Build the S3 object key matching the existing storage tree layout. */
 export function storageObjectKey(
-  fileType: "audio" | "video",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -57,7 +63,7 @@ export async function ensureStorageBackendReady(): Promise<void> {
 
 /** Delete a single object from S3. Throws on failure. */
 export async function storageDelete(
-  fileType: "audio" | "video",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -77,7 +83,7 @@ export async function storageDelete(
  * may imply the wrong extension. Returns true if any delete succeeded.
  */
 export async function storageDeleteAnyExtension(
-  fileType: "audio" | "video",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
 ): Promise<boolean> {
@@ -96,7 +102,7 @@ export async function storageDeleteAnyExtension(
 
 /** Upload bytes to S3. Throws on failure. */
 export async function storagePutBytes(
-  fileType: "audio" | "video",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -120,7 +126,7 @@ export interface StorageHead {
 
 /** HeadObject; throws (or returns null) when the object does not exist. */
 export async function storageHead(
-  fileType: "audio" | "video",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -146,7 +152,7 @@ export async function storageHead(
  * encoding, dropping any Content-Length header set by the caller.
  */
 export async function storageGet(
-  fileType: "audio" | "video",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -176,7 +182,7 @@ export async function storageGet(
  * size is within a safe in-memory limit.
  */
 export async function storageGetBytes(
-  fileType: "audio" | "video",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -198,9 +204,108 @@ export async function storageGetBytes(
   return (body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray();
 }
 
+/** Stream an object's SHA-256 digest without buffering the original in memory. */
+export async function storageSha256(
+  fileType: "audio" | "video" | "original",
+  project: string,
+  fileId: string,
+  ext: string,
+): Promise<string> {
+  const stream = await storageGet(fileType, project, fileId, ext, null);
+  const reader = stream.getReader();
+  const hash = createHash("sha256");
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      hash.update(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return hash.digest("hex");
+}
+
+export async function createOriginalMultipartUpload(
+  project: string,
+  fileId: string,
+  ext: string,
+  mime: string,
+): Promise<string> {
+  const config = loadConfig();
+  const result = await getS3Client().send(new CreateMultipartUploadCommand({
+    Bucket: config.s3Bucket,
+    Key: storageObjectKey("original", project, fileId, ext),
+    ContentType: mime,
+  }));
+  if (!result.UploadId) throw new Error("S3 did not return a multipart upload ID");
+  return result.UploadId;
+}
+
+export async function presignOriginalPart(
+  project: string,
+  fileId: string,
+  ext: string,
+  uploadId: string,
+  partNumber: number,
+): Promise<string> {
+  const config = loadConfig();
+  return getSignedUrl(getS3Client(), new UploadPartCommand({
+    Bucket: config.s3Bucket,
+    Key: storageObjectKey("original", project, fileId, ext),
+    UploadId: uploadId,
+    PartNumber: partNumber,
+  }), { expiresIn: 15 * 60 });
+}
+
+export async function completeOriginalMultipartUpload(
+  project: string,
+  fileId: string,
+  ext: string,
+  uploadId: string,
+  parts: Array<{ partNumber: number; etag: string }>,
+): Promise<void> {
+  const config = loadConfig();
+  await getS3Client().send(new CompleteMultipartUploadCommand({
+    Bucket: config.s3Bucket,
+    Key: storageObjectKey("original", project, fileId, ext),
+    UploadId: uploadId,
+    MultipartUpload: { Parts: parts.map((part) => ({ PartNumber: part.partNumber, ETag: part.etag })) },
+  }));
+}
+
+export async function abortOriginalMultipartUpload(
+  project: string,
+  fileId: string,
+  ext: string,
+  uploadId: string,
+): Promise<void> {
+  const config = loadConfig();
+  await getS3Client().send(new AbortMultipartUploadCommand({
+    Bucket: config.s3Bucket,
+    Key: storageObjectKey("original", project, fileId, ext),
+    UploadId: uploadId,
+  }));
+}
+
+export async function presignOriginalDownload(
+  project: string,
+  fileId: string,
+  ext: string,
+  filename: string,
+): Promise<string> {
+  const config = loadConfig();
+  return getSignedUrl(getS3Client(), new GetObjectCommand({
+    Bucket: config.s3Bucket,
+    Key: storageObjectKey("original", project, fileId, ext),
+    ResponseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+  }), { expiresIn: 5 * 60 });
+}
+
 /**
  * Aggregate exact object-byte totals per project by listing both the
- * `audio/` and `video/` prefixes. Mirrors `storage_project_size_totals`.
+ * `audio/`, `video/`, and `original/` prefixes. Mirrors
+ * `storage_project_size_totals`.
  */
 export async function storageProjectSizeTotals(): Promise<
   Record<string, number>
@@ -209,7 +314,7 @@ export async function storageProjectSizeTotals(): Promise<
   const client = getS3Client();
   const totals = new Map<string, number>();
 
-  for (const fileType of ["audio", "video"] as const) {
+  for (const fileType of ["audio", "video", "original"] as const) {
     const prefix = `${fileType}/`;
     let continuationToken: string | undefined;
     while (true) {

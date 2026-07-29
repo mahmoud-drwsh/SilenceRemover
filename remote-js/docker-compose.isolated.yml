@@ -1,0 +1,88 @@
+name: silence-remover-isolated
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: media_manager
+      POSTGRES_USER: media_manager
+      POSTGRES_PASSWORD: test-password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U media_manager -d media_manager"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks: [isolated]
+
+  restore:
+    image: postgres:18
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../.local-test/backups:/backups:ro
+    environment:
+      PGPASSWORD: test-password
+    command: ["sh", "-ec", "dump=$$(find /backups -name '*.dump' -type f | sort | tail -n 1); test -n \"$$dump\"; pg_restore -h postgres -U media_manager -d media_manager --clean --if-exists --no-owner --no-privileges \"$$dump\"; psql -h postgres -U media_manager -d media_manager -c \"CREATE SCHEMA IF NOT EXISTS media_manager\"; psql -h postgres -U media_manager -d media_manager -c \"INSERT INTO media_manager.auth_tokens (kind, token_hash, encrypted_token) VALUES ('media', '4c5dc9b7708905f77f5e5d16316b5dfb425e68cb326dcd55a860e90a7707031e', NULL) ON CONFLICT (kind) DO UPDATE SET token_hash = EXCLUDED.token_hash\""]
+    networks: [isolated]
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    networks: [isolated]
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on: [minio]
+    entrypoint: ["/bin/sh"]
+    command: ["-ec", "until mc alias set test http://minio:9000 minioadmin minioadmin; do sleep 1; done; mc mb --ignore-existing test/media-manager"]
+    networks: [isolated]
+
+  fixture:
+    image: jrottenberg/ffmpeg:6.1-alpine
+    volumes:
+      - ../.local-test/fixtures:/fixtures
+    entrypoint: ["/bin/sh"]
+    command: ["-ec", "ffmpeg -y -f lavfi -i testsrc2=size=320x180:rate=24 -f lavfi -i sine=frequency=440 -t 2 -c:v libx264 -pix_fmt yuv420p -c:a aac /fixtures/original.mp4; tail -f /dev/null"]
+    networks: [isolated]
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      restore:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://media_manager:test-password@postgres:5432/media_manager
+      DB_SCHEMA: media_manager
+      TOKEN_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_BUCKET: media-manager
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_REGION: us-east-1
+      PORT: "8080"
+    networks: [isolated]
+
+  integration:
+    image: python:3.12-alpine
+    depends_on:
+      app:
+        condition: service_started
+      fixture:
+        condition: service_started
+    volumes:
+      - ../.local-test/fixtures:/fixtures:ro
+      - ./tests/integration:/tests:ro
+    command: ["python", "/tests/originals_flow.py"]
+    networks: [isolated]
+
+networks:
+  isolated:
+    internal: true

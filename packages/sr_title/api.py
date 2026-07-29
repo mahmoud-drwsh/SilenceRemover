@@ -76,6 +76,8 @@ def _parse_title_candidates_json(raw: str, expected: int) -> list[str]:
     if not out:
         raise RuntimeError("Title batch JSON contained no non-empty title strings")
 
+    if len(out) < expected:
+        print(f"Title batch requested {expected} candidates but returned {len(out)}.")
     if len(out) > expected:
         out = out[:expected]
     return out

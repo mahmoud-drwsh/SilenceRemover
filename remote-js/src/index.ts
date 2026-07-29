@@ -16,6 +16,7 @@ import { filesRouter } from "./routes/files.ts";
 import { projectSpaRouter } from "./routes/projectSpa.ts";
 import { streamRouter } from "./routes/stream.ts";
 import { publicRouter } from "./routes/public.ts";
+import { originalsRouter } from "./routes/originals.ts";
 import { HttpError } from "./schemas.ts";
 
 const app = new Hono();
@@ -39,6 +40,7 @@ app.route("/", adminRouter);
 app.route("/", filesRouter);
 app.route("/", streamRouter);
 app.route("/", publicRouter);
+app.route("/", originalsRouter);
 app.route("/", projectSpaRouter);
 
 async function main(): Promise<void> {

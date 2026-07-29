@@ -48,18 +48,39 @@ export async function ensureDatabaseReady(): Promise<void> {
     CREATE TABLE IF NOT EXISTS ${ident}.files (
       id text NOT NULL,
       project text NOT NULL,
-      type text NOT NULL CHECK (type IN ('audio', 'video')),
+      type text NOT NULL CHECK (type IN ('audio', 'video', 'original')),
       title text,
       tags jsonb NOT NULL DEFAULT '[]'::jsonb,
       duration double precision NOT NULL DEFAULT 0,
       file_size bigint NOT NULL DEFAULT 0,
       mime_type text NOT NULL,
+      source_id text,
+      original_filename text,
+      checksum_sha256 text,
       created_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (id, project, type)
     )
   `);
+  await sql.unsafe(`ALTER TABLE ${ident}.files DROP CONSTRAINT IF EXISTS files_type_check`);
+  await sql.unsafe(`ALTER TABLE ${ident}.files ADD CONSTRAINT files_type_check CHECK (type IN ('audio', 'video', 'original'))`);
+  await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS source_id text`);
+  await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS original_filename text`);
+  await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS checksum_sha256 text`);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_project_type_idx ON ${ident}.files (project, type)`);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_tags_gin_idx ON ${ident}.files USING gin (tags)`);
+  await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_project_source_idx ON ${ident}.files (project, source_id)`);
+  await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS ${ident}.original_uploads (
+      upload_id text PRIMARY KEY,
+      project text NOT NULL,
+      file_id text NOT NULL,
+      mime_type text NOT NULL,
+      original_filename text NOT NULL,
+      checksum_sha256 text NOT NULL,
+      file_size bigint NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
   await sql.unsafe(`
     CREATE TABLE IF NOT EXISTS ${ident}.auth_tokens (
       kind text PRIMARY KEY CHECK (kind IN ('admin', 'media')),
