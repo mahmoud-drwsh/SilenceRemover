@@ -52,6 +52,7 @@ interface FileRow {
   source_id: string | null;
   original_filename: string | null;
   checksum_sha256: string | null;
+  derived_title: string | null;
 }
 
 function rowToResponse(row: FileRow): FileResponse {
@@ -68,6 +69,7 @@ function rowToResponse(row: FileRow): FileResponse {
     source_id: row.source_id ?? null,
     original_filename: row.original_filename ?? null,
     checksum_sha256: row.checksum_sha256 ?? null,
+    derived_title: row.derived_title ?? null,
   };
 }
 
@@ -304,7 +306,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     }
 
     const rows = await sql.unsafe<FileRow[]>(
-      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256
+      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title
        FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = $3`,
       [sanitizedId, project, typeParam],
     );
@@ -362,8 +364,19 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const sortDirection = sort === "asc" ? "ASC" : "DESC";
 
   const rows = await sql.unsafe<FileRow[]>(
-    `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256
-     FROM ${ident}.files
+    `SELECT source.id, source.project, source.type, source.title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title
+     FROM ${ident}.files AS source
+     LEFT JOIN LATERAL (
+       SELECT title
+       FROM ${ident}.files AS candidate
+       WHERE candidate.project = source.project
+         AND candidate.source_id = source.id
+         AND candidate.type IN ('video', 'audio')
+         AND COALESCE(BTRIM(candidate.title), '') <> ''
+         AND NOT ((CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb)
+       ORDER BY CASE candidate.type WHEN 'video' THEN 0 ELSE 1 END
+       LIMIT 1
+     ) AS derived ON TRUE
      WHERE ${whereClause}
      ORDER BY id ${sortDirection}`,
     params,

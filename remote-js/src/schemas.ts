@@ -22,6 +22,7 @@ export const FileResponseSchema = z.object({
   source_id: z.string().nullable().optional(),
   original_filename: z.string().nullable().optional(),
   checksum_sha256: z.string().nullable().optional(),
+  derived_title: z.string().nullable().optional(),
   created_at: z.string(),
 });
 export type FileResponse = z.infer<typeof FileResponseSchema>;
