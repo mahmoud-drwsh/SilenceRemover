@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from src.app import pipeline
 
 
@@ -25,9 +27,10 @@ def test_run_audio_upload_phase_wires_progress_and_notifies_on_success(
     notify_calls: list[tuple[int, int, str, str]] = []
 
     class FakeClient:
-        def upload_audio(self, file_id, title, snippet_path, tags, progress_callback):
+        def upload_audio(self, file_id, title, snippet_path, tags, progress_callback, source_id=None):
             upload_calls.append((file_id, title, snippet_path))
             assert tags == ["todo"]
+            assert source_id == "clip"
             assert callable(progress_callback)
             progress_callback(512, 1024)
             return True
@@ -62,6 +65,46 @@ def test_run_audio_upload_phase_wires_progress_and_notifies_on_success(
     assert notify_calls == [(2, 5, "clip.mkv", "My Title")]
 
 
+def test_run_original_upload_phase_uses_source_id_and_never_calls_llm(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """The source is delivered before derived uploads without external LLM calls."""
+    video_path = tmp_path / "clip.mkv"
+    video_path.write_bytes(b"source video")
+    calls: list[tuple[str, Path]] = []
+
+    class FakeClient:
+        def upload_original(self, source_id, original_path, progress_callback):
+            calls.append((source_id, original_path))
+            assert callable(progress_callback)
+            progress_callback(4, 12)
+            return True
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(pipeline, "MediaManagerClient", lambda _url: FakeClient())
+    monkeypatch.setattr(
+        pipeline,
+        "transcribe_and_save",
+        lambda **_kwargs: pytest.fail("original upload must not call transcription"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "generate_title_from_transcript",
+        lambda **_kwargs: pytest.fail("original upload must not call title generation"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_run_phase_step",
+        lambda *, video_path, work_fn, video_index, total_videos, label: work_fn() or True,
+    )
+
+    assert pipeline.run_original_upload_phase(video_path, 1, 1) is True
+    assert calls == [("clip", video_path)]
+
+
 def test_run_video_upload_phase_notifies_on_success(
     monkeypatch,
     tmp_path: Path,
@@ -91,11 +134,13 @@ def test_run_video_upload_phase_notifies_on_success(
             tags,
             progress_callback,
             skip_if_exists_with_title,
+            source_id=None,
         ):
             upload_calls.append((file_id, title, output_path))
             assert tags == ["pending"]
             assert callable(progress_callback)
             assert skip_if_exists_with_title is True
+            assert source_id == "clip"
             progress_callback(512, 1024)
             return {"success": True, "uploaded": True, "skipped": False, "overwritten": False}
 
@@ -157,9 +202,11 @@ def test_run_video_upload_phase_skips_notification_on_non_uploaded_result(
             tags,
             progress_callback,
             skip_if_exists_with_title,
+            source_id=None,
         ):
             assert callable(progress_callback)
             assert skip_if_exists_with_title is True
+            assert source_id == "clip"
             return {
                 "success": True,
                 "uploaded": False,

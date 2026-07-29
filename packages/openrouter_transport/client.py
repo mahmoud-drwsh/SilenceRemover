@@ -211,6 +211,7 @@ def request(
                     normalized = str(content).strip()
 
                 if not normalized:
+                    print(f"OpenRouter returned an empty response for model {model}.")
                     if log_dir:
                         _append_openrouter_log(log_dir, model, input_log_text, "[EMPTY RESPONSE]")
                         _append_openrouter_error_log(

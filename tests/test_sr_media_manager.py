@@ -77,6 +77,52 @@ class TestMediaManagerClient:
         assert "content-length" in request.headers
         assert request.headers.get("transfer-encoding") != "chunked"
 
+    def test_upload_original_uses_presigned_parts_and_checksum(self, tmp_path):
+        original = tmp_path / "source.mp4"
+        original.write_bytes(b"original-video-bytes")
+        client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
+        client._client = Mock()
+        initiated = Mock()
+        initiated.json.return_value = {
+            "upload_id": "upload-1", "part_size": 8 * 1024 * 1024,
+            "urls": ["https://object.example/part-1"],
+        }
+        completed = Mock()
+        client._client.post.side_effect = [initiated, completed]
+        part = Mock()
+        part.headers = {"etag": '"etag-1"'}
+
+        progress: list[tuple[int, int]] = []
+        with patch("sr_media_manager.api.httpx.put", return_value=part) as put:
+            assert client.upload_original("source-1", original, lambda done, total: progress.append((done, total))) is True
+
+        init_payload = client._client.post.call_args_list[0].kwargs["json"]
+        assert init_payload["checksum_sha256"] == __import__("hashlib").sha256(original.read_bytes()).hexdigest()
+        assert put.call_args.kwargs["content"] == original.read_bytes()
+        assert progress == [(original.stat().st_size, original.stat().st_size)]
+        assert client._client.post.call_args_list[1].kwargs["json"] == {
+            "upload_id": "upload-1", "parts": [{"part_number": 1, "etag": '"etag-1"'}],
+        }
+
+    def test_upload_original_aborts_session_after_part_failure(self, tmp_path):
+        original = tmp_path / "source.mp4"
+        original.write_bytes(b"original-video-bytes")
+        client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
+        client._client = Mock()
+        initiated = Mock()
+        initiated.json.return_value = {
+            "upload_id": "upload-1", "part_size": 8 * 1024 * 1024,
+            "urls": ["https://object.example/part-1"],
+        }
+        client._client.post.return_value = initiated
+
+        with patch("sr_media_manager.api.httpx.put", side_effect=httpx.HTTPError("network")):
+            with pytest.raises(Exception, match="Original upload failed"):
+                client.upload_original("source-1", original)
+
+        assert client._client.post.call_args_list[1].args[0].endswith("/api/originals/source-1/abort")
+        assert client._client.post.call_args_list[1].kwargs["json"] == {"upload_id": "upload-1"}
+
 
 class TestSyncTitlesFromApi:
     """Test title synchronization logic."""

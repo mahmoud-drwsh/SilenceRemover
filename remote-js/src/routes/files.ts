@@ -49,6 +49,9 @@ interface FileRow {
   file_size: number | null;
   mime_type: string;
   created_at: Date | string | null;
+  source_id: string | null;
+  original_filename: string | null;
+  checksum_sha256: string | null;
 }
 
 function rowToResponse(row: FileRow): FileResponse {
@@ -62,6 +65,9 @@ function rowToResponse(row: FileRow): FileResponse {
     file_size: Number(row.file_size ?? 0),
     mime_type: row.mime_type,
     created_at: serializeCreatedAt(row.created_at),
+    source_id: row.source_id ?? null,
+    original_filename: row.original_filename ?? null,
+    checksum_sha256: row.checksum_sha256 ?? null,
   };
 }
 
@@ -115,6 +121,19 @@ function parseUploadTags(value: string, fileType: FileType): string[] {
   return tags;
 }
 
+async function assertSourceOriginalExists(project: string, sourceId: string | null): Promise<void> {
+  if (!sourceId) return;
+  const sql = getDb();
+  const ident = schemaIdent();
+  const rows = await sql.unsafe<{ tags: unknown }[]>(
+    `SELECT tags FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = 'original'`,
+    [sourceId, project],
+  );
+  if (!rows[0] || parseTagsValue(rows[0].tags).includes("trash")) {
+    throw new HttpError(400, "source_id must reference an available original in this project");
+  }
+}
+
 async function resolveUploadOverwrite(
   fileId: string,
   project: string,
@@ -162,6 +181,7 @@ async function commitUploadMetadata(args: {
   fileSize: number;
   mime: string;
   overwritten: boolean;
+  sourceId?: string | null;
 }): Promise<void> {
   const sql = getDb();
   const ident = schemaIdent();
@@ -175,8 +195,8 @@ async function commitUploadMetadata(args: {
   try {
     await sql.unsafe(
       `INSERT INTO ${ident}.files
-         (id, project, type, title, tags, duration, file_size, mime_type)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
+         (id, project, type, title, tags, duration, file_size, mime_type, source_id)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)`,
       [
         args.fileId,
         args.project,
@@ -186,6 +206,7 @@ async function commitUploadMetadata(args: {
         args.duration,
         args.fileSize,
         args.mime,
+        args.sourceId ?? null,
       ],
     );
   } catch (error) {
@@ -261,7 +282,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const includeTrash = url.searchParams.get("include_trash") === "true";
   const includePending = url.searchParams.get("include_pending") === "true";
 
-  if (typeParam && typeParam !== "audio" && typeParam !== "video") {
+  if (typeParam && typeParam !== "audio" && typeParam !== "video" && typeParam !== "original") {
     throw new HttpError(400, "Invalid type parameter");
   }
 
@@ -279,7 +300,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     }
 
     const rows = await sql.unsafe<FileRow[]>(
-      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at
+      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256
        FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = $3`,
       [sanitizedId, project, typeParam],
     );
@@ -337,7 +358,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const sortDirection = sort === "asc" ? "ASC" : "DESC";
 
   const rows = await sql.unsafe<FileRow[]>(
-    `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at
+    `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256
      FROM ${ident}.files
      WHERE ${whereClause}
      ORDER BY id ${sortDirection}`,
@@ -362,6 +383,7 @@ filesRouter.post("/projects/:token/:project/api/files", async (c) => {
   const titleRaw = formData.get("title") ?? "";
   const typeRaw = formData.get("type");
   const tagsRaw = formData.get("tags") ?? "[]";
+  const sourceIdRaw = formData.get("source_id");
   const file = formData.get("file");
 
   if (typeof idRaw !== "string" || typeof typeRaw !== "string") {
@@ -380,6 +402,9 @@ filesRouter.post("/projects/:token/:project/api/files", async (c) => {
   if (!id) {
     throw new HttpError(400, "Invalid file ID");
   }
+  const sourceId = typeof sourceIdRaw === "string" && sourceIdRaw ? sanitizeFileId(sourceIdRaw) : null;
+  if (sourceIdRaw && !sourceId) throw new HttpError(400, "Invalid source_id");
+  await assertSourceOriginalExists(project, sourceId);
 
   const overwritten = await resolveUploadOverwrite(id, project, fileType, title);
   const tagList = parseUploadTags(
@@ -430,6 +455,7 @@ filesRouter.post("/projects/:token/:project/api/files", async (c) => {
     fileSize: contentBytes.byteLength,
     mime,
     overwritten,
+    sourceId,
   });
 
   return c.json({
@@ -457,6 +483,10 @@ filesRouter.put("/projects/:token/:project/api/files/:id/content", async (c) => 
 
   const url = new URL(c.req.url);
   const title = url.searchParams.get("title") ?? "";
+  const sourceIdRaw = url.searchParams.get("source_id");
+  const sourceId = sourceIdRaw ? sanitizeFileId(sourceIdRaw) : null;
+  if (sourceIdRaw && !sourceId) throw new HttpError(400, "Invalid source_id");
+  await assertSourceOriginalExists(project, sourceId);
   const tagList = parseUploadTags(url.searchParams.get("tags") ?? "[]", fileType);
   const overwritten = await resolveUploadOverwrite(fileId, project, fileType, title);
 
@@ -544,6 +574,7 @@ filesRouter.put("/projects/:token/:project/api/files/:id/content", async (c) => 
       fileSize: bytesReceived,
       mime,
       overwritten,
+      sourceId,
     });
     console.log(
       `UPLOAD_COMMITTED id=${JSON.stringify(fileId)} project=${JSON.stringify(project)} ` +
@@ -583,7 +614,7 @@ filesRouter.put("/projects/:token/:project/api/files/:id", async (c) => {
 
   const url = new URL(c.req.url);
   const typeRaw = url.searchParams.get("type");
-  if (typeRaw !== "audio" && typeRaw !== "video") {
+  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original") {
     throw new HttpError(400, "Type parameter is required");
   }
   const fileType = typeRaw as FileType;
@@ -658,7 +689,7 @@ filesRouter.delete("/projects/:token/:project/api/files/:id", async (c) => {
 
   const url = new URL(c.req.url);
   const typeRaw = url.searchParams.get("type");
-  if (typeRaw !== "audio" && typeRaw !== "video") {
+  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original") {
     throw new HttpError(400, "Type parameter is required");
   }
   const fileType = typeRaw as FileType;

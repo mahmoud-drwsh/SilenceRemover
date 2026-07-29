@@ -540,6 +540,7 @@ def run_audio_upload_phase(
                     video_index=video_index,
                     total_videos=total_videos,
                 ),
+                source_id=video_path.stem,
             )
             if result:
                 notify_audio_uploaded(
@@ -557,6 +558,38 @@ def run_audio_upload_phase(
         video_index=video_index,
         total_videos=total_videos,
         label="Audio Upload",
+    )
+
+
+def run_original_upload_phase(
+    video_path: Path,
+    video_index: int,
+    total_videos: int,
+) -> bool | None:
+    """Upload the immutable source recording before any derived artifact."""
+    def _perform() -> None:
+        client = MediaManagerClient(os.getenv("MEDIA_MANAGER_URL"))
+        try:
+            if not client.upload_original(
+                video_path.stem,
+                video_path,
+                progress_callback=_build_upload_progress_callback(
+                    label="Original Upload",
+                    video_path=video_path,
+                    video_index=video_index,
+                    total_videos=total_videos,
+                ),
+            ):
+                raise RuntimeError("Original upload did not complete")
+        finally:
+            client.close()
+
+    return _run_phase_step(
+        video_path=video_path,
+        work_fn=_perform,
+        video_index=video_index,
+        total_videos=total_videos,
+        label="Original Upload",
     )
 
 
@@ -775,6 +808,7 @@ def run_video_upload_phase(
                     total_videos=total_videos,
                 ),
                 skip_if_exists_with_title=True,
+                source_id=video_path.stem,
             )
             if isinstance(result, dict) and not result.get("success", False):
                 raise RuntimeError(f"Video upload failed: {result.get('error') or 'unknown error'}")
@@ -1018,9 +1052,23 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 str(get_title_path(temp_dir, video_file.stem)),
             ],
         ),
-        # UPDATED: Phase 4 - Audio Upload (was Phase 3)
         _PipelinePhase(
             4,
+            "Original Upload",
+            lambda video_file, vi, vn: run_original_upload_phase(
+                video_path=video_file,
+                video_index=vi,
+                total_videos=vn,
+            ),
+            skip_reason=lambda _video_file: (
+                "media manager disabled" if server_cache is None else None
+            ),
+            checked_paths=lambda video_file: [f"server:original/{video_file.stem}"],
+        ),
+        # Phase 5 - Audio Upload. It follows original delivery so every remote
+        # derived artifact has a source_id.
+        _PipelinePhase(
+            5,
             "Audio Upload",
             lambda video_file, vi, vn: run_audio_upload_phase(
                 video_path=video_file,
@@ -1055,9 +1103,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 f"server:audio/{video_file.stem}",
             ],
         ),
-        # UPDATED: Phase 5 - Title Overlay Generation
+        # Phase 6 - Title Overlay Generation
         _PipelinePhase(
-            5,
+            6,
             "Title Overlay Generation",
             lambda video_file, vi, vn: run_title_overlay_phase(
                 video_file,
@@ -1092,9 +1140,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 str(_title_overlay_path(video_file) or (temp_dir / "title_overlays" / f"{video_file.stem}.<title_hash>.png")),
             ],
         ),
-        # NEW: Phase 6 - Logo Overlay Preparation
+        # Phase 7 - Logo Overlay Preparation
         _PipelinePhase(
-            6,
+            7,
             "Logo Overlay Preparation",
             lambda video_file, vi, vn: run_logo_overlay_phase(
                 video_path=video_file,
@@ -1124,9 +1172,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 str(temp_dir / "logo_overlays"),
             ],
         ),
-        # UPDATED: Phase 7 - Final Encode (was Phase 6)
+        # Phase 8 - Final Encode
         _PipelinePhase(
-            7,
+            8,
             "Final Encode",
             lambda video_file, vi, vn: run_encode_phase(
                 video_path=video_file,
@@ -1181,9 +1229,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 str(_snippet_trim_script_path(video_file)),
             ],
         ),
-        # UPDATED: Phase 8 - Video Reconciliation (delete server video if local title differs)
+        # Phase 9 - Video Reconciliation (delete server video if local title differs)
         _PipelinePhase(
-            8,
+            9,
             "Video Reconciliation",
             lambda video_file, vi, vn: run_video_reconciliation_phase(
                 video_path=video_file,
@@ -1218,9 +1266,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 f"server:video/{video_file.stem}",
             ],
         ),
-        # UPDATED: Phase 9 - Video Upload (existence-based skip)
+        # Phase 10 - Video Upload (existence-based skip)
         _PipelinePhase(
-            9,
+            10,
             "Video Upload",
             lambda video_file, vi, vn: run_video_upload_phase(
                 video_path=video_file,
@@ -1257,9 +1305,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 f"server:video/{video_file.stem}",
             ],
         ),
-        # UPDATED: Phase 10 - Publish Video (pending -> FB/TT only)
+        # Phase 11 - Publish Video (pending -> FB/TT only)
         _PipelinePhase(
-            10,
+            11,
             "Publish Video",
             lambda video_file, vi, vn: run_video_tag_promotion_phase(
                 video_path=video_file,
@@ -1302,9 +1350,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
 
     for phase in phases:
         _run_phase(videos=videos, phase=phase)
-        # Rebuild cache after Phase 8 (reconciliation) and Phase 9 (upload)
+        # Rebuild cache after Phase 9 (reconciliation) and Phase 10 (upload)
         # so subsequent phases see fresh server state
-        if media_manager_enabled and phase.index in (8, 9):
+        if media_manager_enabled and phase.index in (9, 10):
             server_cache = _rebuild_server_cache(os.getenv('MEDIA_MANAGER_URL') or '')
 
     return startup

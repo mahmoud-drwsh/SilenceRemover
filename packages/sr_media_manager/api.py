@@ -1,6 +1,7 @@
 """Media Manager HTTP API client."""
 
 import json
+import hashlib
 import os
 import sys
 import time
@@ -265,7 +266,7 @@ class MediaManagerClient:
             return (False, False)
 
     def upload_audio(self, file_id: str, title: str, audio_path: Path, tags: list = None,
-                     progress_callback: callable = None) -> bool:
+                     progress_callback: callable = None, source_id: str | None = None) -> bool:
         """Upload audio snippet with title and tags.
         
         Args:
@@ -290,6 +291,8 @@ class MediaManagerClient:
                     'type': 'audio',
                     'tags': json.dumps(tags)
                 }
+                if source_id:
+                    data['source_id'] = source_id
                 resp = self._client.post(
                     self._url('/api/files'),
                     data=data,
@@ -315,7 +318,8 @@ class MediaManagerClient:
         video_path: Path,
         tags: list = None,
         progress_callback: callable = None,
-        skip_if_exists_with_title: bool = False
+        skip_if_exists_with_title: bool = False,
+        source_id: str | None = None,
     ) -> dict:
         """Upload final video with title and tags.
 
@@ -380,6 +384,7 @@ class MediaManagerClient:
                 params={
                     'title': title,
                     'tags': json.dumps(tags),
+                    **({'source_id': source_id} if source_id else {}),
                 },
                 content=iter_video_chunks(),
                 headers={
@@ -421,6 +426,59 @@ class MediaManagerClient:
                 'overwritten': False,
                 'error': str(e)
             }
+
+    def upload_original(self, source_id: str, original_path: Path, progress_callback: callable = None) -> bool:
+        """Upload an original through short-lived, presigned multipart URLs."""
+        size = original_path.stat().st_size
+        checksum = hashlib.sha256()
+        with original_path.open('rb') as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                checksum.update(chunk)
+        mime = {
+            '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska',
+            '.webm': 'video/webm',
+        }.get(original_path.suffix.lower(), 'video/mp4')
+        session = None
+        try:
+            response = self._client.post(self._url(f'/api/originals/{quote(source_id, safe="")}/upload'), json={
+                'original_filename': original_path.name,
+                'mime_type': mime,
+                'file_size': size,
+                'checksum_sha256': checksum.hexdigest(),
+            })
+            response.raise_for_status()
+            session = response.json()
+            if session.get('already_uploaded'):
+                return True
+            etags = []
+            uploaded = 0
+            with original_path.open('rb') as source:
+                for number, url in enumerate(session['urls'], start=1):
+                    payload = source.read(session['part_size'])
+                    part = httpx.put(url, content=payload, timeout=VIDEO_UPLOAD_TIMEOUT)
+                    part.raise_for_status()
+                    etag = part.headers.get('etag')
+                    if not etag:
+                        raise MediaManagerError(f'Missing ETag for original upload part {number}')
+                    etags.append({'part_number': number, 'etag': etag})
+                    uploaded += len(payload)
+                    if progress_callback:
+                        progress_callback(uploaded, size)
+            complete = self._client.post(self._url(f'/api/originals/{quote(source_id, safe="")}/complete'), json={
+                'upload_id': session['upload_id'], 'parts': etags,
+            })
+            complete.raise_for_status()
+            return True
+        except Exception as exc:
+            if session and session.get('upload_id'):
+                try:
+                    self._client.post(
+                        self._url(f'/api/originals/{quote(source_id, safe="")}/abort'),
+                        json={'upload_id': session['upload_id']},
+                    )
+                except Exception:
+                    pass
+            raise MediaManagerError(f'Original upload failed for {source_id}: {exc}') from exc
     
     def update_tags(self, file_id: str, tags: list, file_type: str = 'audio') -> bool:
         """Update file tags.
