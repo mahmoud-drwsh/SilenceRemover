@@ -484,6 +484,7 @@ class ServerDataCache:
     """Unified server data fetched once at pipeline start."""
     audio_files: dict[str, dict]
     video_files: dict[str, dict]
+    original_files: dict[str, dict]
     audio_trash_ids: frozenset[str]
     video_trash_ids: frozenset[str]
     ready_audio_ids: frozenset[str]
@@ -501,6 +502,9 @@ class ServerDataCache:
     
     def get_video(self, file_id: str) -> dict | None:
         return self.video_files.get(file_id)
+
+    def has_original(self, file_id: str) -> bool:
+        return file_id in self.original_files
     
     def is_audio_trash(self, file_id: str) -> bool:
         return file_id in self.audio_trash_ids
@@ -591,6 +595,17 @@ def run_original_upload_phase(
         total_videos=total_videos,
         label="Original Upload",
     )
+
+
+def original_upload_skip_reason(
+    video_path: Path,
+    server_cache: ServerDataCache | None,
+) -> str | None:
+    if server_cache is None:
+        return "media manager disabled"
+    if server_cache.has_original(video_path.stem):
+        return "original already exists on server"
+    return None
 
 
 def run_encode_phase(
@@ -733,6 +748,7 @@ def _rebuild_server_cache(media_manager_url: str) -> ServerDataCache | None:
                 include_trash=True,
                 include_pending=True,
             )
+            all_originals = client.get_original_files()
 
             audio_files = {}
             audio_trash = set()
@@ -760,9 +776,16 @@ def _rebuild_server_cache(media_manager_url: str) -> ServerDataCache | None:
                     if isinstance(tags, list) and 'trash' in tags:
                         video_trash.add(vid)
 
+            original_files = {
+                original_id: original
+                for original in all_originals
+                if (original_id := original.get('id'))
+            }
+
             return ServerDataCache(
                 audio_files=audio_files,
                 video_files=video_files,
+                original_files=original_files,
                 audio_trash_ids=frozenset(audio_trash),
                 video_trash_ids=frozenset(video_trash),
                 ready_audio_ids=frozenset(ready_audio),
@@ -1060,8 +1083,8 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 video_index=vi,
                 total_videos=vn,
             ),
-            skip_reason=lambda _video_file: (
-                "media manager disabled" if server_cache is None else None
+            skip_reason=lambda video_file: original_upload_skip_reason(
+                video_file, server_cache
             ),
             checked_paths=lambda video_file: [f"server:original/{video_file.stem}"],
         ),

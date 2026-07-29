@@ -151,6 +151,15 @@ class MediaManagerClient:
             return resp.json()
         except Exception as e:
             raise MediaManagerError(f"Failed to fetch video files: {e}")
+
+    def get_original_files(self) -> list[dict]:
+        """Fetch source recordings uploaded for this project."""
+        try:
+            resp = self._client.get(self._url('/api/files?type=original'))
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            raise MediaManagerError(f"Failed to fetch original files: {e}")
     
     def check_exists(self, file_id: str, file_type: str = 'audio') -> bool:
         """Check if file exists on server by ID and type."""

@@ -105,6 +105,21 @@ def test_run_original_upload_phase_uses_source_id_and_never_calls_llm(
     assert calls == [("clip", video_path)]
 
 
+def test_original_upload_skip_reason_uses_the_startup_server_cache(tmp_path: Path) -> None:
+    video_path = tmp_path / "clip.mkv"
+    cache = pipeline.ServerDataCache(
+        audio_files={},
+        video_files={},
+        original_files={"clip": {"id": "clip"}},
+        audio_trash_ids=frozenset(),
+        video_trash_ids=frozenset(),
+        ready_audio_ids=frozenset(),
+    )
+
+    assert pipeline.original_upload_skip_reason(video_path, cache) == "original already exists on server"
+    assert pipeline.original_upload_skip_reason(tmp_path / "missing.mkv", cache) is None
+
+
 def test_run_video_upload_phase_notifies_on_success(
     monkeypatch,
     tmp_path: Path,
