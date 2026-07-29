@@ -16,6 +16,7 @@ import { filesRouter } from "./routes/files.ts";
 import { projectSpaRouter } from "./routes/projectSpa.ts";
 import { streamRouter } from "./routes/stream.ts";
 import { publicRouter } from "./routes/public.ts";
+import { uploadsRouter, cleanupExpiredUploadSessions } from "./routes/uploads.ts";
 import { originalsRouter } from "./routes/originals.ts";
 import { HttpError } from "./schemas.ts";
 
@@ -40,6 +41,7 @@ app.route("/", adminRouter);
 app.route("/", filesRouter);
 app.route("/", streamRouter);
 app.route("/", publicRouter);
+app.route("/", uploadsRouter);
 app.route("/", originalsRouter);
 app.route("/", projectSpaRouter);
 
@@ -50,6 +52,7 @@ async function main(): Promise<void> {
   );
   await ensureDatabaseReady();
   await ensureStorageBackendReady();
+  await cleanupExpiredUploadSessions();
   console.log("[startup] checks passed; listening on :" + config.port);
 
   const server = Bun.serve({

@@ -84,7 +84,7 @@ class TestMediaManagerClient:
         client._client = Mock()
         initiated = Mock()
         initiated.json.return_value = {
-            "upload_id": "upload-1", "part_size": 8 * 1024 * 1024,
+            "session_id": "session-1", "upload_id": "upload-1", "part_size": 8 * 1024 * 1024,
             "urls": ["https://object.example/part-1"],
         }
         completed = Mock()
@@ -100,9 +100,9 @@ class TestMediaManagerClient:
         assert init_payload["checksum_sha256"] == __import__("hashlib").sha256(original.read_bytes()).hexdigest()
         assert put.call_args.kwargs["content"] == original.read_bytes()
         assert progress == [(original.stat().st_size, original.stat().st_size)]
-        assert client._client.post.call_args_list[1].kwargs["json"] == {
-            "upload_id": "upload-1", "parts": [{"part_number": 1, "etag": '"etag-1"'}],
-        }
+        assert client._client.post.call_args_list[0].args[0].endswith("/api/uploads/initiate")
+        assert client._client.post.call_args_list[1].args[0].endswith("/api/uploads/session-1/complete")
+        assert client._client.post.call_args_list[1].kwargs["json"] == {"parts": [{"part_number": 1, "etag": '"etag-1"'}]}
 
     def test_upload_original_aborts_session_after_part_failure(self, tmp_path):
         original = tmp_path / "source.mp4"
@@ -111,17 +111,16 @@ class TestMediaManagerClient:
         client._client = Mock()
         initiated = Mock()
         initiated.json.return_value = {
-            "upload_id": "upload-1", "part_size": 8 * 1024 * 1024,
+            "session_id": "session-1", "upload_id": "upload-1", "part_size": 8 * 1024 * 1024,
             "urls": ["https://object.example/part-1"],
         }
         client._client.post.return_value = initiated
 
         with patch("sr_media_manager.api.httpx.put", side_effect=httpx.HTTPError("network")):
-            with pytest.raises(Exception, match="Original upload failed"):
+            with pytest.raises(Exception, match="original upload failed"):
                 client.upload_original("source-1", original)
 
-        assert client._client.post.call_args_list[1].args[0].endswith("/api/originals/source-1/abort")
-        assert client._client.post.call_args_list[1].kwargs["json"] == {"upload_id": "upload-1"}
+        assert client._client.post.call_args_list[1].args[0].endswith("/api/uploads/session-1/abort")
 
 
 class TestSyncTitlesFromApi:
@@ -318,14 +317,11 @@ class TestVideoOverwrite:
         with patch("httpx.Client") as http_client:
             client = self._client(http_client)
 
-            mock_response = Mock()
-            mock_response.json.return_value = {"ok": True, "overwritten": True, "id": "vid"}
-            http_client.return_value.put.return_value = mock_response
-
             video_path = tmp_path / "video.mp4"
             video_path.write_bytes(b"fake video")
 
-            with patch.object(client, "check_video_exists", return_value=(True, False)):
+            with patch.object(client, "check_video_exists", return_value=(True, False)), \
+                 patch.object(client, "_upload_presigned", return_value={"ok": True, "overwritten": True, "id": "vid"}) as upload:
                 result = client.upload_video(
                     "vid",
                     "New Title",
@@ -335,25 +331,17 @@ class TestVideoOverwrite:
 
         assert result.get("overwritten") is True
         assert result.get("uploaded") is True
-        call = http_client.return_value.put.call_args
-        assert call.args[0].endswith("/api/files/vid/content")
-        assert call.kwargs["params"]["title"] == "New Title"
-        assert call.kwargs["params"]["tags"] == '["FB", "TT"]'
-        assert call.kwargs["headers"]["Content-Type"] == "video/mp4"
-        assert call.kwargs["headers"]["Content-Length"] == "10"
-        assert call.kwargs["timeout"] is VIDEO_UPLOAD_TIMEOUT
-        assert b"".join(call.kwargs["content"]) == b"fake video"
+        assert upload.call_args.kwargs["file_type"] == "video"
+        assert upload.call_args.kwargs["path"] == video_path
 
     def test_upload_video_failure_logs_context(self, tmp_path, capsys):
         """Video upload failures should expose enough context to diagnose retry loops."""
         with patch("httpx.Client") as http_client:
             client = self._client(http_client)
-            http_client.return_value.put.side_effect = TimeoutError("upload timed out")
-
             video_path = tmp_path / "video.mp4"
             video_path.write_bytes(b"fake video")
-
-            result = client.upload_video("vid", "Title", video_path)
+            with patch.object(client, "_upload_presigned", side_effect=TimeoutError("upload timed out")):
+                result = client.upload_video("vid", "Title", video_path)
 
         captured = capsys.readouterr()
         assert result["success"] is False

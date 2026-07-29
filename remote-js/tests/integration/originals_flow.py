@@ -28,34 +28,33 @@ with open(SOURCE, "rb") as handle:
     source = handle.read()
 digest = hashlib.sha256(source).hexdigest()
 
-# The server must verify the claimed digest after S3 completes the multipart
-# upload; a client-provided hash alone is not trusted.
-bad_init = json.load(request("/api/originals/source-bad/upload", "POST", {
-    "original_filename": "bad.mp4", "mime_type": "video/mp4",
-    "file_size": len(source), "checksum_sha256": "0" * 64,
-}))
+def initiate(file_id, media_type, checksum, **extra):
+    return json.load(request("/api/uploads/initiate", "POST", {
+        "id": file_id, "type": media_type, "mime_type": "video/mp4",
+        "file_size": len(source), "checksum_sha256": checksum, **extra,
+    }))
+
+def complete_session(session):
+    part = urllib.request.urlopen(urllib.request.Request(session["urls"][0], data=source, method="PUT"), timeout=20)
+    return json.load(request(f"/api/uploads/{session['session_id']}/complete", "POST", {
+        "parts": [{"part_number": 1, "etag": part.headers["ETag"]}],
+    }))
+
+# The server verifies the stored bytes, not merely a client-provided hash.
+bad_init = initiate("source-bad", "original", "0" * 64, original_filename="bad.mp4")
 bad_part = urllib.request.urlopen(urllib.request.Request(bad_init["urls"][0], data=source, method="PUT"), timeout=20)
 try:
-    request("/api/originals/source-bad/complete", "POST", {
-        "upload_id": bad_init["upload_id"],
+    request(f"/api/uploads/{bad_init['session_id']}/complete", "POST", {
         "parts": [{"part_number": 1, "etag": bad_part.headers["ETag"]}],
     })
     raise AssertionError("checksum mismatch should fail completion")
 except urllib.error.HTTPError as exc:
     assert exc.code == 400
 
-init = json.load(request("/api/originals/source-001/upload", "POST", {
-    "original_filename": "source.mp4", "mime_type": "video/mp4",
-    "file_size": len(source), "checksum_sha256": digest,
-}))
-assert init["ok"] and not init.get("already_uploaded") and len(init["urls"]) == 1
-part = urllib.request.urlopen(urllib.request.Request(init["urls"][0], data=source, method="PUT"), timeout=20)
-etag = part.headers.get("ETag")
-assert etag
-complete = json.load(request("/api/originals/source-001/complete", "POST", {
-    "upload_id": init["upload_id"], "parts": [{"part_number": 1, "etag": etag}],
-}))
-assert complete["ok"]
+init = initiate("source-001", "original", digest, original_filename="source.mp4")
+assert init["ok"] and len(init["urls"]) == 1
+completed = complete_session(init)
+assert completed["ok"]
 
 originals = json.load(request("/api/files?type=original"))
 assert len(originals) == 1 and originals[0]["checksum_sha256"] == digest
@@ -64,8 +63,8 @@ assert stream.status == 206 and stream.read() == source[:100]
 download = json.load(request("/api/originals/source-001/download"))
 assert urllib.request.urlopen(download["url"], timeout=20).read() == source
 
-video = request("/api/files/derived-001/content?title=Derived&tags=%5B%22pending%22%5D&source_id=source-001", "PUT", source, {"Content-Type": "video/mp4", "Content-Length": str(len(source))})
-assert video.status == 200
+video = complete_session(initiate("derived-001", "video", digest, title="Derived", tags=["pending"], source_id="source-001"))
+assert video["ok"]
 derived = json.load(request("/api/originals/source-001/derived"))
 assert len(derived) == 1 and derived[0]["id"] == "derived-001"
 try:

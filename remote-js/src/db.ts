@@ -70,6 +70,26 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_tags_gin_idx ON ${ident}.files USING gin (tags)`);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_project_source_idx ON ${ident}.files (project, source_id)`);
   await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS ${ident}.upload_sessions (
+      id text PRIMARY KEY,
+      project text NOT NULL,
+      file_id text NOT NULL,
+      type text NOT NULL CHECK (type IN ('audio', 'video', 'original')),
+      mime_type text NOT NULL,
+      file_size bigint NOT NULL,
+      checksum_sha256 text NOT NULL,
+      title text NOT NULL DEFAULT '',
+      tags jsonb NOT NULL DEFAULT '[]'::jsonb,
+      source_id text,
+      original_filename text,
+      upload_id text,
+      expires_at timestamptz NOT NULL,
+      state text NOT NULL DEFAULT 'active' CHECK (state IN ('active', 'completed', 'aborted')),
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS upload_sessions_active_identity_idx ON ${ident}.upload_sessions (project, file_id, type, checksum_sha256) WHERE state = 'active'`);
+  await sql.unsafe(`
     CREATE TABLE IF NOT EXISTS ${ident}.original_uploads (
       upload_id text PRIMARY KEY,
       project text NOT NULL,
@@ -116,4 +136,5 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`SELECT 1 FROM ${ident}.auth_tokens LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.admin_audit_log LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.public_share_links LIMIT 1`);
+  await sql.unsafe(`SELECT 1 FROM ${ident}.upload_sessions LIMIT 1`);
 }

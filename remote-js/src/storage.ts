@@ -23,6 +23,10 @@ import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { createHash } from "node:crypto";
 import { loadConfig } from "./config.ts";
 import { MIME_TO_EXT } from "./mime.ts";
+import type { FileType } from "./schemas.ts";
+
+export const MULTIPART_PART_SIZE = 8 * 1024 * 1024;
+export const PRESIGNED_URL_TTL_SEC = 15 * 60;
 
 let cachedClient: S3Client | undefined;
 
@@ -224,6 +228,55 @@ export async function storageSha256(
     reader.releaseLock();
   }
   return hash.digest("hex");
+}
+
+export async function createMultipartUpload(
+  fileType: FileType, project: string, fileId: string, ext: string, mime: string,
+): Promise<string> {
+  const config = loadConfig();
+  const result = await getS3Client().send(new CreateMultipartUploadCommand({
+    Bucket: config.s3Bucket, Key: storageObjectKey(fileType, project, fileId, ext), ContentType: mime,
+  }));
+  if (!result.UploadId) throw new Error("S3 did not return a multipart upload ID");
+  return result.UploadId;
+}
+
+export async function presignUploadPart(
+  fileType: FileType, project: string, fileId: string, ext: string, uploadId: string, partNumber: number,
+): Promise<string> {
+  const config = loadConfig();
+  return getSignedUrl(getS3Client(), new UploadPartCommand({
+    Bucket: config.s3Bucket, Key: storageObjectKey(fileType, project, fileId, ext), UploadId: uploadId, PartNumber: partNumber,
+  }), { expiresIn: PRESIGNED_URL_TTL_SEC });
+}
+
+export async function presignPutObject(
+  fileType: FileType, project: string, fileId: string, ext: string, mime: string,
+): Promise<string> {
+  const config = loadConfig();
+  return getSignedUrl(getS3Client(), new PutObjectCommand({
+    Bucket: config.s3Bucket, Key: storageObjectKey(fileType, project, fileId, ext), ContentType: mime,
+  }), { expiresIn: PRESIGNED_URL_TTL_SEC });
+}
+
+export async function completeMultipartUpload(
+  fileType: FileType, project: string, fileId: string, ext: string, uploadId: string,
+  parts: Array<{ partNumber: number; etag: string }>,
+): Promise<void> {
+  const config = loadConfig();
+  await getS3Client().send(new CompleteMultipartUploadCommand({
+    Bucket: config.s3Bucket, Key: storageObjectKey(fileType, project, fileId, ext), UploadId: uploadId,
+    MultipartUpload: { Parts: parts.map((part) => ({ PartNumber: part.partNumber, ETag: part.etag })) },
+  }));
+}
+
+export async function abortMultipartUpload(
+  fileType: FileType, project: string, fileId: string, ext: string, uploadId: string,
+): Promise<void> {
+  const config = loadConfig();
+  await getS3Client().send(new AbortMultipartUploadCommand({
+    Bucket: config.s3Bucket, Key: storageObjectKey(fileType, project, fileId, ext), UploadId: uploadId,
+  }));
 }
 
 export async function createOriginalMultipartUpload(
