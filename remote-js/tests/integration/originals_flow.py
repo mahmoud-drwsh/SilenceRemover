@@ -75,6 +75,15 @@ assert len(derived) == 1 and derived[0]["id"] == "derived-001"
 renamed_download = json.load(request("/api/originals/source-001/download"))
 assert renamed_download["filename"] == "Derived.mp4"
 
+# When a pipeline retry uploads a previously missing original, completing that
+# upload self-heals a same-ID legacy derived row without a service restart.
+legacy_video = complete_session(initiate("self-heal-001", "video", digest, title="Legacy retry", tags=["pending"]))
+assert legacy_video["ok"]
+self_heal_original = complete_session(initiate("self-heal-001", "original", digest, original_filename="self-heal.mp4"))
+assert self_heal_original["ok"]
+self_healed = json.load(request("/api/files?type=video&check_id=self-heal-001"))
+assert len(self_healed) == 1 and self_healed[0]["source_id"] == "self-heal-001"
+
 # file-type reports a real MKV as video/matroska; the server must normalize it
 # to the pipeline's canonical video/x-matroska value before strict validation.
 with open("/fixtures/original.mkv", "rb") as handle:

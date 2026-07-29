@@ -163,3 +163,29 @@ export async function backfillLegacySourceLinks(): Promise<number> {
   `);
   return Number(rows[0]?.count ?? 0);
 }
+
+/** Repair a legacy derived row as soon as its original is uploaded. */
+export async function linkLegacyDerivedFilesForOriginal(
+  project: string,
+  originalId: string,
+): Promise<number> {
+  const sql = getDb();
+  const ident = schemaIdent();
+  const rows = await sql.unsafe<{ count: string }[]>(`
+    WITH updated AS (
+      UPDATE ${ident}.files AS derived
+      SET source_id = original.id
+      FROM ${ident}.files AS original
+      WHERE derived.project = $1
+        AND derived.id = $2
+        AND derived.type IN ('audio', 'video')
+        AND derived.source_id IS NULL
+        AND original.project = derived.project
+        AND original.id = derived.id
+        AND original.type = 'original'
+      RETURNING 1
+    )
+    SELECT COUNT(*)::text AS count FROM updated
+  `, [project, originalId]);
+  return Number(rows[0]?.count ?? 0);
+}

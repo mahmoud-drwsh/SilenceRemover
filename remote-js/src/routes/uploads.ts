@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getDb, schemaIdent } from "../db.ts";
+import { getDb, linkLegacyDerivedFilesForOriginal, schemaIdent } from "../db.ts";
 import { probeDurationSeconds } from "../ffprobe.ts";
 import { ALLOWED_MIME, VIDEO_MIME, getExtensionForMime, sniffMimeFromFile } from "../mime.ts";
 import { HttpError, type FileType } from "../schemas.ts";
@@ -142,6 +142,9 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/:sessionId/complete", 
     const duration = await probeDurationSeconds(tempPath);
     overwritten = await resolveUploadOverwrite(session.file_id, project, session.type, session.title);
     await commitUploadMetadata({ fileId: session.file_id, project, fileType: session.type, title: session.type === "original" ? session.original_filename ?? session.file_id : session.title, tagList: Array.isArray(session.tags) ? session.tags.map(String) : [], duration, fileSize: Number(session.file_size), mime: session.mime_type, overwritten, sourceId: session.source_id, originalFilename: session.original_filename, checksumSha256: session.checksum_sha256 });
+    if (session.type === "original") {
+      await linkLegacyDerivedFilesForOriginal(project, session.file_id);
+    }
     const sql = getDb(); const ident = schemaIdent();
     await sql.unsafe(`UPDATE ${ident}.upload_sessions SET state='completed' WHERE id=$1`, [session.id]);
   } finally { await rm(tempDir, { recursive: true, force: true }); }
