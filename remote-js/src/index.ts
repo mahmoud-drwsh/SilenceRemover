@@ -7,7 +7,7 @@
  */
 
 import { Hono } from "hono";
-import { closeDb, ensureDatabaseReady } from "./db.ts";
+import { backfillLegacySourceLinks, closeDb, ensureDatabaseReady } from "./db.ts";
 import { loadConfig } from "./config.ts";
 import { ensureStorageBackendReady } from "./storage.ts";
 import { securityHeaders } from "./security.ts";
@@ -51,6 +51,10 @@ async function main(): Promise<void> {
     `[startup] media-manager checking Postgres schema "${config.dbSchema}" and S3 bucket "${config.s3Bucket}" ...`,
   );
   await ensureDatabaseReady();
+  const repairedLinks = await backfillLegacySourceLinks();
+  if (repairedLinks > 0) {
+    console.log(`[startup] linked ${repairedLinks} legacy derived file(s) to originals`);
+  }
   await ensureStorageBackendReady();
   await cleanupExpiredUploadSessions();
   console.log("[startup] checks passed; listening on :" + config.port);

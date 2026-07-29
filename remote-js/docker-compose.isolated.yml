@@ -41,6 +41,16 @@ services:
     command: ["-ec", "until mc alias set test http://minio:9000 minioadmin minioadmin; do sleep 1; done; mc mb --ignore-existing test/media-manager"]
     networks: [isolated]
 
+  legacy-seed:
+    image: postgres:18
+    depends_on:
+      restore:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: test-password
+    command: ["sh", "-ec", "psql -h postgres -U media_manager -d media_manager -c \"ALTER TABLE media_manager.files DROP CONSTRAINT IF EXISTS files_type_check; ALTER TABLE media_manager.files ADD CONSTRAINT files_type_check CHECK (type IN ('audio', 'video', 'original')); INSERT INTO media_manager.files (id, project, type, title, tags, mime_type) VALUES ('legacy-source-001', 'test-project', 'original', NULL, '[]'::jsonb, 'video/mp4'), ('legacy-source-001', 'test-project', 'video', 'Legacy derived', '[\\\"pending\\\"]'::jsonb, 'video/mp4')\""]
+    networks: [isolated]
+
   fixture:
     image: jrottenberg/ffmpeg:6.1-alpine
     volumes:
@@ -55,6 +65,8 @@ services:
       dockerfile: Dockerfile
     depends_on:
       restore:
+        condition: service_completed_successfully
+      legacy-seed:
         condition: service_completed_successfully
       minio-init:
         condition: service_completed_successfully

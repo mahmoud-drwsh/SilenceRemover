@@ -24,6 +24,11 @@ for _ in range(30):
 else:
     raise SystemExit("Media Manager did not become healthy")
 
+# Startup backfill repairs pre-presigned-upload records which used the same
+# pipeline ID as their original but did not store source_id.
+legacy = json.load(request("/api/files?type=video&check_id=legacy-source-001"))
+assert len(legacy) == 1 and legacy[0]["source_id"] == "legacy-source-001"
+
 with open(SOURCE, "rb") as handle:
     source = handle.read()
 digest = hashlib.sha256(source).hexdigest()
@@ -57,7 +62,7 @@ completed = complete_session(init)
 assert completed["ok"]
 
 originals = json.load(request("/api/files?type=original"))
-assert len(originals) == 1 and originals[0]["checksum_sha256"] == digest
+assert any(item["id"] == "source-001" and item["checksum_sha256"] == digest for item in originals)
 stream = request("/stream/source-001?type=original", headers={"Range": "bytes=0-99"})
 assert stream.status == 206 and stream.read() == source[:100]
 download = json.load(request("/api/originals/source-001/download"))
