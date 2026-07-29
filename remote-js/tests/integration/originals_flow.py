@@ -67,6 +67,8 @@ video = complete_session(initiate("derived-001", "video", digest, title="Derived
 assert video["ok"]
 derived = json.load(request("/api/originals/source-001/derived"))
 assert len(derived) == 1 and derived[0]["id"] == "derived-001"
+renamed_download = json.load(request("/api/originals/source-001/download"))
+assert renamed_download["filename"] == "Derived.mp4"
 
 # file-type reports a real MKV as video/matroska; the server must normalize it
 # to the pipeline's canonical video/x-matroska value before strict validation.
