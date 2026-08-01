@@ -275,7 +275,7 @@ def test_no_overlay_variant_encodes_without_title_or_logo_and_uploads_with_same_
     (temp_dir / "completed" / "clip.txt").write_text("final-name", encoding="utf-8")
 
     encode_calls: list[dict] = []
-    upload_calls: list[tuple[str, str, Path, str]] = []
+    upload_calls: list[tuple[str, str, Path, list[str], str]] = []
 
     monkeypatch.setattr(
         pipeline,
@@ -285,7 +285,7 @@ def test_no_overlay_variant_encodes_without_title_or_logo_and_uploads_with_same_
 
     class FakeClient:
         def upload_video(self, file_id, title, output_path, tags, progress_callback, skip_if_exists_with_title, source_id=None):
-            upload_calls.append((file_id, title, output_path, source_id))
+            upload_calls.append((file_id, title, output_path, tags, source_id))
             return {"success": True, "uploaded": True, "skipped": False, "overwritten": False}
 
         def close(self):
@@ -330,6 +330,12 @@ def test_no_overlay_variant_encodes_without_title_or_logo_and_uploads_with_same_
         "metadata_title": "My Title",
         "trim_script_path": temp_dir / "trim.ffscript",
     }]
+    no_overlay_marker = temp_dir / "no_overlay_completed" / "clip.txt"
+    assert no_overlay_marker.read_text(encoding="utf-8") == "final-name-no-overlay"
+    assert pipeline.adopt_no_overlay_completion_or_get_skip_reason(temp_dir, "clip") == (
+        "no-overlay encode already completed"
+    )
+    assert not (output_dir / "final-name-no-overlay.mp4").exists()
 
     assert pipeline.run_no_overlay_video_upload_phase(
         video_path=video_path,
@@ -339,5 +345,67 @@ def test_no_overlay_variant_encodes_without_title_or_logo_and_uploads_with_same_
         total_videos=1,
     ) is True
     assert upload_calls == [
-        ("clip-no-overlay", "My Title (No Overlay)", output_dir / "final-name-no-overlay.mp4", "clip")
+        (
+            "clip-no-overlay",
+            "My Title (No Overlay)",
+            output_dir / "final-name-no-overlay.mp4",
+            ["no-overlay"],
+            "clip",
+        )
     ]
+
+
+def test_no_overlay_encode_requires_final_completion_marker(tmp_path: Path) -> None:
+    assert pipeline.adopt_no_overlay_completion_or_get_skip_reason(tmp_path, "clip") == (
+        "final encode not completed"
+    )
+
+
+def test_no_overlay_encode_adopts_legacy_output_without_regenerating(
+    tmp_path: Path,
+) -> None:
+    temp_dir = tmp_path / "temp"
+    output_path = tmp_path / "generated-title-no-overlay.mp4"
+    (temp_dir / "completed").mkdir(parents=True)
+    (temp_dir / "completed" / "clip.txt").write_text(
+        "generated-title", encoding="utf-8"
+    )
+    output_path.write_text("existing clean video", encoding="utf-8")
+
+    assert pipeline.adopt_no_overlay_completion_or_get_skip_reason(
+        temp_dir,
+        "clip",
+        expected_output_path=output_path,
+    ) == "no-overlay encode already completed"
+    output_path.unlink()
+
+    assert pipeline.adopt_no_overlay_completion_or_get_skip_reason(
+        temp_dir,
+        "clip",
+        expected_output_path=output_path,
+    ) == "no-overlay encode already completed"
+    assert (
+        temp_dir / "no_overlay_completed" / "clip.txt"
+    ).read_text(encoding="utf-8") == "generated-title-no-overlay"
+
+
+def test_no_overlay_encode_adopts_uploaded_companion_after_local_move(
+    tmp_path: Path,
+) -> None:
+    temp_dir = tmp_path / "temp"
+    expected_output_path = tmp_path / "generated-title-no-overlay.mp4"
+    (temp_dir / "completed").mkdir(parents=True)
+    (temp_dir / "completed" / "clip.txt").write_text(
+        "generated-title", encoding="utf-8"
+    )
+
+    assert pipeline.adopt_no_overlay_completion_or_get_skip_reason(
+        temp_dir,
+        "clip",
+        expected_output_path=expected_output_path,
+        already_uploaded=True,
+    ) == "no-overlay encode already completed"
+    assert not expected_output_path.exists()
+    assert (
+        temp_dir / "no_overlay_completed" / "clip.txt"
+    ).read_text(encoding="utf-8") == "generated-title-no-overlay"

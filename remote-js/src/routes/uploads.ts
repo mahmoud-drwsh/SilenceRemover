@@ -59,6 +59,17 @@ function partsJson(body: unknown): Array<{ partNumber: number; etag: string }> {
   return parts.map((part) => ({ partNumber: Number((part as Record<string, unknown>).part_number), etag: String((part as Record<string, unknown>).etag ?? "") }));
 }
 
+function sessionTags(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
 async function sessionById(project: string, id: string): Promise<UploadSession | undefined> {
   const sql = getDb(); const ident = schemaIdent();
   return (await sql.unsafe<UploadSession[]>(`SELECT * FROM ${ident}.upload_sessions WHERE id = $1 AND project = $2`, [id, project]))[0];
@@ -141,7 +152,7 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/:sessionId/complete", 
     if (detected !== session.mime_type) throw new HttpError(400, "Uploaded object MIME type does not match request");
     const duration = await probeDurationSeconds(tempPath);
     overwritten = await resolveUploadOverwrite(session.file_id, project, session.type, session.title);
-    await commitUploadMetadata({ fileId: session.file_id, project, fileType: session.type, title: session.type === "original" ? session.original_filename ?? session.file_id : session.title, tagList: Array.isArray(session.tags) ? session.tags.map(String) : [], duration, fileSize: Number(session.file_size), mime: session.mime_type, overwritten, sourceId: session.source_id, originalFilename: session.original_filename, checksumSha256: session.checksum_sha256 });
+    await commitUploadMetadata({ fileId: session.file_id, project, fileType: session.type, title: session.type === "original" ? session.original_filename ?? session.file_id : session.title, tagList: sessionTags(session.tags), duration, fileSize: Number(session.file_size), mime: session.mime_type, overwritten, sourceId: session.source_id, originalFilename: session.original_filename, checksumSha256: session.checksum_sha256 });
     if (session.type === "original") {
       await linkLegacyDerivedFilesForOriginal(project, session.file_id);
     }
