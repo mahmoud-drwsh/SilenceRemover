@@ -21,15 +21,19 @@ from src.core.constants import (
 from src.core.paths import (
     get_completed_path,
     get_completed_output_filename,
+    get_no_overlay_completed_output_filename,
+    get_no_overlay_completed_path,
     get_snippet_path,
     get_title_path,
     get_title_overlay_path,
     get_transcript_path,
     is_completed,
+    is_no_overlay_completed,
     is_snippet_done,
     is_title_done,
     is_transcript_done,
     mark_completed,
+    mark_no_overlay_completed,
 )
 from sr_filename import sanitize_filename
 from src.startup import StartupContext, build_startup_context
@@ -518,6 +522,7 @@ class ServerDataCache:
 
 _server_data_cache: ServerDataCache | None = None
 NO_OVERLAY_VIDEO_SUFFIX = "-no-overlay"
+NO_OVERLAY_VIDEO_TAG = "no-overlay"
 
 
 def no_overlay_video_id(source_id: str) -> str:
@@ -533,6 +538,29 @@ def no_overlay_output_basename(output_basename: str) -> str:
 def no_overlay_video_title(title: str) -> str:
     """Make the clean variant distinguishable in the project list."""
     return f"{title} (No Overlay)"
+
+
+def adopt_no_overlay_completion_or_get_skip_reason(
+    temp_dir: Path,
+    source_id: str,
+    expected_output_path: Path | None = None,
+    already_uploaded: bool = False,
+) -> str | None:
+    """Adopt an existing companion, then return whether clean encoding should skip."""
+    if not is_completed(temp_dir, source_id):
+        return "final encode not completed"
+    if is_no_overlay_completed(temp_dir, source_id):
+        return "no-overlay encode already completed"
+    if expected_output_path is not None and (
+        expected_output_path.is_file() or already_uploaded
+    ):
+        mark_no_overlay_completed(
+            temp_dir,
+            source_id,
+            output_filename=expected_output_path.stem,
+        )
+        return "no-overlay encode already completed"
+    return None
 
 
 def run_audio_upload_phase(
@@ -712,6 +740,7 @@ def run_no_overlay_encode_phase(
     title_path = get_title_path(temp_dir, basename)
     title_text = title_path.read_text(encoding="utf-8").strip()
     output_basename = get_completed_output_filename(temp_dir, basename) or sanitize_filename(title_text)
+    no_overlay_basename = no_overlay_output_basename(output_basename)
 
     def _perform() -> None:
         trim_single_video(
@@ -721,7 +750,7 @@ def run_no_overlay_encode_phase(
             min_duration=min_duration,
             pad_sec=pad_sec,
             target_length=target_length,
-            output_basename=no_overlay_output_basename(output_basename),
+            output_basename=no_overlay_basename,
             encoder=encoder,
             title_path=None,
             title_font=None,
@@ -732,6 +761,11 @@ def run_no_overlay_encode_phase(
             temp_dir=temp_dir,
             metadata_title=title_text,
             trim_script_path=trim_script_path,
+        )
+        mark_no_overlay_completed(
+            temp_dir,
+            basename,
+            output_filename=no_overlay_basename,
         )
 
     return _run_phase_step(
@@ -936,8 +970,13 @@ def run_no_overlay_video_upload_phase(
     """Upload the clean silence-removed companion video to the same project."""
     basename = video_path.stem
     title_text = get_title_path(temp_dir, basename).read_text(encoding="utf-8").strip()
-    output_basename = get_completed_output_filename(temp_dir, basename) or sanitize_filename(title_text)
-    output_path = output_dir / f"{no_overlay_output_basename(output_basename)}.mp4"
+    output_basename = (
+        get_no_overlay_completed_output_filename(temp_dir, basename)
+        or no_overlay_output_basename(
+            get_completed_output_filename(temp_dir, basename) or sanitize_filename(title_text)
+        )
+    )
+    output_path = output_dir / f"{output_basename}.mp4"
 
     def _perform() -> None:
         client = MediaManagerClient(os.getenv("MEDIA_MANAGER_URL"))
@@ -946,7 +985,7 @@ def run_no_overlay_video_upload_phase(
                 no_overlay_video_id(basename),
                 no_overlay_video_title(title_text),
                 output_path,
-                tags=["pending"],
+                tags=[NO_OVERLAY_VIDEO_TAG],
                 progress_callback=_build_upload_progress_callback(
                     label="No-Overlay Upload",
                     video_path=video_path,
@@ -1063,6 +1102,11 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         return video if isinstance(video, dict) else {}
 
     def _no_overlay_output_path(video_file: Path) -> Path | None:
+        no_overlay_basename = get_no_overlay_completed_output_filename(
+            temp_dir, video_file.stem
+        )
+        if no_overlay_basename is not None:
+            return startup.output_dir / f"{no_overlay_basename}.mp4"
         output_basename = get_completed_output_filename(temp_dir, video_file.stem)
         if output_basename is None:
             title_text = _title_text(video_file)
@@ -1393,16 +1437,14 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 video_index=vi,
                 total_videos=vn,
             ),
-            skip_reason=lambda video_file: (
-                "final encode not completed"
-                if not is_completed(temp_dir, video_file.stem)
-                else (
-                    "no-overlay video already exists"
-                    if (output_path := _no_overlay_output_path(video_file)) is not None and output_path.is_file()
-                    else None
-                )
+            skip_reason=lambda video_file: adopt_no_overlay_completion_or_get_skip_reason(
+                temp_dir,
+                video_file.stem,
+                expected_output_path=_no_overlay_output_path(video_file),
+                already_uploaded=bool(_no_overlay_video_meta(video_file)),
             ),
             checked_paths=lambda video_file: [
+                str(get_no_overlay_completed_path(temp_dir, video_file.stem)),
                 str(_no_overlay_output_path(video_file) or (startup.output_dir / f"{video_file.stem}{NO_OVERLAY_VIDEO_SUFFIX}.mp4")),
                 str(_trim_script_path(video_file)),
             ],

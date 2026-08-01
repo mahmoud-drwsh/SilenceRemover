@@ -162,6 +162,23 @@ describe("addTagListConditions", () => {
     );
     expect(params.slice(1)).toEqual([["trash"]]);
   });
+
+  test("can keep a dedicated video folder out of the virtual all view", () => {
+    const conditions = ["project = $1", "type = $2"];
+    const params: (string | number | boolean | null | string[])[] = ["temp", "video"];
+
+    addTagListConditions({
+      conditions,
+      params,
+      tagList: null,
+      includeTrash: false,
+      includePending: false,
+      excludedTags: ["no-overlay"],
+    });
+
+    expect(params.slice(2)).toEqual([["trash"], ["no-overlay"]]);
+    expect(conditions.at(-1)).toContain("NOT (");
+  });
 });
 
 describe("AUDIO_TAGS", () => {
@@ -329,5 +346,17 @@ describe("frontend Media Manager UI", () => {
     expect(html).toContain("file.source_id ? escapeJs(file.source_id)");
     expect(html).not.toContain('href="./originals"');
     expect(routes).not.toContain("/originals");
+  });
+
+  test("normal video cards offer linked no-overlay downloads in a dedicated folder", async () => {
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
+    const filesRoute = await Bun.file(new URL("./routes/files.ts", import.meta.url)).text();
+
+    expect(html).toContain("'no-overlay': '🎬 No Overlay'");
+    expect(html).toContain("file.no_overlay_id ? escapeJs(file.no_overlay_id)");
+    expect(html).toContain("⬇️ No Overlay</a>");
+    expect(filesRoute).toContain('tag === "no-overlay" || tag === "trash"');
+    expect(filesRoute).toContain("candidate.source_id = source.source_id");
+    expect(filesRoute).toContain("AS no_overlay_id");
   });
 });

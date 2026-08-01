@@ -53,6 +53,7 @@ interface FileRow {
   original_filename: string | null;
   checksum_sha256: string | null;
   derived_title: string | null;
+  no_overlay_id: string | null;
 }
 
 function rowToResponse(row: FileRow): FileResponse {
@@ -70,6 +71,7 @@ function rowToResponse(row: FileRow): FileResponse {
     original_filename: row.original_filename ?? null,
     checksum_sha256: row.checksum_sha256 ?? null,
     derived_title: row.derived_title ?? null,
+    no_overlay_id: row.no_overlay_id ?? null,
   };
 }
 
@@ -253,6 +255,7 @@ export function addTagListConditions(args: {
   tagList: string[] | null;
   includeTrash: boolean;
   includePending: boolean;
+  excludedTags?: string[];
 }): void {
   const normalizedTagsSql =
     "CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END";
@@ -262,11 +265,13 @@ export function addTagListConditions(args: {
       args.params.push([tag]);
       args.conditions.push(`${normalizedTagsSql} @> CAST($${args.params.length} AS jsonb)`);
     }
-    return;
+  } else if (!args.includeTrash) {
+    args.params.push(["trash"]);
+    args.conditions.push(`NOT (${normalizedTagsSql} @> CAST($${args.params.length} AS jsonb))`);
   }
 
-  if (!args.includeTrash) {
-    args.params.push(["trash"]);
+  for (const tag of args.excludedTags ?? []) {
+    args.params.push([tag]);
     args.conditions.push(`NOT (${normalizedTagsSql} @> CAST($${args.params.length} AS jsonb))`);
   }
 }
@@ -306,7 +311,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     }
 
     const rows = await sql.unsafe<FileRow[]>(
-      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title
+      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title, NULL::text AS no_overlay_id
        FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = $3`,
       [sanitizedId, project, typeParam],
     );
@@ -358,13 +363,18 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     tagList,
     includeTrash,
     includePending,
+    excludedTags:
+      typeParam === "video" &&
+      !tagList?.some((tag) => tag === "no-overlay" || tag === "trash")
+        ? ["no-overlay"]
+        : [],
   });
 
   const whereClause = conditions.join(" AND ");
   const sortDirection = sort === "asc" ? "ASC" : "DESC";
 
   const rows = await sql.unsafe<FileRow[]>(
-    `SELECT source.id, source.project, source.type, source.title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title
+    `SELECT source.id, source.project, source.type, source.title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, companion.id AS no_overlay_id
      FROM ${ident}.files AS source
      LEFT JOIN LATERAL (
        SELECT title
@@ -374,11 +384,27 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
          AND candidate.type IN ('video', 'audio')
          AND COALESCE(BTRIM(candidate.title), '') <> ''
          AND NOT ((CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb)
-       ORDER BY CASE candidate.type WHEN 'video' THEN 0 ELSE 1 END
+       ORDER BY CASE candidate.type WHEN 'video' THEN 0 ELSE 1 END,
+         CASE WHEN (CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["no-overlay"]'::jsonb THEN 1 ELSE 0 END
        LIMIT 1
      ) AS derived ON TRUE
+     LEFT JOIN LATERAL (
+       SELECT candidate.id
+       FROM ${ident}.files AS candidate
+       WHERE source.type = 'video'
+         AND source.source_id IS NOT NULL
+         AND NOT ((CASE WHEN jsonb_typeof(source.tags) = 'string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["no-overlay"]'::jsonb)
+         AND candidate.project = source.project
+         AND candidate.type = 'video'
+         AND candidate.source_id = source.source_id
+         AND candidate.id <> source.id
+         AND (CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["no-overlay"]'::jsonb
+         AND NOT ((CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb)
+       ORDER BY candidate.created_at DESC, candidate.id
+       LIMIT 1
+     ) AS companion ON TRUE
      WHERE ${whereClause}
-     ORDER BY id ${sortDirection}`,
+     ORDER BY source.id ${sortDirection}`,
     params,
   );
 

@@ -70,10 +70,18 @@ assert urllib.request.urlopen(download["url"], timeout=20).read() == source
 
 video = complete_session(initiate("derived-001", "video", digest, title="Derived", tags=["pending"], source_id="source-001"))
 assert video["ok"]
-clean_video = complete_session(initiate("derived-001-no-overlay", "video", digest, title="Derived (No Overlay)", tags=["pending"], source_id="source-001"))
+clean_video = complete_session(initiate("derived-001-no-overlay", "video", digest, title="Derived (No Overlay)", tags=["no-overlay"], source_id="source-001"))
 assert clean_video["ok"]
 derived = json.load(request("/api/originals/source-001/derived"))
 assert {item["id"] for item in derived} == {"derived-001", "derived-001-no-overlay"}
+normal_videos = json.load(request("/api/files?type=video"))
+normal = next(item for item in normal_videos if item["id"] == "derived-001")
+assert normal["no_overlay_id"] == "derived-001-no-overlay"
+assert all(item["id"] != "derived-001-no-overlay" for item in normal_videos)
+no_overlay_videos = json.load(request("/api/files?type=video&tags=no-overlay"))
+assert [item["id"] for item in no_overlay_videos] == ["derived-001-no-overlay"]
+clean_stream = request("/stream/derived-001-no-overlay?type=video", headers={"Range": "bytes=0-99"})
+assert clean_stream.status == 206 and clean_stream.read() == source[:100]
 renamed_download = json.load(request("/api/originals/source-001/download"))
 assert renamed_download["filename"] == "Derived.mp4"
 

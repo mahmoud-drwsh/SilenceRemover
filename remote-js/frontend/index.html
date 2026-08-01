@@ -261,7 +261,7 @@
         // Fixed tabs per section
         // Audio section now includes FB tab to view uploaded videos (cross-type viewing)
         const AUDIO_TABS = ['todo', 'FB', 'ready', 'all', 'trash'];
-        const VIDEO_TABS = ['FB', 'TT', 'all', 'trash', 'pending'];
+        const VIDEO_TABS = ['FB', 'TT', 'no-overlay', 'all', 'trash', 'pending'];
 
         function showSection(section, folder = null, isStrict = false) {
             currentSection = section;
@@ -391,6 +391,7 @@
                 'trash': '🗑️ Trash',
                 'FB': '📘 Facebook',
                 'TT': '📱 TikTok',
+                'no-overlay': '🎬 No Overlay',
                 'pending': '⏳ Pending'
             };
             return labels[tab] || tab;
@@ -492,6 +493,7 @@
             const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
             const safeId = escapeJs(file.id);  // Escape file ID for JavaScript context
             const safeSourceId = file.source_id ? escapeJs(file.source_id) : '';
+            const safeNoOverlayId = file.no_overlay_id ? escapeJs(file.no_overlay_id) : '';
             const tagsJson = JSON.stringify(file.tags || []).replace(/"/g, '&quot;');
             let actionsHtml = '';
 
@@ -524,11 +526,15 @@
                 const originalDownload = safeSourceId
                     ? `<button class="btn btn-secondary" onclick="downloadOriginal('${safeSourceId}')">⬇️ Original</button>`
                     : '';
+                const noOverlayDownload = safeNoOverlayId
+                    ? `<a href="/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.no_overlay_id)}?type=${TYPE_VIDEO}" class="btn btn-secondary" download>⬇️ No Overlay</a>`
+                    : '';
                 
                 actionsHtml = `
                     <button class="btn btn-primary" onclick="playVideo('${safeId}', '${safeTitle}')">▶️ Play</button>
                     <a href="${videoStreamUrl}" class="${dlClass}" download id="dl-btn-${safeId}" onclick="sessionStorage.setItem('dl-' + '${safeId}', '1'); this.classList.add('btn-downloaded'); this.textContent='✓ Downloaded';">${dlText}</a>
                     ${originalDownload}
+                    ${noOverlayDownload}
                     <div class="menu-container">
                         <button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button>
                         <div class="context-menu" id="menu-${file.id}">
