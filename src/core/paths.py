@@ -8,6 +8,7 @@ from src.core.constants import (
     COMPLETED_DIR,
     FONTS_DIR,
     NO_OVERLAY_COMPLETED_DIR,
+    NO_OVERLAY_OUTPUT_DIR,
     SCRIPTS_DIR,
     SILENCE_CACHE_DIR,
     SNIPPET_DIR,
@@ -30,6 +31,7 @@ __all__ = [
     "get_title_overlay_path",
     "get_completed_path",
     "get_no_overlay_completed_path",
+    "get_no_overlay_output_dir",
     "get_no_overlay_completed_output_filename",
     "is_transcript_done",
     "is_snippet_done",
@@ -56,6 +58,7 @@ def create_temp_subdirs(temp_dir: Path) -> None:
         TITLE_DIR,
         COMPLETED_DIR,
         NO_OVERLAY_COMPLETED_DIR,
+        NO_OVERLAY_OUTPUT_DIR,
         SCRIPTS_DIR,
         SILENCE_CACHE_DIR,
         FONTS_DIR,
@@ -98,6 +101,10 @@ def get_completed_path(temp_dir: Path, basename: str) -> Path:
 
 def get_no_overlay_completed_path(temp_dir: Path, basename: str) -> Path:
     return temp_dir / NO_OVERLAY_COMPLETED_DIR / f"{basename}{TEXT_FILE_EXT}"
+
+
+def get_no_overlay_output_dir(temp_dir: Path) -> Path:
+    return temp_dir / NO_OVERLAY_OUTPUT_DIR
 
 
 def is_transcript_done(temp_dir: Path, basename: str) -> bool:

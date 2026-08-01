@@ -280,7 +280,7 @@ def test_no_overlay_variant_encodes_without_title_or_logo_and_uploads_with_same_
     monkeypatch.setattr(
         pipeline,
         "trim_single_video",
-        lambda **kwargs: encode_calls.append(kwargs) or output_dir / "final-name-no-overlay.mp4",
+        lambda **kwargs: encode_calls.append(kwargs) or temp_dir / "no_overlay" / "final-name-no-overlay.mp4",
     )
 
     class FakeClient:
@@ -313,7 +313,7 @@ def test_no_overlay_variant_encodes_without_title_or_logo_and_uploads_with_same_
     ) is True
     assert encode_calls == [{
         "input_file": video_path,
-        "output_dir": output_dir,
+        "output_dir": temp_dir / "no_overlay",
         "noise_threshold": -40.0,
         "min_duration": 0.2,
         "pad_sec": 0.1,
@@ -335,7 +335,7 @@ def test_no_overlay_variant_encodes_without_title_or_logo_and_uploads_with_same_
     assert pipeline.adopt_no_overlay_completion_or_get_skip_reason(temp_dir, "clip") == (
         "no-overlay encode already completed"
     )
-    assert not (output_dir / "final-name-no-overlay.mp4").exists()
+    assert not (temp_dir / "no_overlay" / "final-name-no-overlay.mp4").exists()
 
     assert pipeline.run_no_overlay_video_upload_phase(
         video_path=video_path,
@@ -348,7 +348,7 @@ def test_no_overlay_variant_encodes_without_title_or_logo_and_uploads_with_same_
         (
             "clip-no-overlay",
             "My Title (No Overlay)",
-            output_dir / "final-name-no-overlay.mp4",
+            temp_dir / "no_overlay" / "final-name-no-overlay.mp4",
             ["no-overlay"],
             "clip",
         )
