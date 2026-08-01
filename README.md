@@ -78,7 +78,7 @@ This enables the **Phase-0-to-13 workflow**:
 6. **Phase 6**: Generate title overlay PNG
 7. **Phase 7**: Prepare pre-scaled logo overlay
 8. **Phase 8**: Create final video locally with overlays
-9. **Phase 9**: Create a silence-removed no-overlay companion video locally
+9. **Phase 9**: Create a silence-removed no-overlay companion video under `temp/no_overlay/`
 10. **Phase 10**: Reconcile the overlaid video on the server if its title changed
 11. **Phase 11**: Upload the overlaid video with `tags: ["pending"]`
 12. **Phase 12**: Upload the no-overlay companion with `tags: ["pending"]`

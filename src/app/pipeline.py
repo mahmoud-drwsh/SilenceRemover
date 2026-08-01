@@ -23,6 +23,7 @@ from src.core.paths import (
     get_completed_output_filename,
     get_no_overlay_completed_output_filename,
     get_no_overlay_completed_path,
+    get_no_overlay_output_dir,
     get_snippet_path,
     get_title_path,
     get_title_overlay_path,
@@ -741,11 +742,12 @@ def run_no_overlay_encode_phase(
     title_text = title_path.read_text(encoding="utf-8").strip()
     output_basename = get_completed_output_filename(temp_dir, basename) or sanitize_filename(title_text)
     no_overlay_basename = no_overlay_output_basename(output_basename)
+    no_overlay_output_dir = get_no_overlay_output_dir(temp_dir)
 
     def _perform() -> None:
         trim_single_video(
             input_file=video_path,
-            output_dir=output_dir,
+            output_dir=no_overlay_output_dir,
             noise_threshold=noise_threshold,
             min_duration=min_duration,
             pad_sec=pad_sec,
@@ -976,7 +978,7 @@ def run_no_overlay_video_upload_phase(
             get_completed_output_filename(temp_dir, basename) or sanitize_filename(title_text)
         )
     )
-    output_path = output_dir / f"{output_basename}.mp4"
+    output_path = get_no_overlay_output_dir(temp_dir) / f"{output_basename}.mp4"
 
     def _perform() -> None:
         client = MediaManagerClient(os.getenv("MEDIA_MANAGER_URL"))
@@ -1106,14 +1108,14 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             temp_dir, video_file.stem
         )
         if no_overlay_basename is not None:
-            return startup.output_dir / f"{no_overlay_basename}.mp4"
+            return get_no_overlay_output_dir(temp_dir) / f"{no_overlay_basename}.mp4"
         output_basename = get_completed_output_filename(temp_dir, video_file.stem)
         if output_basename is None:
             title_text = _title_text(video_file)
             if not title_text:
                 return None
             output_basename = sanitize_filename(title_text)
-        return startup.output_dir / f"{no_overlay_output_basename(output_basename)}.mp4"
+        return get_no_overlay_output_dir(temp_dir) / f"{no_overlay_output_basename(output_basename)}.mp4"
 
     def _trim_script_path(video_file: Path) -> Path:
         return get_trim_script_path(
