@@ -1,18 +1,18 @@
 /** Shared presigned S3 upload sessions for pipeline media. */
 
 import { Hono } from "hono";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getDb, linkLegacyDerivedFilesForOriginal, schemaIdent } from "../db.ts";
 import { probeDurationSeconds } from "../ffprobe.ts";
-import { ALLOWED_MIME, VIDEO_MIME, getExtensionForMime, sniffMimeFromFile } from "../mime.ts";
+import { ALLOWED_MIME, AUDIO_MIME, VIDEO_MIME, getExtensionForMime, sniffMimeFromFile } from "../mime.ts";
 import { HttpError, type FileType } from "../schemas.ts";
 import { sanitizeFileId, sanitizeFilename } from "../sanitize.ts";
 import {
   MULTIPART_PART_SIZE, abortMultipartUpload, completeMultipartUpload, presignPutObject,
-  presignUploadPart, createMultipartUpload, storageGet, storageHead, storageSha256,
+  presignUploadPart, createMultipartUpload, storageGet,
 } from "../storage.ts";
 import { verifyMediaToken } from "../http.ts";
 import { assertSourceOriginalExists, commitUploadMetadata, parseUploadTags, resolveUploadOverwrite } from "./files.ts";
@@ -20,6 +20,7 @@ import { assertSourceOriginalExists, commitUploadMetadata, parseUploadTags, reso
 export const uploadsRouter = new Hono();
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_PARTS = 10_000;
+const COMPLETION_VERIFY_DELAYS_MS = [0, 500, 1_500, 3_000];
 
 type UploadSession = {
   id: string; project: string; file_id: string; type: FileType; mime_type: string;
@@ -68,6 +69,51 @@ function sessionTags(value: unknown): string[] {
   } catch {
     return [];
   }
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function downloadAndVerifyCompletedObject(session: UploadSession, ext: string, tempPath: string): Promise<void> {
+  let problem = "object was not available";
+  let lastError: unknown;
+  for (const [attempt, delay] of COMPLETION_VERIFY_DELAYS_MS.entries()) {
+    if (delay) await wait(delay);
+    const hash = createHash("sha256");
+    let bytes = 0;
+    try {
+      const handle = await open(tempPath, "w");
+      try {
+        const reader = (await storageGet(session.type, session.project, session.file_id, ext, null)).getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            bytes += value.byteLength;
+            hash.update(value);
+            await handle.write(value);
+          }
+        } finally { reader.releaseLock(); }
+      } finally { await handle.close(); }
+      if (bytes !== Number(session.file_size)) {
+        problem = `expected ${session.file_size} bytes, got ${bytes}`;
+      } else if (hash.digest("hex") !== session.checksum_sha256) {
+        problem = "object checksum did not match request";
+      } else {
+        return;
+      }
+      lastError = undefined;
+    } catch (error) {
+      lastError = error;
+      problem = error instanceof Error ? error.message : String(error);
+    }
+    if (attempt < COMPLETION_VERIFY_DELAYS_MS.length - 1) {
+      console.warn(`UPLOAD_VERIFY_RETRY id=${JSON.stringify(session.file_id)} project=${JSON.stringify(session.project)} attempt=${attempt + 1} reason=${JSON.stringify(problem)}`);
+    }
+  }
+  if (lastError) throw lastError;
+  throw new HttpError(400, `Uploaded object verification failed: ${problem}`);
 }
 
 async function sessionById(project: string, id: string): Promise<UploadSession | undefined> {
@@ -131,25 +177,15 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/:sessionId/complete", 
     if (!parts.length || parts.some((part) => !Number.isInteger(part.partNumber) || part.partNumber < 1 || !part.etag)) throw new HttpError(400, "Completed multipart ETags are required");
     await completeMultipartUpload(session.type, project, session.file_id, ext, session.upload_id, parts);
   }
-  const head = await storageHead(session.type, project, session.file_id, ext);
-  if (!head || head.size !== Number(session.file_size)) throw new HttpError(400, "Uploaded object size does not match request");
-  if (await storageSha256(session.type, project, session.file_id, ext) !== session.checksum_sha256) throw new HttpError(400, "Uploaded object checksum does not match request");
   const tempDir = await mkdir(join(tmpdir(), `media-manager-${session.id}`), { recursive: true }).then(() => join(tmpdir(), `media-manager-${session.id}`));
   const tempPath = join(tempDir, `upload${ext}`);
   try {
-    const handle = await open(tempPath, "w");
-    try {
-      const reader = (await storageGet(session.type, project, session.file_id, ext, null)).getReader();
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          await handle.write(value);
-        }
-      } finally { reader.releaseLock(); }
-    } finally { await handle.close(); }
+    await downloadAndVerifyCompletedObject(session, ext, tempPath);
     const detected = await sniffMimeFromFile(tempPath);
-    if (detected !== session.mime_type) throw new HttpError(400, "Uploaded object MIME type does not match request");
+    const allowedDetectedMime = session.type === "audio" ? AUDIO_MIME : VIDEO_MIME;
+    if (!detected || !allowedDetectedMime.has(detected)) {
+      throw new HttpError(400, `Uploaded object MIME type is invalid: expected ${session.type}, got ${detected ?? "unknown"}`);
+    }
     const duration = await probeDurationSeconds(tempPath);
     overwritten = await resolveUploadOverwrite(session.file_id, project, session.type, session.title);
     await commitUploadMetadata({ fileId: session.file_id, project, fileType: session.type, title: session.type === "original" ? session.original_filename ?? session.file_id : session.title, tagList: sessionTags(session.tags), duration, fileSize: Number(session.file_size), mime: session.mime_type, overwritten, sourceId: session.source_id, originalFilename: session.original_filename, checksumSha256: session.checksum_sha256 });

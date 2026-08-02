@@ -296,6 +296,27 @@ class MediaManagerClient:
         response = getattr(error, 'response', None)
         return response is not None and response.status_code in (408, 429, 500, 502, 503, 504)
 
+    @staticmethod
+    def _upload_error_detail(error: Exception) -> str:
+        """Keep the API's bounded error detail in pipeline output."""
+        response = getattr(error, 'response', None)
+        if response is None:
+            return str(error)
+        try:
+            payload = response.json()
+            detail = payload.get('detail') if isinstance(payload, dict) else None
+            if isinstance(detail, str) and detail:
+                return f'{error} ({detail[:500]})'
+        except Exception:
+            pass
+        try:
+            body = response.text.strip()
+            if body:
+                return f'{error} ({body[:500]})'
+        except Exception:
+            pass
+        return str(error)
+
     def _abort_upload_session(self, session_id: str) -> None:
         try:
             self._client.post(self._url(f'/api/uploads/{quote(session_id, safe="")}/abort')).raise_for_status()
@@ -381,7 +402,9 @@ class MediaManagerClient:
                     self._abort_upload_session(session['session_id'])
                 if self._is_expired_upload_url(exc) and session_restart == 0:
                     continue
-                raise MediaManagerError(f'{file_type} upload failed for {file_id}: {exc}') from exc
+                raise MediaManagerError(
+                    f'{file_type} upload failed for {file_id}: {self._upload_error_detail(exc)}'
+                ) from exc
         raise MediaManagerError(f'{file_type} upload failed for {file_id}: presigned URL expired twice')
 
     def upload_audio(self, file_id: str, title: str, audio_path: Path, tags: list = None,

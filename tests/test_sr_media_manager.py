@@ -122,6 +122,29 @@ class TestMediaManagerClient:
 
         assert client._client.post.call_args_list[1].args[0].endswith("/api/uploads/session-1/abort")
 
+    def test_upload_completion_error_includes_server_detail(self, tmp_path):
+        original = tmp_path / "source.mp4"
+        original.write_bytes(b"original-video-bytes")
+        client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
+        client._client = Mock()
+        initiated = Mock()
+        initiated.json.return_value = {
+            "session_id": "session-1", "upload_id": "upload-1", "part_size": 8 * 1024 * 1024,
+            "urls": ["https://object.example/part-1"],
+        }
+        response = httpx.Response(400, json={"detail": "Uploaded object verification failed: expected 10 bytes, got 0"})
+        completed = Mock()
+        completed.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "400 Bad Request", request=httpx.Request("POST", "https://example.com/complete"), response=response,
+        )
+        client._client.post.side_effect = [initiated, completed, Mock()]
+        part = Mock()
+        part.headers = {"etag": '"etag-1"'}
+
+        with patch("sr_media_manager.api.httpx.put", return_value=part):
+            with pytest.raises(Exception, match="Uploaded object verification failed: expected 10 bytes, got 0"):
+                client.upload_original("source-1", original)
+
 
 class TestSyncTitlesFromApi:
     """Test title synchronization logic."""

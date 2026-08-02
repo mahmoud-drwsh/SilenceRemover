@@ -33,16 +33,25 @@ with open(SOURCE, "rb") as handle:
     source = handle.read()
 digest = hashlib.sha256(source).hexdigest()
 
-def initiate(file_id, media_type, checksum, **extra):
+def initiate(file_id, media_type, checksum, payload_bytes=source, **extra):
     return json.load(request("/api/uploads/initiate", "POST", {
         "id": file_id, "type": media_type, "mime_type": "video/mp4",
-        "file_size": len(source), "checksum_sha256": checksum, **extra,
+        "file_size": len(payload_bytes), "checksum_sha256": checksum, **extra,
     }))
 
-def complete_session(session):
-    part = urllib.request.urlopen(urllib.request.Request(session["urls"][0], data=source, method="PUT"), timeout=20)
+def complete_session(session, payload_bytes=source):
+    part_size = session.get("part_size")
+    if part_size:
+        parts = []
+        for part_number, url in enumerate(session["urls"], start=1):
+            start = (part_number - 1) * part_size
+            part = urllib.request.urlopen(urllib.request.Request(url, data=payload_bytes[start:start + part_size], method="PUT"), timeout=20)
+            parts.append({"part_number": part_number, "etag": part.headers["ETag"]})
+    else:
+        part = urllib.request.urlopen(urllib.request.Request(session["upload_url"], data=payload_bytes, method="PUT"), timeout=20)
+        parts = []
     return json.load(request(f"/api/uploads/{session['session_id']}/complete", "POST", {
-        "parts": [{"part_number": 1, "etag": part.headers["ETag"]}],
+        "parts": parts,
     }))
 
 # The server verifies the stored bytes, not merely a client-provided hash.
@@ -82,6 +91,18 @@ no_overlay_videos = json.load(request("/api/files?type=video&tags=no-overlay"))
 assert [item["id"] for item in no_overlay_videos] == ["derived-001-no-overlay"]
 clean_stream = request("/stream/derived-001-no-overlay?type=video", headers={"Range": "bytes=0-99"})
 assert clean_stream.status == 206 and clean_stream.read() == source[:100]
+
+# The production pipeline's no-overlay videos are multipart uploads. Keep the
+# MP4 header valid while crossing the 8 MiB multipart boundary.
+multipart_clean = source + (b"\0" * (9 * 8 * 1024 * 1024))
+multipart_digest = hashlib.sha256(multipart_clean).hexdigest()
+multipart_session = initiate(
+    "derived-multipart-no-overlay", "video", multipart_digest,
+    payload_bytes=multipart_clean, title="Multipart (No Overlay)",
+    tags=["no-overlay"], source_id="source-001",
+)
+assert multipart_session.get("part_size")
+assert complete_session(multipart_session, multipart_clean)["ok"]
 renamed_download = json.load(request("/api/originals/source-001/download"))
 assert renamed_download["filename"] == "Derived.mp4"
 
