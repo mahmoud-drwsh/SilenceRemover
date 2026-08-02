@@ -28,6 +28,10 @@ else:
 # pipeline ID as their original but did not store source_id.
 legacy = json.load(request("/api/files?type=video&check_id=legacy-source-001"))
 assert len(legacy) == 1 and legacy[0]["source_id"] == "legacy-source-001"
+legacy_companions = json.load(request("/api/files?type=video&tags=no-overlay"))
+assert any(item["id"] == "legacy-companion-001-no-overlay" for item in legacy_companions)
+legacy_normal = next(item for item in json.load(request("/api/files?type=video")) if item["id"] == "legacy-companion-001")
+assert legacy_normal["no_overlay_id"] == "legacy-companion-001-no-overlay"
 
 with open(SOURCE, "rb") as handle:
     source = handle.read()
@@ -88,7 +92,7 @@ normal = next(item for item in normal_videos if item["id"] == "derived-001")
 assert normal["no_overlay_id"] == "derived-001-no-overlay"
 assert all(item["id"] != "derived-001-no-overlay" for item in normal_videos)
 no_overlay_videos = json.load(request("/api/files?type=video&tags=no-overlay"))
-assert [item["id"] for item in no_overlay_videos] == ["derived-001-no-overlay"]
+assert any(item["id"] == "derived-001-no-overlay" for item in no_overlay_videos)
 clean_stream = request("/stream/derived-001-no-overlay?type=video", headers={"Range": "bytes=0-99"})
 assert clean_stream.status == 206 and clean_stream.read() == source[:100]
 

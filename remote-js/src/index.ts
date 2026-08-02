@@ -7,7 +7,7 @@
  */
 
 import { Hono } from "hono";
-import { backfillLegacySourceLinks, closeDb, ensureDatabaseReady } from "./db.ts";
+import { backfillLegacyNoOverlayTags, backfillLegacySourceLinks, closeDb, ensureDatabaseReady } from "./db.ts";
 import { loadConfig } from "./config.ts";
 import { ensureStorageBackendReady } from "./storage.ts";
 import { securityHeaders } from "./security.ts";
@@ -54,6 +54,10 @@ async function main(): Promise<void> {
   const repairedLinks = await backfillLegacySourceLinks();
   if (repairedLinks > 0) {
     console.log(`[startup] linked ${repairedLinks} legacy derived file(s) to originals`);
+  }
+  const repairedNoOverlayTags = await backfillLegacyNoOverlayTags();
+  if (repairedNoOverlayTags > 0) {
+    console.log(`[startup] classified ${repairedNoOverlayTags} legacy no-overlay companion(s)`);
   }
   await ensureStorageBackendReady();
   await cleanupExpiredUploadSessions();

@@ -164,6 +164,38 @@ export async function backfillLegacySourceLinks(): Promise<number> {
   return Number(rows[0]?.count ?? 0);
 }
 
+/**
+ * Repair companions uploaded before their dedicated `no-overlay` tag was
+ * persisted. The exact source-ID relationship keeps this limited to genuine
+ * linked pipeline companions with empty tags; it never changes content or
+ * user-managed tags such as `trash`.
+ */
+export async function backfillLegacyNoOverlayTags(): Promise<number> {
+  const sql = getDb();
+  const ident = schemaIdent();
+  const rows = await sql.unsafe<{ count: string }[]>(`
+    WITH updated AS (
+      UPDATE ${ident}.files AS companion
+      SET tags = '["no-overlay"]'::jsonb
+      WHERE companion.type = 'video'
+        AND companion.id LIKE '%-no-overlay'
+        AND companion.source_id = left(companion.id, length(companion.id) - length('-no-overlay'))
+        AND (CASE WHEN jsonb_typeof(companion.tags) = 'string'
+                  THEN (companion.tags #>> '{}')::jsonb
+                  ELSE companion.tags END) = '[]'::jsonb
+        AND EXISTS (
+          SELECT 1 FROM ${ident}.files AS original
+          WHERE original.project = companion.project
+            AND original.type = 'original'
+            AND original.id = companion.source_id
+        )
+      RETURNING 1
+    )
+    SELECT COUNT(*)::text AS count FROM updated
+  `);
+  return Number(rows[0]?.count ?? 0);
+}
+
 /** Repair a legacy derived row as soon as its original is uploaded. */
 export async function linkLegacyDerivedFilesForOriginal(
   project: string,

@@ -48,7 +48,7 @@ services:
         condition: service_completed_successfully
     environment:
       PGPASSWORD: test-password
-    command: ["sh", "-ec", "psql -h postgres -U media_manager -d media_manager -c \"ALTER TABLE media_manager.files DROP CONSTRAINT IF EXISTS files_type_check; ALTER TABLE media_manager.files ADD CONSTRAINT files_type_check CHECK (type IN ('audio', 'video', 'original')); INSERT INTO media_manager.files (id, project, type, title, tags, mime_type) VALUES ('legacy-source-001', 'test-project', 'original', NULL, '[]'::jsonb, 'video/mp4'), ('legacy-source-001', 'test-project', 'video', 'Legacy derived', '[\\\"pending\\\"]'::jsonb, 'video/mp4')\""]
+    command: ["sh", "-ec", "psql -h postgres -U media_manager -d media_manager -c \"ALTER TABLE media_manager.files DROP CONSTRAINT IF EXISTS files_type_check; ALTER TABLE media_manager.files ADD CONSTRAINT files_type_check CHECK (type IN ('audio', 'video', 'original')); ALTER TABLE media_manager.files ADD COLUMN IF NOT EXISTS source_id text; INSERT INTO media_manager.files (id, project, type, title, tags, mime_type, source_id) VALUES ('legacy-source-001', 'test-project', 'original', NULL, '[]'::jsonb, 'video/mp4', NULL), ('legacy-source-001', 'test-project', 'video', 'Legacy derived', '[\\\"pending\\\"]'::jsonb, 'video/mp4', NULL), ('legacy-companion-001', 'test-project', 'original', NULL, '[]'::jsonb, 'video/mp4', NULL), ('legacy-companion-001', 'test-project', 'video', 'Legacy overlaid', '[\\\"pending\\\"]'::jsonb, 'video/mp4', 'legacy-companion-001'), ('legacy-companion-001-no-overlay', 'test-project', 'video', 'Legacy companion', '[]'::jsonb, 'video/mp4', 'legacy-companion-001')\""]
     networks: [isolated]
 
   fixture:
