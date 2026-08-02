@@ -37,6 +37,7 @@ from src.core.paths import (
     mark_no_overlay_completed,
 )
 from sr_filename import sanitize_filename
+from src.ffmpeg.probing import is_mp4_container
 from src.startup import StartupContext, build_startup_context
 
 from sr_snippet import create_silence_removed_snippet
@@ -551,6 +552,8 @@ def adopt_no_overlay_completion_or_get_skip_reason(
     if not is_completed(temp_dir, source_id):
         return "final encode not completed"
     if is_no_overlay_completed(temp_dir, source_id):
+        if expected_output_path is not None and expected_output_path.is_file() and not is_mp4_container(expected_output_path):
+            return None
         return "no-overlay encode already completed"
     if expected_output_path is not None and (
         expected_output_path.is_file() or already_uploaded

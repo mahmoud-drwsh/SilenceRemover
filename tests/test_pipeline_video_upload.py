@@ -409,3 +409,35 @@ def test_no_overlay_encode_adopts_uploaded_companion_after_local_move(
     assert (
         temp_dir / "no_overlay_completed" / "clip.txt"
     ).read_text(encoding="utf-8") == "generated-title-no-overlay"
+
+
+def test_no_overlay_reencodes_present_companion_with_wrong_container(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    temp_dir = tmp_path / "temp"
+    expected_output_path = tmp_path / "generated-title-no-overlay.mp4"
+    (temp_dir / "completed").mkdir(parents=True)
+    (temp_dir / "completed" / "clip.txt").write_text("generated-title", encoding="utf-8")
+    (temp_dir / "no_overlay_completed").mkdir()
+    (temp_dir / "no_overlay_completed" / "clip.txt").write_text("generated-title-no-overlay", encoding="utf-8")
+    expected_output_path.write_bytes(b"mkv bytes")
+    monkeypatch.setattr(pipeline, "is_mp4_container", lambda _path: False)
+
+    assert pipeline.adopt_no_overlay_completion_or_get_skip_reason(
+        temp_dir, "clip", expected_output_path=expected_output_path,
+    ) is None
+
+
+def test_no_overlay_keeps_marker_when_companion_was_moved(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    temp_dir = tmp_path / "temp"
+    (temp_dir / "completed").mkdir(parents=True)
+    (temp_dir / "completed" / "clip.txt").write_text("generated-title", encoding="utf-8")
+    (temp_dir / "no_overlay_completed").mkdir()
+    (temp_dir / "no_overlay_completed" / "clip.txt").write_text("generated-title-no-overlay", encoding="utf-8")
+    monkeypatch.setattr(pipeline, "is_mp4_container", lambda _path: (_ for _ in ()).throw(AssertionError("moved file must not be probed")))
+
+    assert pipeline.adopt_no_overlay_completion_or_get_skip_reason(
+        temp_dir, "clip", expected_output_path=tmp_path / "missing.mp4",
+    ) == "no-overlay encode already completed"

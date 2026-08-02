@@ -447,7 +447,12 @@ def trim_single_video(
         title_height_fraction=title_height_fraction,
         )
 
-    if artifact.final_strategy == "copy" and title_overlay_path is None and not use_logo:
+    if (
+        artifact.final_strategy == "copy"
+        and input_file.suffix.lower() == ".mp4"
+        and title_overlay_path is None
+        and not use_logo
+    ):
         copied_output_file = _copy_input_video(
             input_file=input_file,
             output_file=output_file,

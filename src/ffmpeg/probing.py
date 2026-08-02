@@ -148,6 +148,20 @@ def read_format_tags(input_file: Path) -> dict[str, str]:
     return out
 
 
+def is_mp4_container(input_file: Path) -> bool:
+    """Return whether ffprobe identifies a local file as an MP4-family container."""
+    result = run(build_ffprobe_format_json_command(input_file), capture_output=True, check=False)
+    if result.returncode != 0 or result.stdout is None:
+        return False
+    try:
+        raw = result.stdout
+        text_out = raw if isinstance(raw, str) else raw.decode("utf-8", errors="replace")
+        format_name = json.loads(text_out).get("format", {}).get("format_name", "")
+    except (json.JSONDecodeError, AttributeError):
+        return False
+    return "mp4" in str(format_name).split(",")
+
+
 def _nfc(s: str) -> str:
     """Normalize for comparison (macOS paths often differ from muxed metadata in NFD vs NFC)."""
     return unicodedata.normalize("NFC", s.strip())
