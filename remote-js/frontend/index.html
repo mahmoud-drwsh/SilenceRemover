@@ -295,8 +295,8 @@
         let fileLoadSequence = 0;
 
         // Fixed tabs per section
-        // Audio section now includes FB tab to view uploaded videos (cross-type viewing)
-        const AUDIO_TABS = ['todo', 'FB', 'ready', 'all', 'trash'];
+        // Audio is a small review queue: choose a title, then approve it.
+        const AUDIO_TABS = ['todo', 'ready'];
         const VIDEO_TABS = ['FB', 'TT', 'no-overlay', 'all', 'trash', 'pending'];
 
         function showSection(section, folder = null, isStrict = false) {
@@ -656,35 +656,12 @@
             const title = file.title || file.id;
             const tagsJson = JSON.stringify(file.tags).replace(/"/g, '&quot;');
             const safeId = escapeJs(file.id);  // Escape file ID for JavaScript context
-            const safeSourceId = file.source_id ? escapeJs(file.source_id) : '';
+            const approved = (file.tags || []).includes('ready');
+            const action = approved
+                ? `<button class="btn btn-todo" onclick="reopenTitleReview('${safeId}')">✏️ Reopen review</button>`
+                : `<button class="btn btn-ready" onclick="approveTitle('${safeId}')">✅ Approve title</button>`;
 
-            let actionsHtml = '';
-
-            if (currentFilter === 'trash') {
-                // In trash view: show restore + delete buttons
-                const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
-                actionsHtml = `
-                    <button class="btn btn-secondary" onclick="confirmRestore('${safeId}', '${safeTitle}')">♻️ Restore to All</button>
-                    <button class="btn btn-danger" onclick="confirmDeletePermanently('${safeId}', '${safeTitle}')">🗑️ Delete Permanently</button>
-                `;
-            } else {
-                // Normal view: ready/todo buttons + menu (all with confirmation)
-                const buttons = [];
-                if (currentFilter !== 'ready') {
-                    const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
-                    buttons.push(`<button class="btn btn-ready" onclick="confirmMoveToReady('${safeId}', '${safeTitle}')">✅ Ready</button>`);
-                }
-                if (currentFilter !== 'todo') {
-                    const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
-                    buttons.push(`<button class="btn btn-todo" onclick="confirmMoveToTodo('${safeId}', '${safeTitle}')">✏️ TODO</button>`);
-                }
-                const originalDownload = safeSourceId
-                    ? `<button class="btn btn-secondary" onclick="downloadOriginal('${safeSourceId}')">⬇️ Original</button>`
-                    : '';
-                actionsHtml = `${buttons.join('')}${originalDownload}<div class="menu-container"><button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${file.id}"><div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div></div></div>`;
-            }
-
-            return `<div class="file-card audio-card" data-id="${file.id}" data-tags="${tagsJson}"><div class="audio-row"><div class="audio-player"><audio controls preload="none"><source src="${streamUrl}" type="${file.mime_type}"></audio></div></div><div class="audio-title-edit"><textarea data-file-id="${file.id}" placeholder="Title..." dir="auto" oninput="debouncedTitleUpdate(this)">${escapeHtml(title)}</textarea><div style="color: #666; font-size: 0.7rem; margin-top: 2px;">${escapeHtml(file.id)}</div><div class="save-status" id="status-${file.id}"></div></div><div class="audio-actions">${actionsHtml}</div></div>`;
+            return `<div class="file-card audio-card" data-id="${file.id}" data-tags="${tagsJson}"><div class="audio-row"><div class="audio-player"><audio controls preload="none"><source src="${streamUrl}" type="${file.mime_type}"></audio></div></div><div class="audio-title-edit"><textarea data-file-id="${file.id}" placeholder="Choose a title..." dir="auto" ${approved ? 'readonly' : ''} oninput="debouncedTitleUpdate(this)">${escapeHtml(title)}</textarea><div style="color: #666; font-size: 0.7rem; margin-top: 2px;">${duration}${size ? ' • ' + size : ''}</div><div class="save-status" id="status-${file.id}"></div></div><div class="audio-actions">${action}</div></div>`;
         }
 
         async function deleteFile(fileId) {
@@ -858,6 +835,39 @@
                 statusEl.className = 'save-status';
                 statusEl.style.color = '#ff4444';
             }
+        }
+
+        async function saveAudioReview(fileId, tags) {
+            const card = document.querySelector(`.audio-card[data-id="${fileId}"]`);
+            const textarea = card?.querySelector('textarea');
+            const statusEl = document.getElementById(`status-${fileId}`);
+            const title = textarea?.value.trim() || '';
+            if (!title) {
+                statusEl.textContent = 'Enter a title before approval.';
+                statusEl.className = 'save-status';
+                return;
+            }
+            if (titleTimers[fileId]) clearTimeout(titleTimers[fileId]);
+            try {
+                const res = await fetch(`${API_BASE}/files/${encodeURIComponent(fileId)}?type=${TYPE_AUDIO}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tags, title }),
+                });
+                if (!res.ok) throw new Error(await res.text());
+                loadFiles();
+            } catch (err) {
+                statusEl.textContent = '✗ Error: ' + err.message;
+                statusEl.className = 'save-status';
+            }
+        }
+
+        function approveTitle(fileId) {
+            saveAudioReview(fileId, ['ready']);
+        }
+
+        function reopenTitleReview(fileId) {
+            saveAudioReview(fileId, ['todo']);
         }
 
         // Confirmation modal state

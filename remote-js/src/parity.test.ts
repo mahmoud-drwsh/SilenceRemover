@@ -370,4 +370,16 @@ describe("frontend Media Manager UI", () => {
     expect(cardRenderer.indexOf("let menuItem = '';"))
       .toBeLessThan(cardRenderer.indexOf("if (currentFilter === 'trash')"));
   });
+
+  test("audio is a title-review queue, not a general media-management surface", async () => {
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
+    const audioRenderer = html.slice(html.indexOf("function renderAudioCard(file"), html.indexOf("async function deleteFile"));
+
+    expect(html).toContain("const AUDIO_TABS = ['todo', 'ready'];");
+    expect(audioRenderer).toContain("Approve title");
+    expect(audioRenderer).toContain("Reopen review");
+    expect(audioRenderer).not.toContain("downloadOriginal");
+    expect(audioRenderer).not.toContain("confirmMoveToTrash");
+    expect(audioRenderer).not.toContain("btn-menu");
+  });
 });

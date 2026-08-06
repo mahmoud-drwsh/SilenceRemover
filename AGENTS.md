@@ -20,3 +20,4 @@ After code or config changes, agents append short notes here. When this file gro
 - **Workflow state**: Audio is reviewed through tags; normal overlaid video publishing continues to use the existing pending-to-channel flow. No-overlay companions remain in their dedicated folder.
 - **Validation**: Python tests cover pipeline behavior; `remote-js` has Bun tests and an isolated Docker Compose integration environment using Postgres and MinIO.
 - **Designer UI regression**: Video-card menu state is defined for every filter before the shared footer is rendered, preventing a card-rendering `ReferenceError`.
+- **Audio review**: The audio UI is a title-review queue only: playback, title editing, and explicit approve/reopen actions; it does not expose media-management controls.
