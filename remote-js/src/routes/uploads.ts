@@ -15,7 +15,7 @@ import {
   presignUploadPart, createMultipartUpload, storageGet,
 } from "../storage.ts";
 import { verifyMediaToken } from "../http.ts";
-import { assertSourceOriginalExists, commitUploadMetadata, parseUploadTags, resolveUploadOverwrite } from "./files.ts";
+import { assertSourceOriginalExists, commitUploadMetadata, parseTagsValue, parseUploadTags, resolveUploadOverwrite } from "./files.ts";
 
 export const uploadsRouter = new Hono();
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -26,6 +26,7 @@ type UploadSession = {
   id: string; project: string; file_id: string; type: FileType; mime_type: string;
   file_size: number; checksum_sha256: string; title: string; tags: unknown;
   source_id: string | null; original_filename: string | null; upload_id: string | null;
+  designer_of_id: string | null;
   expires_at: string | Date; state: "active" | "completed" | "aborted";
 };
 
@@ -35,7 +36,7 @@ function checksum(value: unknown): string {
   return result;
 }
 
-function parseBody(body: unknown): { id: string; type: FileType; mime: string; size: number; checksum: string; title: string; tags: string[]; sourceId: string | null; filename: string | null } {
+function parseBody(body: unknown): { id: string; type: FileType; mime: string; size: number; checksum: string; title: string; tags: string[]; sourceId: string | null; filename: string | null; designerOfId: string | null } {
   if (!body || typeof body !== "object") throw new HttpError(400, "JSON body is required");
   const data = body as Record<string, unknown>;
   const type = data.type;
@@ -51,7 +52,31 @@ function parseBody(body: unknown): { id: string; type: FileType; mime: string; s
   const filename = type === "original" ? sanitizeFilename(String(data.original_filename ?? "")) : null;
   if (type === "original" && !filename) throw new HttpError(400, "original_filename is required");
   const tagValue = JSON.stringify(data.tags ?? (type === "audio" ? ["todo"] : []));
-  return { id, type, mime, size, checksum: checksum(data.checksum_sha256), title: String(data.title ?? ""), tags: parseUploadTags(tagValue, type), sourceId, filename };
+  const designerOfIdRaw = data.designer_of_id == null ? "" : String(data.designer_of_id);
+  const designerOfId = designerOfIdRaw ? sanitizeFileId(designerOfIdRaw) : null;
+  if (designerOfIdRaw && !designerOfId) throw new HttpError(400, "Invalid designer_of_id");
+  if (designerOfId && type !== "video") throw new HttpError(400, "Designer uploads must be videos");
+  return { id, type, mime, size, checksum: checksum(data.checksum_sha256), title: String(data.title ?? ""), tags: parseUploadTags(tagValue, type), sourceId, filename, designerOfId };
+}
+
+async function resolveDesignerTarget(project: string, targetId: string): Promise<{ id: string; sourceId: string }> {
+  const sql = getDb(); const ident = schemaIdent();
+  const target = (await sql.unsafe<{ id: string; source_id: string | null; tags: unknown }[]>(
+    `SELECT id, source_id, tags FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = 'video'`,
+    [targetId, project],
+  ))[0];
+  const tags = target ? parseTagsValue(target.tags) : [];
+  if (!target || !target.source_id || tags.includes("no-overlay") || tags.includes("designer") || tags.includes("trash")) {
+    throw new HttpError(400, "designer_of_id must select an available pipeline-final video in this project");
+  }
+  return { id: target.id, sourceId: target.source_id };
+}
+
+async function hasCommittedVideo(project: string, fileId: string): Promise<boolean> {
+  const sql = getDb(); const ident = schemaIdent();
+  return (await sql.unsafe<{ id: string }[]>(
+    `SELECT id FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = 'video'`, [fileId, project],
+  )).length > 0;
 }
 
 function partsJson(body: unknown): Array<{ partNumber: number; etag: string }> {
@@ -123,7 +148,17 @@ async function sessionById(project: string, id: string): Promise<UploadSession |
 
 uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) => {
   const { token, project } = c.req.param(); await verifyMediaToken(token);
-  const input = parseBody(await c.req.json().catch(() => null));
+  let input = parseBody(await c.req.json().catch(() => null));
+  if (input.designerOfId) {
+    const target = await resolveDesignerTarget(project, input.designerOfId);
+    input = {
+      ...input,
+      id: `${target.id}-designer`,
+      sourceId: target.sourceId,
+      tags: ["designer"],
+      designerOfId: target.id,
+    };
+  }
   await assertSourceOriginalExists(project, input.sourceId);
   const sql = getDb(); const ident = schemaIdent();
   const existing = (await sql.unsafe<UploadSession[]>(
@@ -139,7 +174,9 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
   }
   const partCount = input.type === "audio" && input.size <= MULTIPART_PART_SIZE ? 0 : Math.ceil(input.size / MULTIPART_PART_SIZE);
   if (partCount > MAX_PARTS) throw new HttpError(413, "Upload exceeds multipart upload part limit");
-  const overwritten = await resolveUploadOverwrite(input.id, project, input.type, input.title).catch((error) => {
+  const overwritten = input.designerOfId
+    ? await hasCommittedVideo(project, input.id)
+    : await resolveUploadOverwrite(input.id, project, input.type, input.title).catch((error) => {
     if (existing) return false;
     throw error;
   });
@@ -149,10 +186,10 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
   const session: UploadSession = {
     id: randomUUID(), project, file_id: input.id, type: input.type, mime_type: input.mime, file_size: input.size,
     checksum_sha256: input.checksum, title: input.title, tags: input.tags, source_id: input.sourceId,
-    original_filename: input.filename, upload_id: uploadId, expires_at: new Date(Date.now() + SESSION_TTL_MS), state: "active",
+    original_filename: input.filename, upload_id: uploadId, designer_of_id: input.designerOfId, expires_at: new Date(Date.now() + SESSION_TTL_MS), state: "active",
   };
-  await sql.unsafe(`INSERT INTO ${ident}.upload_sessions (id,project,file_id,type,mime_type,file_size,checksum_sha256,title,tags,source_id,original_filename,upload_id,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13)`,
-    [session.id, project, input.id, input.type, input.mime, input.size, input.checksum, input.title, JSON.stringify(input.tags), input.sourceId, input.filename, uploadId, session.expires_at]);
+  await sql.unsafe(`INSERT INTO ${ident}.upload_sessions (id,project,file_id,type,mime_type,file_size,checksum_sha256,title,tags,source_id,original_filename,upload_id,designer_of_id,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14)`,
+    [session.id, project, input.id, input.type, input.mime, input.size, input.checksum, input.title, JSON.stringify(input.tags), input.sourceId, input.filename, uploadId, input.designerOfId, session.expires_at]);
   return c.json({ ...(await sessionResponse(session, partCount, true)), overwritten });
 });
 
@@ -188,7 +225,7 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/:sessionId/complete", 
     }
     const duration = await probeDurationSeconds(tempPath);
     overwritten = await resolveUploadOverwrite(session.file_id, project, session.type, session.title);
-    await commitUploadMetadata({ fileId: session.file_id, project, fileType: session.type, title: session.type === "original" ? session.original_filename ?? session.file_id : session.title, tagList: sessionTags(session.tags), duration, fileSize: Number(session.file_size), mime: session.mime_type, overwritten, sourceId: session.source_id, originalFilename: session.original_filename, checksumSha256: session.checksum_sha256 });
+    await commitUploadMetadata({ fileId: session.file_id, project, fileType: session.type, title: session.type === "original" ? session.original_filename ?? session.file_id : session.title, tagList: sessionTags(session.tags), duration, fileSize: Number(session.file_size), mime: session.mime_type, overwritten, sourceId: session.source_id, originalFilename: session.original_filename, checksumSha256: session.checksum_sha256, designerOfId: session.designer_of_id });
     if (session.type === "original") {
       await linkLegacyDerivedFilesForOriginal(project, session.file_id);
     }

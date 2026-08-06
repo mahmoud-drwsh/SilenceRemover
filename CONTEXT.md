@@ -12,6 +12,7 @@
 
 - **Overlaid video**: The standard silence-removed derived video. It may include the generated title banner and optional logo.
 - **No-overlay video**: A second silence-removed derived video with neither title banner nor logo. It is a companion to—not a replacement for—the overlaid video.
+- **Designer video**: A designer-uploaded replacement presentation linked to one selected pipeline-final video. It shares that final video's original through the source ID, but does not change pipeline output.
 - **Companion video**: A derived video that represents the same source and silence-removal result as another derived video, but differs in presentation.
 - **Silence-removed video**: A derived video produced by removing detected silence according to the pipeline's trim policy. Both video variants are silence-removed.
 

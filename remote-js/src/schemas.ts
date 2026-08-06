@@ -24,6 +24,8 @@ export const FileResponseSchema = z.object({
   checksum_sha256: z.string().nullable().optional(),
   derived_title: z.string().nullable().optional(),
   no_overlay_id: z.string().nullable().optional(),
+  designer_video_id: z.string().nullable().optional(),
+  designer_of_id: z.string().nullable().optional(),
   created_at: z.string(),
 });
 export type FileResponse = z.infer<typeof FileResponseSchema>;

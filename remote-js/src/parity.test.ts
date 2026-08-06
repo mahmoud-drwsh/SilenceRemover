@@ -308,7 +308,7 @@ describe("frontend Media Manager UI", () => {
   test("video folder actions use card tags instead of refetching all videos", async () => {
     const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
 
-    expect(html).toContain('class="file-card video-card"');
+    expect(html).toContain('class="file-card video-card variant-card"');
     expect(html).toContain('data-tags="${tagsJson}"');
     expect(html).toContain("function getVideoCardTags(fileId)");
     expect(html).toContain("const currentTags = getVideoCardTags(fileId);");
@@ -342,21 +342,24 @@ describe("frontend Media Manager UI", () => {
     const routes = await Bun.file(new URL("./routes/projectSpa.ts", import.meta.url)).text();
 
     expect(html).toContain("function downloadOriginal(sourceId)");
-    expect(html).toContain("⬇️ Original");
+    expect(html).toContain("<strong>Original</strong>");
     expect(html).toContain("file.source_id ? escapeJs(file.source_id)");
     expect(html).not.toContain('href="./originals"');
     expect(routes).not.toContain("/originals");
   });
 
-  test("normal video cards offer linked no-overlay downloads in a dedicated folder", async () => {
+  test("normal video cards present linked no-overlay and designer variants", async () => {
     const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
     const filesRoute = await Bun.file(new URL("./routes/files.ts", import.meta.url)).text();
 
     expect(html).toContain("'no-overlay': '🎬 No Overlay'");
     expect(html).toContain("file.no_overlay_id ? escapeJs(file.no_overlay_id)");
-    expect(html).toContain("⬇️ No Overlay</a>");
-    expect(filesRoute).toContain('tag === "no-overlay" || tag === "trash"');
+    expect(html).toContain("<strong>Silence Removed</strong>");
+    expect(html).toContain("file.designer_video_id ? escapeJs(file.designer_video_id)");
+    expect(html).toContain("function openDesignerUpload(targetId, targetTitle)");
+    expect(filesRoute).toContain('tag === "no-overlay" || tag === "designer" || tag === "trash"');
     expect(filesRoute).toContain("candidate.source_id = source.source_id");
     expect(filesRoute).toContain("AS no_overlay_id");
+    expect(filesRoute).toContain("AS designer_video_id");
   });
 });

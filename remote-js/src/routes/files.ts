@@ -54,6 +54,8 @@ interface FileRow {
   checksum_sha256: string | null;
   derived_title: string | null;
   no_overlay_id: string | null;
+  designer_video_id: string | null;
+  designer_of_id: string | null;
 }
 
 function rowToResponse(row: FileRow): FileResponse {
@@ -72,6 +74,8 @@ function rowToResponse(row: FileRow): FileResponse {
     checksum_sha256: row.checksum_sha256 ?? null,
     derived_title: row.derived_title ?? null,
     no_overlay_id: row.no_overlay_id ?? null,
+    designer_video_id: row.designer_video_id ?? null,
+    designer_of_id: row.designer_of_id ?? null,
   };
 }
 
@@ -81,7 +85,7 @@ function serializeCreatedAt(value: Date | string | null): string {
   return String(value);
 }
 
-function parseTagsValue(value: unknown): string[] {
+export function parseTagsValue(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(String);
   if (typeof value === "string") {
     try {
@@ -188,6 +192,7 @@ export async function commitUploadMetadata(args: {
   sourceId?: string | null;
   originalFilename?: string | null;
   checksumSha256?: string | null;
+  designerOfId?: string | null;
 }): Promise<void> {
   const sql = getDb();
   const ident = schemaIdent();
@@ -201,8 +206,8 @@ export async function commitUploadMetadata(args: {
   try {
     await sql.unsafe(
       `INSERT INTO ${ident}.files
-         (id, project, type, title, tags, duration, file_size, mime_type, source_id, original_filename, checksum_sha256)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11)`,
+         (id, project, type, title, tags, duration, file_size, mime_type, source_id, original_filename, checksum_sha256, designer_of_id)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12)`,
       [
         args.fileId,
         args.project,
@@ -215,6 +220,7 @@ export async function commitUploadMetadata(args: {
         args.sourceId ?? null,
         args.originalFilename ?? null,
         args.checksumSha256 ?? null,
+        args.designerOfId ?? null,
       ],
     );
   } catch (error) {
@@ -311,7 +317,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     }
 
     const rows = await sql.unsafe<FileRow[]>(
-      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title, NULL::text AS no_overlay_id
+      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title, NULL::text AS no_overlay_id, NULL::text AS designer_video_id, designer_of_id
        FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = $3`,
       [sanitizedId, project, typeParam],
     );
@@ -365,8 +371,8 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     includePending,
     excludedTags:
       typeParam === "video" &&
-      !tagList?.some((tag) => tag === "no-overlay" || tag === "trash")
-        ? ["no-overlay"]
+      !tagList?.some((tag) => tag === "no-overlay" || tag === "designer" || tag === "trash")
+        ? ["no-overlay", "designer"]
         : [],
   });
 
@@ -374,7 +380,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const sortDirection = sort === "asc" ? "ASC" : "DESC";
 
   const rows = await sql.unsafe<FileRow[]>(
-    `SELECT source.id, source.project, source.type, source.title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, companion.id AS no_overlay_id
+    `SELECT source.id, source.project, source.type, source.title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, companion.id AS no_overlay_id, designer.id AS designer_video_id, source.designer_of_id
      FROM ${ident}.files AS source
      LEFT JOIN LATERAL (
        SELECT title
@@ -403,6 +409,17 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
        ORDER BY candidate.created_at DESC, candidate.id
        LIMIT 1
      ) AS companion ON TRUE
+     LEFT JOIN LATERAL (
+       SELECT candidate.id
+       FROM ${ident}.files AS candidate
+       WHERE source.type = 'video'
+         AND candidate.project = source.project
+         AND candidate.type = 'video'
+         AND candidate.designer_of_id = source.id
+         AND NOT ((CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb)
+       ORDER BY candidate.created_at DESC, candidate.id
+       LIMIT 1
+     ) AS designer ON TRUE
      WHERE ${whereClause}
      ORDER BY source.id ${sortDirection}`,
     params,

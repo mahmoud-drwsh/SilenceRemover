@@ -7,7 +7,7 @@
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { height: 100%; }
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a1a; color: #fff; display: flex; flex-direction: column; }
+        body { font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif; background: #101827; color: #eef2ff; display: flex; flex-direction: column; }
 
         /* Header at top */
         header { background: #2a2a2a; padding: 1rem; border-bottom: 1px solid #333; display: flex; gap: 1rem; align-items: center; flex-shrink: 0; }
@@ -37,7 +37,7 @@
 
         /* File list */
         .file-list { display: flex; flex-direction: column; gap: 0.5rem; padding-bottom: 0.5rem; width: 100%; }
-        .file-card { background: #2a2a2a; padding: 0.75rem; border-radius: 8px; display: flex; gap: 0.5rem; align-items: center; width: 100%; box-sizing: border-box; max-width: 100%; }
+        .file-card { background: linear-gradient(135deg, #1e293b, #182235); border: 1px solid #2c3b54; padding: 1rem; border-radius: 14px; display: flex; gap: 0.75rem; align-items: center; width: 100%; box-sizing: border-box; max-width: 100%; box-shadow: 0 8px 24px rgba(0,0,0,.16); }
         .file-card.audio-card { display: block; padding: 0.25rem; }
         .file-icon { width: 48px; height: 48px; background: #3a3a3a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
         .file-info { flex: 1; min-width: 0; max-width: 100%; }
@@ -73,6 +73,25 @@
         .btn-ready { background: #2d5a2d; color: #fff; }  /* Dark green for ready state */
         .btn-todo { background: #3a3a3a; color: #fff; }   /* Dark gray for todo state */
         .btn-danger { background: #ff4444; color: #fff; }
+        .btn-designer { background: #7c3aed; color: #fff; }
+        .variant-card { align-items: stretch; flex-wrap: wrap; }
+        .variant-info { min-width: 220px; }
+        .variant-actions { flex: 1; min-width: 280px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+        .variant-action { display: flex; align-items: center; gap: .45rem; padding: .6rem .7rem; border: 1px solid #36465f; border-radius: 10px; background: #121b2b; color: #e2e8f0; text-decoration: none; cursor: pointer; font: inherit; text-align: left; }
+        .variant-action:hover { border-color: #60a5fa; background: #1e2c43; }
+        .variant-action.missing { opacity: .45; cursor: default; }
+        .variant-action strong { display: block; font-size: .78rem; }
+        .variant-action span { display: block; font-size: .7rem; color: #94a3b8; }
+        .variant-footer { width: 100%; display: flex; gap: .5rem; align-items: center; border-top: 1px solid #2c3b54; padding-top: .75rem; }
+        .designer-overlay { position: fixed; inset: 0; background: rgba(4, 9, 18, .8); z-index: 1100; display: none; align-items: center; justify-content: center; padding: 1rem; }
+        .designer-overlay.show { display: flex; }
+        .designer-modal { width: min(520px, 100%); background: #172235; border: 1px solid #40516e; border-radius: 16px; padding: 1.25rem; box-shadow: 0 24px 70px rgba(0,0,0,.45); }
+        .designer-modal h2 { font-size: 1.1rem; margin-bottom: .4rem; }
+        .designer-target { color: #a5b4fc; font-size: .9rem; margin-bottom: 1rem; }
+        .designer-modal label { display:block; color:#cbd5e1; font-size:.8rem; margin:.8rem 0 .35rem; }
+        .designer-modal input { width:100%; padding:.65rem; border-radius:8px; border:1px solid #40516e; background:#0f172a; color:#fff; font:inherit; }
+        .designer-progress { min-height: 1.2rem; color:#93c5fd; font-size:.82rem; margin-top:.75rem; }
+        .designer-modal-actions { display:flex; justify-content:flex-end; gap:.5rem; margin-top:1rem; }
         .btn-menu { background: #3a3a3a; color: #fff; font-size: 1.2rem; padding: 0.5rem 1rem; }
         .context-menu { position: fixed; background: #2a2a2a; border: 1px solid #444; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 1000; min-width: 200px; max-width: 90vw; display: none; }
         .context-menu.show { display: block; }
@@ -203,6 +222,23 @@
                 <button class="folder-save" onclick="saveFolderSelection()">Save</button>
             </div>
         </div>
+    </div>
+
+    <div id="designer-overlay" class="designer-overlay">
+        <form class="designer-modal" onsubmit="submitDesignerUpload(event)">
+            <h2>Upload designer video</h2>
+            <div class="designer-target" id="designer-target"></div>
+            <input id="designer-target-id" type="hidden">
+            <label for="designer-title">Designer video title</label>
+            <input id="designer-title" required maxlength="200">
+            <label for="designer-file">Redesigned video</label>
+            <input id="designer-file" type="file" accept="video/*" required>
+            <div class="designer-progress" id="designer-progress"></div>
+            <div class="designer-modal-actions">
+                <button class="btn btn-secondary" type="button" onclick="closeDesignerUpload()">Cancel</button>
+                <button class="btn btn-designer" id="designer-submit" type="submit">Upload and link</button>
+            </div>
+        </form>
     </div>
 
     <script>
@@ -489,12 +525,15 @@
                 return renderAudioCard(file, audioStreamUrl, duration, size);
             }
 
-            // Video card
+            // Video card: the pipeline final is the canonical item. Its other
+            // variants remain visible and downloadable in one place.
             const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
             const safeId = escapeJs(file.id);  // Escape file ID for JavaScript context
             const safeSourceId = file.source_id ? escapeJs(file.source_id) : '';
             const safeNoOverlayId = file.no_overlay_id ? escapeJs(file.no_overlay_id) : '';
+            const safeDesignerVideoId = file.designer_video_id ? escapeJs(file.designer_video_id) : '';
             const tagsJson = JSON.stringify(file.tags || []).replace(/"/g, '&quot;');
+            const canUploadDesigner = !(file.tags || []).includes('no-overlay') && !(file.tags || []).includes('designer');
             let actionsHtml = '';
 
             if (currentFilter === 'trash') {
@@ -519,40 +558,98 @@
                     // In TikTok folder: show Remove from TikTok
                     menuItem = `<div class="context-menu-item danger" onclick="confirmRemoveFromFolder('${safeId}', '${safeTitle}', 'TikTok'); hideContextMenu('${safeId}')">📱 Remove from TikTok</div>`;
                 }
-                const dlKey = 'dl-' + '${safeId}';
-                const isDownloaded = sessionStorage.getItem(dlKey);
-                const dlClass = isDownloaded ? 'btn btn-secondary btn-downloaded' : 'btn btn-secondary';
-                const dlText = isDownloaded ? '✓ Downloaded' : '⬇️ Download';
-                const originalDownload = safeSourceId
-                    ? `<button class="btn btn-secondary" onclick="downloadOriginal('${safeSourceId}')">⬇️ Original</button>`
-                    : '';
-                const noOverlayDownload = safeNoOverlayId
-                    ? `<a href="/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.no_overlay_id)}?type=${TYPE_VIDEO}" class="btn btn-secondary" download>⬇️ No Overlay</a>`
-                    : '';
-                
+                const originalVariant = safeSourceId
+                    ? `<button class="variant-action" onclick="downloadOriginal('${safeSourceId}')">📼 <span><strong>Original</strong><span>Raw source</span></span></button>`
+                    : `<div class="variant-action missing">📼 <span><strong>Original</strong><span>Unavailable</span></span></div>`;
+                const noOverlayVariant = safeNoOverlayId
+                    ? `<a class="variant-action" href="/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.no_overlay_id)}?type=${TYPE_VIDEO}" download>✂️ <span><strong>Silence Removed</strong><span>No overlay</span></span></a>`
+                    : `<div class="variant-action missing">✂️ <span><strong>Silence Removed</strong><span>Unavailable</span></span></div>`;
+                const designerVariant = safeDesignerVideoId
+                    ? `<a class="variant-action" href="/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.designer_video_id)}?type=${TYPE_VIDEO}" download>✨ <span><strong>Designer Video</strong><span>Redesigned overlay</span></span></a>`
+                    : `<div class="variant-action missing">✨ <span><strong>Designer Video</strong><span>Not uploaded</span></span></div>`;
                 actionsHtml = `
-                    <button class="btn btn-primary" onclick="playVideo('${safeId}', '${safeTitle}')">▶️ Play</button>
-                    <a href="${videoStreamUrl}" class="${dlClass}" download id="dl-btn-${safeId}" onclick="sessionStorage.setItem('dl-' + '${safeId}', '1'); this.classList.add('btn-downloaded'); this.textContent='✓ Downloaded';">${dlText}</a>
-                    ${originalDownload}
-                    ${noOverlayDownload}
-                    <div class="menu-container">
-                        <button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button>
-                        <div class="context-menu" id="menu-${file.id}">
-                            ${menuItem}
-                        </div>
+                    <div class="variant-actions">
+                        ${originalVariant}
+                        ${noOverlayVariant}
+                        <a class="variant-action" href="${videoStreamUrl}" download>🎞️ <span><strong>Pipeline Final</strong><span>Current final output</span></span></a>
+                        ${designerVariant}
                     </div>
                 `;
             }
 
             return `
-                <div class="file-card video-card" data-id="${escapeHtml(file.id)}" data-tags="${tagsJson}">
-                    <div class="file-info">
+                <div class="file-card video-card variant-card" data-id="${escapeHtml(file.id)}" data-tags="${tagsJson}">
+                    <div class="file-info variant-info">
                         <div class="file-title">${escapeHtml(title)}</div>
                         <div class="file-meta">${duration} ${size ? '• ' + size : ''} • <span style="color: #666; font-size: 0.75rem;">${escapeHtml(file.id)}</span></div>
                     </div>
                     <div class="file-actions">${actionsHtml}</div>
+                    ${currentFilter === 'trash' ? '' : `<div class="variant-footer"><button class="btn btn-primary" onclick="playVideo('${safeId}', '${safeTitle}')">▶️ Play pipeline final</button>${canUploadDesigner ? `<button class="btn btn-designer" onclick="openDesignerUpload('${safeId}', '${safeTitle}')">✨ Upload designer video</button>` : ''}<div class="menu-container"><button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${file.id}">${menuItem}</div></div></div>`}
                 </div>
             `;
+        }
+
+        function openDesignerUpload(targetId, targetTitle) {
+            document.getElementById('designer-target-id').value = targetId;
+            document.getElementById('designer-target').textContent = `Linking to pipeline final: ${targetTitle}`;
+            document.getElementById('designer-title').value = `${targetTitle} (Designer)`;
+            document.getElementById('designer-file').value = '';
+            document.getElementById('designer-progress').textContent = '';
+            document.getElementById('designer-overlay').classList.add('show');
+        }
+
+        function closeDesignerUpload() {
+            document.getElementById('designer-overlay').classList.remove('show');
+        }
+
+        async function sha256(file) {
+            const bytes = await file.arrayBuffer();
+            const digest = await crypto.subtle.digest('SHA-256', bytes);
+            return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+        }
+
+        async function submitDesignerUpload(event) {
+            event.preventDefault();
+            const targetId = document.getElementById('designer-target-id').value;
+            const title = document.getElementById('designer-title').value.trim();
+            const file = document.getElementById('designer-file').files[0];
+            const progress = document.getElementById('designer-progress');
+            const submit = document.getElementById('designer-submit');
+            if (!file || !targetId || !title) return;
+            submit.disabled = true;
+            try {
+                progress.textContent = 'Preparing secure upload…';
+                const checksum = await sha256(file);
+                const mime = file.type || 'video/mp4';
+                const initiated = await fetch(`${API_BASE}/uploads/initiate`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: `${targetId}-designer`, type: 'video', title, mime_type: mime, file_size: file.size, checksum_sha256: checksum, designer_of_id: targetId}) });
+                if (!initiated.ok) throw new Error((await initiated.json()).detail || 'Could not start designer upload');
+                const session = await initiated.json();
+                if (session.already_uploaded) { closeDesignerUpload(); loadFiles(); return; }
+                const partSize = session.part_size;
+                const urls = session.urls || [session.upload_url];
+                const parts = [];
+                for (let index = 0; index < urls.length; index++) {
+                    const start = index * (partSize || file.size);
+                    const part = file.slice(start, Math.min(file.size, start + (partSize || file.size)));
+                    progress.textContent = `Uploading ${index + 1}/${urls.length}…`;
+                    const uploaded = await fetch(urls[index], {method: 'PUT', body: part, headers: partSize ? undefined : {'Content-Type': mime}});
+                    if (!uploaded.ok) throw new Error(`Upload part ${index + 1} failed`);
+                    if (partSize) {
+                        const etag = uploaded.headers.get('etag');
+                        if (!etag) throw new Error(`Upload part ${index + 1} did not return an ETag`);
+                        parts.push({part_number: index + 1, etag});
+                    }
+                }
+                progress.textContent = 'Linking designer video…';
+                const completed = await fetch(`${API_BASE}/uploads/${encodeURIComponent(session.session_id)}/complete`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(partSize ? {parts} : {})});
+                if (!completed.ok) throw new Error((await completed.json()).detail || 'Could not complete designer upload');
+                closeDesignerUpload();
+                loadFiles();
+            } catch (error) {
+                progress.textContent = error.message || 'Designer upload failed';
+            } finally {
+                submit.disabled = false;
+            }
         }
 
         function renderAudioCard(file, streamUrl, duration, size) {
