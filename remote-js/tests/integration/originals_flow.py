@@ -85,6 +85,8 @@ video = complete_session(initiate("derived-001", "video", digest, title="Derived
 assert video["ok"]
 clean_video = complete_session(initiate("derived-001-no-overlay", "video", digest, title="Derived (No Overlay)", tags=["no-overlay"], source_id="source-001"))
 assert clean_video["ok"]
+needs_designer = json.load(request("/api/files?type=video&designer_missing=true"))
+assert any(item["id"] == "derived-001" for item in needs_designer)
 designer_video = complete_session(initiate("ignored-client-id", "video", digest, title="Designer revision", designer_of_id="derived-001"))
 assert designer_video["ok"] and designer_video["id"] == "derived-001-designer"
 derived = json.load(request("/api/originals/source-001/derived"))
@@ -94,6 +96,8 @@ normal = next(item for item in normal_videos if item["id"] == "derived-001")
 assert normal["no_overlay_id"] == "derived-001-no-overlay"
 assert normal["designer_video_id"] == "derived-001-designer"
 assert all(item["id"] not in {"derived-001-no-overlay", "derived-001-designer"} for item in normal_videos)
+needs_designer = json.load(request("/api/files?type=video&designer_missing=true"))
+assert all(item["id"] != "derived-001" for item in needs_designer)
 no_overlay_videos = json.load(request("/api/files?type=video&tags=no-overlay"))
 assert any(item["id"] == "derived-001-no-overlay" for item in no_overlay_videos)
 clean_stream = request("/stream/derived-001-no-overlay?type=video", headers={"Range": "bytes=0-99"})

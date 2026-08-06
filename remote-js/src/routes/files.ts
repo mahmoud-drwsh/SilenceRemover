@@ -298,6 +298,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const checkTitle = url.searchParams.get("check_title");
   const includeTrash = url.searchParams.get("include_trash") === "true";
   const includePending = url.searchParams.get("include_pending") === "true";
+  const designerMissing = url.searchParams.get("designer_missing") === "true";
 
   if (typeParam && typeParam !== "audio" && typeParam !== "video" && typeParam !== "original") {
     throw new HttpError(400, "Invalid type parameter");
@@ -361,6 +362,17 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   if (typeParam) {
     params.push(typeParam);
     conditions.push(`type = $${params.length}`);
+  }
+
+  if (designerMissing) {
+    if (typeParam !== "video") throw new HttpError(400, "designer_missing requires type=video");
+    conditions.push(`NOT EXISTS (
+      SELECT 1 FROM ${ident}.files AS designer_candidate
+      WHERE designer_candidate.project = source.project
+        AND designer_candidate.type = 'video'
+        AND designer_candidate.designer_of_id = source.id
+        AND NOT ((CASE WHEN jsonb_typeof(designer_candidate.tags) = 'string' THEN (designer_candidate.tags #>> '{}')::jsonb ELSE designer_candidate.tags END) @> '["trash"]'::jsonb)
+    )`);
   }
 
   addTagListConditions({

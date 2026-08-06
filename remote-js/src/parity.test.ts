@@ -403,4 +403,14 @@ describe("frontend Media Manager UI", () => {
     expect(html).toContain("function discardAudio(fileId)");
     expect(html).toContain("if (type === TYPE_VIDEO && !isAdminMode()) return;");
   });
+
+  test("designer queue filters pipeline finals with no designer upload", async () => {
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
+    const filesRoute = await Bun.file(new URL("./routes/files.ts", import.meta.url)).text();
+
+    expect(html).toContain("'needs-designer': '✨ Needs Designer'");
+    expect(html).toContain("&designer_missing=true");
+    expect(filesRoute).toContain('designer_missing requires type=video');
+    expect(filesRoute).toContain('designer_candidate.designer_of_id');
+  });
 });
