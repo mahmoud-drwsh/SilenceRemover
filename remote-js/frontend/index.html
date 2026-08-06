@@ -407,6 +407,13 @@
             const isAdmin = isAdminMode();
             updateSortControl();
 
+            // The designer enters through one focused queue, not a folder browser.
+            if (currentSection === 'video' && !isAdmin) {
+                container.style.display = 'none';
+                document.getElementById('bottom-nav').style.display = 'none';
+                return;
+            }
+
             // Strict isolation mode (specific folder URL): hide unless admin
             if (strictIsolation && !isAdmin) {
                 container.style.display = 'none';

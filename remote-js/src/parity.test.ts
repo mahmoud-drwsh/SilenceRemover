@@ -413,4 +413,11 @@ describe("frontend Media Manager UI", () => {
     expect(filesRoute).toContain('designer_missing requires type=video');
     expect(filesRoute).toContain('designer_candidate.designer_of_id');
   });
+
+  test("designer queue hides redundant folder navigation", async () => {
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
+
+    expect(html).toContain("if (currentSection === 'video' && !isAdmin)");
+    expect(html).toContain("The designer enters through one focused queue");
+  });
 });
