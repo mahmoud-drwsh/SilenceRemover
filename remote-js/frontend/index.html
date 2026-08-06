@@ -534,6 +534,7 @@
             const safeDesignerVideoId = file.designer_video_id ? escapeJs(file.designer_video_id) : '';
             const tagsJson = JSON.stringify(file.tags || []).replace(/"/g, '&quot;');
             const canUploadDesigner = !(file.tags || []).includes('no-overlay') && !(file.tags || []).includes('designer');
+            let menuItem = '';
             let actionsHtml = '';
 
             if (currentFilter === 'trash') {
@@ -544,7 +545,6 @@
                 `;
             } else {
                 // Normal view: play/download + context-aware menu
-                let menuItem = '';
                 if (currentFilter === 'all' || currentFilter === 'pending') {
                     // In ALL and Pending folders: show Add to Folder + Move to Trash
                     menuItem = `

@@ -362,4 +362,12 @@ describe("frontend Media Manager UI", () => {
     expect(filesRoute).toContain("AS no_overlay_id");
     expect(filesRoute).toContain("AS designer_video_id");
   });
+
+  test("video card context menu exists for every filter before the footer is rendered", async () => {
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
+    const cardRenderer = html.slice(html.indexOf("function renderFileCard(file)"), html.indexOf("function openDesignerUpload"));
+
+    expect(cardRenderer.indexOf("let menuItem = '';"))
+      .toBeLessThan(cardRenderer.indexOf("if (currentFilter === 'trash')"));
+  });
 });
