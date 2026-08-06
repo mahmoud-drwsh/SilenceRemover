@@ -391,4 +391,16 @@ describe("frontend Media Manager UI", () => {
     expect(html).toContain("button.style.display = 'none';");
     expect(html).toContain("if (!isAdminMode()) return;");
   });
+
+  test("only admins can trash videos while title reviewers can discard unusable audio", async () => {
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
+    const videoRenderer = html.slice(html.indexOf("function renderFileCard(file)"), html.indexOf("function openDesignerUpload"));
+    const audioRenderer = html.slice(html.indexOf("function renderAudioCard(file"), html.indexOf("async function deleteFile"));
+
+    expect(videoRenderer).toContain("const canManageVideoTrash = isAdminMode();");
+    expect(videoRenderer).toContain("canManageVideoTrash ?");
+    expect(audioRenderer).toContain("Discard audio");
+    expect(html).toContain("function discardAudio(fileId)");
+    expect(html).toContain("if (type === TYPE_VIDEO && !isAdminMode()) return;");
+  });
 });

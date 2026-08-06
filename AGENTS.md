@@ -22,3 +22,4 @@ After code or config changes, agents append short notes here. When this file gro
 - **Designer UI regression**: Video-card menu state is defined for every filter before the shared footer is rendered, preventing a card-rendering `ReferenceError`.
 - **Audio review**: The audio UI is a title-review queue only: playback, title editing, and explicit approve/reopen actions; it does not expose media-management controls.
 - **Review ordering**: Non-admin title review is always oldest first and has no sorting control; admin sorting remains available.
+- **Trash access**: Video trash controls are admin-only; non-admin title reviewers can discard unusable audio from the review queue.

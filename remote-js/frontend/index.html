@@ -549,22 +549,23 @@
             const safeDesignerVideoId = file.designer_video_id ? escapeJs(file.designer_video_id) : '';
             const tagsJson = JSON.stringify(file.tags || []).replace(/"/g, '&quot;');
             const canUploadDesigner = !(file.tags || []).includes('no-overlay') && !(file.tags || []).includes('designer');
+            const canManageVideoTrash = isAdminMode();
             let menuItem = '';
             let actionsHtml = '';
 
             if (currentFilter === 'trash') {
                 // In trash view: show restore + delete buttons
-                actionsHtml = `
+                actionsHtml = canManageVideoTrash ? `
                     <button class="btn btn-secondary" onclick="confirmRestore('${safeId}', '${safeTitle}')">♻️ Restore to All</button>
                     <button class="btn btn-danger" onclick="confirmDeletePermanently('${safeId}', '${safeTitle}')">🗑️ Delete Permanently</button>
-                `;
+                ` : '';
             } else {
                 // Normal view: play/download + context-aware menu
                 if (currentFilter === 'all' || currentFilter === 'pending') {
-                    // In ALL and Pending folders: show Add to Folder + Move to Trash
+                    // Folder placement remains available; video trash is admin-only.
                     menuItem = `
                         <div class="context-menu-item" onclick="openFolderModal('${safeId}', '${safeTitle}'); hideContextMenu('${safeId}')">📁 Add to Folder</div>
-                        <div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div>
+                        ${canManageVideoTrash ? `<div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div>` : ''}
                     `;
                 } else if (currentFilter === 'FB') {
                     // In Facebook folder: show Remove from Facebook
@@ -674,7 +675,7 @@
             const approved = (file.tags || []).includes('ready');
             const action = approved
                 ? `<button class="btn btn-todo" onclick="reopenTitleReview('${safeId}')">✏️ Reopen review</button>`
-                : `<button class="btn btn-ready" onclick="approveTitle('${safeId}')">✅ Approve title</button>`;
+                : `<button class="btn btn-ready" onclick="approveTitle('${safeId}')">✅ Approve title</button><button class="btn btn-danger" onclick="discardAudio('${safeId}')">🗑️ Discard audio</button>`;
 
             return `<div class="file-card audio-card" data-id="${file.id}" data-tags="${tagsJson}"><div class="audio-row"><div class="audio-player"><audio controls preload="none"><source src="${streamUrl}" type="${file.mime_type}"></audio></div></div><div class="audio-title-edit"><textarea data-file-id="${file.id}" placeholder="Choose a title..." dir="auto" ${approved ? 'readonly' : ''} oninput="debouncedTitleUpdate(this)">${escapeHtml(title)}</textarea><div style="color: #666; font-size: 0.7rem; margin-top: 2px;">${duration}${size ? ' • ' + size : ''}</div><div class="save-status" id="status-${file.id}"></div></div><div class="audio-actions">${action}</div></div>`;
         }
@@ -885,6 +886,16 @@
             saveAudioReview(fileId, ['todo']);
         }
 
+        function discardAudio(fileId) {
+            showConfirmModal(
+                'Discard audio?',
+                'This audio clip is not useful for title review and will be moved to trash.',
+                'Discard',
+                false,
+                () => updateTags(fileId, ['trash'], TYPE_AUDIO),
+            );
+        }
+
         // Confirmation modal state
         let confirmCallback = null;
 
@@ -914,6 +925,7 @@
         function confirmMoveToTrash(fileId) {
             // Determine type based on current section
             const type = getCurrentType();
+            if (type === TYPE_VIDEO && !isAdminMode()) return;
             showConfirmModal(
                 '🗑️ Move to Trash?',
                 'This file will be moved to trash. You can restore it later.',
