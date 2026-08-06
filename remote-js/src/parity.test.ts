@@ -420,4 +420,17 @@ describe("frontend Media Manager UI", () => {
     expect(html).toContain("if (currentSection === 'video' && !isAdmin)");
     expect(html).toContain("The designer enters through one focused queue");
   });
+
+  test("bulk audio approval is admin-only, confirmed, and excludes trash", async () => {
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
+    const filesRoute = await Bun.file(new URL("./routes/files.ts", import.meta.url)).text();
+
+    expect(html).toContain('id="approve-pending-audio"');
+    expect(html).toContain("function confirmApprovePendingAudio()");
+    expect(html).toContain("Approve all pending audio?");
+    expect(html).toContain("body: JSON.stringify({ confirm: true })");
+    expect(filesRoute).toContain('"/projects/:token/:project/api/audio/approve-pending"');
+    expect(filesRoute).toContain("Explicit confirmation is required");
+    expect(filesRoute).toContain("approved_count: rows.length");
+  });
 });

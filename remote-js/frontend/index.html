@@ -185,6 +185,7 @@
         <button id="sort-toggle" class="sort-toggle" onclick="toggleSort()" title="Toggle sort order">
             <span id="sort-label">Oldest</span>
         </button>
+        <button id="approve-pending-audio" class="btn btn-ready" style="display:none" onclick="confirmApprovePendingAudio()">✅ Approve pending audio</button>
     </header>
 
     <main>
@@ -406,6 +407,7 @@
             const container = document.getElementById('filter-tabs');
             const isAdmin = isAdminMode();
             updateSortControl();
+            updateBulkAudioApprovalControl();
 
             // The designer enters through one focused queue, not a folder browser.
             if (currentSection === 'video' && !isAdmin) {
@@ -435,6 +437,13 @@
                 const label = getTabLabel(tab);
                 return `<button class="${isActive ? 'active' : ''}" onclick="setFilter('${tab}')">${label}</button>`;
             }).join('');
+        }
+
+        function updateBulkAudioApprovalControl() {
+            const button = document.getElementById('approve-pending-audio');
+            button.style.display = isAdminMode() && currentSection === 'audio' && currentFilter === 'todo'
+                ? 'inline-flex'
+                : 'none';
         }
 
         function getTabLabel(tab) {
@@ -899,6 +908,33 @@
                 false,
                 () => updateTags(fileId, ['trash'], TYPE_AUDIO),
             );
+        }
+
+        function confirmApprovePendingAudio() {
+            if (!isAdminMode() || currentSection !== 'audio' || currentFilter !== 'todo') return;
+            showConfirmModal(
+                'Approve all pending audio?',
+                'All non-trashed audio awaiting review will be marked approved. This does not affect trashed audio.',
+                'Approve all',
+                true,
+                approvePendingAudio,
+            );
+        }
+
+        async function approvePendingAudio() {
+            try {
+                const res = await fetch(`${API_BASE}/audio/approve-pending`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ confirm: true }),
+                });
+                if (!res.ok) throw new Error(await res.text());
+                const result = await res.json();
+                alert(`Approved ${result.approved_count} audio item(s).`);
+                loadFiles();
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
         }
 
         // Confirmation modal state

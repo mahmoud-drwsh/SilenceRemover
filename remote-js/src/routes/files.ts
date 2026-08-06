@@ -441,6 +441,30 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* POST /api/audio/approve-pending                                            */
+/* -------------------------------------------------------------------------- */
+
+filesRouter.post("/projects/:token/:project/api/audio/approve-pending", async (c) => {
+  const { token, project } = c.req.param();
+  await verifyMediaToken(token);
+  const body = await c.req.json().catch(() => null) as { confirm?: unknown } | null;
+  if (body?.confirm !== true) throw new HttpError(400, "Explicit confirmation is required");
+
+  const sql = getDb();
+  const ident = schemaIdent();
+  const rows = await sql.unsafe<{ id: string }[]>(`
+    UPDATE ${ident}.files
+    SET tags = '["ready"]'::jsonb
+    WHERE project = $1
+      AND type = 'audio'
+      AND (CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END) @> '["todo"]'::jsonb
+      AND NOT ((CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END) @> '["trash"]'::jsonb)
+    RETURNING id
+  `, [project]);
+  return c.json({ ok: true, approved_count: rows.length });
+});
+
+/* -------------------------------------------------------------------------- */
 /* POST /api/files                                                            */
 /* -------------------------------------------------------------------------- */
 
