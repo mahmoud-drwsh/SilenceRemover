@@ -367,7 +367,7 @@
             const icon = document.getElementById('section-icon');
             const label = document.getElementById('section-label');
             const btn = document.getElementById('section-toggle');
-            const isAdmin = window.location.hash.includes('admin');
+            const isAdmin = isAdminMode();
             
             if (section === 'audio') {
                 icon.textContent = '🎵';
@@ -385,9 +385,25 @@
             }
         }
 
+        function isAdminMode() {
+            return window.location.hash.includes('admin');
+        }
+
+        function updateSortControl() {
+            const button = document.getElementById('sort-toggle');
+            if (!isAdminMode()) {
+                currentSort = 'asc';
+                button.style.display = 'none';
+            } else {
+                button.style.display = 'flex';
+            }
+            updateSortButton();
+        }
+
         function renderTabs() {
             const container = document.getElementById('filter-tabs');
-            const isAdmin = window.location.hash.includes('admin');
+            const isAdmin = isAdminMode();
+            updateSortControl();
 
             // Video section: show tabs only in admin mode
             if (currentSection === 'video' && !isAdmin) {
@@ -441,6 +457,7 @@
         }
 
         function toggleSort() {
+            if (!isAdminMode()) return;
             currentSort = currentSort === 'asc' ? 'desc' : 'asc';
             updateSortButton();
             // Save preference to localStorage
@@ -454,12 +471,16 @@
         }
 
         function initSortPreference() {
-            // Load saved preference from localStorage, default to 'asc'
-            const savedSort = localStorage.getItem('mediaManagerSort');
-            if (savedSort === 'asc' || savedSort === 'desc') {
-                currentSort = savedSort;
+            // Non-admin review is always oldest first; only admins retain a preference.
+            if (isAdminMode()) {
+                const savedSort = localStorage.getItem('mediaManagerSort');
+                if (savedSort === 'asc' || savedSort === 'desc') {
+                    currentSort = savedSort;
+                }
+            } else {
+                currentSort = 'asc';
             }
-            updateSortButton();
+            updateSortControl();
         }
 
         async function loadFiles() {
@@ -470,10 +491,7 @@
             content.innerHTML = '<div class="loading">Loading...</div>';
 
             try {
-                // Cross-type viewing: FB tab in audio section shows videos with FB tag
-                const isFbCrossView = currentSection === 'audio' && currentFilter === 'FB';
-                const fetchType = isFbCrossView ? 'video' : currentSection;
-                let url = `${API_BASE}/files?type=${fetchType}`;
+                let url = `${API_BASE}/files?type=${currentSection}`;
                 if (currentFilter !== 'all') {
                     url += `&tags=${currentFilter}`;
                 }
@@ -491,10 +509,7 @@
                 if (loadSequence !== fileLoadSequence) return;
 
                 if (files.length === 0) {
-                    // Cross-type viewing: show correct file type in empty state
-                    const isFbCrossView = currentSection === 'audio' && currentFilter === 'FB';
-                    const displayType = isFbCrossView ? 'video' : currentSection;
-                    content.innerHTML = `<div class="empty">No ${displayType} files ${currentFilter !== 'all' ? `with "${currentFilter}" tag` : ''}</div>`;
+                    content.innerHTML = `<div class="empty">No ${currentSection} files ${currentFilter !== 'all' ? `with "${currentFilter}" tag` : ''}</div>`;
                     const label = getTabLabel(currentFilter);
                     document.querySelector('header h1').innerHTML = `📁 ${label} (0)`;
                     return;

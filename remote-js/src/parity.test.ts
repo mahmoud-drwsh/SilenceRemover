@@ -382,4 +382,13 @@ describe("frontend Media Manager UI", () => {
     expect(audioRenderer).not.toContain("confirmMoveToTrash");
     expect(audioRenderer).not.toContain("btn-menu");
   });
+
+  test("non-admin review is always oldest first and has no sort control", async () => {
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
+
+    expect(html).toContain("function updateSortControl()");
+    expect(html).toContain("currentSort = 'asc';");
+    expect(html).toContain("button.style.display = 'none';");
+    expect(html).toContain("if (!isAdminMode()) return;");
+  });
 });

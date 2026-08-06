@@ -21,3 +21,4 @@ After code or config changes, agents append short notes here. When this file gro
 - **Validation**: Python tests cover pipeline behavior; `remote-js` has Bun tests and an isolated Docker Compose integration environment using Postgres and MinIO.
 - **Designer UI regression**: Video-card menu state is defined for every filter before the shared footer is rendered, preventing a card-rendering `ReferenceError`.
 - **Audio review**: The audio UI is a title-review queue only: playback, title editing, and explicit approve/reopen actions; it does not expose media-management controls.
+- **Review ordering**: Non-admin title review is always oldest first and has no sorting control; admin sorting remains available.
