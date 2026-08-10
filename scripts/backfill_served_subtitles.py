@@ -119,12 +119,13 @@ def api(client: MediaManagerClient, method: str, endpoint: str, body: dict | Non
     return response.json()
 
 
-def remux_all(client: MediaManagerClient, root: Path, limit: int | None) -> tuple[int, int]:
-    videos = client.get_video_files(include_trash=True, include_pending=True)
-    missing = [video for video in videos if video.get("source_id") and not video.get("checksum_sha256") and "trash" not in (video.get("tags") or [])]
-    for index, video in enumerate(missing, start=1):
-        print(f"[CHECKSUM {index}/{len(missing)}] {video['id']}", flush=True)
-        api(client, "POST", f"/api/remux/checksum/{quote(video['id'], safe='')}", {})
+def remux_all(client: MediaManagerClient, root: Path, limit: int | None, *, repair_checksums: bool = True) -> tuple[int, int]:
+    if repair_checksums:
+        videos = client.get_video_files(include_trash=True, include_pending=True)
+        missing = [video for video in videos if video.get("source_id") and not video.get("checksum_sha256") and "trash" not in (video.get("tags") or [])]
+        for index, video in enumerate(missing, start=1):
+            print(f"[CHECKSUM {index}/{len(missing)}] {video['id']}", flush=True)
+            api(client, "POST", f"/api/remux/checksum/{quote(video['id'], safe='')}", {})
     api(client, "POST", "/api/remux/enqueue", {})
     completed = failed = 0
     while limit is None or completed + failed < limit:
@@ -173,6 +174,7 @@ def main() -> int:
     parser.add_argument("--work-dir", type=Path, default=ROOT / "temp" / "server_subtitle_backfill")
     parser.add_argument("--stage", choices=["subtitles", "remux", "all", "status"], default="all")
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--skip-checksum-repair", action="store_true")
     args = parser.parse_args()
     if not args.media_manager_url: parser.error("--media-manager-url or MEDIA_MANAGER_URL is required")
     args.work_dir.mkdir(parents=True, exist_ok=True)
@@ -187,7 +189,7 @@ def main() -> int:
         print(f"Subtitle backfill: completed={done} failed={failed}"); failures += failed
         if failed and args.stage == "all": return 1
     if args.stage in {"remux", "all"}:
-        done, failed = remux_all(client, args.work_dir, args.limit)
+        done, failed = remux_all(client, args.work_dir, args.limit, repair_checksums=not args.skip_checksum_repair)
         print(f"Remux backfill: completed={done} failed={failed}"); failures += failed
     return 1 if failures else 0
 

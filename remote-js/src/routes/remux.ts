@@ -54,6 +54,12 @@ remuxRouter.post("/projects/:token/:project/api/remux/enqueue", async (c) => {
       WHERE v.project=$1 AND v.type='video' AND v.source_id IS NOT NULL
         AND v.checksum_sha256 IS NOT NULL AND s.checksum_sha256 IS NOT NULL
         AND NOT (v.tags @> '["trash"]'::jsonb)
+        AND NOT EXISTS (
+          SELECT 1 FROM ${ident}.subtitle_remux_jobs done
+          WHERE done.project=v.project AND done.video_id=v.id AND done.state='completed'
+            AND done.output_checksum_sha256=v.checksum_sha256
+            AND done.subtitle_checksum_sha256=s.checksum_sha256
+        )
       ON CONFLICT (project,video_id,input_checksum_sha256,subtitle_checksum_sha256) DO NOTHING
       RETURNING 1
     ) SELECT count(*)::text count FROM inserted`, [project]);
