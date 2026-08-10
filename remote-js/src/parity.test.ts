@@ -356,11 +356,14 @@ describe("frontend Media Manager UI", () => {
     expect(html).toContain("file.no_overlay_id ? escapeJs(file.no_overlay_id)");
     expect(html).toContain("<strong>Silence Removed</strong>");
     expect(html).toContain("file.designer_video_id ? escapeJs(file.designer_video_id)");
+    expect(html).toContain("file.subtitle_id ? escapeJs(file.subtitle_id)");
+    expect(html).toContain("<strong>Subtitles</strong>");
     expect(html).toContain("function openDesignerUpload(targetId, targetTitle)");
     expect(filesRoute).toContain('tag === "no-overlay" || tag === "designer" || tag === "trash"');
     expect(filesRoute).toContain("candidate.source_id = source.source_id");
     expect(filesRoute).toContain("AS no_overlay_id");
     expect(filesRoute).toContain("AS designer_video_id");
+    expect(filesRoute).toContain("AS subtitle_id");
   });
 
   test("video card context menu exists for every filter before the footer is rendered", async () => {

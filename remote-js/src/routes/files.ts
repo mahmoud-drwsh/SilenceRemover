@@ -55,6 +55,7 @@ interface FileRow {
   derived_title: string | null;
   no_overlay_id: string | null;
   designer_video_id: string | null;
+  subtitle_id: string | null;
   designer_of_id: string | null;
 }
 
@@ -75,6 +76,7 @@ function rowToResponse(row: FileRow): FileResponse {
     derived_title: row.derived_title ?? null,
     no_overlay_id: row.no_overlay_id ?? null,
     designer_video_id: row.designer_video_id ?? null,
+    subtitle_id: row.subtitle_id ?? null,
     designer_of_id: row.designer_of_id ?? null,
   };
 }
@@ -322,7 +324,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     }
 
     const rows = await sql.unsafe<FileRow[]>(
-      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title, NULL::text AS no_overlay_id, NULL::text AS designer_video_id, designer_of_id
+      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title, NULL::text AS no_overlay_id, NULL::text AS designer_video_id, NULL::text AS subtitle_id, designer_of_id
        FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = $3`,
       [sanitizedId, project, typeParam],
     );
@@ -396,7 +398,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const sortDirection = sort === "asc" ? "ASC" : "DESC";
 
   const rows = await sql.unsafe<FileRow[]>(
-    `SELECT source.id, source.project, source.type, source.title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, companion.id AS no_overlay_id, designer.id AS designer_video_id, source.designer_of_id
+    `SELECT source.id, source.project, source.type, source.title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, companion.id AS no_overlay_id, designer.id AS designer_video_id, subtitle.id AS subtitle_id, source.designer_of_id
      FROM ${ident}.files AS source
      LEFT JOIN LATERAL (
        SELECT title
@@ -436,6 +438,16 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
        ORDER BY candidate.created_at DESC, candidate.id
        LIMIT 1
      ) AS designer ON TRUE
+     LEFT JOIN LATERAL (
+       SELECT candidate.id
+       FROM ${ident}.files AS candidate
+       WHERE source.type = 'video'
+         AND source.source_id IS NOT NULL
+         AND candidate.project = source.project
+         AND candidate.type = 'subtitle'
+         AND candidate.id = source.source_id || '-subtitles'
+       LIMIT 1
+     ) AS subtitle ON TRUE
      WHERE ${whereClause}
      ORDER BY source.id ${sortDirection}`,
     params,

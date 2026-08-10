@@ -25,6 +25,7 @@ export const FileResponseSchema = z.object({
   derived_title: z.string().nullable().optional(),
   no_overlay_id: z.string().nullable().optional(),
   designer_video_id: z.string().nullable().optional(),
+  subtitle_id: z.string().nullable().optional(),
   designer_of_id: z.string().nullable().optional(),
   created_at: z.string(),
 });
