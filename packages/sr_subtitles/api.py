@@ -79,7 +79,13 @@ def validate_model_srt(raw: str, duration: float) -> str:
             if lines[cursor].strip(): text_lines.append(lines[cursor].strip())
             cursor += 1
         text = " ".join(" ".join(text_lines).split())
-        if not text or start < previous_end or end <= start or end > duration + 0.25:
+        if start < previous_end:
+            if previous_end - start > 1.0:
+                raise RuntimeError("Subtitle model SRT failed deterministic timing validation")
+            start = previous_end
+        if end > duration and end <= duration + 0.25:
+            end = duration
+        if not text or end <= start or end > duration:
             raise RuntimeError("Subtitle model SRT failed deterministic timing validation")
         normalized.extend([str(expected), f"{_timestamp(start)} --> {_timestamp(end)}", text, ""])
         previous_end = end

@@ -38,6 +38,12 @@ def test_model_srt_accepts_gemini_minute_timestamps_without_blank_lines() -> Non
     assert "00:01:02,280 --> 00:01:07,070" in result
 
 
+def test_model_srt_clamps_small_model_overlap_deterministically() -> None:
+    raw = "1\n00:00:00,000 --> 00:00:02,000\nأول\n2\n00:00:01,800 --> 00:00:03,000\nثان"
+    result = validate_model_srt(raw, 3.0)
+    assert "00:00:02,000 --> 00:00:03,000" in result
+
+
 @pytest.mark.parametrize("raw", [
     "commentary", "1\n00:00:02,000 --> 00:00:01,000\nنص", "2\n00:00:00,000 --> 00:00:01,000\nنص",
 ])
