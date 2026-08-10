@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-export const FileTypeSchema = z.enum(["audio", "video", "original"]);
+export const FileTypeSchema = z.enum(["audio", "video", "original", "subtitle"]);
 export type FileType = z.infer<typeof FileTypeSchema>;
 
 export const FileResponseSchema = z.object({

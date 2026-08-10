@@ -6,7 +6,7 @@ import argparse
 import os
 import shutil
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional, TextIO
 
@@ -28,6 +28,10 @@ from src.core.paths import (
     get_title_path,
     get_title_overlay_path,
     get_transcript_path,
+    get_subtitle_path,
+    get_subtitle_segments_dir,
+    is_subtitle_done,
+    is_subtitle_mux_completed,
     is_completed,
     is_no_overlay_completed,
     is_snippet_done,
@@ -35,6 +39,7 @@ from src.core.paths import (
     is_transcript_done,
     mark_completed,
     mark_no_overlay_completed,
+    mark_subtitle_mux_completed,
 )
 from sr_filename import sanitize_filename
 from src.ffmpeg.probing import is_mp4_container
@@ -49,6 +54,8 @@ from sr_telegram_notify import (
 )
 from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
+from sr_subtitles import generate_srt_from_trim_segments, mux_srt_track
+from sr_trim_plan import build_trim_plan
 from src.ffmpeg.trim_script_bundle import (
     generate_trim_script,
     get_snippet_trim_script_path,
@@ -416,6 +423,43 @@ def run_title_phase(
     )
 
 
+def run_subtitle_generation_phase(
+    video_path: Path, temp_dir: Path, target_length: float | None, noise_threshold: float,
+    min_duration: float, pad_sec: float, api_key: str, video_index: int, total_videos: int,
+) -> bool | None:
+    """Create a deterministic SRT from the same retained segments as the final video."""
+    basename = video_path.stem
+    def _perform() -> None:
+        plan = build_trim_plan(video_path, target_length, noise_threshold, min_duration, pad_sec, temp_dir)
+        generate_srt_from_trim_segments(
+            input_file=video_path, segments=plan.segments_to_keep,
+            output_path=get_subtitle_path(temp_dir, basename),
+            work_dir=get_subtitle_segments_dir(temp_dir, basename), api_key=api_key, log_dir=temp_dir,
+        )
+    return _run_phase_step(video_path=video_path, work_fn=_perform, video_index=video_index, total_videos=total_videos, label="Subtitle Generation")
+
+
+def run_subtitle_mux_phase(
+    video_path: Path, temp_dir: Path, output_dir: Path, video_index: int, total_videos: int,
+) -> bool | None:
+    """Mux the one SRT into the overlaid and no-overlay outputs as an off-by-default track."""
+    basename = video_path.stem
+    srt_path = get_subtitle_path(temp_dir, basename)
+    output_basename = get_completed_output_filename(temp_dir, basename)
+    no_overlay_basename = get_no_overlay_completed_output_filename(temp_dir, basename)
+    def _perform() -> None:
+        if output_basename is None or no_overlay_basename is None:
+            raise RuntimeError("Final and no-overlay encodes must complete before subtitle muxing")
+        final_path = output_dir / f"{output_basename}.mp4"
+        no_overlay_path = get_no_overlay_output_dir(temp_dir) / f"{no_overlay_basename}.mp4"
+        if not final_path.is_file() or not no_overlay_path.is_file():
+            raise RuntimeError("Final and no-overlay output files must exist before subtitle muxing")
+        mux_srt_track(final_path, srt_path)
+        mux_srt_track(no_overlay_path, srt_path)
+        mark_subtitle_mux_completed(temp_dir, basename)
+    return _run_phase_step(video_path=video_path, work_fn=_perform, video_index=video_index, total_videos=total_videos, label="Subtitle Mux")
+
+
 def run_title_overlay_phase(
     video_path: Path,
     temp_dir: Path,
@@ -494,6 +538,7 @@ class ServerDataCache:
     audio_trash_ids: frozenset[str]
     video_trash_ids: frozenset[str]
     ready_audio_ids: frozenset[str]
+    subtitle_files: dict[str, dict] = field(default_factory=dict)
     
     @property
     def audio_count(self) -> int:
@@ -508,6 +553,9 @@ class ServerDataCache:
     
     def get_video(self, file_id: str) -> dict | None:
         return self.video_files.get(file_id)
+
+    def has_subtitle(self, source_id: str) -> bool:
+        return f"{source_id}-subtitles" in self.subtitle_files
 
     def has_original(self, file_id: str) -> bool:
         return file_id in self.original_files
@@ -853,6 +901,7 @@ def _rebuild_server_cache(media_manager_url: str) -> ServerDataCache | None:
                 include_pending=True,
             )
             all_originals = client.get_original_files()
+            all_subtitles = client.get_subtitle_files()
 
             audio_files = {}
             audio_trash = set()
@@ -885,10 +934,16 @@ def _rebuild_server_cache(media_manager_url: str) -> ServerDataCache | None:
                 for original in all_originals
                 if (original_id := original.get('id'))
             }
+            subtitle_files = {
+                subtitle_id: subtitle
+                for subtitle in all_subtitles
+                if (subtitle_id := subtitle.get('id'))
+            }
 
             return ServerDataCache(
                 audio_files=audio_files,
                 video_files=video_files,
+                subtitle_files=subtitle_files,
                 original_files=original_files,
                 audio_trash_ids=frozenset(audio_trash),
                 video_trash_ids=frozenset(video_trash),
@@ -1012,6 +1067,19 @@ def run_no_overlay_video_upload_phase(
         total_videos=total_videos,
         label="No-Overlay Upload",
     )
+
+
+def run_subtitle_upload_phase(video_path: Path, temp_dir: Path, video_index: int, total_videos: int) -> bool | None:
+    basename = video_path.stem
+    subtitle_path = get_subtitle_path(temp_dir, basename)
+    title = get_title_path(temp_dir, basename).read_text(encoding="utf-8").strip()
+    def _perform() -> None:
+        client = MediaManagerClient(os.getenv("MEDIA_MANAGER_URL"))
+        try:
+            client.upload_subtitle(basename, title, subtitle_path)
+        finally:
+            client.close()
+    return _run_phase_step(video_path=video_path, work_fn=_perform, video_index=video_index, total_videos=total_videos, label="Subtitle Upload")
 
 
 def run_video_tag_promotion_phase(
@@ -1249,6 +1317,23 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             ],
         ),
         _PipelinePhase(
+            3.1,
+            "Subtitle Generation",
+            lambda video_file, vi, vn: run_subtitle_generation_phase(
+                video_file, temp_dir, startup.target_length, startup.noise_threshold,
+                startup.min_duration, startup.pad_sec, api_key, vi, vn,
+            ),
+            skip_reason=lambda video_file: (
+                "subtitle already exists" if is_subtitle_done(temp_dir, video_file.stem)
+                else ("trim script missing (run phase 0 first)" if not is_trim_script_ready(
+                    input_file=video_file, temp_dir=temp_dir, target_length=startup.target_length,
+                    noise_threshold=startup.noise_threshold, min_duration=startup.min_duration,
+                    pad_sec=startup.pad_sec,
+                ) else None)
+            ),
+            checked_paths=lambda video_file: [str(get_subtitle_path(temp_dir, video_file.stem))],
+        ),
+        _PipelinePhase(
             4,
             "Original Upload",
             lambda video_file, vi, vn: run_original_upload_phase(
@@ -1454,6 +1539,24 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 str(_trim_script_path(video_file)),
             ],
         ),
+        _PipelinePhase(
+            9.5,
+            "Subtitle Mux",
+            lambda video_file, vi, vn: run_subtitle_mux_phase(
+                video_file, temp_dir, startup.output_dir, vi, vn,
+            ),
+            skip_reason=lambda video_file: (
+                "subtitle mux already completed" if is_subtitle_mux_completed(temp_dir, video_file.stem)
+                else ("subtitle missing" if not is_subtitle_done(temp_dir, video_file.stem)
+                    else ("final/no-overlay encode missing" if not is_completed(temp_dir, video_file.stem)
+                        or not is_no_overlay_completed(temp_dir, video_file.stem) else None))
+            ),
+            checked_paths=lambda video_file: [
+                str(get_subtitle_path(temp_dir, video_file.stem)),
+                str(get_completed_path(temp_dir, video_file.stem)),
+                str(get_no_overlay_completed_path(temp_dir, video_file.stem)),
+            ],
+        ),
         # Phase 10 - Video Reconciliation (delete server video if local title differs)
         _PipelinePhase(
             10,
@@ -1557,6 +1660,20 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             checked_paths=lambda video_file: [
                 str(_no_overlay_output_path(video_file) or (startup.output_dir / f"{video_file.stem}{NO_OVERLAY_VIDEO_SUFFIX}.mp4")),
                 f"server:video/{no_overlay_video_id(video_file.stem)}",
+            ],
+        ),
+        _PipelinePhase(
+            12.5,
+            "Subtitle Upload",
+            lambda video_file, vi, vn: run_subtitle_upload_phase(video_file, temp_dir, vi, vn),
+            skip_reason=lambda video_file: (
+                "subtitle missing" if not is_subtitle_done(temp_dir, video_file.stem)
+                else ("media manager disabled" if server_cache is None
+                    else ("subtitle already exists on server" if server_cache.has_subtitle(video_file.stem) else None))
+            ),
+            checked_paths=lambda video_file: [
+                str(get_subtitle_path(temp_dir, video_file.stem)),
+                f"server:subtitle/{video_file.stem}-subtitles",
             ],
         ),
         # Phase 13 - Publish Video (pending -> FB/TT only)

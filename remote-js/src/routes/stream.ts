@@ -53,7 +53,7 @@ streamRouter.get("/projects/:token/:project/stream/:id", async (c) => {
 
   const url = new URL(c.req.url);
   const typeRaw = url.searchParams.get("type");
-  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original") {
+  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original" && typeRaw !== "subtitle") {
     throw new HttpError(400, "Type parameter is required");
   }
   const fileType = typeRaw as FileType;

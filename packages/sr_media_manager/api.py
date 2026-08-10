@@ -160,6 +160,14 @@ class MediaManagerClient:
             return resp.json()
         except Exception as e:
             raise MediaManagerError(f"Failed to fetch original files: {e}")
+
+    def get_subtitle_files(self) -> list[dict]:
+        try:
+            resp = self._client.get(self._url('/api/files?type=subtitle'))
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            raise MediaManagerError(f"Failed to fetch subtitle files: {e}")
     
     def check_exists(self, file_id: str, file_type: str = 'audio') -> bool:
         """Check if file exists on server by ID and type."""
@@ -333,6 +341,7 @@ class MediaManagerClient:
         mime = {
             '.ogg': 'application/ogg', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/x-m4a',
             '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska', '.webm': 'video/webm',
+            '.srt': 'application/x-subrip',
         }.get(path.suffix.lower(), 'video/mp4' if file_type != 'audio' else 'audio/ogg')
         payload = {
             'id': file_id, 'type': file_type, 'title': title, 'tags': tags,
@@ -514,6 +523,14 @@ class MediaManagerClient:
         self._upload_presigned(
             file_id=source_id, file_type='original', title=original_path.name, path=original_path,
             tags=[], original_filename=original_path.name, progress_callback=progress_callback,
+        )
+        return True
+
+    def upload_subtitle(self, source_id: str, title: str, subtitle_path: Path) -> bool:
+        """Upload the pipeline-generated SRT under its deterministic source ID."""
+        self._upload_presigned(
+            file_id=f'{source_id}-subtitles', file_type='subtitle', title=title,
+            path=subtitle_path, tags=[], source_id=source_id,
         )
         return True
     

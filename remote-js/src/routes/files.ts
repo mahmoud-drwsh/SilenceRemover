@@ -300,7 +300,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const includePending = url.searchParams.get("include_pending") === "true";
   const designerMissing = url.searchParams.get("designer_missing") === "true";
 
-  if (typeParam && typeParam !== "audio" && typeParam !== "video" && typeParam !== "original") {
+  if (typeParam && typeParam !== "audio" && typeParam !== "video" && typeParam !== "original" && typeParam !== "subtitle") {
     throw new HttpError(400, "Invalid type parameter");
   }
 
@@ -710,7 +710,7 @@ filesRouter.put("/projects/:token/:project/api/files/:id", async (c) => {
 
   const url = new URL(c.req.url);
   const typeRaw = url.searchParams.get("type");
-  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original") {
+  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original" && typeRaw !== "subtitle") {
     throw new HttpError(400, "Type parameter is required");
   }
   const fileType = typeRaw as FileType;
@@ -785,7 +785,7 @@ filesRouter.delete("/projects/:token/:project/api/files/:id", async (c) => {
 
   const url = new URL(c.req.url);
   const typeRaw = url.searchParams.get("type");
-  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original") {
+  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original" && typeRaw !== "subtitle") {
     throw new HttpError(400, "Type parameter is required");
   }
   const fileType = typeRaw as FileType;

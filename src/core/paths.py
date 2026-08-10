@@ -16,6 +16,9 @@ from src.core.constants import (
     TITLE_DIR,
     TITLE_OVERLAYS_DIR,
     TRANSCRIPT_DIR,
+    SUBTITLE_DIR,
+    SUBTITLE_SEGMENTS_DIR,
+    SUBTITLE_MUX_COMPLETED_DIR,
     VIDEO_PROCESSING_DIR,
 )
 from sr_filename import sanitize_filename
@@ -25,6 +28,9 @@ __all__ = [
     "create_temp_subdirs",
     "get_snippet_path",
     "get_transcript_path",
+    "get_subtitle_path",
+    "get_subtitle_segments_dir",
+    "get_subtitle_mux_completed_path",
     "get_title_path",
     "get_font_cache_path",
     "get_title_overlay_hash",
@@ -34,12 +40,15 @@ __all__ = [
     "get_no_overlay_output_dir",
     "get_no_overlay_completed_output_filename",
     "is_transcript_done",
+    "is_subtitle_done",
+    "is_subtitle_mux_completed",
     "is_snippet_done",
     "is_title_done",
     "is_completed",
     "is_no_overlay_completed",
     "mark_completed",
     "mark_no_overlay_completed",
+    "mark_subtitle_mux_completed",
     "resolve_output_basename",
     "get_processing_video_path",
 ]
@@ -55,6 +64,9 @@ def create_temp_subdirs(temp_dir: Path) -> None:
     for subdir in [
         SNIPPET_DIR,
         TRANSCRIPT_DIR,
+        SUBTITLE_DIR,
+        SUBTITLE_SEGMENTS_DIR,
+        SUBTITLE_MUX_COMPLETED_DIR,
         TITLE_DIR,
         COMPLETED_DIR,
         NO_OVERLAY_COMPLETED_DIR,
@@ -74,6 +86,18 @@ def get_snippet_path(temp_dir: Path, basename: str) -> Path:
 
 def get_transcript_path(temp_dir: Path, basename: str) -> Path:
     return temp_dir / TRANSCRIPT_DIR / f"{basename}{TEXT_FILE_EXT}"
+
+
+def get_subtitle_path(temp_dir: Path, basename: str) -> Path:
+    return temp_dir / SUBTITLE_DIR / f"{basename}.srt"
+
+
+def get_subtitle_segments_dir(temp_dir: Path, basename: str) -> Path:
+    return temp_dir / SUBTITLE_SEGMENTS_DIR / basename
+
+
+def get_subtitle_mux_completed_path(temp_dir: Path, basename: str) -> Path:
+    return temp_dir / SUBTITLE_MUX_COMPLETED_DIR / f"{basename}{TEXT_FILE_EXT}"
 
 
 def get_title_path(temp_dir: Path, basename: str) -> Path:
@@ -111,6 +135,14 @@ def is_transcript_done(temp_dir: Path, basename: str) -> bool:
     path = get_transcript_path(temp_dir, basename)
     if not path.exists():
         return False
+
+
+def is_subtitle_done(temp_dir: Path, basename: str) -> bool:
+    path = get_subtitle_path(temp_dir, basename)
+    try:
+        return path.is_file() and bool(path.read_text(encoding="utf-8").strip())
+    except (OSError, UnicodeDecodeError):
+        return False
     try:
         return bool(path.read_text(encoding="utf-8").strip())
     except (OSError, UnicodeDecodeError):
@@ -137,6 +169,10 @@ def is_completed(temp_dir: Path, basename: str) -> bool:
 
 def is_no_overlay_completed(temp_dir: Path, basename: str) -> bool:
     return get_no_overlay_completed_path(temp_dir, basename).exists()
+
+
+def is_subtitle_mux_completed(temp_dir: Path, basename: str) -> bool:
+    return get_subtitle_mux_completed_path(temp_dir, basename).exists()
 
 
 def _read_output_filename(path: Path) -> str | None:
@@ -179,6 +215,12 @@ def mark_no_overlay_completed(
     path = get_no_overlay_completed_path(temp_dir, basename)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(output_filename, encoding="utf-8")
+
+
+def mark_subtitle_mux_completed(temp_dir: Path, basename: str) -> None:
+    path = get_subtitle_mux_completed_path(temp_dir, basename)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("ok", encoding="utf-8")
 
 
 def resolve_output_basename(title: str, output_dir: Path) -> str:

@@ -48,7 +48,7 @@ export async function ensureDatabaseReady(): Promise<void> {
     CREATE TABLE IF NOT EXISTS ${ident}.files (
       id text NOT NULL,
       project text NOT NULL,
-      type text NOT NULL CHECK (type IN ('audio', 'video', 'original')),
+      type text NOT NULL CHECK (type IN ('audio', 'video', 'original', 'subtitle')),
       title text,
       tags jsonb NOT NULL DEFAULT '[]'::jsonb,
       duration double precision NOT NULL DEFAULT 0,
@@ -63,7 +63,7 @@ export async function ensureDatabaseReady(): Promise<void> {
     )
   `);
   await sql.unsafe(`ALTER TABLE ${ident}.files DROP CONSTRAINT IF EXISTS files_type_check`);
-  await sql.unsafe(`ALTER TABLE ${ident}.files ADD CONSTRAINT files_type_check CHECK (type IN ('audio', 'video', 'original'))`);
+  await sql.unsafe(`ALTER TABLE ${ident}.files ADD CONSTRAINT files_type_check CHECK (type IN ('audio', 'video', 'original', 'subtitle'))`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS source_id text`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS original_filename text`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS checksum_sha256 text`);
@@ -77,7 +77,7 @@ export async function ensureDatabaseReady(): Promise<void> {
       id text PRIMARY KEY,
       project text NOT NULL,
       file_id text NOT NULL,
-      type text NOT NULL CHECK (type IN ('audio', 'video', 'original')),
+      type text NOT NULL CHECK (type IN ('audio', 'video', 'original', 'subtitle')),
       mime_type text NOT NULL,
       file_size bigint NOT NULL,
       checksum_sha256 text NOT NULL,
@@ -93,6 +93,8 @@ export async function ensureDatabaseReady(): Promise<void> {
     )
   `);
   await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD COLUMN IF NOT EXISTS designer_of_id text`);
+  await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions DROP CONSTRAINT IF EXISTS upload_sessions_type_check`);
+  await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD CONSTRAINT upload_sessions_type_check CHECK (type IN ('audio', 'video', 'original', 'subtitle'))`);
   await sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS upload_sessions_active_identity_idx ON ${ident}.upload_sessions (project, file_id, type, checksum_sha256) WHERE state = 'active'`);
   await sql.unsafe(`
     CREATE TABLE IF NOT EXISTS ${ident}.original_uploads (

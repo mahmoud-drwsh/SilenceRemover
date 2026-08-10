@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getDb, linkLegacyDerivedFilesForOriginal, schemaIdent } from "../db.ts";
 import { probeDurationSeconds } from "../ffprobe.ts";
-import { ALLOWED_MIME, AUDIO_MIME, VIDEO_MIME, getExtensionForMime, sniffMimeFromFile } from "../mime.ts";
+import { ALLOWED_MIME, AUDIO_MIME, VIDEO_MIME, SUBTITLE_MIME, getExtensionForMime, sniffMimeFromFile } from "../mime.ts";
 import { HttpError, type FileType } from "../schemas.ts";
 import { sanitizeFileId, sanitizeFilename } from "../sanitize.ts";
 import {
@@ -40,15 +40,16 @@ function parseBody(body: unknown): { id: string; type: FileType; mime: string; s
   if (!body || typeof body !== "object") throw new HttpError(400, "JSON body is required");
   const data = body as Record<string, unknown>;
   const type = data.type;
-  if (type !== "audio" && type !== "video" && type !== "original") throw new HttpError(400, "Invalid type");
+  if (type !== "audio" && type !== "video" && type !== "original" && type !== "subtitle") throw new HttpError(400, "Invalid type");
   const id = sanitizeFileId(String(data.id ?? ""));
   const mime = String(data.mime_type ?? "");
   const size = Number(data.file_size);
-  if (!id || !ALLOWED_MIME.has(mime) || (type === "original" && !VIDEO_MIME.has(mime))) throw new HttpError(400, "Invalid media identity or MIME type");
+  if (!id || !ALLOWED_MIME.has(mime) || (type === "original" && !VIDEO_MIME.has(mime)) || (type === "subtitle" && !SUBTITLE_MIME.has(mime))) throw new HttpError(400, "Invalid media identity or MIME type");
   if (!Number.isSafeInteger(size) || size <= 0) throw new HttpError(400, "file_size must be a positive integer");
   const sourceIdRaw = data.source_id == null ? "" : String(data.source_id);
   const sourceId = sourceIdRaw ? sanitizeFileId(sourceIdRaw) : null;
   if (sourceIdRaw && !sourceId) throw new HttpError(400, "Invalid source_id");
+  if (type === "subtitle" && (!sourceId || id !== `${sourceId}-subtitles`)) throw new HttpError(400, "Subtitles must use the deterministic source ID suffix");
   const filename = type === "original" ? sanitizeFilename(String(data.original_filename ?? "")) : null;
   if (type === "original" && !filename) throw new HttpError(400, "original_filename is required");
   const tagValue = JSON.stringify(data.tags ?? (type === "audio" ? ["todo"] : []));
@@ -172,7 +173,7 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
     if (committed.checksum_sha256 === input.checksum) return c.json({ ok: true, id: input.id, type: input.type, already_uploaded: true });
     throw new HttpError(409, `Original '${input.id}' already exists with different bytes`);
   }
-  const partCount = input.type === "audio" && input.size <= MULTIPART_PART_SIZE ? 0 : Math.ceil(input.size / MULTIPART_PART_SIZE);
+  const partCount = input.type === "subtitle" || (input.type === "audio" && input.size <= MULTIPART_PART_SIZE) ? 0 : Math.ceil(input.size / MULTIPART_PART_SIZE);
   if (partCount > MAX_PARTS) throw new HttpError(413, "Upload exceeds multipart upload part limit");
   const overwritten = input.designerOfId
     ? await hasCommittedVideo(project, input.id)
@@ -218,12 +219,10 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/:sessionId/complete", 
   const tempPath = join(tempDir, `upload${ext}`);
   try {
     await downloadAndVerifyCompletedObject(session, ext, tempPath);
-    const detected = await sniffMimeFromFile(tempPath);
-    const allowedDetectedMime = session.type === "audio" ? AUDIO_MIME : VIDEO_MIME;
-    if (!detected || !allowedDetectedMime.has(detected)) {
-      throw new HttpError(400, `Uploaded object MIME type is invalid: expected ${session.type}, got ${detected ?? "unknown"}`);
-    }
-    const duration = await probeDurationSeconds(tempPath);
+    const detected = session.type === "subtitle" ? SUBTITLE_MIME.has(session.mime_type) ? session.mime_type : null : await sniffMimeFromFile(tempPath);
+    const allowedDetectedMime = session.type === "audio" ? AUDIO_MIME : session.type === "subtitle" ? SUBTITLE_MIME : VIDEO_MIME;
+    if (!detected || !allowedDetectedMime.has(detected)) throw new HttpError(400, `Uploaded object MIME type is invalid: expected ${session.type}, got ${detected ?? "unknown"}`);
+    const duration = session.type === "subtitle" ? 0 : await probeDurationSeconds(tempPath);
     overwritten = await resolveUploadOverwrite(session.file_id, project, session.type, session.title);
     await commitUploadMetadata({ fileId: session.file_id, project, fileType: session.type, title: session.type === "original" ? session.original_filename ?? session.file_id : session.title, tagList: sessionTags(session.tags), duration, fileSize: Number(session.file_size), mime: session.mime_type, overwritten, sourceId: session.source_id, originalFilename: session.original_filename, checksumSha256: session.checksum_sha256, designerOfId: session.designer_of_id });
     if (session.type === "original") {

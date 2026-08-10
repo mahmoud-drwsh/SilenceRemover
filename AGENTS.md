@@ -26,3 +26,4 @@ After code or config changes, agents append short notes here. When this file gro
 - **Designer queue**: The `needs-designer` video filter returns only pipeline finals without a non-trashed linked designer video; non-admin designers see this focused queue.
 - **Focused folders**: Single-purpose non-admin queues hide the redundant folder navigation.
 - **Bulk audio approval**: Admin-mode audio review offers a confirmed bulk action that marks only non-trashed `todo` audio as `ready` and returns the affected count.
+- **Subtitles**: Subtitle generation is independent of the title snippet: Gemini returns one guarded verbatim string per retained trim segment, local code writes the SRT timing, and both final variants receive a disabled selectable Arabic track. SRT uploads use the deterministic `{source-id}-subtitles` Media Manager ID.

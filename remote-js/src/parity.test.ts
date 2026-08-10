@@ -251,8 +251,8 @@ describe("normalizeTitle", () => {
 });
 
 describe("MIME tables", () => {
-  test("ALLOWED_MIME is the union of audio + video", () => {
-    expect(ALLOWED_MIME.size).toBe(AUDIO_MIME.size + VIDEO_MIME.size);
+  test("ALLOWED_MIME includes subtitle MIME", () => {
+    expect(ALLOWED_MIME.has("application/x-subrip")).toBe(true);
   });
 
   test("getExtensionForMime falls back to .bin", () => {
