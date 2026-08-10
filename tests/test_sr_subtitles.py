@@ -1,6 +1,6 @@
 import pytest
 
-from sr_subtitles.api import _group_segments, render_srt, validate_model_srt
+from sr_subtitles.api import _group_segment_batches, _group_segments, _served_chunks, render_srt, validate_model_srt
 
 
 def test_render_srt_uses_contiguous_final_timeline() -> None:
@@ -15,6 +15,26 @@ def test_subtitle_groups_preserve_final_duration() -> None:
     assert len(groups) == 2
     assert groups[0][2] == pytest.approx(1.2)
     assert groups[1][2] == pytest.approx(0.1)
+
+
+def test_subtitle_groups_bound_retained_audio_duration() -> None:
+    groups = _group_segments([(0.0, 15.0), (16.0, 31.0)])
+    assert groups == [(0.0, 15.0, 15.0), (16.0, 31.0, 15.0)]
+
+
+def test_subtitle_batches_preserve_disjoint_source_ranges() -> None:
+    batches = _group_segment_batches([(0.0, 4.0), (100.0, 104.0)])
+    assert batches == [[(0.0, 4.0), (100.0, 104.0)]]
+
+
+def test_served_chunks_prefer_silence_near_target() -> None:
+    chunks = _served_chunks(70.0, [23.0, 49.0], [25.0, 51.0])
+    assert chunks == [(0.0, 24.0), (24.0, 50.0), (50.0, 70.0)]
+
+
+def test_served_chunks_fall_back_to_bounded_deterministic_cuts() -> None:
+    chunks = _served_chunks(80.0, [], [])
+    assert chunks == [(0.0, 25.0), (25.0, 50.0), (50.0, 80.0)]
 
 
 def test_model_srt_is_normalized_after_timing_validation() -> None:

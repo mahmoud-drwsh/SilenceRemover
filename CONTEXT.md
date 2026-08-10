@@ -15,7 +15,7 @@
 - **Designer video**: A designer-uploaded replacement presentation linked to one selected pipeline-final video. It shares that final video's original through the source ID, but does not change pipeline output.
 - **Companion video**: A derived video that represents the same source and silence-removal result as another derived video, but differs in presentation.
 - **Silence-removed video**: A derived video produced by removing detected silence according to the pipeline's trim policy. Both video variants are silence-removed.
-- **Subtitle SRT**: A pipeline-generated SubRip text file. Gemini transcribes bounded groups of retained speech as plain text; the pipeline deterministically derives cue timings from the retained timeline.
+- **Subtitle SRT**: A pipeline-generated SubRip text file. A dedicated Arabic STT model transcribes bounded, silence-aligned speech segments as plain text; the pipeline deterministically derives cue timings from the retained timeline.
 - **Selectable subtitle track**: The Arabic `mov_text` track muxed into both silence-removed video variants. It is a separate stream and is never burned into pixels.
 
 ## Pipeline state

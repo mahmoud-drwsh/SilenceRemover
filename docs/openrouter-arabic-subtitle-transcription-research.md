@@ -1,7 +1,49 @@
 # OpenRouter options for Arabic segment transcription
 
-*Research snapshot: 2026-08-09. Sources are OpenRouter documentation/model
+*Research snapshot: 2026-08-10. Sources are OpenRouter documentation/model
 pages and first-party provider documentation only.*
+
+## Cheaper-than-Qwen update (2026-08-10)
+
+The live OpenRouter transcription catalog prices
+`qwen/qwen3-asr-flash-2026-02-10` at **$0.000035/second**, or
+**$0.0021/minute**. There is no cheaper catalog model that both explicitly
+claims Arabic support and has shown acceptable quality in our production-audio
+pilot.
+
+| Candidate | Catalog rate | Relative to Qwen | Arabic and operational fit |
+| --- | ---: | ---: | --- |
+| `openai/whisper-large-v3-turbo` | $0.04/hour = **$0.000667/min** | 68% cheaper | OpenRouter says it covers 99+ languages, and Arabic is in the Whisper language set. It uses the dedicated STT endpoint and advertises very high speed. However, our segmented production pilot produced a repeatable hallucinated phrase, so price alone does not justify unattended use. |
+| `openai/whisper-large-v3` | **$0.0015/min** | 29% cheaper | OpenRouter describes it as multilingual, noise-robust, and supporting word/segment timestamps. This is the only cheaper reasonable quality challenger, but the earlier corpus test omitted material speech on a whole-file request. Re-test on the same silence-aligned segments before considering it. |
+| `nvidia/parakeet-tdt-0.6b-v3` | **$0.0015/min** | 29% cheaper | OpenRouter limits its language claim to official EU languages; Arabic is not one. It returns punctuation and segment timestamps, but is not a supported candidate for this Arabic corpus. |
+| `fish-audio/transcribe-1` | $0.0001/second = **$0.006/min** | 186% more expensive | Automatic language detection and optional word alignment are advertised, but neither OpenRouter nor the provider evidence reviewed here explicitly guarantees Arabic. It is not cheaper. |
+| `mistralai/voxtral-mini-transcribe` | **$0.003/min** | 43% more expensive | Dedicated STT, but the OpenRouter entry makes no Arabic-specific claim. It is not cheaper and performed below Qwen in the production pilot. |
+
+Rates above come from OpenRouter's live transcription-filtered Models API and
+model pages. The catalog uses model-specific units: Qwen and Fish are displayed
+per second, Whisper/Parakeet/Voxtral per minute or hour. Always log the returned
+`usage.seconds` and `usage.cost` rather than inferring the bill from the generic
+`pricing.prompt` field. [OpenRouter transcription catalog](https://openrouter.ai/models?output_modalities=transcription),
+[Qwen listing](https://openrouter.ai/qwen/qwen3-asr-flash-2026-02-10),
+[Whisper Turbo pricing](https://openrouter.ai/openai/whisper-large-v3-turbo/pricing),
+[Fish Transcribe 1](https://openrouter.ai/fish-audio/transcribe-1),
+[Parakeet listing](https://openrouter.ai/nvidia/parakeet-tdt-0.6b-v3/uptime)
+
+OpenRouter's dedicated endpoint accepts an optional ISO-639-1 language hint,
+so requests should specify `language: "ar"`. Its generic response is plain text
+plus exact usage. `verbose_json` and word/segment timestamps work only on
+OpenAI-compatible providers; other providers may reject those fields. Because
+provider timestamp support is uneven, the pipeline's existing design—local
+silence-aligned boundaries and model-supplied text only—remains the portable,
+deterministic option. The practical upstream timeout is about 60 seconds, which
+also supports keeping bounded segments. [OpenRouter STT API reference](https://openrouter.ai/docs/api/api-reference/transcriptions/create-audio-transcriptions),
+[OpenRouter transcription guide](https://openrouter.ai/blog/tutorials/transcription-on-openrouter/)
+
+**Recommendation:** retain Qwen as the balanced default. If further savings
+are required, benchmark segmented `openai/whisper-large-v3` against Qwen on a
+larger human-scored Arabic set; do not promote Turbo based on price because its
+observed hallucination was deterministic. There is currently no credible free
+OpenRouter STT route for this production backfill.
 
 ## Decision
 

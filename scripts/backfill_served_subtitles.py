@@ -108,7 +108,8 @@ def generate_missing(client: MediaManagerClient, root: Path, api_key: str, limit
         except Exception as exc:
             return False, source_id, str(exc)
         finally:
-            for path in (video_path, item_dir / "served-timeline.wav"):
+            video_path.unlink(missing_ok=True)
+            for path in item_dir.glob("served-*.wav"):
                 path.unlink(missing_ok=True)
             try: item_dir.rmdir()
             except OSError: pass

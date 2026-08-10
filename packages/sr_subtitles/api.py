@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-import base64
 import re
 from pathlib import Path
 
-from openrouter_transport import request as openrouter_request
-from src.core.constants import GEMINI_SUBTITLE_MODEL
+from openrouter_transport import transcribe_audio
+from sr_silence_detection import detect_silence
+from src.core.constants import SUBTITLE_TRANSCRIPTION_MODEL
 from src.ffmpeg.core import build_ffmpeg_cmd
 from src.ffmpeg.runner import run
 
-DEFAULT_SUBTITLE_MODEL = GEMINI_SUBTITLE_MODEL
+DEFAULT_SUBTITLE_MODEL = SUBTITLE_TRANSCRIPTION_MODEL
 SUBTITLE_MIME_TYPE = "application/x-subrip"
 MAX_SEGMENTS_PER_CUE = 12
-
-_PROMPT = """Transcribe this Arabic audio verbatim. Output only the transcript text, with no timestamps, labels, Markdown, commentary, or invented words."""
-_SRT_PROMPT = """Transcribe this Arabic video verbatim as SubRip subtitles. Return only valid SRT with sequential numeric cue IDs and timestamps exactly like 00:00:01,250 --> 00:00:04,500 (a comma before exactly three millisecond digits). Keep cues short and readable, never overlap cues, and stay within the supplied media duration. Do not use Markdown or commentary."""
-
+TARGET_CUE_DURATION_SEC = 25.0
+MAX_CUE_DURATION_SEC = 38.0
+SERVED_SILENCE_THRESHOLD_DB = -38.0
+SERVED_SILENCE_MIN_DURATION_SEC = 0.12
 
 def _timestamp(seconds: float) -> str:
     milliseconds = max(0, round(seconds * 1000))
@@ -105,16 +105,17 @@ def generate_srt_from_served_video(
     duration: float, model: str = DEFAULT_SUBTITLE_MODEL, log_dir: Path | None = None,
 ) -> None:
     """Generate and guard SRT directly against an already-served video timeline."""
-    audio_path = work_dir / "served-timeline.wav"
-    _extract_segment_audio(input_file, audio_path, 0.0, duration)
-    payload = audio_path.read_bytes()
-    prompt = f"{_SRT_PROMPT}\nThe exact media duration is {duration:.3f} seconds."
-    raw = openrouter_request(api_key, model, [{"role": "user", "content": [
-        {"type": "text", "text": prompt},
-        {"type": "input_audio", "input_audio": {"data": base64.b64encode(payload).decode("ascii"), "format": "wav"}},
-    ]}], max_output_tokens=8192, log_dir=log_dir)
+    silence_starts, silence_ends = detect_silence(
+        input_file, SERVED_SILENCE_THRESHOLD_DB, SERVED_SILENCE_MIN_DURATION_SEC,
+    )
+    chunks = _served_chunks(duration, silence_starts, silence_ends)
+    texts: list[str] = []
+    for index, (start, end) in enumerate(chunks, start=1):
+        audio_path = work_dir / f"served-{index:04}.wav"
+        _extract_segment_audio(input_file, audio_path, start, end)
+        texts.append(transcribe_audio(api_key, model, audio_path, log_dir=log_dir))
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(validate_model_srt(raw, duration), encoding="utf-8")
+    output_path.write_text(render_srt(chunks, texts), encoding="utf-8")
 
 
 def render_srt(segments: list[tuple[float, float]], texts: list[str]) -> str:
@@ -141,11 +142,71 @@ def _extract_segment_audio(input_file: Path, output_file: Path, start: float, en
 
 def _group_segments(segments: list[tuple[float, float]]) -> list[tuple[float, float, float]]:
     """Bound provider inputs while preserving each group's final-video duration."""
-    groups: list[tuple[float, float, float]] = []
-    for offset in range(0, len(segments), MAX_SEGMENTS_PER_CUE):
-        batch = segments[offset:offset + MAX_SEGMENTS_PER_CUE]
-        groups.append((batch[0][0], batch[-1][1], sum(end - start for start, end in batch)))
+    return [
+        (batch[0][0], batch[-1][1], sum(end - start for start, end in batch))
+        for batch in _group_segment_batches(segments)
+    ]
+
+
+def _group_segment_batches(segments: list[tuple[float, float]]) -> list[list[tuple[float, float]]]:
+    """Retain the exact source ranges belonging to each bounded STT request."""
+    groups: list[list[tuple[float, float]]] = []
+    batch: list[tuple[float, float]] = []
+    batch_duration = 0.0
+    for segment in segments:
+        segment_duration = segment[1] - segment[0]
+        if batch and (len(batch) >= MAX_SEGMENTS_PER_CUE or batch_duration + segment_duration > TARGET_CUE_DURATION_SEC):
+            groups.append(batch)
+            batch = []
+            batch_duration = 0.0
+        batch.append(segment)
+        batch_duration += segment_duration
+    if batch:
+        groups.append(batch)
     return groups
+
+
+def _served_chunks(
+    duration: float,
+    silence_starts: list[float],
+    silence_ends: list[float],
+) -> list[tuple[float, float]]:
+    """Split a served timeline near 25 seconds, preferring silence midpoints."""
+    if duration <= 0:
+        raise ValueError("Served media duration must be positive")
+    quiet = [
+        (start + end) / 2
+        for start, end in zip(silence_starts, silence_ends)
+        if 0 < start < end < duration
+    ]
+    cuts = [0.0]
+    while duration - cuts[-1] > MAX_CUE_DURATION_SEC:
+        target = cuts[-1] + TARGET_CUE_DURATION_SEC
+        candidates = [point for point in quiet if cuts[-1] + 12 <= point <= cuts[-1] + MAX_CUE_DURATION_SEC]
+        cuts.append(min(candidates, key=lambda point: abs(point - target)) if candidates else target)
+    cuts.append(duration)
+    return list(zip(cuts, cuts[1:]))
+
+
+def _extract_retained_audio(
+    input_file: Path,
+    output_file: Path,
+    segments: list[tuple[float, float]],
+) -> None:
+    """Concatenate only retained ranges so removed silence is never billed to STT."""
+    if len(segments) == 1:
+        _extract_segment_audio(input_file, output_file, *segments[0])
+        return
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    cmd = build_ffmpeg_cmd(True, "-v", "error")
+    for start, end in segments:
+        cmd.extend(["-ss", f"{start:.6f}", "-t", f"{end - start:.6f}", "-i", str(input_file)])
+    inputs = "".join(f"[{index}:a]" for index in range(len(segments)))
+    cmd.extend([
+        "-filter_complex", f"{inputs}concat=n={len(segments)}:v=0:a=1[out]",
+        "-map", "[out]", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(output_file),
+    ])
+    run(cmd, capture_output=True)
 
 
 def generate_srt_from_trim_segments(
@@ -155,20 +216,14 @@ def generate_srt_from_trim_segments(
     """Extract retained speech once, request matching text, and render local timings."""
     if not segments:
         raise RuntimeError("Cannot generate subtitles because the trim plan retained no speech")
-    groups = _group_segments(segments)
+    batches = _group_segment_batches(segments)
     texts: list[str] = []
     final_segments: list[tuple[float, float]] = []
-    for index, (start, end, final_duration) in enumerate(groups, start=1):
+    for index, batch in enumerate(batches, start=1):
+        final_duration = sum(end - start for start, end in batch)
         audio_path = work_dir / f"{index:04}.wav"
-        _extract_segment_audio(input_file, audio_path, start, end)
-        payload = audio_path.read_bytes()
-        if not payload:
-            raise RuntimeError(f"Extracted subtitle segment is empty: {audio_path.name}")
-        raw = openrouter_request(api_key, model, [{"role": "user", "content": [
-            {"type": "text", "text": _PROMPT},
-            {"type": "input_audio", "input_audio": {"data": base64.b64encode(payload).decode("ascii"), "format": "wav"}},
-        ]}], max_output_tokens=1024, log_dir=log_dir)
-        text = raw.strip()
+        _extract_retained_audio(input_file, audio_path, batch)
+        text = transcribe_audio(api_key, model, audio_path, log_dir=log_dir)
         if not text or "-->" in text or re.search(r"(?:^|\n)\s*\d+\s*\n\s*\d{1,2}:\d{2}", text):
             raise RuntimeError("Subtitle model did not return a plain transcript")
         texts.append(text)
