@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import os
@@ -73,12 +74,14 @@ def canonical_videos(client: MediaManagerClient) -> list[dict]:
     return sorted(selected, key=lambda item: item["source_id"])
 
 
-def generate_missing(client: MediaManagerClient, root: Path, api_key: str, limit: int | None) -> tuple[int, int]:
+def generate_missing(client: MediaManagerClient, root: Path, api_key: str, limit: int | None, concurrency: int = 1) -> tuple[int, int]:
     existing = {item["id"] for item in client.get_subtitle_files()}
     candidates = [v for v in canonical_videos(client) if f"{v['source_id']}-subtitles" not in existing]
     if limit is not None: candidates = candidates[:limit]
-    completed = failed = 0
-    for index, video in enumerate(candidates, start=1):
+    full_url = f"{client.base_url}/projects/{client.token}/{client.project}"
+
+    def process(index: int, video: dict) -> tuple[bool, str, str | None]:
+        worker_client = MediaManagerClient(full_url)
         source_id = video["source_id"]
         item_dir = root / source_id
         item_dir.mkdir(parents=True, exist_ok=True)
@@ -100,16 +103,26 @@ def generate_missing(client: MediaManagerClient, root: Path, api_key: str, limit
                         last_error = exc
                         if attempt < 2: time.sleep(2 ** attempt)
                 if last_error: raise last_error
-            client.upload_subtitle(source_id, video.get("title") or source_id, srt_path)
-            completed += 1
+            worker_client.upload_subtitle(source_id, video.get("title") or source_id, srt_path)
+            return True, source_id, None
         except Exception as exc:
-            failed += 1
-            print(f"[SRT FAILED] {source_id}: {exc}", file=sys.stderr, flush=True)
+            return False, source_id, str(exc)
         finally:
             for path in (video_path, item_dir / "served-timeline.wav"):
                 path.unlink(missing_ok=True)
             try: item_dir.rmdir()
             except OSError: pass
+            worker_client._client.close()
+
+    completed = failed = 0
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        futures = [executor.submit(process, index, video) for index, video in enumerate(candidates, start=1)]
+        for future in as_completed(futures):
+            ok, source_id, error = future.result()
+            if ok: completed += 1
+            else:
+                failed += 1
+                print(f"[SRT FAILED] {source_id}: {error}", file=sys.stderr, flush=True)
     return completed, failed
 
 
@@ -175,6 +188,7 @@ def main() -> int:
     parser.add_argument("--stage", choices=["subtitles", "remux", "all", "status"], default="all")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--skip-checksum-repair", action="store_true")
+    parser.add_argument("--concurrency", type=int, default=4)
     args = parser.parse_args()
     if not args.media_manager_url: parser.error("--media-manager-url or MEDIA_MANAGER_URL is required")
     args.work_dir.mkdir(parents=True, exist_ok=True)
@@ -185,7 +199,7 @@ def main() -> int:
     if args.stage in {"subtitles", "all"}:
         key = os.getenv("OPENROUTER_API_KEY", "")
         if not key: parser.error("OPENROUTER_API_KEY is required for subtitle generation")
-        done, failed = generate_missing(client, args.work_dir, key, args.limit)
+        done, failed = generate_missing(client, args.work_dir, key, args.limit, max(1, args.concurrency))
         print(f"Subtitle backfill: completed={done} failed={failed}"); failures += failed
         if failed and args.stage == "all": return 1
     if args.stage in {"remux", "all"}:
