@@ -132,13 +132,38 @@ def api(client: MediaManagerClient, method: str, endpoint: str, body: dict | Non
     return response.json()
 
 
-def remux_all(client: MediaManagerClient, root: Path, limit: int | None, *, repair_checksums: bool = True) -> tuple[int, int]:
-    if repair_checksums:
-        videos = client.get_video_files(include_trash=True, include_pending=True)
-        missing = [video for video in videos if video.get("source_id") and not video.get("checksum_sha256") and "trash" not in (video.get("tags") or [])]
-        for index, video in enumerate(missing, start=1):
+def repair_missing_checksums(client: MediaManagerClient, concurrency: int) -> tuple[int, int]:
+    videos = client.get_video_files(include_trash=True, include_pending=True)
+    missing = [video for video in videos if video.get("source_id") and not video.get("checksum_sha256") and "trash" not in (video.get("tags") or [])]
+    full_url = f"{client.base_url}/projects/{client.token}/{client.project}"
+
+    def repair(index: int, video: dict) -> tuple[bool, str, str | None]:
+        worker = MediaManagerClient(full_url)
+        try:
             print(f"[CHECKSUM {index}/{len(missing)}] {video['id']}", flush=True)
-            api(client, "POST", f"/api/remux/checksum/{quote(video['id'], safe='')}", {})
+            api(worker, "POST", f"/api/remux/checksum/{quote(video['id'], safe='')}", {})
+            return True, video["id"], None
+        except Exception as exc:
+            return False, video["id"], str(exc)
+        finally:
+            worker._client.close()
+
+    completed = failed = 0
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        futures = [executor.submit(repair, index, video) for index, video in enumerate(missing, start=1)]
+        for future in as_completed(futures):
+            ok, video_id, error = future.result()
+            if ok: completed += 1
+            else:
+                failed += 1
+                print(f"[CHECKSUM FAILED] {video_id}: {error}", file=sys.stderr, flush=True)
+    return completed, failed
+
+
+def remux_all(client: MediaManagerClient, root: Path, limit: int | None, *, repair_checksums: bool = True, concurrency: int = 1) -> tuple[int, int]:
+    if repair_checksums:
+        _, checksum_failures = repair_missing_checksums(client, concurrency)
+        if checksum_failures: raise RuntimeError(f"{checksum_failures} legacy checksum repairs failed")
     api(client, "POST", "/api/remux/enqueue", {})
     completed = failed = 0
     while limit is None or completed + failed < limit:
@@ -185,7 +210,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--media-manager-url", default=os.getenv("MEDIA_MANAGER_URL"))
     parser.add_argument("--work-dir", type=Path, default=ROOT / "temp" / "server_subtitle_backfill")
-    parser.add_argument("--stage", choices=["subtitles", "remux", "all", "status"], default="all")
+    parser.add_argument("--stage", choices=["subtitles", "checksums", "remux", "all", "status"], default="all")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--skip-checksum-repair", action="store_true")
     parser.add_argument("--concurrency", type=int, default=4)
@@ -195,6 +220,9 @@ def main() -> int:
     client = MediaManagerClient(args.media_manager_url)
     if args.stage == "status":
         print(json.dumps(api(client, "GET", "/api/remux/status"), indent=2)); return 0
+    if args.stage == "checksums":
+        done, failed = repair_missing_checksums(client, max(1, args.concurrency))
+        print(f"Checksum backfill: completed={done} failed={failed}"); return 1 if failed else 0
     failures = 0
     if args.stage in {"subtitles", "all"}:
         key = os.getenv("OPENROUTER_API_KEY", "")
@@ -203,7 +231,7 @@ def main() -> int:
         print(f"Subtitle backfill: completed={done} failed={failed}"); failures += failed
         if failed and args.stage == "all": return 1
     if args.stage in {"remux", "all"}:
-        done, failed = remux_all(client, args.work_dir, args.limit, repair_checksums=not args.skip_checksum_repair)
+        done, failed = remux_all(client, args.work_dir, args.limit, repair_checksums=not args.skip_checksum_repair, concurrency=max(1, args.concurrency))
         print(f"Remux backfill: completed={done} failed={failed}"); failures += failed
     return 1 if failures else 0
 
