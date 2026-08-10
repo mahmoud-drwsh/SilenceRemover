@@ -14,8 +14,9 @@ from src.ffmpeg.runner import run
 DEFAULT_SUBTITLE_MODEL = SUBTITLE_TRANSCRIPTION_MODEL
 SUBTITLE_MIME_TYPE = "application/x-subrip"
 MAX_SEGMENTS_PER_CUE = 12
-TARGET_CUE_DURATION_SEC = 25.0
-MAX_CUE_DURATION_SEC = 38.0
+TARGET_CUE_DURATION_SEC = 8.0
+MAX_CUE_DURATION_SEC = 10.0
+MIN_CUE_DURATION_SEC = 4.0
 SERVED_SILENCE_THRESHOLD_DB = -38.0
 SERVED_SILENCE_MIN_DURATION_SEC = 0.12
 
@@ -181,8 +182,17 @@ def _served_chunks(
     ]
     cuts = [0.0]
     while duration - cuts[-1] > MAX_CUE_DURATION_SEC:
-        target = cuts[-1] + TARGET_CUE_DURATION_SEC
-        candidates = [point for point in quiet if cuts[-1] + 12 <= point <= cuts[-1] + MAX_CUE_DURATION_SEC]
+        remaining = duration - cuts[-1]
+        target = (
+            cuts[-1] + remaining / 2
+            if remaining <= TARGET_CUE_DURATION_SEC + MAX_CUE_DURATION_SEC
+            else cuts[-1] + TARGET_CUE_DURATION_SEC
+        )
+        candidates = [
+            point for point in quiet
+            if cuts[-1] + MIN_CUE_DURATION_SEC <= point <= cuts[-1] + MAX_CUE_DURATION_SEC
+            and duration - point >= MIN_CUE_DURATION_SEC
+        ]
         cuts.append(min(candidates, key=lambda point: abs(point - target)) if candidates else target)
     cuts.append(duration)
     return list(zip(cuts, cuts[1:]))

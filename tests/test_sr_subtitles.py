@@ -28,13 +28,13 @@ def test_subtitle_batches_preserve_disjoint_source_ranges() -> None:
 
 
 def test_served_chunks_prefer_silence_near_target() -> None:
-    chunks = _served_chunks(70.0, [23.0, 49.0], [25.0, 51.0])
-    assert chunks == [(0.0, 24.0), (24.0, 50.0), (50.0, 70.0)]
+    chunks = _served_chunks(24.0, [7.0, 15.0], [9.0, 17.0])
+    assert chunks == [(0.0, 8.0), (8.0, 16.0), (16.0, 24.0)]
 
 
 def test_served_chunks_fall_back_to_bounded_deterministic_cuts() -> None:
-    chunks = _served_chunks(80.0, [], [])
-    assert chunks == [(0.0, 25.0), (25.0, 50.0), (50.0, 80.0)]
+    chunks = _served_chunks(27.0, [], [])
+    assert chunks == [(0.0, 8.0), (8.0, 16.0), (16.0, 21.5), (21.5, 27.0)]
 
 
 def test_model_srt_is_normalized_after_timing_validation() -> None:
