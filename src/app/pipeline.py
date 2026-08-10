@@ -570,6 +570,19 @@ class ServerDataCache:
         return file_id in self.ready_audio_ids
 
 
+def existing_subtitle_skip_reason(
+    temp_dir: Path,
+    source_id: str,
+    server_cache: ServerDataCache | None,
+) -> str | None:
+    """Avoid regenerating a subtitle already available locally or remotely."""
+    if is_subtitle_done(temp_dir, source_id):
+        return "subtitle already exists"
+    if server_cache is not None and server_cache.has_subtitle(source_id):
+        return "subtitle already exists on server"
+    return None
+
+
 _server_data_cache: ServerDataCache | None = None
 NO_OVERLAY_VIDEO_SUFFIX = "-no-overlay"
 NO_OVERLAY_VIDEO_TAG = "no-overlay"
@@ -1324,8 +1337,8 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 startup.min_duration, startup.pad_sec, api_key, vi, vn,
             ),
             skip_reason=lambda video_file: (
-                "subtitle already exists" if is_subtitle_done(temp_dir, video_file.stem)
-                else ("trim script missing (run phase 0 first)" if not is_trim_script_ready(
+                existing_subtitle_skip_reason(temp_dir, video_file.stem, server_cache)
+                or ("trim script missing (run phase 0 first)" if not is_trim_script_ready(
                     input_file=video_file, temp_dir=temp_dir, target_length=startup.target_length,
                     noise_threshold=startup.noise_threshold, min_duration=startup.min_duration,
                     pad_sec=startup.pad_sec,

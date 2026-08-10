@@ -120,6 +120,33 @@ def test_original_upload_skip_reason_uses_the_startup_server_cache(tmp_path: Pat
     assert pipeline.original_upload_skip_reason(tmp_path / "missing.mkv", cache) is None
 
 
+def test_existing_server_subtitle_skips_local_generation(tmp_path: Path) -> None:
+    cache = pipeline.ServerDataCache(
+        audio_files={},
+        video_files={},
+        original_files={},
+        audio_trash_ids=frozenset(),
+        video_trash_ids=frozenset(),
+        ready_audio_ids=frozenset(),
+        subtitle_files={"clip-subtitles": {"id": "clip-subtitles"}},
+    )
+
+    assert pipeline.existing_subtitle_skip_reason(tmp_path, "clip", cache) == (
+        "subtitle already exists on server"
+    )
+    assert pipeline.existing_subtitle_skip_reason(tmp_path, "new-clip", cache) is None
+
+
+def test_local_subtitle_takes_precedence_over_server_skip(tmp_path: Path) -> None:
+    subtitle_dir = tmp_path / "subtitles"
+    subtitle_dir.mkdir()
+    (subtitle_dir / "clip.srt").write_text("subtitle", encoding="utf-8")
+
+    assert pipeline.existing_subtitle_skip_reason(tmp_path, "clip", None) == (
+        "subtitle already exists"
+    )
+
+
 def test_run_video_upload_phase_notifies_on_success(
     monkeypatch,
     tmp_path: Path,
