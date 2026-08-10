@@ -31,7 +31,6 @@ VIDEO_EXTENSIONS = {
 
 SILENCE_START_RE = re.compile(r"silence_start:\s*(?P<value>-?\d+(?:\.\d+)?)")
 SILENCE_END_RE = re.compile(r"silence_end:\s*(?P<value>-?\d+(?:\.\d+)?)")
-ANSI_CLEAR_TO_END_OF_LINE = "\x1b[K"
 IS_WINDOWS = os.name == "nt"
 
 if IS_WINDOWS:
@@ -77,42 +76,6 @@ class ScanSummary:
     locked: int
     completed_skipped: int
     moved: int
-
-
-class LiveSkipStatus:
-    def __init__(self, stream: object) -> None:
-        self.stream = stream
-        self._is_tty = bool(getattr(stream, "isatty", lambda: False)())
-        self._open = False
-
-    def close(self) -> None:
-        if not self._open:
-            return
-        print(file=self.stream, flush=True)
-        self._open = False
-
-    def show(
-        self,
-        label: str,
-        file_index: int,
-        total_files: int,
-        name: str,
-        reason: str,
-        skip_count: int,
-    ) -> None:
-        if self._is_tty:
-            message = (
-                f"[{label}] Skip {file_index}/{total_files}: "
-                f"{name} ({reason}) | skipped {skip_count}"
-            )
-            self.stream.write(f"\r{message}{ANSI_CLEAR_TO_END_OF_LINE}")
-            self.stream.flush()
-            self._open = True
-            return
-        print(f"  skip: {name} ({reason})", file=self.stream, flush=True)
-
-
-LIVE_SKIP_STATUS = LiveSkipStatus(sys.stdout)
 
 
 def parse_args() -> argparse.Namespace:
@@ -348,7 +311,6 @@ def invoke_raw_preflight_scan(
     silence_min_duration_seconds: float,
     dry_run: bool,
 ) -> ScanSummary:
-    LIVE_SKIP_STATUS.close()
     print(f"\n=== {label} raw preflight ===", flush=True)
 
     if not raw_path.exists():
@@ -365,32 +327,27 @@ def invoke_raw_preflight_scan(
     moved_count = 0
     completed_skip_count = 0
 
-    for index, file_path in enumerate(video_files, start=1):
+    candidates: list[Path] = []
+    for file_path in video_files:
         completed_marker_path = get_completed_marker_path(raw_path, file_path)
         if completed_marker_path.exists():
             completed_skip_count += 1
-            LIVE_SKIP_STATUS.show(
-                label,
-                index,
-                len(video_files),
-                file_path.name,
-                "completed marker exists",
-                locked_count + completed_skip_count,
-            )
             continue
 
         if is_file_locked(file_path):
             locked_count += 1
-            LIVE_SKIP_STATUS.show(
-                label,
-                index,
-                len(video_files),
-                file_path.name,
-                "locked file",
-                locked_count + completed_skip_count,
-            )
             continue
+        candidates.append(file_path)
 
+    skipped_count = completed_skip_count + locked_count
+    if skipped_count:
+        print(
+            f"[{label}] Skipped {skipped_count}/{len(video_files)} "
+            f"(completed {completed_skip_count}, locked {locked_count})",
+            flush=True,
+        )
+
+    for file_path in candidates:
         duration = get_media_duration_seconds(file_path)
         if duration is None or duration <= 0:
             continue
@@ -420,10 +377,8 @@ def invoke_raw_preflight_scan(
             moved_count += 1
             continue
 
-        LIVE_SKIP_STATUS.close()
         print(f"  keeping '{file_path.name}' ({duration:.2f}s)", flush=True)
 
-    LIVE_SKIP_STATUS.close()
     return ScanSummary(
         label=label,
         scanned=len(video_files),
@@ -458,7 +413,6 @@ def main() -> int:
         for label, raw_path in scan_specs
     ]
 
-    LIVE_SKIP_STATUS.close()
     print("\n=== Raw preflight summary ===", flush=True)
     for summary in summaries:
         print(
@@ -479,6 +433,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
-        LIVE_SKIP_STATUS.close()
         print(str(exc), file=sys.stderr, flush=True)
         raise SystemExit(1)

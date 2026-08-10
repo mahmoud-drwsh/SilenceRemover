@@ -113,7 +113,6 @@ function New-VideoSymlink {
     )
 
     if (Test-Path -LiteralPath $LinkPath) {
-        Write-Host "[Skip] $LinkPath already exists"
         return $false
     }
 
@@ -158,8 +157,16 @@ $videoFiles = Get-ChildItem -LiteralPath $rootPath -File -Recurse | Where-Object
 
 $total = 0
 $linked = 0
+$alreadyLinked = 0
 foreach ($video in $videoFiles) {
     $total++
+    $relativePath = [System.IO.Path]::GetRelativePath($rootPath, $video.FullName)
+    $targetPath = Join-Path -Path $destinationPath -ChildPath $relativePath
+    if (Test-Path -LiteralPath $targetPath) {
+        $alreadyLinked++
+        continue
+    }
+
     $duration = Get-VideoDurationSeconds -Path $video.FullName
     if ($null -eq $duration) {
         Write-Verbose "Skipping unprocessable file: $($video.FullName)"
@@ -171,11 +178,9 @@ foreach ($video in $videoFiles) {
         continue
     }
 
-    $relativePath = [System.IO.Path]::GetRelativePath($rootPath, $video.FullName)
-    $targetPath = Join-Path -Path $destinationPath -ChildPath $relativePath
     if (New-VideoSymlink -Source $video.FullName -LinkPath $targetPath -RequestedLinkType $LinkType -UseFallback $FallbackToSymbolic.IsPresent) {
         $linked++
     }
 }
 
-Write-Host "Scanned $total videos. Linked $linked files to: $destinationPath"
+Write-Host "Scanned $total videos. Existing links $alreadyLinked. Linked $linked files to: $destinationPath"
