@@ -8,6 +8,7 @@
 import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
+  CopyObjectCommand,
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
@@ -57,6 +58,70 @@ export function storageObjectKey(
   ext: string,
 ): string {
   return `${fileType}/${project}/${fileId}${ext}`;
+}
+
+export function remuxTemporaryObjectKey(project: string, jobId: string): string {
+  return `remux/${project}/${jobId}.mp4`;
+}
+
+export async function presignTemporaryRemuxPut(project: string, jobId: string): Promise<string> {
+  const config = loadConfig();
+  return getSignedUrl(getS3Client(), new PutObjectCommand({
+    Bucket: config.s3Bucket,
+    Key: remuxTemporaryObjectKey(project, jobId),
+    ContentType: "video/mp4",
+  }), { expiresIn: PRESIGNED_URL_TTL_SEC });
+}
+
+export async function temporaryRemuxHead(project: string, jobId: string): Promise<StorageHead | null> {
+  const config = loadConfig();
+  try {
+    const result = await getS3Client().send(new HeadObjectCommand({
+      Bucket: config.s3Bucket, Key: remuxTemporaryObjectKey(project, jobId),
+    }));
+    return { size: Number(result.ContentLength ?? 0) };
+  } catch {
+    return null;
+  }
+}
+
+export async function temporaryRemuxSha256(project: string, jobId: string): Promise<string> {
+  const config = loadConfig();
+  const result = await getS3Client().send(new GetObjectCommand({
+    Bucket: config.s3Bucket, Key: remuxTemporaryObjectKey(project, jobId),
+  }));
+  const body = result.Body;
+  if (!body || typeof (body as { transformToWebStream?: () => unknown }).transformToWebStream !== "function") {
+    throw new Error("S3 GetObject returned no body");
+  }
+  const reader = (body as { transformToWebStream: () => ReadableStream<Uint8Array> }).transformToWebStream().getReader();
+  const hash = createHash("sha256");
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      hash.update(value);
+    }
+  } finally { reader.releaseLock(); }
+  return hash.digest("hex");
+}
+
+export async function promoteTemporaryRemux(project: string, jobId: string, videoId: string, ext: string): Promise<void> {
+  const config = loadConfig();
+  await getS3Client().send(new CopyObjectCommand({
+    Bucket: config.s3Bucket,
+    CopySource: `${config.s3Bucket}/${remuxTemporaryObjectKey(project, jobId)}`,
+    Key: storageObjectKey("video", project, videoId, ext),
+    ContentType: "video/mp4",
+    MetadataDirective: "REPLACE",
+  }));
+}
+
+export async function deleteTemporaryRemux(project: string, jobId: string): Promise<void> {
+  const config = loadConfig();
+  await getS3Client().send(new DeleteObjectCommand({
+    Bucket: config.s3Bucket, Key: remuxTemporaryObjectKey(project, jobId),
+  }));
 }
 
 /** HeadBucket smoke check used at startup. */

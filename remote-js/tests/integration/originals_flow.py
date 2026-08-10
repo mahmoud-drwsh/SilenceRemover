@@ -37,9 +37,9 @@ with open(SOURCE, "rb") as handle:
     source = handle.read()
 digest = hashlib.sha256(source).hexdigest()
 
-def initiate(file_id, media_type, checksum, payload_bytes=source, **extra):
+def initiate(file_id, media_type, checksum, payload_bytes=source, mime_type="video/mp4", **extra):
     return json.load(request("/api/uploads/initiate", "POST", {
-        "id": file_id, "type": media_type, "mime_type": "video/mp4",
+        "id": file_id, "type": media_type, "mime_type": mime_type,
         "file_size": len(payload_bytes), "checksum_sha256": checksum, **extra,
     }))
 
@@ -102,6 +102,33 @@ no_overlay_videos = json.load(request("/api/files?type=video&tags=no-overlay"))
 assert any(item["id"] == "derived-001-no-overlay" for item in no_overlay_videos)
 clean_stream = request("/stream/derived-001-no-overlay?type=video", headers={"Range": "bytes=0-99"})
 assert clean_stream.status == 206 and clean_stream.read() == source[:100]
+
+# A verified SRT creates durable, checksum-pinned jobs for every linked video
+# variant. The worker uploads to a temporary key; completion atomically
+# promotes it without changing titles, tags, or links.
+srt = b"1\n00:00:00,000 --> 00:00:01,000\nArabic subtitle\n"
+srt_digest = hashlib.sha256(srt).hexdigest()
+srt_session = initiate(
+    "source-001-subtitles", "subtitle", srt_digest, payload_bytes=srt,
+    mime_type="application/x-subrip", title="Derived", source_id="source-001",
+)
+assert complete_session(srt_session, srt)["ok"]
+enqueued = json.load(request("/api/remux/enqueue", "POST", {}))
+assert enqueued["enqueued"] == 3
+claimed = json.load(request("/api/remux/claim", "POST", {}))["job"]
+assert claimed and claimed["input_checksum_sha256"] == digest
+upload = json.load(request(f"/api/remux/{claimed['id']}/upload", "POST", {
+    "lease_token": claimed["lease_token"], "size": len(source), "checksum_sha256": digest,
+}))
+urllib.request.urlopen(urllib.request.Request(
+    upload["upload_url"], data=source, headers={"Content-Type": "video/mp4"}, method="PUT",
+), timeout=20)
+promoted = json.load(request(f"/api/remux/{claimed['id']}/complete", "POST", {
+    "lease_token": claimed["lease_token"],
+}))
+assert promoted["ok"] and promoted["checksum_sha256"] == digest
+status = json.load(request("/api/remux/status"))
+assert status["states"]["completed"] == 1 and status["states"]["pending"] == 2
 
 # The production pipeline's no-overlay videos are multipart uploads. Keep the
 # MP4 header valid while crossing the 8 MiB multipart boundary.

@@ -1,6 +1,6 @@
 import pytest
 
-from sr_subtitles.api import _group_segments, render_srt
+from sr_subtitles.api import _group_segments, render_srt, validate_model_srt
 
 
 def test_render_srt_uses_contiguous_final_timeline() -> None:
@@ -15,3 +15,25 @@ def test_subtitle_groups_preserve_final_duration() -> None:
     assert len(groups) == 2
     assert groups[0][2] == pytest.approx(1.2)
     assert groups[1][2] == pytest.approx(0.1)
+
+
+def test_model_srt_is_normalized_after_timing_validation() -> None:
+    raw = "```srt\n1\n00:00:00,100 --> 00:00:02,000\nمرحبا\n\n2\n00:00:02,100 --> 00:00:04,000\nبكم\n```"
+    result = validate_model_srt(raw, 4.0)
+    assert result.startswith("1\n00:00:00,100 --> 00:00:02,000")
+    assert result.endswith("بكم\n\n")
+
+
+def test_model_srt_normalizes_gemini_colon_millisecond_dialect() -> None:
+    raw = "1\n00:00:01:216 --> 00:05:406\nمرحبا\n\n2\n00:06:56 --> 00:10:86\nبكم"
+    result = validate_model_srt(raw, 11.0)
+    assert "00:00:01,216 --> 00:00:05,406" in result
+    assert "00:00:06,560 --> 00:00:10,860" in result
+
+
+@pytest.mark.parametrize("raw", [
+    "commentary", "1\n00:00:02,000 --> 00:00:01,000\nنص", "2\n00:00:00,000 --> 00:00:01,000\nنص",
+])
+def test_model_srt_rejects_invalid_contract(raw: str) -> None:
+    with pytest.raises(RuntimeError):
+        validate_model_srt(raw, 3.0)

@@ -18,6 +18,7 @@ import { streamRouter } from "./routes/stream.ts";
 import { publicRouter } from "./routes/public.ts";
 import { uploadsRouter, cleanupExpiredUploadSessions } from "./routes/uploads.ts";
 import { originalsRouter } from "./routes/originals.ts";
+import { remuxRouter } from "./routes/remux.ts";
 import { HttpError } from "./schemas.ts";
 
 const app = new Hono();
@@ -43,6 +44,7 @@ app.route("/", streamRouter);
 app.route("/", publicRouter);
 app.route("/", uploadsRouter);
 app.route("/", originalsRouter);
+app.route("/", remuxRouter);
 app.route("/", projectSpaRouter);
 
 async function main(): Promise<void> {

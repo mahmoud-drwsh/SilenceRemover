@@ -97,6 +97,28 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD CONSTRAINT upload_sessions_type_check CHECK (type IN ('audio', 'video', 'original', 'subtitle'))`);
   await sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS upload_sessions_active_identity_idx ON ${ident}.upload_sessions (project, file_id, type, checksum_sha256) WHERE state = 'active'`);
   await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS ${ident}.subtitle_remux_jobs (
+      id text PRIMARY KEY,
+      project text NOT NULL,
+      video_id text NOT NULL,
+      source_id text NOT NULL,
+      subtitle_id text NOT NULL,
+      input_checksum_sha256 text NOT NULL,
+      subtitle_checksum_sha256 text NOT NULL,
+      state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'claimed', 'completed', 'failed', 'stale')),
+      attempts integer NOT NULL DEFAULT 0,
+      lease_token text,
+      lease_until timestamptz,
+      output_checksum_sha256 text,
+      output_file_size bigint,
+      last_error text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (project, video_id, input_checksum_sha256, subtitle_checksum_sha256)
+    )
+  `);
+  await sql.unsafe(`CREATE INDEX IF NOT EXISTS subtitle_remux_jobs_claim_idx ON ${ident}.subtitle_remux_jobs (project, state, created_at)`);
+  await sql.unsafe(`
     CREATE TABLE IF NOT EXISTS ${ident}.original_uploads (
       upload_id text PRIMARY KEY,
       project text NOT NULL,
@@ -144,6 +166,7 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`SELECT 1 FROM ${ident}.admin_audit_log LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.public_share_links LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.upload_sessions LIMIT 1`);
+  await sql.unsafe(`SELECT 1 FROM ${ident}.subtitle_remux_jobs LIMIT 1`);
 }
 
 /**

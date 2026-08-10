@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from pathlib import Path
 
 from openrouter_transport import request as openrouter_request
@@ -15,6 +16,7 @@ SUBTITLE_MIME_TYPE = "application/x-subrip"
 MAX_SEGMENTS_PER_CUE = 12
 
 _PROMPT = """Transcribe this Arabic audio verbatim. Output only the transcript text, with no timestamps, labels, Markdown, commentary, or invented words."""
+_SRT_PROMPT = """Transcribe this Arabic video verbatim as SubRip subtitles. Return only valid SRT with sequential numeric cue IDs and timestamps exactly like 00:00:01,250 --> 00:00:04,500 (a comma before exactly three millisecond digits). Keep cues short and readable, never overlap cues, and stay within the supplied media duration. Do not use Markdown or commentary."""
 
 
 def _timestamp(seconds: float) -> str:
@@ -23,6 +25,72 @@ def _timestamp(seconds: float) -> str:
     minutes, remainder = divmod(remainder, 60_000)
     seconds_part, milliseconds = divmod(remainder, 1_000)
     return f"{hours:02}:{minutes:02}:{seconds_part:02},{milliseconds:03}"
+
+
+_CUE_RE = re.compile(
+    r"(?ms)^\s*(\d+)\s*\n(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*"
+    r"(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*\n(.+?)(?=\n\s*\n|\Z)"
+)
+
+
+def validate_model_srt(raw: str, duration: float) -> str:
+    """Accept only complete, sequential, non-overlapping cues within the media."""
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:srt)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE).strip()
+    # Gemini sometimes consistently emits HH:MM:SS:ms and then shortens later
+    # values to MM:SS:ms. Presence of the four-field form makes that dialect
+    # unambiguous, so normalize it before applying the strict SRT parser.
+    if re.search(r"\b\d{2}:\d{2}:\d{2}:\d{1,3}\b", cleaned):
+        cleaned = re.sub(
+            r"\b(\d{2}):(\d{2}):(\d{2}):(\d{1,3})\b",
+            lambda m: f"{m.group(1)}:{m.group(2)}:{m.group(3)},{m.group(4).ljust(3, '0')}", cleaned,
+        )
+        cleaned = re.sub(
+            r"(?<!:)(?<!\d)(\d{2}):(\d{2}):(\d{1,3})(?=\s*(?:-->|$))",
+            lambda m: f"00:{m.group(1)}:{m.group(2)},{m.group(3).ljust(3, '0')}", cleaned,
+        )
+        cleaned = re.sub(
+            r"(?<=-->\s)(\d{2}):(\d{2}):(\d{1,3})(?=\s*$)",
+            lambda m: f"00:{m.group(1)}:{m.group(2)},{m.group(3).ljust(3, '0')}", cleaned,
+            flags=re.MULTILINE,
+        )
+    matches = list(_CUE_RE.finditer(cleaned))
+    if not matches or cleaned[:matches[0].start()].strip() or cleaned[matches[-1].end():].strip():
+        raise RuntimeError("Subtitle model response was not valid SRT")
+    for left, right in zip(matches, matches[1:]):
+        if cleaned[left.end():right.start()].strip():
+            raise RuntimeError("Subtitle model response contained content outside cues")
+    normalized: list[str] = []
+    previous_end = 0.0
+    for expected, match in enumerate(matches, start=1):
+        values = [int(value) for value in match.groups()[:9]]
+        index = values[0]
+        start = values[1] * 3600 + values[2] * 60 + values[3] + values[4] / 1000
+        end = values[5] * 3600 + values[6] * 60 + values[7] + values[8] / 1000
+        text = " ".join(match.group(10).split())
+        if index != expected or not text or start < previous_end or end <= start or end > duration + 0.25:
+            raise RuntimeError("Subtitle model SRT failed deterministic timing validation")
+        normalized.extend([str(expected), f"{_timestamp(start)} --> {_timestamp(end)}", text, ""])
+        previous_end = end
+    return "\n".join(normalized) + "\n"
+
+
+def generate_srt_from_served_video(
+    *, input_file: Path, output_path: Path, work_dir: Path, api_key: str,
+    duration: float, model: str = DEFAULT_SUBTITLE_MODEL, log_dir: Path | None = None,
+) -> None:
+    """Generate and guard SRT directly against an already-served video timeline."""
+    audio_path = work_dir / "served-timeline.wav"
+    _extract_segment_audio(input_file, audio_path, 0.0, duration)
+    payload = audio_path.read_bytes()
+    prompt = f"{_SRT_PROMPT}\nThe exact media duration is {duration:.3f} seconds."
+    raw = openrouter_request(api_key, model, [{"role": "user", "content": [
+        {"type": "text", "text": prompt},
+        {"type": "input_audio", "input_audio": {"data": base64.b64encode(payload).decode("ascii"), "format": "wav"}},
+    ]}], max_output_tokens=8192, log_dir=log_dir)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(validate_model_srt(raw, duration), encoding="utf-8")
 
 
 def render_srt(segments: list[tuple[float, float]], texts: list[str]) -> str:
@@ -88,6 +156,11 @@ def generate_srt_from_trim_segments(
 def mux_srt_track(video_path: Path, srt_path: Path) -> None:
     """Add a disabled Arabic mov_text track without re-encoding video or audio."""
     replacement = video_path.with_name(f"{video_path.stem}.subtitles.mp4")
-    cmd = build_ffmpeg_cmd(True, "-v", "error", "-i", str(video_path), "-i", str(srt_path), "-map", "0", "-map", "1:0", "-c", "copy", "-c:s", "mov_text", "-metadata:s:s:0", "language=ara", "-disposition:s:0", "0", str(replacement))
+    cmd = build_ffmpeg_cmd(
+        True, "-v", "error", "-i", str(video_path), "-i", str(srt_path),
+        "-map", "0:v", "-map", "0:a?", "-map", "0:d?", "-map", "1:0",
+        "-c", "copy", "-c:s", "mov_text", "-metadata:s:s:0", "language=ara",
+        "-disposition:s:0", "0", "-movflags", "+faststart", str(replacement),
+    )
     run(cmd, capture_output=True)
     replacement.replace(video_path)
