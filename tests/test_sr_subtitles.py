@@ -31,6 +31,13 @@ def test_model_srt_normalizes_gemini_colon_millisecond_dialect() -> None:
     assert "00:00:06,560 --> 00:00:10,860" in result
 
 
+def test_model_srt_accepts_gemini_minute_timestamps_without_blank_lines() -> None:
+    raw = "1\n00:24,800 --> 00:31,520\nمرحبا\n2\n01:02,280 --> 01:07,070\nبكم"
+    result = validate_model_srt(raw, 68.0)
+    assert "00:00:24,800 --> 00:00:31,520" in result
+    assert "00:01:02,280 --> 00:01:07,070" in result
+
+
 @pytest.mark.parametrize("raw", [
     "commentary", "1\n00:00:02,000 --> 00:00:01,000\nنص", "2\n00:00:00,000 --> 00:00:01,000\nنص",
 ])

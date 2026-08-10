@@ -27,10 +27,28 @@ def _timestamp(seconds: float) -> str:
     return f"{hours:02}:{minutes:02}:{seconds_part:02},{milliseconds:03}"
 
 
-_CUE_RE = re.compile(
-    r"(?ms)^\s*(\d+)\s*\n(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*"
-    r"(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*\n(.+?)(?=\n\s*\n|\Z)"
-)
+def _parse_model_timestamp(value: str) -> float:
+    value = value.strip()
+    if "," in value:
+        clock, milliseconds = value.rsplit(",", 1)
+        parts = clock.split(":")
+        if len(parts) == 2:
+            hours, minutes, seconds = 0, int(parts[0]), int(parts[1])
+        elif len(parts) == 3:
+            hours, minutes, seconds = map(int, parts)
+        else:
+            raise ValueError
+    else:
+        parts = value.split(":")
+        if len(parts) == 3:  # Gemini's MM:SS:ms dialect.
+            hours, minutes, seconds, milliseconds = 0, int(parts[0]), int(parts[1]), parts[2]
+        elif len(parts) == 4:
+            hours, minutes, seconds, milliseconds = int(parts[0]), int(parts[1]), int(parts[2]), parts[3]
+        else:
+            raise ValueError
+    if not milliseconds.isdigit() or not 1 <= len(milliseconds) <= 3 or minutes >= 60 or seconds >= 60:
+        raise ValueError
+    return hours * 3600 + minutes * 60 + seconds + int(milliseconds.ljust(3, "0")) / 1000
 
 
 def validate_model_srt(raw: str, duration: float) -> str:
@@ -38,41 +56,36 @@ def validate_model_srt(raw: str, duration: float) -> str:
     cleaned = raw.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:srt)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE).strip()
-    # Gemini sometimes consistently emits HH:MM:SS:ms and then shortens later
-    # values to MM:SS:ms. Presence of the four-field form makes that dialect
-    # unambiguous, so normalize it before applying the strict SRT parser.
-    if re.search(r"\b\d{2}:\d{2}:\d{2}:\d{1,3}\b", cleaned):
-        cleaned = re.sub(
-            r"\b(\d{2}):(\d{2}):(\d{2}):(\d{1,3})\b",
-            lambda m: f"{m.group(1)}:{m.group(2)}:{m.group(3)},{m.group(4).ljust(3, '0')}", cleaned,
-        )
-        cleaned = re.sub(
-            r"(?<!:)(?<!\d)(\d{2}):(\d{2}):(\d{1,3})(?=\s*(?:-->|$))",
-            lambda m: f"00:{m.group(1)}:{m.group(2)},{m.group(3).ljust(3, '0')}", cleaned,
-        )
-        cleaned = re.sub(
-            r"(?<=-->\s)(\d{2}):(\d{2}):(\d{1,3})(?=\s*$)",
-            lambda m: f"00:{m.group(1)}:{m.group(2)},{m.group(3).ljust(3, '0')}", cleaned,
-            flags=re.MULTILINE,
-        )
-    matches = list(_CUE_RE.finditer(cleaned))
-    if not matches or cleaned[:matches[0].start()].strip() or cleaned[matches[-1].end():].strip():
-        raise RuntimeError("Subtitle model response was not valid SRT")
-    for left, right in zip(matches, matches[1:]):
-        if cleaned[left.end():right.start()].strip():
-            raise RuntimeError("Subtitle model response contained content outside cues")
+    lines = cleaned.splitlines()
     normalized: list[str] = []
     previous_end = 0.0
-    for expected, match in enumerate(matches, start=1):
-        values = [int(value) for value in match.groups()[:9]]
-        index = values[0]
-        start = values[1] * 3600 + values[2] * 60 + values[3] + values[4] / 1000
-        end = values[5] * 3600 + values[6] * 60 + values[7] + values[8] / 1000
-        text = " ".join(match.group(10).split())
-        if index != expected or not text or start < previous_end or end <= start or end > duration + 0.25:
+    cursor = 0
+    expected = 1
+    while cursor < len(lines):
+        while cursor < len(lines) and not lines[cursor].strip(): cursor += 1
+        if cursor >= len(lines): break
+        if lines[cursor].strip() != str(expected) or cursor + 1 >= len(lines) or "-->" not in lines[cursor + 1]:
+            raise RuntimeError("Subtitle model response was not valid SRT")
+        left, right = lines[cursor + 1].split("-->", 1)
+        try:
+            start, end = _parse_model_timestamp(left), _parse_model_timestamp(right)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Subtitle model response contained an invalid timestamp") from exc
+        cursor += 2
+        text_lines: list[str] = []
+        while cursor < len(lines):
+            if lines[cursor].strip().isdigit() and cursor + 1 < len(lines) and "-->" in lines[cursor + 1]:
+                break
+            if lines[cursor].strip(): text_lines.append(lines[cursor].strip())
+            cursor += 1
+        text = " ".join(" ".join(text_lines).split())
+        if not text or start < previous_end or end <= start or end > duration + 0.25:
             raise RuntimeError("Subtitle model SRT failed deterministic timing validation")
         normalized.extend([str(expected), f"{_timestamp(start)} --> {_timestamp(end)}", text, ""])
         previous_end = end
+        expected += 1
+    if expected == 1:
+        raise RuntimeError("Subtitle model response was not valid SRT")
     return "\n".join(normalized) + "\n"
 
 
