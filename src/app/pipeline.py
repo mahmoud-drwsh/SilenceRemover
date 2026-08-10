@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -92,28 +91,6 @@ class _ConsolePhaseProgress:
         self._current_phase: str | None = None
         self._live_line_open = False
 
-    @staticmethod
-    def _ellipsize(text: str, max_len: int) -> str:
-        if max_len <= 0:
-            return ""
-        if len(text) <= max_len:
-            return text
-        if max_len <= 3:
-            return text[:max_len]
-        return text[: max_len - 3] + "..."
-
-    def _format_tty_skip_message(
-        self,
-        *,
-        label: str,
-        video_index: int,
-        total_videos: int,
-        name: str,
-    ) -> str:
-        terminal_width = shutil.get_terminal_size(fallback=(80, 24)).columns
-        message = f"[{label}] Skip {video_index}/{total_videos}: {name}"
-        return self._ellipsize(message, terminal_width)
-
     def start_phase(self, label: str) -> None:
         if self._current_phase == label:
             return
@@ -129,28 +106,9 @@ class _ConsolePhaseProgress:
         self.stream.write(f"{message}\n")
         self.stream.flush()
 
-    def show_skip(
-        self,
-        label: str,
-        video_index: int,
-        total_videos: int,
-        name: str,
-        reason: str,
-        skip_count: int,
-    ) -> None:
-        message = f"  skip: {name} ({reason})"
-        if self._is_tty:
-            clear_suffix = "\033[K"
-            message = self._format_tty_skip_message(
-                label=label,
-                video_index=video_index,
-                total_videos=total_videos,
-                name=name,
-            )
-            self.stream.write(f"\r{message}{clear_suffix}")
-            self._live_line_open = True
-        else:
-            self.stream.write(f"{message}\n")
+    def show_skip_summary(self, label: str, skipped: int, total_videos: int) -> None:
+        self.finish_line()
+        self.stream.write(f"[{label}] Skipped {skipped}/{total_videos}\n")
         self.stream.flush()
 
     def show_upload_progress(
@@ -222,23 +180,19 @@ def _run_phase(
     success_count = 0
     skip_count = 0
     fail_count = 0
+    decisions = [
+        (i, video_file, phase.skip_reason(video_file) if phase.skip_reason is not None else None)
+        for i, video_file in enumerate(videos, 1)
+    ]
+    runnable = [(i, video_file) for i, video_file, reason in decisions if not reason]
+    skip_count = n - len(runnable)
+
     phase_progress = _get_phase_progress()
     phase_progress.start_phase(phase.label)
+    if skip_count:
+        phase_progress.show_skip_summary(phase.label, skip_count, n)
 
-    for i, video_file in enumerate(videos, 1):
-        if phase.skip_reason is not None:
-            reason = phase.skip_reason(video_file)
-            if reason:
-                skip_count += 1
-                phase_progress.show_skip(
-                    phase.label,
-                    i,
-                    n,
-                    video_file.name,
-                    reason,
-                    skip_count,
-                )
-                continue
+    for i, video_file in runnable:
         if phase.checked_paths is not None:
             phase_progress.show_check(video_file.name, phase.checked_paths(video_file))
         try:
