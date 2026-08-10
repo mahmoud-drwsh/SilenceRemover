@@ -169,8 +169,10 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
   const committed = (await sql.unsafe<{ checksum_sha256: string | null }[]>(
     `SELECT checksum_sha256 FROM ${ident}.files WHERE project=$1 AND id=$2 AND type=$3`, [project, input.id, input.type],
   ))[0];
+  if ((input.type === "original" || input.type === "subtitle") && committed?.checksum_sha256 === input.checksum) {
+    return c.json({ ok: true, id: input.id, type: input.type, already_uploaded: true });
+  }
   if (input.type === "original" && committed) {
-    if (committed.checksum_sha256 === input.checksum) return c.json({ ok: true, id: input.id, type: input.type, already_uploaded: true });
     throw new HttpError(409, `Original '${input.id}' already exists with different bytes`);
   }
   const partCount = input.type === "subtitle" || (input.type === "audio" && input.size <= MULTIPART_PART_SIZE) ? 0 : Math.ceil(input.size / MULTIPART_PART_SIZE);

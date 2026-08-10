@@ -123,6 +123,7 @@ export function parseUploadTags(value: string, fileType: FileType): string[] {
   if (fileType === "audio") {
     tags = validateAudioTags(tags);
   }
+
   if (tags.length === 0 && fileType === "audio") {
     tags = ["todo"];
   }
@@ -165,6 +166,9 @@ export async function resolveUploadOverwrite(
 
   if (fileType === "audio") {
     throw new HttpError(409, `Audio file with id '${fileId}' already exists`);
+  }
+  if (fileType === "subtitle") {
+    return true;
   }
 
   const oldTitle = normalizeTitle(existing.title);

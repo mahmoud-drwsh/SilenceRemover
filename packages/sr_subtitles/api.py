@@ -79,6 +79,8 @@ def validate_model_srt(raw: str, duration: float) -> str:
             if lines[cursor].strip(): text_lines.append(lines[cursor].strip())
             cursor += 1
         text = " ".join(" ".join(text_lines).split())
+        if "-->" in text or re.search(r"(?:^|\s)\d+\s+\d{1,2}:\d{2}", text):
+            raise RuntimeError("Subtitle model response embedded cue syntax inside subtitle text")
         if start < previous_end:
             if previous_end - start > 1.0:
                 raise RuntimeError("Subtitle model SRT failed deterministic timing validation")
@@ -92,6 +94,9 @@ def validate_model_srt(raw: str, duration: float) -> str:
         expected += 1
     if expected == 1:
         raise RuntimeError("Subtitle model response was not valid SRT")
+    cue_count = expected - 1
+    if duration > 15 and (cue_count < 2 or previous_end < duration * 0.8):
+        raise RuntimeError("Subtitle model SRT did not cover enough of the media timeline")
     return "\n".join(normalized) + "\n"
 
 
@@ -164,8 +169,8 @@ def generate_srt_from_trim_segments(
             {"type": "input_audio", "input_audio": {"data": base64.b64encode(payload).decode("ascii"), "format": "wav"}},
         ]}], max_output_tokens=1024, log_dir=log_dir)
         text = raw.strip()
-        if not text:
-            raise RuntimeError("Subtitle model returned empty text")
+        if not text or "-->" in text or re.search(r"(?:^|\n)\s*\d+\s*\n\s*\d{1,2}:\d{2}", text):
+            raise RuntimeError("Subtitle model did not return a plain transcript")
         texts.append(text)
         final_segments.append((0.0, final_duration))
     output_path.parent.mkdir(parents=True, exist_ok=True)

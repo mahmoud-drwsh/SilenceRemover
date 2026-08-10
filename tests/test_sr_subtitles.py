@@ -44,6 +44,18 @@ def test_model_srt_clamps_small_model_overlap_deterministically() -> None:
     assert "00:00:02,000 --> 00:00:03,000" in result
 
 
+def test_model_srt_rejects_collapsed_embedded_cues() -> None:
+    raw = "1\n00:00:00,000 --> 00:00:20,000\nأول 2 00:00:20,000 --> 00:00:30,000 ثان"
+    with pytest.raises(RuntimeError, match="embedded cue syntax"):
+        validate_model_srt(raw, 30.0)
+
+
+def test_model_srt_requires_timeline_coverage() -> None:
+    raw = "1\n00:00:00,000 --> 00:00:02,000\nأول\n2\n00:00:02,000 --> 00:00:04,000\nثان"
+    with pytest.raises(RuntimeError, match="cover enough"):
+        validate_model_srt(raw, 30.0)
+
+
 @pytest.mark.parametrize("raw", [
     "commentary", "1\n00:00:02,000 --> 00:00:01,000\nنص", "2\n00:00:00,000 --> 00:00:01,000\nنص",
 ])
