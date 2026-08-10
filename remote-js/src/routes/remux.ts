@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import { getDb, schemaIdent } from "../db.ts";
 import { verifyMediaToken } from "../http.ts";
-import { getExtensionForMime } from "../mime.ts";
 import { HttpError } from "../schemas.ts";
 import {
   deleteTemporaryRemux,
@@ -10,7 +9,9 @@ import {
   promoteTemporaryRemux,
   temporaryRemuxHead,
   temporaryRemuxSha256,
+  storageSha256,
 } from "../storage.ts";
+import { getExtensionForMime } from "../mime.ts";
 
 export const remuxRouter = new Hono();
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -57,6 +58,26 @@ remuxRouter.post("/projects/:token/:project/api/remux/enqueue", async (c) => {
       RETURNING 1
     ) SELECT count(*)::text count FROM inserted`, [project]);
   return c.json({ ok: true, enqueued: Number(rows[0]?.count ?? 0) });
+});
+
+remuxRouter.post("/projects/:token/:project/api/remux/checksum/:videoId", async (c) => {
+  const { token, project, videoId } = c.req.param(); await verifyMediaToken(token);
+  const sql = getDb(); const ident = schemaIdent();
+  const row = (await sql.unsafe<{ checksum_sha256: string | null; mime_type: string }[]>(
+    `SELECT checksum_sha256,mime_type FROM ${ident}.files WHERE project=$1 AND id=$2 AND type='video'`,
+    [project, videoId],
+  ))[0];
+  if (!row) throw new HttpError(404, "Video not found");
+  if (row.checksum_sha256) return c.json({ ok: true, checksum_sha256: row.checksum_sha256, repaired: false });
+  const checksum = await storageSha256("video", project, videoId, getExtensionForMime(row.mime_type));
+  const updated = await sql.unsafe<{ checksum_sha256: string }[]>(`
+    UPDATE ${ident}.files SET checksum_sha256=$1
+    WHERE project=$2 AND id=$3 AND type='video' AND checksum_sha256 IS NULL
+    RETURNING checksum_sha256`, [checksum, project, videoId]);
+  const current = updated[0]?.checksum_sha256 ?? (await sql.unsafe<{ checksum_sha256: string }[]>(
+    `SELECT checksum_sha256 FROM ${ident}.files WHERE project=$1 AND id=$2 AND type='video'`, [project,videoId],
+  ))[0]?.checksum_sha256;
+  return c.json({ ok: true, checksum_sha256: current, repaired: Boolean(updated[0]) });
 });
 
 remuxRouter.post("/projects/:token/:project/api/remux/claim", async (c) => {

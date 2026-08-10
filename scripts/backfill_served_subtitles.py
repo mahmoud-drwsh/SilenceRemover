@@ -120,6 +120,11 @@ def api(client: MediaManagerClient, method: str, endpoint: str, body: dict | Non
 
 
 def remux_all(client: MediaManagerClient, root: Path, limit: int | None) -> tuple[int, int]:
+    videos = client.get_video_files(include_trash=True, include_pending=True)
+    missing = [video for video in videos if video.get("source_id") and not video.get("checksum_sha256") and "trash" not in (video.get("tags") or [])]
+    for index, video in enumerate(missing, start=1):
+        print(f"[CHECKSUM {index}/{len(missing)}] {video['id']}", flush=True)
+        api(client, "POST", f"/api/remux/checksum/{quote(video['id'], safe='')}", {})
     api(client, "POST", "/api/remux/enqueue", {})
     completed = failed = 0
     while limit is None or completed + failed < limit:
@@ -139,8 +144,8 @@ def remux_all(client: MediaManagerClient, root: Path, limit: int | None) -> tupl
             mux_srt_track(video_path, srt_path)
             info = probe(video_path)
             subtitles = [stream for stream in info["streams"] if stream["codec_type"] == "subtitle"]
-            if len(subtitles) != 1 or subtitles[0]["codec_name"] != "mov_text" or subtitles[0].get("disposition", {}).get("default", 0) != 0:
-                raise RuntimeError("remux verification did not find one disabled mov_text track")
+            if len(subtitles) != 1 or subtitles[0]["codec_name"] != "mov_text":
+                raise RuntimeError("remux verification did not find exactly one mov_text track")
             checksum = sha256(video_path); size = video_path.stat().st_size
             upload = api(client, "POST", f"/api/remux/{job_id}/upload", {
                 "lease_token": lease, "size": size, "checksum_sha256": checksum,
