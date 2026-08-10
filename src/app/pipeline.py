@@ -554,6 +554,16 @@ class ServerDataCache:
     def get_video(self, file_id: str) -> dict | None:
         return self.video_files.get(file_id)
 
+    def get_no_overlay_video(self, source_id: str) -> dict | None:
+        companion_id = no_overlay_video_id(source_id)
+        direct = self.video_files.get(companion_id)
+        if direct is not None:
+            return direct
+        final = self.video_files.get(source_id)
+        if isinstance(final, dict) and final.get("no_overlay_id") == companion_id:
+            return {"id": companion_id}
+        return None
+
     def has_subtitle(self, source_id: str) -> bool:
         return f"{source_id}-subtitles" in self.subtitle_files
 
@@ -1184,7 +1194,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     def _no_overlay_video_meta(video_file: Path) -> dict:
         if server_cache is None:
             return {}
-        video = server_cache.get_video(no_overlay_video_id(video_file.stem))
+        video = server_cache.get_no_overlay_video(video_file.stem)
         return video if isinstance(video, dict) else {}
 
     def _no_overlay_output_path(video_file: Path) -> Path | None:

@@ -137,6 +137,25 @@ def test_existing_server_subtitle_skips_local_generation(tmp_path: Path) -> None
     assert pipeline.existing_subtitle_skip_reason(tmp_path, "new-clip", cache) is None
 
 
+def test_server_cache_resolves_no_overlay_from_pipeline_final_link() -> None:
+    cache = pipeline.ServerDataCache(
+        audio_files={},
+        video_files={
+            "clip": {
+                "id": "clip",
+                "no_overlay_id": "clip-no-overlay",
+            },
+        },
+        original_files={},
+        audio_trash_ids=frozenset(),
+        video_trash_ids=frozenset(),
+        ready_audio_ids=frozenset(),
+    )
+
+    assert cache.get_no_overlay_video("clip") == {"id": "clip-no-overlay"}
+    assert cache.get_no_overlay_video("missing") is None
+
+
 def test_local_subtitle_takes_precedence_over_server_skip(tmp_path: Path) -> None:
     subtitle_dir = tmp_path / "subtitles"
     subtitle_dir.mkdir()
