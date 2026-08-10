@@ -34,6 +34,45 @@ def test_normalization_is_idempotent_and_sequential() -> None:
     assert render_srt(cues) == once
 
 
+def test_normalization_recovers_flattened_inline_cue_boundaries() -> None:
+    raw = (
+        "1\n00:00:00,750 --> 00:00:02,700\nأدب سيدنا موسى "
+        "2 00:00:02,700 --> 00:00:04,650 علمت رشدا "
+        "3 00:00:06,600 --> 00:00:10,030 وهذا مثال يحتذى\n"
+    )
+
+    normalized = normalize_srt(raw)
+    cues = parse_srt(normalized)
+
+    assert [(cue.start, cue.end, cue.text) for cue in cues] == [
+        (0.75, 2.7, "أدب سيدنا موسى"),
+        (2.7, 4.65, "علمت رشدا"),
+        (6.6, 10.03, "وهذا مثال يحتذى"),
+    ]
+
+
+def test_normalization_recovers_flattened_payload_split_across_outer_cues() -> None:
+    raw = (
+        "1\n00:00:00,000 --> 00:00:02,000\nبداية النص "
+        "2 00:00:06,000 --> 00:00:12,000 نص طويل مقسوم\n\n"
+        "2\n00:00:02,000 --> 00:00:04,000\nبين كتل خارجية "
+        "3 00:00:12,000 --> 00:00:14,000 نهاية النص\n\n"
+        "3\n00:00:04,000 --> 00:00:06,000\nللترجمة السابقة\n"
+    )
+
+    cues = parse_srt(normalize_srt(raw))
+
+    assert cues[0] == Cue(0.0, 6.0, "بداية النص")
+    assert cues[1] == Cue(6.0, 12.0, "نص طويل مقسوم بين كتل خارجية")
+    assert cues[2] == Cue(12.0, 14.0, "نهاية النص للترجمة السابقة")
+
+
+def test_normalization_canonicalizes_non_padded_milliseconds() -> None:
+    raw = "1\n00:00:00,5 --> 00:00:01,25\nنص\n"
+
+    assert normalize_srt(raw) == "1\n00:00:00,500 --> 00:00:01,250\nنص\n\n"
+
+
 @pytest.mark.parametrize("raw", [
     "", "2\n00:00:00,000 --> 00:00:01,000\nنص\n", "1\ninvalid\nنص\n",
     "1\n00:00:02,000 --> 00:00:01,000\nنص\n",

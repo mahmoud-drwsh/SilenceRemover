@@ -24,8 +24,13 @@ TARGET_CUE_SECONDS = 8.0
 MAX_CUE_SECONDS = 10.0
 MAX_MOV_TEXT_BYTES = 1_800
 TIMING_RE = re.compile(
-    r"^(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*"
-    r"(\d{2}):(\d{2}):(\d{2})[,.](\d{3})$"
+    r"^(\d{2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*"
+    r"(\d{2}):(\d{2}):(\d{2})[,.](\d{1,3})$"
+)
+INLINE_CUE_RE = re.compile(
+    r"(?<![\r\n])\s+(\d+)\s+"
+    r"((?:\d{2}):(?:\d{2}):(?:\d{2})[,.](?:\d{1,3})\s*-->\s*"
+    r"(?:\d{2}):(?:\d{2}):(?:\d{2})[,.](?:\d{1,3}))\s+"
 )
 
 
@@ -45,7 +50,8 @@ def _timestamp(seconds: float) -> str:
 
 
 def _seconds(parts: tuple[str, ...]) -> float:
-    hours, minutes, seconds, millis = map(int, parts)
+    hours, minutes, seconds = map(int, parts[:3])
+    millis = int(parts[3].ljust(3, "0"))
     if minutes >= 60 or seconds >= 60:
         raise ValueError("Invalid SRT timestamp")
     return hours * 3_600 + minutes * 60 + seconds + millis / 1_000
@@ -70,6 +76,33 @@ def parse_srt(raw: str) -> list[Cue]:
         previous_end = end
     if not cues:
         raise ValueError("SRT contains no cues")
+    # Some legacy model responses flattened cue headers into the text. A prior
+    # normalization can also have split that flattened payload across several
+    # otherwise-valid outer cues. Joining only their text discards those
+    # artificial outer timings and lets us recover the original cue structure.
+    payload = " ".join(cue.text for cue in cues)
+    markers = list(INLINE_CUE_RE.finditer(payload))
+    if markers:
+        if [int(marker.group(1)) for marker in markers] != list(range(2, len(markers) + 2)):
+            raise ValueError("Flattened SRT cue numbers must be sequential")
+        first_timing = TIMING_RE.fullmatch(markers[0].group(2))
+        if not first_timing:
+            raise ValueError("Invalid flattened SRT timing line")
+        first_marker_start = _seconds(first_timing.groups()[:4])
+        recovered = [Cue(cues[0].start, first_marker_start, payload[:markers[0].start()].strip())]
+        for index, marker in enumerate(markers):
+            timing = TIMING_RE.fullmatch(marker.group(2))
+            if not timing:
+                raise ValueError("Invalid flattened SRT timing line")
+            start, end = _seconds(timing.groups()[:4]), _seconds(timing.groups()[4:])
+            text_end = markers[index + 1].start() if index + 1 < len(markers) else len(payload)
+            recovered.append(Cue(start, end, payload[marker.end():text_end].strip()))
+        cues = recovered
+        previous_end = 0.0
+        for cue in cues:
+            if not cue.text or cue.start < previous_end or cue.end <= cue.start:
+                raise ValueError("Recovered SRT cues must be non-empty, positive, and non-overlapping")
+            previous_end = cue.end
     return cues
 
 
