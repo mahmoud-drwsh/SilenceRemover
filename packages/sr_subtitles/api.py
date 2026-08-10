@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import json
 from pathlib import Path
 
 from openrouter_transport import request as openrouter_request
@@ -13,8 +12,9 @@ from src.ffmpeg.runner import run
 
 DEFAULT_SUBTITLE_MODEL = GEMINI_SUBTITLE_MODEL
 SUBTITLE_MIME_TYPE = "application/x-subrip"
+MAX_SEGMENTS_PER_CUE = 12
 
-_PROMPT = """Transcribe every numbered Arabic audio segment verbatim. Return only a JSON array with exactly one non-empty string for each segment, in the same order. Do not include timestamps, labels, Markdown, commentary, or invented words."""
+_PROMPT = """Transcribe this Arabic audio verbatim. Output only the transcript text, with no timestamps, labels, Markdown, commentary, or invented words."""
 
 
 def _timestamp(seconds: float) -> str:
@@ -43,18 +43,17 @@ def render_srt(segments: list[tuple[float, float]], texts: list[str]) -> str:
 
 def _extract_segment_audio(input_file: Path, output_file: Path, start: float, end: float) -> None:
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    cmd = build_ffmpeg_cmd(True, "-v", "error", "-ss", f"{start:.6f}", "-i", str(input_file), "-t", f"{end - start:.6f}", "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", str(output_file))
+    cmd = build_ffmpeg_cmd(True, "-v", "error", "-ss", f"{start:.6f}", "-i", str(input_file), "-t", f"{end - start:.6f}", "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(output_file))
     run(cmd, capture_output=True)
 
 
-def _parse_texts(raw: str, expected_count: int) -> list[str]:
-    try:
-        value = json.loads(raw.strip())
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("Subtitle model response was not valid JSON") from exc
-    if not isinstance(value, list) or len(value) != expected_count or not all(isinstance(item, str) and item.strip() for item in value):
-        raise RuntimeError("Subtitle model response did not contain exactly one non-empty text per segment")
-    return [item.strip() for item in value]
+def _group_segments(segments: list[tuple[float, float]]) -> list[tuple[float, float, float]]:
+    """Bound provider inputs while preserving each group's final-video duration."""
+    groups: list[tuple[float, float, float]] = []
+    for offset in range(0, len(segments), MAX_SEGMENTS_PER_CUE):
+        batch = segments[offset:offset + MAX_SEGMENTS_PER_CUE]
+        groups.append((batch[0][0], batch[-1][1], sum(end - start for start, end in batch)))
+    return groups
 
 
 def generate_srt_from_trim_segments(
@@ -64,18 +63,26 @@ def generate_srt_from_trim_segments(
     """Extract retained speech once, request matching text, and render local timings."""
     if not segments:
         raise RuntimeError("Cannot generate subtitles because the trim plan retained no speech")
-    content: list[dict] = [{"type": "text", "text": _PROMPT}]
-    for index, (start, end) in enumerate(segments, start=1):
-        audio_path = work_dir / f"{index:04}.ogg"
+    groups = _group_segments(segments)
+    texts: list[str] = []
+    final_segments: list[tuple[float, float]] = []
+    for index, (start, end, final_duration) in enumerate(groups, start=1):
+        audio_path = work_dir / f"{index:04}.wav"
         _extract_segment_audio(input_file, audio_path, start, end)
         payload = audio_path.read_bytes()
         if not payload:
             raise RuntimeError(f"Extracted subtitle segment is empty: {audio_path.name}")
-        content.append({"type": "text", "text": f"Segment {index}:"})
-        content.append({"type": "input_audio", "input_audio": {"data": base64.b64encode(payload).decode("ascii"), "format": "ogg"}})
-    raw = openrouter_request(api_key, model, [{"role": "user", "content": content}], max_output_tokens=max(1024, len(segments) * 128), log_dir=log_dir)
+        raw = openrouter_request(api_key, model, [{"role": "user", "content": [
+            {"type": "text", "text": _PROMPT},
+            {"type": "input_audio", "input_audio": {"data": base64.b64encode(payload).decode("ascii"), "format": "wav"}},
+        ]}], max_output_tokens=1024, log_dir=log_dir)
+        text = raw.strip()
+        if not text:
+            raise RuntimeError("Subtitle model returned empty text")
+        texts.append(text)
+        final_segments.append((0.0, final_duration))
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(render_srt(segments, _parse_texts(raw, len(segments))), encoding="utf-8")
+    output_path.write_text(render_srt(final_segments, texts), encoding="utf-8")
 
 
 def mux_srt_track(video_path: Path, srt_path: Path) -> None:

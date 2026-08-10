@@ -79,6 +79,19 @@ def _move_processing_to_final(processing_path: Path, final_path: Path) -> None:
             ) from exc
 
 
+def _with_vaapi_upload_filter(script_path: Path, temp_dir: Path, basename: str) -> Path:
+    """Append VAAPI upload inside the existing complex graph, not as a conflicting -vf."""
+    graph = script_path.read_text(encoding="utf-8").strip()
+    marker = "[outv]"
+    if marker not in graph:
+        raise RuntimeError(f"VAAPI filter graph does not expose {marker}: {script_path}")
+    prefix, suffix = graph.rsplit(marker, 1)
+    vaapi_graph = f"{prefix}[outv_sw]{suffix};[outv_sw]format=nv12,hwupload[outv]"
+    scripts_dir = temp_dir / SCRIPTS_DIR
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    return write_filter_graph_script(scripts_dir / f"{basename}_vaapi.ffscript", vaapi_graph)
+
+
 def _build_overlay_suffix_from_base(
     *,
     title_overlay_y: int | None,
@@ -430,7 +443,8 @@ def trim_single_video(
     logo_path_resolved = DEFAULT_LOGO_PATH if use_logo else None
 
     encoder = encoder or get_encoder_config("X265")["codec"]
-    use_qsv_hardware_path = encoder == "hevc_qsv"
+    use_qsv_hardware_path = encoder.upper() == "QSV"
+    use_vaapi_hardware_path = encoder.upper() == "VAAPI"
 
     (
         title_overlay_path,
@@ -489,6 +503,10 @@ def trim_single_video(
         processing_output = get_processing_video_path(temp_dir_resolved, basename)
         processing_output.parent.mkdir(parents=True, exist_ok=True)
         final_filter_script_path = _overlay_wrapped_script_path()
+        if use_vaapi_hardware_path:
+            final_filter_script_path = _with_vaapi_upload_filter(
+                final_filter_script_path, temp_dir_resolved, basename
+            )
 
         def _build_ffmpeg_command(in_file, out_file, filter_script):
             return build_final_trim_command(
@@ -503,6 +521,7 @@ def trim_single_video(
                     in_file.name if (title_overlay_path is not None or use_logo) else None
                 ),
                 use_qsv_hardware_path=use_hw_path,
+                use_vaapi_hardware_path=use_vaapi_hardware_path,
                 metadata_title=metadata_title,
             )
 

@@ -135,16 +135,16 @@ def is_transcript_done(temp_dir: Path, basename: str) -> bool:
     path = get_transcript_path(temp_dir, basename)
     if not path.exists():
         return False
+    try:
+        return bool(path.read_text(encoding="utf-8").strip())
+    except (OSError, UnicodeDecodeError):
+        return False
 
 
 def is_subtitle_done(temp_dir: Path, basename: str) -> bool:
     path = get_subtitle_path(temp_dir, basename)
     try:
         return path.is_file() and bool(path.read_text(encoding="utf-8").strip())
-    except (OSError, UnicodeDecodeError):
-        return False
-    try:
-        return bool(path.read_text(encoding="utf-8").strip())
     except (OSError, UnicodeDecodeError):
         return False
 

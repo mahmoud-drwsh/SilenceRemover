@@ -33,7 +33,7 @@ docker --version
 
 echo
 echo "== HEVC encoder listing =="
-ffmpeg -hide_banner -encoders | grep -E '(libx265|hevc_qsv|hevc_amf)' || true
+ffmpeg -hide_banner -encoders | grep -E '(libx265|hevc_qsv|hevc_vaapi|hevc_amf)' || true
 
 probe_encoder() {
   local codec="$1"
@@ -65,6 +65,19 @@ probe_encoder libx265 -crf 24 -preset slow
 
 echo
 echo "== Advisory hardware encode probes =="
+if [ -e /dev/dri/renderD128 ]; then
+  if ffmpeg -hide_banner -v error -vaapi_device /dev/dri/renderD128 \
+    -f lavfi -i testsrc2=duration=1:size=320x240:rate=25 \
+    -vf format=nv12,hwupload -frames:v 25 -c:v hevc_vaapi -global_quality 20 \
+    -f null - >/tmp/silenceremover-hevc_vaapi-probe.log 2>&1; then
+    echo '[OK] hevc_vaapi iGPU probe passed'
+  else
+    echo '[FAIL] hevc_vaapi iGPU probe failed'
+    sed -n '1,80p' /tmp/silenceremover-hevc_vaapi-probe.log
+  fi
+else
+  echo '[SKIP] hevc_vaapi: /dev/dri/renderD128 is unavailable'
+fi
 probe_encoder hevc_qsv -global_quality 20 -preset slow || true
 probe_encoder hevc_amf -qp_i 22 -qp_p 22 -quality quality || true
 

@@ -12,7 +12,7 @@ After code or config changes, agents append short notes here. When this file gro
 ## Condensed changelog
 
 - **Architecture**: Core orchestration is `src/app/pipeline.py`; media, FFmpeg, startup, and LLM concerns are split under `src/` and `packages/`. `README.md` and `ALGO.md` document the processing flow.
-- **Media processing**: The pipeline generates trim scripts, snippets, transcripts, titles, optional title/logo overlays, and silence-removed HEVC MP4s. It handles audio-less inputs, locked recordings, and QSV-or-x265 encoding resolution.
+- **Media processing**: The pipeline generates trim scripts, snippets, transcripts, titles, optional title/logo overlays, and silence-removed HEVC MP4s. It handles audio-less inputs, locked recordings, and VAAPI-, QSV-, or x265-based encoding resolution.
 - **Media Manager**: `remote-js/` is the Bun/Hono service with Postgres metadata and S3-compatible bytes. Pipeline uploads use authenticated presigned sessions; originals, audio, and videos are linked by stable source IDs.
 - **Original links and downloads**: Startup backfills legacy links; an original retry self-heals matching derived rows. Linked derived cards provide inline original downloads without an Originals view.
 - **Video variants**: Each source can have an overlaid video and a silence-removed no-overlay companion. No-overlay companions use the `no-overlay` tag/folder and share their original’s source ID. Designer videos are Media Manager-only uploads linked to a selected pipeline-final through `designer_of_id`; the service derives their source link and keeps one active designer video per final. Startup surgically backfills only empty-tag legacy companions whose `-no-overlay` ID exactly matches a linked original source ID.
@@ -26,4 +26,4 @@ After code or config changes, agents append short notes here. When this file gro
 - **Designer queue**: The `needs-designer` video filter returns only pipeline finals without a non-trashed linked designer video; non-admin designers see this focused queue.
 - **Focused folders**: Single-purpose non-admin queues hide the redundant folder navigation.
 - **Bulk audio approval**: Admin-mode audio review offers a confirmed bulk action that marks only non-trashed `todo` audio as `ready` and returns the affected count.
-- **Subtitles**: Subtitle generation is independent of the title snippet: Gemini returns one guarded verbatim string per retained trim segment, local code writes the SRT timing, and both final variants receive a disabled selectable Arabic track. SRT uploads use the deterministic `{source-id}-subtitles` Media Manager ID.
+- **Subtitles**: Subtitle generation is independent of the title snippet: Gemini returns guarded plain text for bounded retained-speech groups, local code writes deterministic SRT timing, and both final variants receive a disabled selectable Arabic track. SRT uploads use the deterministic `{source-id}-subtitles` Media Manager ID.

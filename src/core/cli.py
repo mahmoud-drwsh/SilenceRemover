@@ -148,9 +148,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--encoder",
         type=str,
-        choices=["QSV", "AMF", "X265"],
+        choices=["QSV", "VAAPI", "AMF", "X265"],
         default="X265",
-        help="Video encoder: QSV (Intel QuickSync), AMF (AMD), or X265 (software)"
+        help="Video encoder: VAAPI (Intel container GPU), QSV (Intel QuickSync), AMF (AMD), or X265 (software)"
     )
     parser.add_argument(
         "--enable-title-overlay",

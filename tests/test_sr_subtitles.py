@@ -1,6 +1,6 @@
 import pytest
 
-from sr_subtitles.api import _parse_texts, render_srt
+from sr_subtitles.api import _group_segments, render_srt
 
 
 def test_render_srt_uses_contiguous_final_timeline() -> None:
@@ -10,7 +10,8 @@ def test_render_srt_uses_contiguous_final_timeline() -> None:
     assert "أهلا بكم" in result
 
 
-@pytest.mark.parametrize("raw", ["[]", '["only"]', '["", "ok"]', "not json"])
-def test_subtitle_response_is_strictly_guarded(raw: str) -> None:
-    with pytest.raises(RuntimeError):
-        _parse_texts(raw, 2)
+def test_subtitle_groups_preserve_final_duration() -> None:
+    groups = _group_segments([(0.0, 0.1)] * 13)
+    assert len(groups) == 2
+    assert groups[0][2] == pytest.approx(1.2)
+    assert groups[1][2] == pytest.approx(0.1)

@@ -42,3 +42,14 @@ ffprobe -hide_banner -v error -show_entries format=duration -of default=noprint_
 
 echo
 echo "FFmpeg fixture lane passed with software HEVC."
+
+if [ -e /dev/dri/renderD128 ]; then
+  echo
+  echo "== Direct Intel VAAPI fixture smoke =="
+  vaapi_output="${tmp_base}-vaapi.mp4"
+  ffmpeg -hide_banner -v error -vaapi_device /dev/dri/renderD128 \
+    -f lavfi -i testsrc2=duration=1:size=320x240:rate=25 \
+    -vf format=nv12,hwupload -frames:v 25 -c:v hevc_vaapi -global_quality 20 \
+    -tag:v hvc1 -movflags +faststart -y "$vaapi_output"
+  ffprobe -hide_banner -v error -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "$vaapi_output" | grep -qx hevc
+fi

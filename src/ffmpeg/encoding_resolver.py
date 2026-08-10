@@ -101,7 +101,7 @@ def get_encoder_config(encoder_name: str) -> dict:
     """Get encoder configuration for explicit encoder choice.
     
     Args:
-        encoder_name: One of "QSV", "AMF", "X265"
+        encoder_name: One of "QSV", "VAAPI", "AMF", "X265"
         
     Returns:
         Dict with codec, args, hwaccel flag
@@ -112,6 +112,12 @@ def get_encoder_config(encoder_name: str) -> dict:
         return {
             "codec": "hevc_qsv",
             "args": ["-global_quality", "20", "-preset", "slow"],
+            "hwaccel": True,
+        }
+    elif encoder_upper == "VAAPI":
+        return {
+            "codec": "hevc_vaapi",
+            "args": ["-global_quality", "20", "-g", "250"],
             "hwaccel": True,
         }
     elif encoder_upper == "AMF":
