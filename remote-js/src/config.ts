@@ -51,6 +51,10 @@ export interface AppConfig {
   loginRateLimitWindowSec: number;
   loginRateLimitMaxAttempts: number;
   tokenEncryptionKey: Buffer;
+  /** Server processing is the default for every project. */
+  sourceProcessingWorkerToken: string;
+  sourceProcessingLeaseSeconds: number;
+  sourceProcessingProfile: string;
 }
 
 let cached: AppConfig | undefined;
@@ -80,8 +84,23 @@ export function loadConfig(): AppConfig {
     loginRateLimitWindowSec: LOGIN_RATE_LIMIT_WINDOW_SEC,
     loginRateLimitMaxAttempts: LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
     tokenEncryptionKey,
+    sourceProcessingWorkerToken: readRequiredEnv("SOURCE_PROCESSING_WORKER_TOKEN"),
+    sourceProcessingLeaseSeconds: readPositiveInteger("SOURCE_PROCESSING_LEASE_SECONDS", 1800),
+    sourceProcessingProfile: readEnv("SOURCE_PROCESSING_PROFILE") ?? "v1",
   };
   return cached;
+}
+
+function readPositiveInteger(name: string, fallback: number): number {
+  const raw = readEnv(name) ?? String(fallback);
+  if (!/^[1-9][0-9]*$/.test(raw)) throw new Error(`${name} must be a positive integer`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
+  return value;
+}
+
+export function isSourceProcessingEnabled(_project: string): boolean {
+  return true;
 }
 
 function missingDatabaseUrl(): never {

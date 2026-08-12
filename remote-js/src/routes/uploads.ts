@@ -16,6 +16,7 @@ import {
 } from "../storage.ts";
 import { verifyMediaToken } from "../http.ts";
 import { assertSourceOriginalExists, commitUploadMetadata, parseTagsValue, parseUploadTags, resolveUploadOverwrite } from "./files.ts";
+import { enqueueSourceProcessing } from "./sourceProcessing.ts";
 
 export const uploadsRouter = new Hono();
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -170,6 +171,7 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
     `SELECT checksum_sha256 FROM ${ident}.files WHERE project=$1 AND id=$2 AND type=$3`, [project, input.id, input.type],
   ))[0];
   if ((input.type === "original" || input.type === "subtitle") && committed?.checksum_sha256 === input.checksum) {
+    if (input.type === "original") await enqueueSourceProcessing(project, input.id, input.checksum);
     return c.json({ ok: true, id: input.id, type: input.type, already_uploaded: true });
   }
   if (input.type === "original" && committed) {
@@ -237,8 +239,23 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/:sessionId/complete", 
   const { token, project, sessionId } = c.req.param(); await verifyMediaToken(token);
   const session = await sessionById(project, sessionId);
   if (!session) throw new HttpError(404, "Upload session not found");
-  if (session.state === "completed") return c.json({ ok: true, id: session.file_id, type: session.type, already_completed: true });
+  if (session.state === "completed") {
+    if (session.type === "original") await enqueueSourceProcessing(project, session.file_id, session.checksum_sha256);
+    return c.json({ ok: true, id: session.file_id, type: session.type, already_completed: true });
+  }
   if (session.state !== "active" || new Date(session.expires_at).getTime() < Date.now()) throw new HttpError(409, "Upload session is no longer active");
+  if (session.type === "original") {
+    const sql = getDb(); const ident = schemaIdent();
+    const committed = (await sql.unsafe<{ checksum_sha256: string | null }[]>(
+      `SELECT checksum_sha256 FROM ${ident}.files WHERE project=$1 AND id=$2 AND type='original'`,
+      [project, session.file_id],
+    ))[0];
+    if (committed?.checksum_sha256 === session.checksum_sha256) {
+      await enqueueSourceProcessing(project, session.file_id, session.checksum_sha256);
+      await sql.unsafe(`UPDATE ${ident}.upload_sessions SET state='completed' WHERE id=$1`, [session.id]);
+      return c.json({ ok: true, id: session.file_id, type: session.type, already_completed: true });
+    }
+  }
   const ext = getExtensionForMime(session.mime_type);
   let overwritten = false;
   if (session.upload_id) {
@@ -258,6 +275,7 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/:sessionId/complete", 
     await commitUploadMetadata({ fileId: session.file_id, project, fileType: session.type, title: session.type === "original" ? session.original_filename ?? session.file_id : session.title, tagList: sessionTags(session.tags), duration, fileSize: Number(session.file_size), mime: session.mime_type, overwritten, sourceId: session.source_id, originalFilename: session.original_filename, checksumSha256: session.checksum_sha256, designerOfId: session.designer_of_id });
     if (session.type === "original") {
       await linkLegacyDerivedFilesForOriginal(project, session.file_id);
+      await enqueueSourceProcessing(project, session.file_id, session.checksum_sha256);
     }
     const sql = getDb(); const ident = schemaIdent();
     await sql.unsafe(`UPDATE ${ident}.upload_sessions SET state='completed' WHERE id=$1`, [session.id]);

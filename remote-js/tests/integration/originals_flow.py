@@ -76,6 +76,108 @@ assert init["ok"] and len(init["urls"]) == 1
 completed = complete_session(init)
 assert completed["ok"]
 
+# Completing a verified original enqueues exactly one dormant source-processing
+# record for explicitly enabled projects. Worker access uses a separate secret,
+# while operational status and retries remain admin-only.
+WORKER_BASE = "http://app:8080/internal/source-processing/test-project"
+ADMIN_PROCESSING_BASE = "http://app:8080/admin/test-admin-token/api/projects/test-project/source-processing"
+
+def processing_request(base, path, method="GET", payload=None, headers=None):
+    return json.load(request(base + path, method, payload, headers, absolute=True))
+
+try:
+    processing_request(WORKER_BASE, "/claim", "POST", {})
+    raise AssertionError("worker endpoint accepted a request without its dedicated token")
+except urllib.error.HTTPError as exc:
+    assert exc.code == 401
+
+status = processing_request(ADMIN_PROCESSING_BASE, "/status")
+assert status["states"] == {"pending": 1}
+try:
+    processing_request("http://app:8080/admin/test-token/api/projects/test-project/source-processing", "/status")
+    raise AssertionError("media token was accepted as an admin credential")
+except urllib.error.HTTPError as exc:
+    assert exc.code == 401
+
+claimed = processing_request(
+    WORKER_BASE, "/claim", "POST", {}, {"X-Source-Processing-Token": "test-worker-token"},
+)["job"]
+assert claimed["source_id"] == "source-001" and claimed["original_checksum_sha256"] == digest
+
+# A dead worker's short test lease expires and the next worker safely reclaims
+# the same source rather than creating another job.
+time.sleep(1.2)
+for expired_action in ("heartbeat", "fail", "complete"):
+    try:
+        processing_request(
+            WORKER_BASE, f"/{claimed['id']}/{expired_action}", "POST",
+            {"lease_token": claimed["lease_token"], "error": "expired worker"},
+            {"X-Source-Processing-Token": "test-worker-token"},
+        )
+        raise AssertionError(f"expired worker could call {expired_action}")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 409
+reclaimed = processing_request(
+    WORKER_BASE, "/claim", "POST", {}, {"X-Source-Processing-Token": "test-worker-token"},
+)["job"]
+assert reclaimed["id"] == claimed["id"] and reclaimed["lease_token"] != claimed["lease_token"]
+for old_action in ("heartbeat", "fail", "complete"):
+    try:
+        processing_request(
+            WORKER_BASE, f"/{claimed['id']}/{old_action}", "POST",
+            {"lease_token": claimed["lease_token"], "error": "stale worker"},
+            {"X-Source-Processing-Token": "test-worker-token"},
+        )
+        raise AssertionError(f"stale worker could call {old_action}")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 409
+processing_request(
+    WORKER_BASE, f"/{reclaimed['id']}/heartbeat", "POST",
+    {"lease_token": reclaimed["lease_token"]}, {"X-Source-Processing-Token": "test-worker-token"},
+)
+processing_request(
+    WORKER_BASE, f"/{reclaimed['id']}/fail", "POST",
+    {"lease_token": reclaimed["lease_token"], "error": "intentional integration failure"},
+    {"X-Source-Processing-Token": "test-worker-token"},
+)
+failed = processing_request(ADMIN_PROCESSING_BASE, "/status")
+assert failed["states"] == {"failed": 1} and failed["failed"][0]["last_error"] == "intentional integration failure"
+processing_request(ADMIN_PROCESSING_BASE, f"/{reclaimed['id']}/retry", "POST", {})
+retry = processing_request(
+    WORKER_BASE, "/claim", "POST", {}, {"X-Source-Processing-Token": "test-worker-token"},
+)["job"]
+processing_request(
+    WORKER_BASE, f"/{retry['id']}/complete", "POST",
+    {"lease_token": retry["lease_token"]}, {"X-Source-Processing-Token": "test-worker-token"},
+)
+assert processing_request(ADMIN_PROCESSING_BASE, "/status")["states"] == {"completed": 1}
+
+# Repeating upload completion is idempotent and cannot enqueue a second job.
+repeated_completion = json.load(request(f"/api/uploads/{init['session_id']}/complete", "POST", {"parts": []}))
+assert repeated_completion["already_completed"]
+assert processing_request(ADMIN_PROCESSING_BASE, "/status")["total"] == 1
+
+# Projects not explicitly enabled retain the existing upload-only behavior and
+# never create server-processing work.
+DISABLED_BASE = "http://app:8080/projects/test-token/client-owned-project"
+disabled_init = json.load(request(DISABLED_BASE + "/api/uploads/initiate", "POST", {
+    "id": "client-owned-001", "type": "original", "mime_type": "video/mp4",
+    "file_size": len(source), "checksum_sha256": digest, "original_filename": "client-owned.mp4",
+}, absolute=True))
+part = urllib.request.urlopen(urllib.request.Request(disabled_init["urls"][0], data=source, method="PUT"), timeout=20)
+json.load(request(DISABLED_BASE + f"/api/uploads/{disabled_init['session_id']}/complete", "POST", {
+    "parts": [{"part_number": 1, "etag": part.headers["ETag"]}],
+}, absolute=True))
+disabled_status = processing_request(
+    "http://app:8080/admin/test-admin-token/api/projects/client-owned-project/source-processing", "/status",
+)
+assert disabled_status["enabled"] is False and disabled_status["total"] == 0
+disabled_claim = processing_request(
+    "http://app:8080/internal/source-processing/client-owned-project", "/claim", "POST", {},
+    {"X-Source-Processing-Token": "test-worker-token"},
+)
+assert disabled_claim["job"] is None
+
 originals = json.load(request("/api/files?type=original"))
 assert any(item["id"] == "source-001" and item["checksum_sha256"] == digest for item in originals)
 stream = request("/stream/source-001?type=original", headers={"Range": "bytes=0-99"})

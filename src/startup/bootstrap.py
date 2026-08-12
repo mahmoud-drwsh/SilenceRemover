@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from argparse import Namespace
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
 from src.core.cli import collect_video_files, fail, require_input_dir, require_tools
@@ -39,10 +40,15 @@ def build_startup_context(args: Namespace) -> StartupContext:
     require_tools("ffmpeg", "ffprobe")
     require_input_dir(input_dir)
 
-    try:
-        load_config()
-    except ValueError as exc:
-        fail(str(exc))
+    # Once a Media Manager destination is configured, all model and render work
+    # belongs to the server worker.  The upload-only client does not need an
+    # OpenRouter key just to deliver an Original.
+    server_owned = bool(os.environ.get("MEDIA_MANAGER_URL"))
+    if not server_owned:
+        try:
+            load_config()
+        except ValueError as exc:
+            fail(str(exc))
 
     output_dir = sibling_dir(input_dir, "output")
     temp_dir = output_dir / "temp"
@@ -56,7 +62,7 @@ def build_startup_context(args: Namespace) -> StartupContext:
     )
 
     pad_sec = trim_defaults.pad_sec
-    api_key = get_config()["OPENROUTER_API_KEY"]
+    api_key = "" if server_owned else get_config()["OPENROUTER_API_KEY"]
     videos = collect_video_files(input_dir)
     if not videos:
         fail(f"No video files found in '{input_dir}'")

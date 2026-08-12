@@ -351,6 +351,38 @@ def generate_trim_script(
     return final_script_path
 
 
+def write_trim_script_from_plan(
+    *,
+    input_file: Path,
+    temp_dir: Path,
+    target_length: float | None,
+    noise_threshold: float,
+    min_duration: float,
+    pad_sec: float,
+    segments_to_keep: list[tuple[float, float]],
+) -> Path:
+    """Materialize a final filter script from an already verified trim plan.
+
+    Server workers persist the expensive silence-analysis result as a durable
+    checkpoint.  Rendering must consume that exact plan instead of analysing
+    the source a second time after title review.
+    """
+    final_script_path = get_trim_script_path(
+        input_file=input_file,
+        temp_dir=temp_dir,
+        target_length=target_length,
+        noise_threshold=noise_threshold,
+        min_duration=min_duration,
+        pad_sec=pad_sec,
+    )
+    input_has_audio = probe_has_audio_stream(input_file)
+    if segments_to_keep:
+        graph = _build_final_concat_graph(segments_to_keep, input_has_audio=input_has_audio)
+    else:
+        graph = _build_final_minimal_graph(input_has_audio=input_has_audio)
+    return write_filter_graph_script(final_script_path, graph)
+
+
 __all__ = [
     "TRIM_SCRIPTS_DIR",
     "SNIPPET_TRIM_SCRIPT_SUFFIX",
@@ -358,6 +390,7 @@ __all__ = [
     "derive_snippet_trim_script",
     "ensure_snippet_trim_script",
     "generate_trim_script",
+    "write_trim_script_from_plan",
     "get_snippet_trim_script_path",
     "get_snippet_trim_script_path_from_final",
     "get_trim_script_path",

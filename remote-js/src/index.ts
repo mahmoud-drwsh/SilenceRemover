@@ -20,6 +20,7 @@ import { uploadsRouter, cleanupExpiredUploadSessions } from "./routes/uploads.ts
 import { originalsRouter } from "./routes/originals.ts";
 import { remuxRouter } from "./routes/remux.ts";
 import { HttpError } from "./schemas.ts";
+import { reconcileSourceProcessing, sourceProcessingRouter } from "./routes/sourceProcessing.ts";
 
 const app = new Hono();
 
@@ -38,6 +39,7 @@ app.notFound((c) => c.json({ detail: "Not Found" }, 404));
 
 app.get("/healthz", (c) => c.json({ ok: true }));
 
+app.route("/", sourceProcessingRouter);
 app.route("/", adminRouter);
 app.route("/", filesRouter);
 app.route("/", streamRouter);
@@ -53,6 +55,8 @@ async function main(): Promise<void> {
     `[startup] media-manager checking Postgres schema "${config.dbSchema}" and S3 bucket "${config.s3Bucket}" ...`,
   );
   await ensureDatabaseReady();
+  const recoveredProcessingJobs = await reconcileSourceProcessing();
+  if (recoveredProcessingJobs > 0) console.log(`[startup] recovered ${recoveredProcessingJobs} source-processing job(s)`);
   const repairedLinks = await backfillLegacySourceLinks();
   if (repairedLinks > 0) {
     console.log(`[startup] linked ${repairedLinks} legacy derived file(s) to originals`);

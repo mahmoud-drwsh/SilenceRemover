@@ -1096,12 +1096,25 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     temp_dir = startup.temp_dir
     videos = startup.videos
 
-    # Media Manager two-way sync: fetch titles from API, update local .txt, trigger re-encodes
-    media_manager_enabled = (
-        getattr(args, "enable_media_manager", False) and
-        _MEDIA_MANAGER_AVAILABLE and
-        os.getenv('MEDIA_MANAGER_URL')
-    )
+    # A configured Media Manager owns processing by default. The client only
+    # uploads immutable Originals; it never needs an opt-in processing flag.
+    media_manager_enabled = bool(_MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL'))
+    if media_manager_enabled:
+        server_cache = _rebuild_server_cache(os.getenv('MEDIA_MANAGER_URL') or '')
+        upload_phase = _PipelinePhase(
+            0,
+            "Original Upload",
+            lambda video_file, vi, vn: run_original_upload_phase(
+                video_path=video_file, video_index=vi, total_videos=vn,
+            ),
+            skip_reason=lambda video_file: original_upload_skip_reason(video_file, server_cache),
+            checked_paths=lambda video_file: [f"server:original/{video_file.stem}"],
+        )
+        _run_phase(videos=videos, phase=upload_phase)
+        return startup
+
+    # Legacy local-only mode remains available when no server destination is
+    # configured, for offline development and recovery.
     if media_manager_enabled:
         try:
             client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))

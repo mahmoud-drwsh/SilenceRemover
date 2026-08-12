@@ -181,15 +181,6 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--enable-media-manager",
-        action="store_true",
-        help=(
-            "Enable Media Manager integration for Phase-0-to-10 workflow: "
-            "audio upload, title sync, and video delivery. "
-            "Requires MEDIA_MANAGER_URL environment variable."
-        ),
-    )
-    parser.add_argument(
         "--skip-shorter-than",
         type=_positive_float,
         default=30.0,

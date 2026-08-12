@@ -1,0 +1,9 @@
+FROM python:3.12-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates intel-media-va-driver libva-utils \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir httpx openrouter pillow arabic-reshaper python-bidi
+
+WORKDIR /workspace
+CMD ["python", "/workspace/packages/sr_source_processing/api.py"]

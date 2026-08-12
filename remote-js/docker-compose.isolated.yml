@@ -23,7 +23,7 @@ services:
       - ../.local-test/backups:/backups:ro
     environment:
       PGPASSWORD: test-password
-    command: ["sh", "-ec", "dump=$$(find /backups -name '*.dump' -type f | sort | tail -n 1); test -n \"$$dump\"; pg_restore -h postgres -U media_manager -d media_manager --clean --if-exists --no-owner --no-privileges \"$$dump\"; psql -h postgres -U media_manager -d media_manager -c \"CREATE SCHEMA IF NOT EXISTS media_manager\"; psql -h postgres -U media_manager -d media_manager -c \"INSERT INTO media_manager.auth_tokens (kind, token_hash, encrypted_token) VALUES ('media', '4c5dc9b7708905f77f5e5d16316b5dfb425e68cb326dcd55a860e90a7707031e', NULL) ON CONFLICT (kind) DO UPDATE SET token_hash = EXCLUDED.token_hash\""]
+    command: ["sh", "-ec", "dump=$$(find /backups -name '*.dump' -type f | sort | tail -n 1); test -n \"$$dump\"; pg_restore -h postgres -U media_manager -d media_manager --clean --if-exists --no-owner --no-privileges \"$$dump\"; psql -h postgres -U media_manager -d media_manager -c \"CREATE SCHEMA IF NOT EXISTS media_manager\"; psql -h postgres -U media_manager -d media_manager -c \"INSERT INTO media_manager.auth_tokens (kind, token_hash, encrypted_token) VALUES ('media', '4c5dc9b7708905f77f5e5d16316b5dfb425e68cb326dcd55a860e90a7707031e', NULL), ('admin', '17d6bfe05d1b1fb7bc499f8e3f639c7b3eda4c40f321eef8887a0c04c89a99c5', NULL) ON CONFLICT (kind) DO UPDATE SET token_hash = EXCLUDED.token_hash\""]
     networks: [isolated]
 
   minio:
@@ -79,6 +79,8 @@ services:
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin
       S3_REGION: us-east-1
+      SOURCE_PROCESSING_WORKER_TOKEN: test-worker-token
+      SOURCE_PROCESSING_LEASE_SECONDS: "1"
       PORT: "8080"
     networks: [isolated]
 
@@ -94,6 +96,32 @@ services:
       - ./tests/integration:/tests:ro
     command: ["python", "/tests/originals_flow.py"]
     networks: [isolated]
+
+  source-processing-integration:
+    build:
+      context: ..
+      dockerfile: remote-js/Dockerfile.worker
+    depends_on:
+      app:
+        condition: service_started
+      fixture:
+        condition: service_started
+    environment:
+      PYTHONPATH: /workspace:/workspace/packages
+      SOURCE_PROCESSING_SERVICE_URL: http://app:8080
+      SOURCE_PROCESSING_PROJECT: worker-project
+      SOURCE_PROCESSING_WORKER_TOKEN: test-worker-token
+      SOURCE_PROCESSING_WORK_DIR: /tmp/source-processing-worker
+      SOURCE_PROCESSING_HEARTBEAT_INTERVAL_SEC: "0.2"
+    volumes:
+      - ..:/workspace:ro
+      - ../.local-test/fixtures:/fixtures:ro
+      - source-processing-work:/tmp/source-processing-worker
+    command: ["python", "/workspace/remote-js/tests/integration/source_processing_flow.py"]
+    networks: [isolated]
+
+volumes:
+  source-processing-work:
 
 networks:
   isolated:

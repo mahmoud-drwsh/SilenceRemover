@@ -64,6 +64,36 @@ export function remuxTemporaryObjectKey(project: string, jobId: string): string 
   return `remux/${project}/${jobId}.mp4`;
 }
 
+function sourceArtifactTemporaryObjectKey(project: string, jobId: string, leaseToken: string, kind: string): string {
+  return `source-processing/${project}/${jobId}/${leaseToken}/${kind}`;
+}
+
+export async function presignSourceArtifactPut(project: string, jobId: string, leaseToken: string, kind: string, mime: string): Promise<string> {
+  const config = loadConfig();
+  return getSignedUrl(getS3Client(), new PutObjectCommand({ Bucket: config.s3Bucket, Key: sourceArtifactTemporaryObjectKey(project, jobId, leaseToken, kind), ContentType: mime }), { expiresIn: PRESIGNED_URL_TTL_SEC });
+}
+
+export async function sourceArtifactTemporaryHead(project: string, jobId: string, leaseToken: string, kind: string): Promise<StorageHead | null> {
+  const config = loadConfig();
+  try { const result = await getS3Client().send(new HeadObjectCommand({ Bucket: config.s3Bucket, Key: sourceArtifactTemporaryObjectKey(project, jobId, leaseToken, kind) })); return { size: Number(result.ContentLength ?? 0) }; } catch { return null; }
+}
+
+export async function sourceArtifactTemporarySha256(project: string, jobId: string, leaseToken: string, kind: string): Promise<string> {
+  const config = loadConfig(); const result = await getS3Client().send(new GetObjectCommand({ Bucket: config.s3Bucket, Key: sourceArtifactTemporaryObjectKey(project, jobId, leaseToken, kind) }));
+  const body = result.Body; if (!body || typeof (body as { transformToWebStream?: () => unknown }).transformToWebStream !== "function") throw new Error("S3 GetObject returned no body");
+  const reader = (body as { transformToWebStream: () => ReadableStream<Uint8Array> }).transformToWebStream().getReader(); const hash = createHash("sha256");
+  try { while (true) { const { done, value } = await reader.read(); if (done) break; hash.update(value); } } finally { reader.releaseLock(); }
+  return hash.digest("hex");
+}
+
+export async function promoteSourceArtifact(project: string, jobId: string, leaseToken: string, kind: string, type: "audio" | "subtitle" | "video", id: string, ext: string, mime: string): Promise<void> {
+  const config = loadConfig(); await getS3Client().send(new CopyObjectCommand({ Bucket: config.s3Bucket, CopySource: `${config.s3Bucket}/${sourceArtifactTemporaryObjectKey(project, jobId, leaseToken, kind)}`, Key: storageObjectKey(type, project, id, ext), ContentType: mime, MetadataDirective: "REPLACE" }));
+}
+
+export async function deleteSourceArtifactTemporary(project: string, jobId: string, leaseToken: string, kind: string): Promise<void> {
+  const config = loadConfig(); await getS3Client().send(new DeleteObjectCommand({ Bucket: config.s3Bucket, Key: sourceArtifactTemporaryObjectKey(project, jobId, leaseToken, kind) }));
+}
+
 export async function presignTemporaryRemuxPut(project: string, jobId: string): Promise<string> {
   const config = loadConfig();
   return getSignedUrl(getS3Client(), new PutObjectCommand({

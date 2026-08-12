@@ -119,6 +119,32 @@ export async function ensureDatabaseReady(): Promise<void> {
   `);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS subtitle_remux_jobs_claim_idx ON ${ident}.subtitle_remux_jobs (project, state, created_at)`);
   await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS ${ident}.source_processing (
+      id text PRIMARY KEY,
+      project text NOT NULL,
+      source_id text NOT NULL,
+      original_checksum_sha256 text NOT NULL,
+      processing_profile text NOT NULL,
+      state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'claimed', 'waiting', 'completed', 'failed', 'stale')),
+      attempts integer NOT NULL DEFAULT 0,
+      lease_token text,
+      lease_until timestamptz,
+      trim_plan jsonb,
+      review_transcript text,
+      generated_title text,
+      srt_text text,
+      waiting_reason text,
+      last_error text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (project, source_id, original_checksum_sha256, processing_profile)
+    )
+  `);
+  await sql.unsafe(`ALTER TABLE ${ident}.source_processing ADD COLUMN IF NOT EXISTS waiting_reason text`);
+  await sql.unsafe(`ALTER TABLE ${ident}.source_processing DROP CONSTRAINT IF EXISTS source_processing_state_check`);
+  await sql.unsafe(`ALTER TABLE ${ident}.source_processing ADD CONSTRAINT source_processing_state_check CHECK (state IN ('pending', 'claimed', 'waiting', 'completed', 'failed', 'stale'))`);
+  await sql.unsafe(`CREATE INDEX IF NOT EXISTS source_processing_claim_idx ON ${ident}.source_processing (project, state, created_at)`);
+  await sql.unsafe(`
     CREATE TABLE IF NOT EXISTS ${ident}.original_uploads (
       upload_id text PRIMARY KEY,
       project text NOT NULL,
@@ -167,6 +193,7 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`SELECT 1 FROM ${ident}.public_share_links LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.upload_sessions LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.subtitle_remux_jobs LIMIT 1`);
+  await sql.unsafe(`SELECT 1 FROM ${ident}.source_processing LIMIT 1`);
 }
 
 /**
