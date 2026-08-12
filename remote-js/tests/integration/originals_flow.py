@@ -49,6 +49,8 @@ def complete_session(session, payload_bytes=source):
         parts = []
         for part_number, url in enumerate(session["urls"], start=1):
             start = (part_number - 1) * part_size
+            if url.startswith("/"):
+                url = "http://app:8080" + url
             part = urllib.request.urlopen(urllib.request.Request(url, data=payload_bytes[start:start + part_size], method="PUT"), timeout=20)
             parts.append({"part_number": part_number, "etag": part.headers["ETag"]})
     else:

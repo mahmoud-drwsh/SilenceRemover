@@ -12,7 +12,7 @@ import { HttpError, type FileType } from "../schemas.ts";
 import { sanitizeFileId, sanitizeFilename } from "../sanitize.ts";
 import {
   MULTIPART_PART_SIZE, abortMultipartUpload, completeMultipartUpload, presignPutObject,
-  presignUploadPart, createMultipartUpload, storageGet,
+  presignUploadPart, createMultipartUpload, storageGet, uploadMultipartPart,
 } from "../storage.ts";
 import { verifyMediaToken } from "../http.ts";
 import { assertSourceOriginalExists, commitUploadMetadata, parseTagsValue, parseUploadTags, resolveUploadOverwrite } from "./files.ts";
@@ -183,7 +183,7 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
     if (existing) return false;
     throw error;
   });
-  if (existing) return c.json(await sessionResponse(existing, partCount, true));
+  if (existing) return c.json(await sessionResponse(existing, partCount, true, token));
   const ext = getExtensionForMime(input.mime);
   const uploadId = partCount ? await createMultipartUpload(input.type, project, input.id, ext, input.mime) : null;
   const session: UploadSession = {
@@ -193,16 +193,45 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
   };
   await sql.unsafe(`INSERT INTO ${ident}.upload_sessions (id,project,file_id,type,mime_type,file_size,checksum_sha256,title,tags,source_id,original_filename,upload_id,designer_of_id,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14)`,
     [session.id, project, input.id, input.type, input.mime, input.size, input.checksum, input.title, JSON.stringify(input.tags), input.sourceId, input.filename, uploadId, input.designerOfId, session.expires_at]);
-  return c.json({ ...(await sessionResponse(session, partCount, true)), overwritten });
+  return c.json({ ...(await sessionResponse(session, partCount, true, token)), overwritten });
 });
 
-async function sessionResponse(session: UploadSession, partCount: number, includeUrls: boolean): Promise<Record<string, unknown>> {
+async function sessionResponse(session: UploadSession, partCount: number, includeUrls: boolean, token?: string): Promise<Record<string, unknown>> {
   const ext = getExtensionForMime(session.mime_type);
   if (!includeUrls) return { ok: true, session_id: session.id, id: session.file_id, type: session.type, resumed: true };
   if (!session.upload_id) return { ok: true, session_id: session.id, id: session.file_id, type: session.type, upload_url: await presignPutObject(session.type, session.project, session.file_id, ext, session.mime_type) };
+  if (session.designer_of_id && token) {
+    const base = `/projects/${encodeURIComponent(token)}/${encodeURIComponent(session.project)}/api/uploads/${encodeURIComponent(session.id)}/parts`;
+    return {
+      ok: true, session_id: session.id, id: session.file_id, type: session.type,
+      upload_id: session.upload_id, part_size: MULTIPART_PART_SIZE,
+      urls: Array.from({ length: partCount }, (_, index) => `${base}/${index + 1}`),
+    };
+  }
   const urls = await Promise.all(Array.from({ length: partCount }, (_, index) => presignUploadPart(session.type, session.project, session.file_id, ext, session.upload_id!, index + 1)));
   return { ok: true, session_id: session.id, id: session.file_id, type: session.type, upload_id: session.upload_id, part_size: MULTIPART_PART_SIZE, urls };
 }
+
+uploadsRouter.put("/projects/:token/:project/api/uploads/:sessionId/parts/:partNumber", async (c) => {
+  const { token, project, sessionId, partNumber: partNumberRaw } = c.req.param();
+  await verifyMediaToken(token);
+  const session = await sessionById(project, sessionId);
+  const partNumber = Number(partNumberRaw);
+  const partCount = session ? Math.ceil(Number(session.file_size) / MULTIPART_PART_SIZE) : 0;
+  if (!session || !session.designer_of_id || !session.upload_id) throw new HttpError(404, "Designer upload session not found");
+  if (session.state !== "active" || new Date(session.expires_at).getTime() < Date.now()) throw new HttpError(409, "Upload session is no longer active");
+  if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > partCount) throw new HttpError(400, "Invalid upload part number");
+  const body = new Uint8Array(await c.req.arrayBuffer());
+  const expectedSize = partNumber < partCount
+    ? MULTIPART_PART_SIZE
+    : Number(session.file_size) - MULTIPART_PART_SIZE * (partCount - 1);
+  if (body.byteLength !== expectedSize) throw new HttpError(400, `Upload part must contain exactly ${expectedSize} bytes`);
+  const etag = await uploadMultipartPart(
+    session.type, project, session.file_id, getExtensionForMime(session.mime_type),
+    session.upload_id, partNumber, body,
+  );
+  return c.body(null, 200, { ETag: etag });
+});
 
 uploadsRouter.post("/projects/:token/:project/api/uploads/:sessionId/complete", async (c) => {
   const { token, project, sessionId } = c.req.param(); await verifyMediaToken(token);

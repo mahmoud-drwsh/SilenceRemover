@@ -315,6 +315,22 @@ export async function presignUploadPart(
   }), { expiresIn: PRESIGNED_URL_TTL_SEC });
 }
 
+export async function uploadMultipartPart(
+  fileType: FileType, project: string, fileId: string, ext: string, uploadId: string,
+  partNumber: number, body: Uint8Array,
+): Promise<string> {
+  const config = loadConfig();
+  const result = await getS3Client().send(new UploadPartCommand({
+    Bucket: config.s3Bucket,
+    Key: storageObjectKey(fileType, project, fileId, ext),
+    UploadId: uploadId,
+    PartNumber: partNumber,
+    Body: body,
+  }));
+  if (!result.ETag) throw new Error("S3 did not return an ETag for the uploaded part");
+  return result.ETag;
+}
+
 export async function presignPutObject(
   fileType: FileType, project: string, fileId: string, ext: string, mime: string,
 ): Promise<string> {

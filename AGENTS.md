@@ -28,6 +28,7 @@ After code or config changes, agents append short notes here. When this file gro
 - **Review ordering**: Non-admin title review is always oldest first and has no sorting control; admin sorting remains available.
 - **Trash access**: Video trash controls are admin-only; non-admin title reviewers can discard unusable audio from the review queue.
 - **Designer queue**: The `needs-designer` video filter returns only pipeline finals without a non-trashed linked designer video; non-admin designers see this focused queue.
+- **Designer upload transport**: Designer multipart parts use authenticated same-origin Media Manager URLs, which proxy one bounded 8 MiB part to object storage and return its ETag. Pipeline uploads retain direct presigned storage URLs; no bucket CORS permission is required.
 - **Focused folders**: Single-purpose non-admin queues hide the redundant folder navigation.
 - **Bulk audio approval**: Admin-mode audio review offers a confirmed bulk action that marks only non-trashed `todo` audio as `ready` and returns the affected count.
 - **Subtitle delivery**: Linked video cards expose the embedded subtitle track through MP4 downloads and provide a separate SRT download for `{source-id}-subtitles`. The deterministic normalizer bounds cues and repairs legacy flattened cue headers and non-padded millisecond timestamps before checksum-pinned remuxing. Pipeline startup treats an existing server SRT as completed, preventing backfilled sources from spending OpenRouter credits again.

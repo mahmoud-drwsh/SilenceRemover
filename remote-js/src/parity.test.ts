@@ -417,6 +417,14 @@ describe("frontend Media Manager UI", () => {
     expect(filesRoute).toContain('designer_candidate.designer_of_id');
   });
 
+  test("designer uploads use same-origin multipart URLs", async () => {
+    const uploadsRoute = await Bun.file(new URL("./routes/uploads.ts", import.meta.url)).text();
+
+    expect(uploadsRoute).toContain("session.designer_of_id && token");
+    expect(uploadsRoute).toContain('/parts/:partNumber');
+    expect(uploadsRoute).toContain("uploadMultipartPart(");
+  });
+
   test("designer queue hides redundant folder navigation", async () => {
     const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
 
