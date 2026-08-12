@@ -6,4 +6,7 @@ RUN apt-get update \
     && pip install --no-cache-dir httpx openrouter pillow arabic-reshaper python-bidi
 
 WORKDIR /workspace
+COPY src /workspace/src
+COPY packages /workspace/packages
+ENV PYTHONPATH=/workspace:/workspace/packages
 CMD ["python", "/workspace/packages/sr_source_processing/api.py"]
