@@ -42,7 +42,6 @@ $pipelineArgs = @(
     $Encoder
     "--target-length"
     "179"
-    "--enable-media-manager"
     "--enable-title-overlay"
     "--enable-logo-overlay"
     "--title-y-fraction"
