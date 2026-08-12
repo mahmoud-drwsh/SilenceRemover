@@ -52,7 +52,7 @@ export interface AppConfig {
   loginRateLimitMaxAttempts: number;
   tokenEncryptionKey: Buffer;
   /** Server processing is the default for every project. */
-  sourceProcessingWorkerToken: string;
+  sourceProcessingWorkerToken?: string;
   sourceProcessingLeaseSeconds: number;
   sourceProcessingProfile: string;
 }
@@ -84,7 +84,7 @@ export function loadConfig(): AppConfig {
     loginRateLimitWindowSec: LOGIN_RATE_LIMIT_WINDOW_SEC,
     loginRateLimitMaxAttempts: LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
     tokenEncryptionKey,
-    sourceProcessingWorkerToken: readRequiredEnv("SOURCE_PROCESSING_WORKER_TOKEN"),
+    sourceProcessingWorkerToken: readEnv("SOURCE_PROCESSING_WORKER_TOKEN"),
     sourceProcessingLeaseSeconds: readPositiveInteger("SOURCE_PROCESSING_LEASE_SECONDS", 1800),
     sourceProcessingProfile: readEnv("SOURCE_PROCESSING_PROFILE") ?? "v1",
   };
