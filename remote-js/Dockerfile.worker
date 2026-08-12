@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg ca-certificates intel-media-va-driver libva-utils \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir httpx openrouter pillow arabic-reshaper python-bidi
 
