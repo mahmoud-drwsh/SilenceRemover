@@ -145,6 +145,14 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`ALTER TABLE ${ident}.source_processing ADD CONSTRAINT source_processing_state_check CHECK (state IN ('pending', 'claimed', 'waiting', 'completed', 'failed', 'stale'))`);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS source_processing_claim_idx ON ${ident}.source_processing (project, state, created_at)`);
   await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS ${ident}.project_overlay_logos (
+      project text PRIMARY KEY,
+      checksum_sha256 text NOT NULL,
+      file_size bigint NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await sql.unsafe(`
     CREATE TABLE IF NOT EXISTS ${ident}.original_uploads (
       upload_id text PRIMARY KEY,
       project text NOT NULL,
@@ -194,6 +202,7 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`SELECT 1 FROM ${ident}.upload_sessions LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.subtitle_remux_jobs LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.source_processing LIMIT 1`);
+  await sql.unsafe(`SELECT 1 FROM ${ident}.project_overlay_logos LIMIT 1`);
 }
 
 /**

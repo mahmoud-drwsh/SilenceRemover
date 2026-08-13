@@ -304,20 +304,22 @@ def prepare_logo_overlay(
     input_file: Path,
     temp_dir: Path,
     enable_logo_overlay: bool,
+    logo_path: Path | None = None,
 ) -> tuple[Path | None, bool]:
     """Generate or reuse the pre-scaled logo PNG and return (path, enabled)."""
-    if not enable_logo_overlay or not DEFAULT_LOGO_PATH.is_file():
+    source_logo_path = logo_path or DEFAULT_LOGO_PATH
+    if not enable_logo_overlay or not source_logo_path.is_file():
         return (None, False)
 
     try:
-        _ensure_source_logo_is_validated(DEFAULT_LOGO_PATH)
+        _ensure_source_logo_is_validated(source_logo_path)
         target_width_px = _resolve_logo_target_width(input_file)
         return (
             _ensure_prescaled_logo(
-                source_logo_path=DEFAULT_LOGO_PATH,
+                source_logo_path=source_logo_path,
                 output_logo_path=_get_prescaled_logo_path(
                     temp_dir=temp_dir,
-                    source_logo_path=DEFAULT_LOGO_PATH,
+                    source_logo_path=source_logo_path,
                     target_width_px=target_width_px,
                 ),
                 target_width_px=target_width_px,
@@ -336,6 +338,7 @@ def resolve_prepared_video_overlays(
     enable_logo_overlay: bool,
     title_y_fraction: float | None,
     title_height_fraction: float | None,
+    logo_path: Path | None = None,
 ) -> tuple[Path | None, Path | None, int | None, bool]:
     """Load pre-generated overlay assets for final encode."""
     title_overlay_path: Path | None = None
@@ -363,12 +366,16 @@ def resolve_prepared_video_overlays(
                 raise RuntimeError(f"Missing prepared title overlay: {title_overlay_candidate}")
             title_overlay_path = title_overlay_candidate
 
-    if enable_logo_overlay and DEFAULT_LOGO_PATH.is_file():
-        logo_target_path, use_logo = prepare_logo_overlay(
+    source_logo_path = logo_path or DEFAULT_LOGO_PATH
+    if enable_logo_overlay and source_logo_path.is_file():
+        logo_args = dict(
             input_file=input_file,
             temp_dir=temp_dir,
             enable_logo_overlay=True,
         )
+        if logo_path is not None:
+            logo_args["logo_path"] = source_logo_path
+        logo_target_path, use_logo = prepare_logo_overlay(**logo_args)
         if use_logo:
             if logo_target_path is None:
                 raise RuntimeError("Logo overlay path was not created")
@@ -386,6 +393,7 @@ def prepare_video_overlays(
     enable_logo_overlay: bool,
     title_y_fraction: float | None,
     title_height_fraction: float | None,
+    logo_path: Path | None = None,
 ) -> tuple[Path | None, Path | None, int | None, bool]:
     """Generate title overlay PNG and pre-scale logo. Returns (title_overlay_path, logo_path, banner_top, use_logo)."""
     title_overlay_path, banner_top = prepare_title_overlay(
@@ -401,6 +409,7 @@ def prepare_video_overlays(
         input_file=input_file,
         temp_dir=temp_dir,
         enable_logo_overlay=enable_logo_overlay,
+        logo_path=logo_path,
     )
     return (title_overlay_path, logo_path_resolved, banner_top, use_logo)
 
@@ -423,6 +432,7 @@ def trim_single_video(
     temp_dir: Optional[Path] = None,
     metadata_title: str | None = None,
     trim_script_path: Path | None = None,
+    logo_path: Path | None = None,
 ) -> Path:
     """Trim a single video and return the output file path."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -439,8 +449,9 @@ def trim_single_video(
         target_length=target_length,
     )
 
-    use_logo = enable_logo_overlay and DEFAULT_LOGO_PATH.is_file()
-    logo_path_resolved = DEFAULT_LOGO_PATH if use_logo else None
+    source_logo_path = logo_path or DEFAULT_LOGO_PATH
+    use_logo = enable_logo_overlay and source_logo_path.is_file()
+    logo_path_resolved = source_logo_path if use_logo else None
 
     encoder = encoder or get_encoder_config("X265")["codec"]
     use_qsv_hardware_path = encoder.upper() == "QSV"
@@ -459,6 +470,7 @@ def trim_single_video(
         enable_logo_overlay=enable_logo_overlay,
         title_y_fraction=title_y_fraction,
         title_height_fraction=title_height_fraction,
+        logo_path=source_logo_path,
         )
 
     if (

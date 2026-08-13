@@ -60,6 +60,40 @@ export function storageObjectKey(
   return `${fileType}/${project}/${fileId}${ext}`;
 }
 
+/** One replaceable PNG used by the server worker for this project's overlays. */
+export function projectOverlayLogoObjectKey(project: string): string {
+  return `project-overlay-logo/${encodeURIComponent(project)}.png`;
+}
+
+export async function storagePutProjectOverlayLogo(project: string, body: Uint8Array): Promise<void> {
+  const config = loadConfig();
+  await getS3Client().send(new PutObjectCommand({
+    Bucket: config.s3Bucket,
+    Key: projectOverlayLogoObjectKey(project),
+    Body: body,
+    ContentType: "image/png",
+  }));
+}
+
+export async function storageGetProjectOverlayLogo(project: string): Promise<ReadableStream<Uint8Array> | null> {
+  const config = loadConfig();
+  try {
+    const result = await getS3Client().send(new GetObjectCommand({
+      Bucket: config.s3Bucket,
+      Key: projectOverlayLogoObjectKey(project),
+    }));
+    const body = result.Body;
+    if (!body || typeof (body as { transformToWebStream?: () => unknown }).transformToWebStream !== "function") {
+      throw new Error("S3 GetObject returned no body");
+    }
+    return (body as { transformToWebStream: () => ReadableStream<Uint8Array> }).transformToWebStream();
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    if (name === "NotFound" || name === "NoSuchKey") return null;
+    throw error;
+  }
+}
+
 export function remuxTemporaryObjectKey(project: string, jobId: string): string {
   return `remux/${project}/${jobId}.mp4`;
 }

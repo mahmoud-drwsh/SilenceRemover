@@ -7,7 +7,7 @@ import { getDb, schemaIdent } from "../db.ts";
 import { verifyAdminToken } from "../http.ts";
 import { getExtensionForMime } from "../mime.ts";
 import { HttpError } from "../schemas.ts";
-import { deleteSourceArtifactTemporary, presignOriginalDownload, presignSourceArtifactPut, promoteSourceArtifact, sourceArtifactTemporaryHead, sourceArtifactTemporarySha256 } from "../storage.ts";
+import { deleteSourceArtifactTemporary, presignOriginalDownload, presignSourceArtifactPut, promoteSourceArtifact, sourceArtifactTemporaryHead, sourceArtifactTemporarySha256, storageGetProjectOverlayLogo } from "../storage.ts";
 
 export const sourceProcessingRouter = new Hono();
 
@@ -203,6 +203,24 @@ sourceProcessingRouter.post("/internal/source-processing/:project/claim", async 
         AND NOT ((CASE WHEN jsonb_typeof(a.tags)='string' THEN (a.tags #>> '{}')::jsonb ELSE a.tags END) @> '["trash"]'::jsonb)
       LIMIT 1`, [project, job.source_id]))[0]?.title ?? null,
   } });
+});
+
+/** The worker obtains the current project logo through its lease-fenced channel. */
+sourceProcessingRouter.get("/internal/source-processing/:project/:jobId/overlay-logo", async (c) => {
+  verifyWorkerToken(c.req.header("X-Source-Processing-Token"));
+  const { project, jobId } = c.req.param();
+  const token = c.req.header("X-Source-Processing-Lease-Token") ?? "";
+  const sql = getDb(); const ident = schemaIdent();
+  const row = (await sql.unsafe<{ id: string }[]>(`
+    SELECT j.id FROM ${ident}.source_processing j
+    WHERE j.project=$1 AND j.id=$2 AND j.state='claimed' AND j.lease_token=$3
+      AND j.lease_until > now()
+      AND EXISTS (SELECT 1 FROM ${ident}.files f WHERE f.project=j.project AND f.id=j.source_id
+        AND f.type='original' AND f.checksum_sha256=j.original_checksum_sha256)`, [project, jobId, token]))[0];
+  if (!row) throw new HttpError(409, "Source-processing job lease is not active");
+  const body = await storageGetProjectOverlayLogo(project);
+  if (!body) throw new HttpError(404, "Project overlay logo content not found");
+  return new Response(body, { headers: { "Content-Type": "image/png", "Cache-Control": "no-store" } });
 });
 
 sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/artifacts/initiate", async (c) => {

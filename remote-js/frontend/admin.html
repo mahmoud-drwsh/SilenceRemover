@@ -167,6 +167,8 @@
         .open-btn.secondary:hover {
             background: #2b8f4e;
         }
+        .open-btn.logo-btn { background: #55408c; }
+        .open-btn.logo-btn:hover { background: #6a50ad; }
         .open-btn + .open-btn {
             margin-top: 0.5rem;
         }
@@ -484,11 +486,12 @@
                         </div>
                         
                         <div class="project-meta">
-                            💾 DB ${formatBytes(p.storage_bytes)} • S3 ${formatS3Storage(p.project)} • 🕒 ${formatTimeAgo(p.last_updated)}
+                            💾 DB ${formatBytes(p.storage_bytes)} • S3 ${formatS3Storage(p.project)} • 🖼️ Logo: ${p.overlay_logo_configured ? 'configured' : 'not configured'} • 🕒 ${formatTimeAgo(p.last_updated)}
                         </div>
                         
                         <a href="${audioUrl}" class="open-btn" target="_blank"${disabled}>🎵 Open Audio${disabledLabel}</a>
                         <a href="${videoUrl}" class="open-btn secondary" target="_blank"${disabled}>🎬 Open Video${disabledLabel}</a>
+                        <button class="open-btn logo-btn" onclick="uploadOverlayLogo('${encodeURIComponent(p.project)}')">🖼️ Upload / replace overlay logo</button>
                         ${publicShareButton}
                     </div>
                 `;
@@ -508,6 +511,33 @@
             } catch (err) {
                 window.alert(`Could not create public link: ${err.message}`);
             }
+        }
+
+        async function uploadOverlayLogo(encodedProject) {
+            const project = decodeURIComponent(encodedProject);
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/png';
+            input.onchange = async () => {
+                const file = input.files?.[0];
+                if (!file) return;
+                if (file.type !== 'image/png' || file.size > 10 * 1024 * 1024) {
+                    window.alert('Choose a PNG logo no larger than 10 MiB.');
+                    return;
+                }
+                try {
+                    const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/overlay-logo`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'image/png' },
+                        body: file,
+                    });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    await loadProjects();
+                } catch (err) {
+                    window.alert(`Could not upload overlay logo: ${err.message}`);
+                }
+            };
+            input.click();
         }
 
         function escapeHtml(str) {

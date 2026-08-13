@@ -227,12 +227,14 @@ class SourceProcessingWorker:
         )
         title_path = job_dir / "approved-title.txt"
         title_path.write_text(approved_title, encoding="utf-8")
+        logo_path = self._download_project_logo(job_id, lease_token, job_dir) if self.config.enable_logo_overlay else None
         if self.config.enable_title_overlay or self.config.enable_logo_overlay:
             prepare_video_overlays(
                 input_file=original_path, temp_dir=job_dir, title_path=title_path,
                 title_font=self.config.title_font, enable_title_overlay=self.config.enable_title_overlay,
                 enable_logo_overlay=self.config.enable_logo_overlay,
                 title_y_fraction=None, title_height_fraction=None,
+                logo_path=logo_path,
             )
         no_overlay = job_dir / "no-overlay.mp4"
         if not bool(job.get("no_overlay_uploaded")):
@@ -254,7 +256,7 @@ class SourceProcessingWorker:
                 encoder=self.config.encoder, title_path=title_path, title_font=self.config.title_font,
                 enable_title_overlay=self.config.enable_title_overlay,
                 enable_logo_overlay=self.config.enable_logo_overlay, temp_dir=job_dir,
-                metadata_title=approved_title, trim_script_path=trim_script,
+                metadata_title=approved_title, trim_script_path=trim_script, logo_path=logo_path,
             )
             mux_srt_track(final_video, srt_path)
             self._upload_artifact(job_id, lease_token, "overlaid_video", final_video, approved_title, "video/mp4")
@@ -339,6 +341,28 @@ class SourceProcessingWorker:
         except (OSError, httpx.HTTPError) as exc:
             temporary.unlink(missing_ok=True)
             raise WorkerError(f"Original download failed: {exc}") from exc
+
+    def _download_project_logo(self, job_id: str, lease_token: str, job_dir: Path) -> Path | None:
+        """Fetch the current project PNG only for the overlaid final."""
+        destination = job_dir / "project-overlay-logo.png"
+        try:
+            with self._client.stream(
+                "GET", self._url(f"/{job_id}/overlay-logo"),
+                headers={**self._headers(), "X-Source-Processing-Lease-Token": lease_token},
+            ) as response:
+                if response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                with destination.open("wb") as handle:
+                    for chunk in response.iter_bytes():
+                        handle.write(chunk)
+        except (OSError, httpx.HTTPError) as exc:
+            destination.unlink(missing_ok=True)
+            raise WorkerError(f"Project overlay logo download failed: {exc}") from exc
+        if destination.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
+            destination.unlink(missing_ok=True)
+            raise WorkerError("Project overlay logo is not a PNG file")
+        return destination
 
     @staticmethod
     def _verify_checksum(path: Path, expected: str) -> None:

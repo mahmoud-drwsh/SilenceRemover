@@ -8,6 +8,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { join, normalize, sep } from "node:path";
+import { createHash } from "node:crypto";
 import { writeAdminAuditEvent } from "../audit.ts";
 import {
   getMediaTokenPlaintext,
@@ -17,7 +18,7 @@ import {
 import { getDb, schemaIdent } from "../db.ts";
 import { getPeerIp, verifyAdminToken } from "../http.ts";
 import { HttpError, SetMediaTokenRequestSchema } from "../schemas.ts";
-import { storageProjectSizeTotals } from "../storage.ts";
+import { storageProjectSizeTotals, storagePutProjectOverlayLogo } from "../storage.ts";
 import { createPublicShareLink, listPublicShareLinks } from "../shareLinks.ts";
 
 export const adminRouter = new Hono();
@@ -34,6 +35,22 @@ interface ProjectStatRow {
   video_total: number | string | null;
   total_bytes: number | string | null;
   last_updated: Date | string | null;
+  logo_checksum_sha256: string | null;
+}
+
+const MAX_OVERLAY_LOGO_BYTES = 10 * 1024 * 1024;
+const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+
+function requirePngLogo(contentType: string | undefined, bytes: Uint8Array): void {
+  if (contentType?.split(";", 1)[0]?.trim().toLowerCase() !== "image/png") {
+    throw new HttpError(415, "Overlay logo must be an image/png file");
+  }
+  if (bytes.byteLength < PNG_SIGNATURE.byteLength || bytes.byteLength > MAX_OVERLAY_LOGO_BYTES) {
+    throw new HttpError(400, "Overlay logo must be a PNG no larger than 10 MiB");
+  }
+  if (!PNG_SIGNATURE.every((value, index) => bytes[index] === value)) {
+    throw new HttpError(415, "Overlay logo content is not a PNG file");
+  }
 }
 
 function toInt(value: number | string | null): number {
@@ -150,17 +167,19 @@ adminRouter.get("/admin/:admin_token/api/projects", async (c) => {
   const ident = schemaIdent();
   const rows = await sql.unsafe<ProjectStatRow[]>(`
     SELECT
-      project,
-      COUNT(CASE WHEN type='audio' THEN 1 END) AS audio_total,
-      SUM(CASE WHEN type='audio' AND tags::text LIKE '%"todo"%' THEN 1 ELSE 0 END) AS audio_todo,
-      SUM(CASE WHEN type='audio' AND tags::text LIKE '%"ready"%' THEN 1 ELSE 0 END) AS audio_ready,
-      SUM(CASE WHEN type='audio' AND tags::text LIKE '%"trash"%' THEN 1 ELSE 0 END) AS audio_trash,
-      COUNT(CASE WHEN type='video' THEN 1 END) AS video_total,
-      COALESCE(SUM(file_size), 0) AS total_bytes,
-      MAX(created_at) AS last_updated
-    FROM ${ident}.files
-    GROUP BY project
-    ORDER BY project
+      f.project,
+      COUNT(CASE WHEN f.type='audio' THEN 1 END) AS audio_total,
+      SUM(CASE WHEN f.type='audio' AND f.tags::text LIKE '%"todo"%' THEN 1 ELSE 0 END) AS audio_todo,
+      SUM(CASE WHEN f.type='audio' AND f.tags::text LIKE '%"ready"%' THEN 1 ELSE 0 END) AS audio_ready,
+      SUM(CASE WHEN f.type='audio' AND f.tags::text LIKE '%"trash"%' THEN 1 ELSE 0 END) AS audio_trash,
+      COUNT(CASE WHEN f.type='video' THEN 1 END) AS video_total,
+      COALESCE(SUM(f.file_size), 0) AS total_bytes,
+      MAX(f.created_at) AS last_updated,
+      logo.checksum_sha256 AS logo_checksum_sha256
+    FROM ${ident}.files f
+    LEFT JOIN ${ident}.project_overlay_logos logo ON logo.project=f.project
+    GROUP BY f.project, logo.checksum_sha256
+    ORDER BY f.project
   `);
 
   const projects = rows.map((row) => ({
@@ -176,12 +195,43 @@ adminRouter.get("/admin/:admin_token/api/projects", async (c) => {
     },
     storage_bytes: toInt(row.total_bytes),
     last_updated: isoOrNull(row.last_updated),
+    overlay_logo_configured: Boolean(row.logo_checksum_sha256),
   }));
 
   return c.json({
     media_token: await getMediaTokenPlaintext(),
     projects,
   });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Per-project overlay logo                                                    */
+/* -------------------------------------------------------------------------- */
+
+adminRouter.post("/admin/:admin_token/api/projects/:project/overlay-logo", async (c) => {
+  await verifyAdminToken(c, c.req.param("admin_token"));
+  const project = c.req.param("project").trim();
+  if (!project || project.length > 200) throw new HttpError(400, "Invalid project");
+  const declaredLength = Number(c.req.header("content-length"));
+  if (!Number.isSafeInteger(declaredLength) || declaredLength <= 0 || declaredLength > MAX_OVERLAY_LOGO_BYTES) {
+    throw new HttpError(413, "Overlay logo must be no larger than 10 MiB");
+  }
+  const bytes = new Uint8Array(await c.req.arrayBuffer());
+  requirePngLogo(c.req.header("content-type"), bytes);
+  const sql = getDb(); const ident = schemaIdent();
+  const exists = (await sql.unsafe<{ project: string }[]>(`SELECT project FROM ${ident}.files WHERE project=$1 LIMIT 1`, [project]))[0];
+  if (!exists) throw new HttpError(404, "Project not found");
+  const checksum = createHash("sha256").update(bytes).digest("hex");
+  await storagePutProjectOverlayLogo(project, bytes);
+  await sql.unsafe(`
+    INSERT INTO ${ident}.project_overlay_logos (project, checksum_sha256, file_size, updated_at)
+    VALUES ($1,$2,$3,now())
+    ON CONFLICT (project) DO UPDATE SET checksum_sha256=EXCLUDED.checksum_sha256,
+      file_size=EXCLUDED.file_size,updated_at=now()`, [project, checksum, bytes.byteLength]);
+  await writeAdminAuditEvent("token-admin", "set_project_overlay_logo", buildAuditRequest(c), {
+    project, checksum_sha256: checksum, file_size: bytes.byteLength,
+  });
+  return c.json({ ok: true, project, checksum_sha256: checksum, file_size: bytes.byteLength });
 });
 
 /* -------------------------------------------------------------------------- */
