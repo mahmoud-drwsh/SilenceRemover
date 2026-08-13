@@ -105,6 +105,40 @@ def test_run_original_upload_phase_uses_source_id_and_never_calls_llm(
     assert calls == [("clip", video_path)]
 
 
+def test_server_owned_pipeline_seeds_local_logo_without_replacing_server_logo(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    logo_path = tmp_path / "logo.png"
+    logo_path.write_bytes(b"\x89PNG\r\n\x1a\nlocal-logo")
+    calls: list[Path] = []
+
+    class FakeClient:
+        def upload_overlay_logo_if_missing(self, path: Path) -> bool:
+            calls.append(path)
+            return True
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(pipeline, "DEFAULT_LOGO_PATH", logo_path)
+    monkeypatch.setattr(pipeline, "MediaManagerClient", lambda _url: FakeClient())
+    monkeypatch.setenv("MEDIA_MANAGER_URL", "https://example.test/projects/token/project/")
+
+    pipeline.seed_server_overlay_logo_if_missing()
+
+    assert calls == [logo_path]
+    assert capsys.readouterr().out == "[Overlay Logo] Uploaded local logo to Media Manager\n"
+
+
+def test_server_owned_pipeline_does_not_seed_a_missing_local_logo(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(pipeline, "DEFAULT_LOGO_PATH", tmp_path / "missing.png")
+    monkeypatch.setattr(pipeline, "MediaManagerClient", lambda _url: pytest.fail("client should not be created"))
+
+    pipeline.seed_server_overlay_logo_if_missing()
+
+
 def test_original_upload_skip_reason_uses_the_startup_server_cache(tmp_path: Path) -> None:
     video_path = tmp_path / "clip.mkv"
     cache = pipeline.ServerDataCache(

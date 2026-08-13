@@ -104,6 +104,22 @@ class TestMediaManagerClient:
         assert client._client.post.call_args_list[1].args[0].endswith("/api/uploads/session-1/complete")
         assert client._client.post.call_args_list[1].kwargs["json"] == {"parts": [{"part_number": 1, "etag": '"etag-1"'}]}
 
+    def test_upload_overlay_logo_if_missing_uses_narrow_png_endpoint(self, tmp_path):
+        logo = tmp_path / "logo.png"
+        logo.write_bytes(b"\x89PNG\r\n\x1a\nlogo")
+        client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
+        client._client = Mock()
+        response = Mock()
+        response.json.return_value = {"ok": True, "uploaded": True}
+        client._client.put.return_value = response
+
+        assert client.upload_overlay_logo_if_missing(logo) is True
+        url = client._client.put.call_args.args[0]
+        assert url.endswith("/api/overlay-logo-if-missing")
+        assert client._client.put.call_args.kwargs["headers"] == {
+            "Content-Type": "image/png", "Content-Length": str(logo.stat().st_size),
+        }
+
     def test_upload_original_aborts_session_after_part_failure(self, tmp_path):
         original = tmp_path / "source.mp4"
         original.write_bytes(b"original-video-bytes")

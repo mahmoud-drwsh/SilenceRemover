@@ -28,6 +28,7 @@ import { normalizeTitle, sanitizeFileId } from "../sanitize.ts";
 import {
   storageDelete,
   storageDeleteAnyExtension,
+  storagePutProjectOverlayLogo,
   storagePutBytes,
 } from "../storage.ts";
 import { probeDurationSeconds } from "../ffprobe.ts";
@@ -36,8 +37,49 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
+import { createHash } from "node:crypto";
 
 export const filesRouter = new Hono();
+
+const MAX_OVERLAY_LOGO_BYTES = 10 * 1024 * 1024;
+const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+
+/**
+ * Client migration seam: a project media token may seed its logo once, but
+ * cannot replace an existing admin-managed logo.
+ */
+filesRouter.put("/projects/:token/:project/api/overlay-logo-if-missing", async (c) => {
+  const { token, project } = c.req.param();
+  await verifyMediaToken(token);
+  const contentType = c.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  const declaredLength = Number(c.req.header("content-length"));
+  if (contentType !== "image/png") throw new HttpError(415, "Overlay logo must be an image/png file");
+  if (!Number.isSafeInteger(declaredLength) || declaredLength <= 0 || declaredLength > MAX_OVERLAY_LOGO_BYTES) {
+    throw new HttpError(413, "Overlay logo must be no larger than 10 MiB");
+  }
+  const sql = getDb(); const ident = schemaIdent();
+  const existing = (await sql.unsafe<{ project: string }[]>(
+    `SELECT project FROM ${ident}.project_overlay_logos WHERE project=$1`, [project],
+  ))[0];
+  if (existing) return c.json({ ok: true, uploaded: false, reason: "already_configured" });
+  const bytes = new Uint8Array(await c.req.arrayBuffer());
+  if (bytes.byteLength !== declaredLength || bytes.byteLength < PNG_SIGNATURE.byteLength || !PNG_SIGNATURE.every((value, index) => bytes[index] === value)) {
+    throw new HttpError(415, "Overlay logo content is not a PNG file");
+  }
+  const projectExists = (await sql.unsafe<{ project: string }[]>(
+    `SELECT project FROM ${ident}.files WHERE project=$1 LIMIT 1`, [project],
+  ))[0];
+  if (!projectExists) throw new HttpError(404, "Project not found");
+  const checksum = createHash("sha256").update(bytes).digest("hex");
+  await storagePutProjectOverlayLogo(project, bytes);
+  const inserted = await sql.unsafe<{ project: string }[]>(`
+    INSERT INTO ${ident}.project_overlay_logos (project, checksum_sha256, file_size, updated_at)
+    VALUES ($1,$2,$3,now())
+    ON CONFLICT (project) DO NOTHING
+    RETURNING project`, [project, checksum, bytes.byteLength]);
+  if (!inserted[0]) return c.json({ ok: true, uploaded: false, reason: "already_configured" });
+  return c.json({ ok: true, uploaded: true, checksum_sha256: checksum, file_size: bytes.byteLength }, 201);
+});
 
 interface FileRow {
   id: string;

@@ -526,6 +526,25 @@ class MediaManagerClient:
         )
         return True
 
+    def upload_overlay_logo_if_missing(self, logo_path: Path) -> bool:
+        """Seed the project's server-side PNG logo once without replacing an admin logo."""
+        if not logo_path.is_file():
+            return False
+        size = logo_path.stat().st_size
+        if size <= 0 or size > 10 * 1024 * 1024:
+            raise MediaManagerError("Overlay logo must be a PNG no larger than 10 MiB")
+        with logo_path.open("rb") as stream:
+            response = self._client.put(
+                self._url("/api/overlay-logo-if-missing"),
+                content=stream,
+                headers={"Content-Type": "image/png", "Content-Length": str(size)},
+            )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            raise MediaManagerError("Overlay logo upload returned an invalid response")
+        return bool(payload.get("uploaded"))
+
     def upload_subtitle(self, source_id: str, title: str, subtitle_path: Path) -> bool:
         """Upload the pipeline-generated SRT under its deterministic source ID."""
         self._upload_presigned(

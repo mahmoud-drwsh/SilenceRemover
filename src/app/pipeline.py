@@ -670,6 +670,18 @@ def run_original_upload_phase(
     )
 
 
+def seed_server_overlay_logo_if_missing() -> None:
+    """Migrate the local project logo once without overriding a server logo."""
+    if not DEFAULT_LOGO_PATH.is_file():
+        return
+    client = MediaManagerClient(os.getenv("MEDIA_MANAGER_URL"))
+    try:
+        if client.upload_overlay_logo_if_missing(DEFAULT_LOGO_PATH):
+            print("[Overlay Logo] Uploaded local logo to Media Manager")
+    finally:
+        client.close()
+
+
 def original_upload_skip_reason(
     video_path: Path,
     server_cache: ServerDataCache | None,
@@ -1100,6 +1112,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     # uploads immutable Originals; it never needs an opt-in processing flag.
     media_manager_enabled = bool(_MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL'))
     if media_manager_enabled:
+        seed_server_overlay_logo_if_missing()
         server_cache = _rebuild_server_cache(os.getenv('MEDIA_MANAGER_URL') or '')
         upload_phase = _PipelinePhase(
             0,
