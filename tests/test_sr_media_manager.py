@@ -120,6 +120,19 @@ class TestMediaManagerClient:
             "Content-Type": "image/png", "Content-Length": str(logo.stat().st_size),
         }
 
+    def test_upload_overlay_logo_if_missing_retries_connection_reset(self, tmp_path, monkeypatch):
+        logo = tmp_path / "logo.png"
+        logo.write_bytes(b"\x89PNG\r\n\x1a\nlogo")
+        client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
+        client._client = Mock()
+        success = Mock()
+        success.json.return_value = {"ok": True, "uploaded": False}
+        client._client.put.side_effect = [httpx.ReadError("reset"), success]
+        monkeypatch.setattr("sr_media_manager.api.time.sleep", lambda _seconds: None)
+
+        assert client.upload_overlay_logo_if_missing(logo) is False
+        assert client._client.put.call_count == 2
+
     def test_upload_original_aborts_session_after_part_failure(self, tmp_path):
         original = tmp_path / "source.mp4"
         original.write_bytes(b"original-video-bytes")

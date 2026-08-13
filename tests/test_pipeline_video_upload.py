@@ -139,6 +139,28 @@ def test_server_owned_pipeline_does_not_seed_a_missing_local_logo(monkeypatch, t
     pipeline.seed_server_overlay_logo_if_missing()
 
 
+def test_server_owned_pipeline_defers_failed_logo_seed_without_blocking_upload(
+    monkeypatch, tmp_path: Path, capsys,
+) -> None:
+    logo_path = tmp_path / "logo.png"
+    logo_path.write_bytes(b"\x89PNG\r\n\x1a\nlocal-logo")
+
+    class FakeClient:
+        def upload_overlay_logo_if_missing(self, _path: Path) -> bool:
+            raise pipeline.MediaManagerError("connection reset")
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(pipeline, "DEFAULT_LOGO_PATH", logo_path)
+    monkeypatch.setattr(pipeline, "MediaManagerClient", lambda _url: FakeClient())
+    monkeypatch.setenv("MEDIA_MANAGER_URL", "https://example.test/projects/token/project/")
+
+    pipeline.seed_server_overlay_logo_if_missing()
+
+    assert "[Overlay Logo] Deferred migration: connection reset" in capsys.readouterr().err
+
+
 def test_original_upload_skip_reason_uses_the_startup_server_cache(tmp_path: Path) -> None:
     video_path = tmp_path / "clip.mkv"
     cache = pipeline.ServerDataCache(

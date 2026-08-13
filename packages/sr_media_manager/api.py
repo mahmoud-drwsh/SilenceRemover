@@ -533,17 +533,27 @@ class MediaManagerClient:
         size = logo_path.stat().st_size
         if size <= 0 or size > 10 * 1024 * 1024:
             raise MediaManagerError("Overlay logo must be a PNG no larger than 10 MiB")
-        with logo_path.open("rb") as stream:
-            response = self._client.put(
-                self._url("/api/overlay-logo-if-missing"),
-                content=stream,
-                headers={"Content-Type": "image/png", "Content-Length": str(size)},
-            )
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict) or payload.get("ok") is not True:
-            raise MediaManagerError("Overlay logo upload returned an invalid response")
-        return bool(payload.get("uploaded"))
+        # A PNG is capped at 10 MiB, so send stable in-memory bytes rather
+        # than a file stream. This avoids proxy-specific stream resets and
+        # makes each retry byte-for-byte identical.
+        content = logo_path.read_bytes()
+        for attempt in range(1, 4):
+            try:
+                response = self._client.put(
+                    self._url("/api/overlay-logo-if-missing"),
+                    content=content,
+                    headers={"Content-Type": "image/png", "Content-Length": str(size)},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, dict) or payload.get("ok") is not True:
+                    raise MediaManagerError("Overlay logo upload returned an invalid response")
+                return bool(payload.get("uploaded"))
+            except httpx.HTTPError as exc:
+                if attempt == 3:
+                    raise MediaManagerError(f"Overlay logo upload failed after {attempt} attempts: {exc}") from exc
+                time.sleep(PART_RETRY_DELAYS_SEC[attempt - 1])
+        raise AssertionError("unreachable")
 
     def upload_subtitle(self, source_id: str, title: str, subtitle_path: Path) -> bool:
         """Upload the pipeline-generated SRT under its deterministic source ID."""

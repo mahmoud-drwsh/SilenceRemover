@@ -67,6 +67,7 @@ from src.media.trim import is_logo_overlay_cache_warm, trim_single_video
 try:
     from sr_media_manager import (
         MediaManagerClient,
+        MediaManagerError,
         sync_titles_from_api,
     )
     _MEDIA_MANAGER_AVAILABLE = True
@@ -676,8 +677,13 @@ def seed_server_overlay_logo_if_missing() -> None:
         return
     client = MediaManagerClient(os.getenv("MEDIA_MANAGER_URL"))
     try:
-        if client.upload_overlay_logo_if_missing(DEFAULT_LOGO_PATH):
-            print("[Overlay Logo] Uploaded local logo to Media Manager")
+        try:
+            if client.upload_overlay_logo_if_missing(DEFAULT_LOGO_PATH):
+                print("[Overlay Logo] Uploaded local logo to Media Manager")
+        except MediaManagerError as exc:
+            # The immutable-original upload remains the production-critical
+            # operation. A later run self-heals the one-time logo seed.
+            print(f"[Overlay Logo] Deferred migration: {exc}", file=sys.stderr)
     finally:
         client.close()
 
