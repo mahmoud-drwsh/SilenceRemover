@@ -75,6 +75,29 @@ export async function storagePutProjectOverlayLogo(project: string, body: Uint8A
   }));
 }
 
+export async function presignProjectOverlayLogoPut(project: string): Promise<string> {
+  const config = loadConfig();
+  return getSignedUrl(getS3Client(), new PutObjectCommand({
+    Bucket: config.s3Bucket,
+    Key: projectOverlayLogoObjectKey(project),
+    ContentType: "image/png",
+  }), { expiresIn: PRESIGNED_URL_TTL_SEC });
+}
+
+export async function storageProjectOverlayLogoSha256(project: string): Promise<{ size: number; checksum: string } | null> {
+  const body = await storageGetProjectOverlayLogo(project);
+  if (!body) return null;
+  const reader = body.getReader(); const hash = createHash("sha256"); let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength; hash.update(value);
+    }
+  } finally { reader.releaseLock(); }
+  return { size, checksum: hash.digest("hex") };
+}
+
 export async function storageGetProjectOverlayLogo(project: string): Promise<ReadableStream<Uint8Array> | null> {
   const config = loadConfig();
   try {

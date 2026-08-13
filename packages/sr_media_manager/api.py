@@ -533,22 +533,35 @@ class MediaManagerClient:
         size = logo_path.stat().st_size
         if size <= 0 or size > 10 * 1024 * 1024:
             raise MediaManagerError("Overlay logo must be a PNG no larger than 10 MiB")
-        # A PNG is capped at 10 MiB, so send stable in-memory bytes rather
-        # than a file stream. This avoids proxy-specific stream resets and
-        # makes each retry byte-for-byte identical.
+        # The control plane is JSON; bytes go straight to R2 by presigned URL,
+        # matching the proven original-upload transport on Windows.
         content = logo_path.read_bytes()
+        checksum = hashlib.sha256(content).hexdigest()
+        payload = {"size": size, "checksum_sha256": checksum}
         for attempt in range(1, 4):
             try:
-                response = self._client.put(
-                    self._url("/api/overlay-logo-if-missing"),
-                    content=content,
-                    headers={"Content-Type": "image/png", "Content-Length": str(size)},
+                initiated = self._client.post(
+                    self._url("/api/overlay-logo-if-missing/initiate"), json=payload,
                 )
-                response.raise_for_status()
-                payload = response.json()
-                if not isinstance(payload, dict) or payload.get("ok") is not True:
+                initiated.raise_for_status()
+                result = initiated.json()
+                if not isinstance(result, dict) or result.get("ok") is not True:
                     raise MediaManagerError("Overlay logo upload returned an invalid response")
-                return bool(payload.get("uploaded"))
+                if result.get("already_configured"):
+                    return False
+                upload_url = result.get("upload_url")
+                if not isinstance(upload_url, str) or not upload_url.startswith("https://"):
+                    raise MediaManagerError("Overlay logo upload did not return a valid presigned URL")
+                uploaded = httpx.put(upload_url, content=content, headers={"Content-Type": "image/png"}, timeout=VIDEO_UPLOAD_TIMEOUT)
+                uploaded.raise_for_status()
+                completed = self._client.post(
+                    self._url("/api/overlay-logo-if-missing/complete"), json=payload,
+                )
+                completed.raise_for_status()
+                result = completed.json()
+                if not isinstance(result, dict) or result.get("ok") is not True:
+                    raise MediaManagerError("Overlay logo completion returned an invalid response")
+                return bool(result.get("uploaded"))
             except httpx.HTTPError as exc:
                 if attempt == 3:
                     raise MediaManagerError(f"Overlay logo upload failed after {attempt} attempts: {exc}") from exc

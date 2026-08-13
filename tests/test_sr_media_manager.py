@@ -104,34 +104,41 @@ class TestMediaManagerClient:
         assert client._client.post.call_args_list[1].args[0].endswith("/api/uploads/session-1/complete")
         assert client._client.post.call_args_list[1].kwargs["json"] == {"parts": [{"part_number": 1, "etag": '"etag-1"'}]}
 
-    def test_upload_overlay_logo_if_missing_uses_narrow_png_endpoint(self, tmp_path):
+    def test_upload_overlay_logo_if_missing_uses_presigned_r2_transport(self, tmp_path):
         logo = tmp_path / "logo.png"
         logo.write_bytes(b"\x89PNG\r\n\x1a\nlogo")
         client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
         client._client = Mock()
-        response = Mock()
-        response.json.return_value = {"ok": True, "uploaded": True}
-        client._client.put.return_value = response
+        initiated = Mock()
+        initiated.json.return_value = {"ok": True, "upload_url": "https://objects.example/logo"}
+        completed = Mock()
+        completed.json.return_value = {"ok": True, "uploaded": True}
+        client._client.post.side_effect = [initiated, completed]
+        r2_response = Mock()
 
-        assert client.upload_overlay_logo_if_missing(logo) is True
-        url = client._client.put.call_args.args[0]
-        assert url.endswith("/api/overlay-logo-if-missing")
-        assert client._client.put.call_args.kwargs["headers"] == {
-            "Content-Type": "image/png", "Content-Length": str(logo.stat().st_size),
-        }
+        with patch("sr_media_manager.api.httpx.put", return_value=r2_response) as put:
+            assert client.upload_overlay_logo_if_missing(logo) is True
+
+        assert client._client.post.call_args_list[0].args[0].endswith("/api/overlay-logo-if-missing/initiate")
+        assert client._client.post.call_args_list[1].args[0].endswith("/api/overlay-logo-if-missing/complete")
+        assert put.call_args.args[0] == "https://objects.example/logo"
+        assert put.call_args.kwargs["content"] == logo.read_bytes()
 
     def test_upload_overlay_logo_if_missing_retries_connection_reset(self, tmp_path, monkeypatch):
         logo = tmp_path / "logo.png"
         logo.write_bytes(b"\x89PNG\r\n\x1a\nlogo")
         client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
         client._client = Mock()
-        success = Mock()
-        success.json.return_value = {"ok": True, "uploaded": False}
-        client._client.put.side_effect = [httpx.ReadError("reset"), success]
+        initiated = Mock()
+        initiated.json.return_value = {"ok": True, "upload_url": "https://objects.example/logo"}
+        complete = Mock()
+        complete.json.return_value = {"ok": True, "uploaded": False}
+        client._client.post.side_effect = [initiated, initiated, complete]
         monkeypatch.setattr("sr_media_manager.api.time.sleep", lambda _seconds: None)
 
-        assert client.upload_overlay_logo_if_missing(logo) is False
-        assert client._client.put.call_count == 2
+        with patch("sr_media_manager.api.httpx.put", side_effect=[httpx.ReadError("reset"), Mock()] ) as put:
+            assert client.upload_overlay_logo_if_missing(logo) is False
+        assert put.call_count == 2
 
     def test_upload_original_aborts_session_after_part_failure(self, tmp_path):
         original = tmp_path / "source.mp4"
