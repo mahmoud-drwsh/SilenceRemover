@@ -39,11 +39,25 @@ $pipelineArgs = @(
     "0.5"
 )
 
-& uv @pipelineArgs
+# Horizontal processing remains local. Only the Vertical launcher is allowed
+# to inherit MEDIA_MANAGER_URL and hand Originals to the server worker.
+$hadMediaManagerUrl = Test-Path Env:MEDIA_MANAGER_URL
+$previousMediaManagerUrl = $env:MEDIA_MANAGER_URL
+Remove-Item Env:MEDIA_MANAGER_URL -ErrorAction SilentlyContinue
+try {
+    & uv @pipelineArgs
+    $pipelineExitCode = $LASTEXITCODE
+} finally {
+    if ($hadMediaManagerUrl) {
+        $env:MEDIA_MANAGER_URL = $previousMediaManagerUrl
+    } else {
+        Remove-Item Env:MEDIA_MANAGER_URL -ErrorAction SilentlyContinue
+    }
+}
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Pipeline failed with exit code $LASTEXITCODE"
-    exit $LASTEXITCODE
+if ($pipelineExitCode -ne 0) {
+    Write-Error "Pipeline failed with exit code $pipelineExitCode"
+    exit $pipelineExitCode
 }
 
 Write-Host "Horizontal video processing completed successfully!" -ForegroundColor Green
