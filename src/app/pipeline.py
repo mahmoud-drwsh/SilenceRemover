@@ -41,7 +41,7 @@ from src.core.paths import (
     mark_subtitle_mux_completed,
 )
 from sr_filename import sanitize_filename
-from src.ffmpeg.probing import is_mp4_container
+from src.ffmpeg.probing import is_mp4_container, probe_video_dimensions
 from src.startup import StartupContext, build_startup_context
 
 from sr_snippet import create_silence_removed_snippet
@@ -694,6 +694,14 @@ def original_upload_skip_reason(
 ) -> str | None:
     if server_cache is None:
         return "media manager disabled"
+    try:
+        width, height = probe_video_dimensions(video_path)
+    except RuntimeError:
+        # Server processing is portrait-only. Do not upload a recording whose
+        # orientation cannot be established locally.
+        return "video is not confirmed vertical"
+    if height <= width:
+        return "video is not vertical"
     if server_cache.has_original(video_path.stem):
         return "original already exists on server"
     return None

@@ -172,8 +172,32 @@ def test_original_upload_skip_reason_uses_the_startup_server_cache(tmp_path: Pat
         ready_audio_ids=frozenset(),
     )
 
-    assert pipeline.original_upload_skip_reason(video_path, cache) == "original already exists on server"
-    assert pipeline.original_upload_skip_reason(tmp_path / "missing.mkv", cache) is None
+    # Orientation is a client-side gate before any server-upload decision.
+    from unittest.mock import patch
+    with patch.object(pipeline, "probe_video_dimensions", return_value=(1080, 1920)):
+        assert pipeline.original_upload_skip_reason(video_path, cache) == "original already exists on server"
+        assert pipeline.original_upload_skip_reason(tmp_path / "missing.mkv", cache) is None
+
+
+def test_original_upload_skips_landscape_and_square_recordings(tmp_path: Path, monkeypatch) -> None:
+    cache = pipeline.ServerDataCache(
+        audio_files={}, video_files={}, original_files={}, audio_trash_ids=frozenset(),
+        video_trash_ids=frozenset(), ready_audio_ids=frozenset(),
+    )
+    monkeypatch.setattr(pipeline, "probe_video_dimensions", lambda path: (1920, 1080) if path.stem == "wide" else (1080, 1080))
+
+    assert pipeline.original_upload_skip_reason(tmp_path / "wide.mkv", cache) == "video is not vertical"
+    assert pipeline.original_upload_skip_reason(tmp_path / "square.mkv", cache) == "video is not vertical"
+
+
+def test_original_upload_skips_unprobeable_recordings(tmp_path: Path, monkeypatch) -> None:
+    cache = pipeline.ServerDataCache(
+        audio_files={}, video_files={}, original_files={}, audio_trash_ids=frozenset(),
+        video_trash_ids=frozenset(), ready_audio_ids=frozenset(),
+    )
+    monkeypatch.setattr(pipeline, "probe_video_dimensions", lambda _path: (_ for _ in ()).throw(RuntimeError("bad input")))
+
+    assert pipeline.original_upload_skip_reason(tmp_path / "broken.mkv", cache) == "video is not confirmed vertical"
 
 
 def test_existing_server_subtitle_skips_local_generation(tmp_path: Path) -> None:
