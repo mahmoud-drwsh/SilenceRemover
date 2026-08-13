@@ -39,11 +39,12 @@ $pipelineArgs = @(
     "0.5"
 )
 
-# Horizontal processing remains local. Only the Vertical launcher is allowed
-# to inherit MEDIA_MANAGER_URL and hand Originals to the server worker.
+# Horizontal processing remains local. main.py loads .env, so an absent
+# variable would be restored there; an explicit empty value survives dotenv.
+# Only the Vertical launcher may hand Originals to the server worker.
 $hadMediaManagerUrl = Test-Path Env:MEDIA_MANAGER_URL
 $previousMediaManagerUrl = $env:MEDIA_MANAGER_URL
-Remove-Item Env:MEDIA_MANAGER_URL -ErrorAction SilentlyContinue
+$env:MEDIA_MANAGER_URL = ""
 try {
     & uv @pipelineArgs
     $pipelineExitCode = $LASTEXITCODE

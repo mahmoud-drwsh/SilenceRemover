@@ -20,5 +20,5 @@ def test_only_vertical_launcher_inherits_media_manager_upload_configuration() ->
         / "Start-HorizontalVideoProcessing.ps1"
     ).read_text(encoding="utf-8")
 
-    assert "Remove-Item Env:MEDIA_MANAGER_URL" in horizontal
+    assert '$env:MEDIA_MANAGER_URL = ""' in horizontal
     assert "$env:MEDIA_MANAGER_URL = $previousMediaManagerUrl" in horizontal
