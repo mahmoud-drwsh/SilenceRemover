@@ -40,23 +40,11 @@ $pipelineArgs = @(
     "--local-title-and-trim-only"
 )
 
-# Horizontal processing remains local. main.py loads .env, so an absent
-# variable would be restored there; an explicit empty value survives dotenv.
-# The horizontal mode additionally excludes subtitles, overlays, companion
-# outputs, and all Media Manager uploads.
-$hadMediaManagerUrl = Test-Path Env:MEDIA_MANAGER_URL
-$previousMediaManagerUrl = $env:MEDIA_MANAGER_URL
-$env:MEDIA_MANAGER_URL = ""
-try {
-    & uv @pipelineArgs
-    $pipelineExitCode = $LASTEXITCODE
-} finally {
-    if ($hadMediaManagerUrl) {
-        $env:MEDIA_MANAGER_URL = $previousMediaManagerUrl
-    } else {
-        Remove-Item Env:MEDIA_MANAGER_URL -ErrorAction SilentlyContinue
-    }
-}
+# Horizontal video bytes and outputs remain local. The configured Media
+# Manager is used only for the transient transcription/title request, so the
+# OpenRouter key never leaves the server.
+& uv @pipelineArgs
+$pipelineExitCode = $LASTEXITCODE
 
 if ($pipelineExitCode -ne 0) {
     Write-Error "Pipeline failed with exit code $pipelineExitCode"

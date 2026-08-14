@@ -104,6 +104,32 @@ class TestMediaManagerClient:
         assert client._client.post.call_args_list[1].args[0].endswith("/api/uploads/session-1/complete")
         assert client._client.post.call_args_list[1].kwargs["json"] == {"parts": [{"part_number": 1, "etag": '"etag-1"'}]}
 
+    def test_analyze_ogg_snippet_uses_authenticated_transient_multipart_request(self, tmp_path):
+        snippet = tmp_path / "snippet.ogg"
+        snippet.write_bytes(b"OggSsnippet")
+        client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
+        client._client = Mock()
+        response = Mock()
+        response.json.return_value = {"ok": True, "transcript": "نص", "title": "عنوان الدرس"}
+        client._client.post.return_value = response
+
+        assert client.analyze_ogg_snippet(snippet) == ("نص", "عنوان الدرس")
+        call = client._client.post.call_args
+        assert call.args[0].endswith("/api/snippet-analysis")
+        assert call.kwargs["files"]["snippet"][0] == "snippet.ogg"
+        assert call.kwargs["files"]["snippet"][2] == "audio/ogg"
+        assert "json" not in call.kwargs
+
+    def test_analyze_ogg_snippet_rejects_non_ogg_without_request(self, tmp_path):
+        snippet = tmp_path / "snippet.mp3"
+        snippet.write_bytes(b"audio")
+        client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
+        client._client = Mock()
+
+        with pytest.raises(Exception, match="requires an OGG"):
+            client.analyze_ogg_snippet(snippet)
+        client._client.post.assert_not_called()
+
     def test_upload_overlay_logo_if_missing_uses_presigned_r2_transport(self, tmp_path):
         logo = tmp_path / "logo.png"
         logo.write_bytes(b"\x89PNG\r\n\x1a\nlogo")

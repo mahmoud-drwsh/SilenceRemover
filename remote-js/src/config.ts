@@ -55,6 +55,10 @@ export interface AppConfig {
   sourceProcessingWorkerToken?: string;
   sourceProcessingLeaseSeconds: number;
   sourceProcessingProfile: string;
+  openRouterApiKey?: string;
+  openRouterBaseUrl?: string;
+  openRouterTranscriptionModel: string;
+  openRouterTitleModel: string;
 }
 
 let cached: AppConfig | undefined;
@@ -87,6 +91,10 @@ export function loadConfig(): AppConfig {
     sourceProcessingWorkerToken: readEnv("SOURCE_PROCESSING_WORKER_TOKEN"),
     sourceProcessingLeaseSeconds: readPositiveInteger("SOURCE_PROCESSING_LEASE_SECONDS", 1800),
     sourceProcessingProfile: readEnv("SOURCE_PROCESSING_PROFILE") ?? "v1",
+    openRouterApiKey: readEnv("OPENROUTER_API_KEY"),
+    openRouterBaseUrl: readEnv("OPENROUTER_BASE_URL"),
+    openRouterTranscriptionModel: readEnv("OPENROUTER_TRANSCRIPTION_MODEL") ?? "qwen/qwen3-asr-flash-2026-02-10",
+    openRouterTitleModel: readEnv("OPENROUTER_TITLE_MODEL") ?? "google/gemini-3-flash-preview",
   };
   return cached;
 }

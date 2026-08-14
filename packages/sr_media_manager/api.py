@@ -526,6 +526,45 @@ class MediaManagerClient:
         )
         return True
 
+    def analyze_ogg_snippet(self, snippet_path: Path) -> tuple[str, str]:
+        """Return a transient server-generated ``(transcript, title)`` for an OGG snippet.
+
+        The snippet is sent only in this authenticated multipart request. It is
+        neither uploaded through the Media Manager file API nor retained by the
+        client helper after the request finishes.
+        """
+        path = Path(snippet_path)
+        if path.suffix.lower() != ".ogg":
+            raise MediaManagerError(f"Snippet analysis requires an OGG file, got {path.name}")
+        try:
+            size = path.stat().st_size
+        except OSError as exc:
+            raise MediaManagerError(f"Could not read OGG snippet {path}: {exc}") from exc
+        if size <= 0 or size > 4 * 1024 * 1024:
+            raise MediaManagerError("OGG snippet must be between 1 byte and 4 MiB")
+        try:
+            with path.open("rb") as stream:
+                response = self._client.post(
+                    self._url("/api/snippet-analysis"),
+                    files={"snippet": (path.name, stream, "audio/ogg")},
+                    timeout=VIDEO_UPLOAD_TIMEOUT,
+                )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:
+            raise MediaManagerError(
+                f"Server-side snippet analysis failed: {self._upload_error_detail(exc)}"
+            ) from exc
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            raise MediaManagerError("Server-side snippet analysis returned an invalid response")
+        transcript = payload.get("transcript")
+        title = payload.get("title")
+        if not isinstance(transcript, str) or not transcript.strip():
+            raise MediaManagerError("Server-side snippet analysis returned an empty transcript")
+        if not isinstance(title, str) or not title.strip() or "\n" in title or "\r" in title:
+            raise MediaManagerError("Server-side snippet analysis returned an invalid title")
+        return transcript.strip(), title.strip()
+
     def upload_overlay_logo_if_missing(self, logo_path: Path) -> bool:
         """Seed the project's server-side PNG logo once without replacing an admin logo."""
         if not logo_path.is_file():

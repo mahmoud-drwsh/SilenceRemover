@@ -15,7 +15,6 @@ from src.core.constants import (
     AUDIO_EXTENSIONS,
     DEFAULT_LOGO_PATH,
     SNIPPET_MAX_DURATION_SEC,
-    TITLE_DIR,
 )
 from src.core.paths import (
     get_completed_path,
@@ -68,7 +67,6 @@ try:
     from sr_media_manager import (
         MediaManagerClient,
         MediaManagerError,
-        sync_titles_from_api,
     )
     _MEDIA_MANAGER_AVAILABLE = True
 except ImportError:
@@ -375,6 +373,42 @@ def run_title_phase(
         video_index=video_index,
         total_videos=total_videos,
         label="Title Generation",
+    )
+
+
+def run_remote_transcription_and_title_phase(
+    video_path: Path,
+    temp_dir: Path,
+    video_index: int,
+    total_videos: int,
+) -> bool | None:
+    """Use Media Manager's server-held OpenRouter key for a local review snippet."""
+    basename = video_path.stem
+    snippet_path = get_snippet_path(temp_dir, basename)
+    transcript_path = get_transcript_path(temp_dir, basename)
+    title_path = get_title_path(temp_dir, basename)
+
+    def _perform() -> None:
+        client = MediaManagerClient(os.getenv("MEDIA_MANAGER_URL"))
+        try:
+            transcript, title = client.analyze_ogg_snippet(snippet_path)
+        finally:
+            client.close()
+        transcript = transcript.strip()
+        title = title.strip()
+        if not transcript or not title:
+            raise RuntimeError("Media Manager returned an empty transcript or title")
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        title_path.parent.mkdir(parents=True, exist_ok=True)
+        transcript_path.write_text(transcript, encoding="utf-8")
+        title_path.write_text(title, encoding="utf-8")
+
+    return _run_phase_step(
+        video_path=video_path,
+        work_fn=_perform,
+        video_index=video_index,
+        total_videos=total_videos,
+        label="Server Transcription and Title",
     )
 
 
@@ -1117,7 +1151,8 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     # A configured Media Manager owns processing by default. The client only
     # uploads immutable Originals; it never needs an opt-in processing flag.
     media_manager_enabled = bool(_MEDIA_MANAGER_AVAILABLE and os.getenv('MEDIA_MANAGER_URL'))
-    if media_manager_enabled:
+    local_title_and_trim_only = bool(getattr(args, "local_title_and_trim_only", False))
+    if media_manager_enabled and not local_title_and_trim_only:
         seed_server_overlay_logo_if_missing()
         server_cache = _rebuild_server_cache(os.getenv('MEDIA_MANAGER_URL') or '')
         upload_phase = _PipelinePhase(
@@ -1132,19 +1167,12 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         _run_phase(videos=videos, phase=upload_phase)
         return startup
 
-    # Legacy local-only mode remains available when no server destination is
-    # configured, for offline development and recovery.
-    if media_manager_enabled:
-        try:
-            client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-            titles_dir = temp_dir / TITLE_DIR
-            completed_dir = temp_dir / 'completed'
-            sync_titles_from_api(client, titles_dir, completed_dir, startup.output_dir)
-            client.close()
-        except Exception:
-            pass
+    # Horizontal processing consumes the service only for the transient LLM
+    # request. It must not enter any of the Media Manager file/upload phases.
+    remote_title_service_enabled = media_manager_enabled and local_title_and_trim_only
+    media_manager_enabled = False
 
-    # Fetch all server data once for all phases
+    # Fetch all server data once for legacy client-owned upload phases.
     server_cache = None
     if media_manager_enabled:
         server_cache = _rebuild_server_cache(os.getenv('MEDIA_MANAGER_URL') or '')
@@ -1283,13 +1311,22 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         _PipelinePhase(
             2,
             "Transcription",
-            lambda video_file, vi, vn: run_transcription_phase(
-                video_path=video_file,
-                temp_dir=temp_dir,
-                pad_sec=startup.pad_sec,
-                api_key=api_key,
-                video_index=vi,
-                total_videos=vn,
+            lambda video_file, vi, vn: (
+                run_remote_transcription_and_title_phase(
+                    video_path=video_file,
+                    temp_dir=temp_dir,
+                    video_index=vi,
+                    total_videos=vn,
+                )
+                if remote_title_service_enabled
+                else run_transcription_phase(
+                    video_path=video_file,
+                    temp_dir=temp_dir,
+                    pad_sec=startup.pad_sec,
+                    api_key=api_key,
+                    video_index=vi,
+                    total_videos=vn,
+                )
             ),
             skip_reason=lambda video_file: (
                 "transcript already exists"
@@ -1731,7 +1768,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
     # Horizontal recordings stay local by design. They still need a transcript
     # to generate a title, but produce exactly one silence-removed output: no
     # subtitle work, overlays, companion output, or Media Manager operations.
-    if getattr(args, "local_title_and_trim_only", False):
+    if local_title_and_trim_only:
         local_phase_indexes = {0, 1, 2, 3, 8}
         phases = tuple(phase for phase in phases if phase.index in local_phase_indexes)
 

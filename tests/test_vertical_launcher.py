@@ -13,12 +13,12 @@ def test_vertical_launcher_does_not_pass_removed_media_manager_flag() -> None:
     assert '"--enable-media-manager"' not in launcher.read_text(encoding="utf-8")
 
 
-def test_only_vertical_launcher_inherits_media_manager_upload_configuration() -> None:
+def test_horizontal_launcher_uses_transient_analysis_mode_without_uploading_media() -> None:
     horizontal = (
         Path(__file__).resolve().parents[1]
         / "pwsh"
         / "Start-HorizontalVideoProcessing.ps1"
     ).read_text(encoding="utf-8")
 
-    assert '$env:MEDIA_MANAGER_URL = ""' in horizontal
-    assert "$env:MEDIA_MANAGER_URL = $previousMediaManagerUrl" in horizontal
+    assert '"--local-title-and-trim-only"' in horizontal
+    assert '$env:MEDIA_MANAGER_URL = ""' not in horizontal
