@@ -189,4 +189,12 @@ def parse_args() -> argparse.Namespace:
             "are moved to input/ignored/ and skipped. Default: 30.0."
         ),
     )
+    parser.add_argument(
+        "--local-title-and-trim-only",
+        action="store_true",
+        help=(
+            "Run only local trim, snippet, transcription, title generation, and a single "
+            "silence-removed encode. Skips subtitles, overlays, companion outputs, and uploads."
+        ),
+    )
     return parser.parse_args()

@@ -34,6 +34,12 @@ def test_parse_args_accepts_non_target_names(monkeypatch, tmp_path):
     assert parsed.non_target_pad_sec == 0.5
 
 
+def test_parse_args_accepts_local_title_and_trim_only(monkeypatch, tmp_path):
+    parsed = _parse_args_with(monkeypatch, [str(tmp_path), "--local-title-and-trim-only"])
+
+    assert parsed.local_title_and_trim_only is True
+
+
 @pytest.mark.parametrize(
     "flag, value",
     [

@@ -1728,6 +1728,13 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         ),
     )
 
+    # Horizontal recordings stay local by design. They still need a transcript
+    # to generate a title, but produce exactly one silence-removed output: no
+    # subtitle work, overlays, companion output, or Media Manager operations.
+    if getattr(args, "local_title_and_trim_only", False):
+        local_phase_indexes = {0, 1, 2, 3, 8}
+        phases = tuple(phase for phase in phases if phase.index in local_phase_indexes)
+
     for phase in phases:
         _run_phase(videos=videos, phase=phase)
         # Rebuild cache after remote reconciliation and either video upload

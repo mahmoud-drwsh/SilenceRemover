@@ -37,11 +37,13 @@ $pipelineArgs = @(
     "1.0"
     "--non-target-pad-sec"
     "0.5"
+    "--local-title-and-trim-only"
 )
 
 # Horizontal processing remains local. main.py loads .env, so an absent
 # variable would be restored there; an explicit empty value survives dotenv.
-# Only the Vertical launcher may hand Originals to the server worker.
+# The horizontal mode additionally excludes subtitles, overlays, companion
+# outputs, and all Media Manager uploads.
 $hadMediaManagerUrl = Test-Path Env:MEDIA_MANAGER_URL
 $previousMediaManagerUrl = $env:MEDIA_MANAGER_URL
 $env:MEDIA_MANAGER_URL = ""
