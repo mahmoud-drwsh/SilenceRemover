@@ -372,11 +372,12 @@ export function addTagListConditions(args: {
   }
 }
 
-/** Keep only the no-overlay companion out of the virtual All video view. */
-export function excludedVideoVariantTags(tagList: string[] | null): string[] {
-  return !tagList?.some((tag) => tag === "no-overlay" || tag === "trash")
-    ? ["no-overlay"]
-    : [];
+/** The virtual All video view excludes only trashed rows. */
+export function excludedVideoVariantTags(
+  _tagList: string[] | null,
+  designerMissing = false,
+): string[] {
+  return designerMissing ? ["no-overlay", "designer"] : [];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -478,7 +479,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     tagList,
     includeTrash,
     includePending,
-    excludedTags: typeParam === "video" ? excludedVideoVariantTags(tagList) : [],
+    excludedTags: typeParam === "video" ? excludedVideoVariantTags(tagList, designerMissing) : [],
   });
 
   const whereClause = conditions.join(" AND ");

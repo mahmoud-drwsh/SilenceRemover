@@ -306,7 +306,7 @@
             strictIsolation = isStrict && section === 'video' && folder && !['all', 'trash'].includes(folder) && isAdminMode();
 
             // Set filter: from folder, or default for section
-            if (section === 'video' && !isAdminMode()) {
+            if (section === 'video' && !isAdminMode() && !folder) {
                 currentFilter = 'needs-designer';
             } else if (folder) {
                 currentFilter = folder;

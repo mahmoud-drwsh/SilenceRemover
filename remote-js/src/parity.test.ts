@@ -183,8 +183,12 @@ describe("addTagListConditions", () => {
 });
 
 describe("excludedVideoVariantTags", () => {
-  test("All keeps designer videos while hiding the no-overlay companion folder", () => {
-    expect(excludedVideoVariantTags(null)).toEqual(["no-overlay"]);
+  test("All keeps every non-trashed video variant", () => {
+    expect(excludedVideoVariantTags(null)).toEqual([]);
+  });
+
+  test("Needs Designer excludes designer and no-overlay variants", () => {
+    expect(excludedVideoVariantTags(null, true)).toEqual(["no-overlay", "designer"]);
   });
 });
 
@@ -366,7 +370,7 @@ describe("frontend Media Manager UI", () => {
     expect(html).toContain("file.subtitle_id ? escapeJs(file.subtitle_id)");
     expect(html).toContain("<strong>Subtitles</strong>");
     expect(html).toContain("function openDesignerUpload(targetId, targetTitle)");
-    expect(filesRoute).toContain('tag === "no-overlay" || tag === "trash"');
+    expect(filesRoute).toContain("excludedVideoVariantTags(tagList, designerMissing)");
     expect(filesRoute).toContain("candidate.source_id = source.source_id");
     expect(filesRoute).toContain("AS no_overlay_id");
     expect(filesRoute).toContain("AS designer_video_id");
@@ -422,6 +426,12 @@ describe("frontend Media Manager UI", () => {
     expect(html).toContain("&designer_missing=true");
     expect(filesRoute).toContain('designer_missing requires type=video');
     expect(filesRoute).toContain('designer_candidate.designer_of_id');
+  });
+
+  test("an explicit All URL is not replaced by the designer queue", async () => {
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
+
+    expect(html).toContain("section === 'video' && !isAdminMode() && !folder");
   });
 
   test("designer uploads use same-origin multipart URLs", async () => {
