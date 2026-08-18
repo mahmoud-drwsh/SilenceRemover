@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { parseRangeHeader } from "./range.ts";
 import {
   addTagListConditions,
+  excludedVideoVariantTags,
   mapUploadMetadataInsertError,
   parseContentLengthHeader,
 } from "./routes/files.ts";
@@ -178,6 +179,12 @@ describe("addTagListConditions", () => {
 
     expect(params.slice(2)).toEqual([["trash"], ["no-overlay"]]);
     expect(conditions.at(-1)).toContain("NOT (");
+  });
+});
+
+describe("excludedVideoVariantTags", () => {
+  test("All keeps designer videos while hiding the no-overlay companion folder", () => {
+    expect(excludedVideoVariantTags(null)).toEqual(["no-overlay"]);
   });
 });
 
@@ -359,7 +366,7 @@ describe("frontend Media Manager UI", () => {
     expect(html).toContain("file.subtitle_id ? escapeJs(file.subtitle_id)");
     expect(html).toContain("<strong>Subtitles</strong>");
     expect(html).toContain("function openDesignerUpload(targetId, targetTitle)");
-    expect(filesRoute).toContain('tag === "no-overlay" || tag === "designer" || tag === "trash"');
+    expect(filesRoute).toContain('tag === "no-overlay" || tag === "trash"');
     expect(filesRoute).toContain("candidate.source_id = source.source_id");
     expect(filesRoute).toContain("AS no_overlay_id");
     expect(filesRoute).toContain("AS designer_video_id");
