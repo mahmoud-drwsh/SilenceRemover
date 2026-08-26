@@ -9,6 +9,20 @@ After code or config changes, agents append short notes here. When this file gro
 - **ALWAYS use the `question` tool** when clarification is needed, when weighing tradeoffs, or when the user might have a preference. Do not ask questions inline in text responses—use the dedicated tool.
 - **NEVER** hardcode the domain name in the code.
 
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues are the work tracker. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default five triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository. See `docs/agents/domain.md`.
+
 ## Condensed changelog
 
 - **Architecture**: `src/app/pipeline.py` remains the client-owned orchestrator; reusable media/FFmpeg/LLM modules live under `src/` and `packages/`. `remote-js/` is the Bun/Hono Media Manager with Postgres metadata and S3-compatible bytes.

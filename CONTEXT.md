@@ -4,6 +4,7 @@
 
 - **Source recording**: The raw input video selected for processing.
 - **Original**: The immutable uploaded copy of a source recording. One original is identified by its source ID.
+- **Derived media**: Any non-original file produced from, or attached to, an original: video, review audio, subtitle, or designer video. Every derived-media record links directly to its original through the source ID.
 - **Derived video**: Any processed video created from an original. A derived video links back to exactly one original.
 - **Source ID**: The stable identifier shared by a source recording and its original. Derived videos retain this as their original link.
 - **Derived ID**: The distinct identifier for one derived video variant. It must not overwrite another variant from the same source.
@@ -15,6 +16,7 @@
 - **Designer video**: A designer-uploaded replacement presentation linked to one selected pipeline-final video. It shares that final video's original through the source ID, but does not change pipeline output.
 - **Companion video**: A derived video that represents the same source and silence-removal result as another derived video, but differs in presentation.
 - **Canonical video card**: The single list entry for an original's pipeline-final video. Its no-overlay video, designer video, original, and subtitles are linked actions on the same card, never independent list entries.
+- **Review audio**: The audio file used to review and approve a generated title. It is derived media linked directly to the original, not to a video variant.
 - **Silence-removed video**: A derived video produced by removing detected silence according to the pipeline's trim policy. Both video variants are silence-removed.
 - **Subtitle SRT**: A pipeline-generated SubRip text file. A dedicated Arabic STT model transcribes bounded, silence-aligned speech segments as plain text; the pipeline deterministically derives cue timings from the retained timeline.
 - **Selectable subtitle track**: The Arabic `mov_text` track muxed into both silence-removed video variants. It is a separate stream and is never burned into pixels.
