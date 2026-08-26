@@ -157,8 +157,7 @@ repeated_completion = json.load(request(f"/api/uploads/{init['session_id']}/comp
 assert repeated_completion["already_completed"]
 assert processing_request(ADMIN_PROCESSING_BASE, "/status")["total"] == 1
 
-# Projects not explicitly enabled retain the existing upload-only behavior and
-# never create server-processing work.
+# Every verified original uses server processing by default.
 DISABLED_BASE = "http://app:8080/projects/test-token/client-owned-project"
 disabled_init = json.load(request(DISABLED_BASE + "/api/uploads/initiate", "POST", {
     "id": "client-owned-001", "type": "original", "mime_type": "video/mp4",
@@ -168,15 +167,15 @@ part = urllib.request.urlopen(urllib.request.Request(disabled_init["urls"][0], d
 json.load(request(DISABLED_BASE + f"/api/uploads/{disabled_init['session_id']}/complete", "POST", {
     "parts": [{"part_number": 1, "etag": part.headers["ETag"]}],
 }, absolute=True))
-disabled_status = processing_request(
+default_status = processing_request(
     "http://app:8080/admin/test-admin-token/api/projects/client-owned-project/source-processing", "/status",
 )
-assert disabled_status["enabled"] is False and disabled_status["total"] == 0
-disabled_claim = processing_request(
+assert default_status["enabled"] is True and default_status["states"] == {"pending": 1}
+default_claim = processing_request(
     "http://app:8080/internal/source-processing/client-owned-project", "/claim", "POST", {},
     {"X-Source-Processing-Token": "test-worker-token"},
 )
-assert disabled_claim["job"] is None
+assert default_claim["job"]["source_id"] == "client-owned-001"
 
 originals = json.load(request("/api/files?type=original"))
 assert any(item["id"] == "source-001" and item["checksum_sha256"] == digest for item in originals)

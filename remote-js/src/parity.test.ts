@@ -183,12 +183,16 @@ describe("addTagListConditions", () => {
 });
 
 describe("excludedVideoVariantTags", () => {
-  test("All keeps every non-trashed video variant", () => {
-    expect(excludedVideoVariantTags(null)).toEqual([]);
+  test("every video list keeps one canonical pipeline-final row per source", () => {
+    expect(excludedVideoVariantTags(null)).toEqual(["no-overlay", "designer"]);
   });
 
   test("Needs Designer excludes designer and no-overlay variants", () => {
     expect(excludedVideoVariantTags(null, true)).toEqual(["no-overlay", "designer"]);
+  });
+
+  test("the dedicated No Overlay view may return its companion rows", () => {
+    expect(excludedVideoVariantTags(["no-overlay"])).toEqual(["designer"]);
   });
 });
 
@@ -371,6 +375,7 @@ describe("frontend Media Manager UI", () => {
     expect(html).toContain("<strong>Subtitles</strong>");
     expect(html).toContain("function openDesignerUpload(targetId, targetTitle)");
     expect(filesRoute).toContain("excludedVideoVariantTags(tagList, designerMissing)");
+    expect(filesRoute).toContain("source.designer_of_id IS NULL");
     expect(filesRoute).toContain("candidate.source_id = source.source_id");
     expect(filesRoute).toContain("AS no_overlay_id");
     expect(filesRoute).toContain("AS designer_video_id");

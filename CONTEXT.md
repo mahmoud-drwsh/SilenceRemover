@@ -14,6 +14,7 @@
 - **No-overlay video**: A second silence-removed derived video with neither title banner nor logo. It is a companion to—not a replacement for—the overlaid video.
 - **Designer video**: A designer-uploaded replacement presentation linked to one selected pipeline-final video. It shares that final video's original through the source ID, but does not change pipeline output.
 - **Companion video**: A derived video that represents the same source and silence-removal result as another derived video, but differs in presentation.
+- **Canonical video card**: The single list entry for an original's pipeline-final video. Its no-overlay video, designer video, original, and subtitles are linked actions on the same card, never independent list entries.
 - **Silence-removed video**: A derived video produced by removing detected silence according to the pipeline's trim policy. Both video variants are silence-removed.
 - **Subtitle SRT**: A pipeline-generated SubRip text file. A dedicated Arabic STT model transcribes bounded, silence-aligned speech segments as plain text; the pipeline deterministically derives cue timings from the retained timeline.
 - **Selectable subtitle track**: The Arabic `mov_text` track muxed into both silence-removed video variants. It is a separate stream and is never burned into pixels.
@@ -36,3 +37,9 @@
 - **Pending**: A delivered derived video awaiting the normal publishing step.
 - **Published**: A video promoted for its delivery channels after its audio review is ready.
 - **Project**: The Media Manager collection containing originals and all derived media for one processing destination.
+
+## Organization
+
+- **Virtual view**: A system-provided filtered view of media, not a user-created container. The video views are All, Needs Designer, Pipeline Final, No Overlay, Designer Video, Pending, and Trash; Audio Review has Todo and Approved.
+- **Folder**: A user-facing publishing destination. Folders are not part of the target organization model.
+- **User tag**: A user-assigned label used to organize or publish media. User tags are not part of the target organization model.

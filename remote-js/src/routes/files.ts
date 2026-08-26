@@ -372,12 +372,17 @@ export function addTagListConditions(args: {
   }
 }
 
-/** The virtual All video view excludes only trashed rows. */
+/**
+ * Video lists expose one canonical pipeline-final row per original. Linked
+ * no-overlay and designer variants are represented on that row as actions,
+ * never as duplicate cards.
+ */
 export function excludedVideoVariantTags(
-  _tagList: string[] | null,
-  designerMissing = false,
+  tagList: string[] | null,
+  _designerMissing = false,
 ): string[] {
-  return designerMissing ? ["no-overlay", "designer"] : [];
+  if (tagList?.includes("no-overlay")) return ["designer"];
+  return ["no-overlay", "designer"];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -460,6 +465,13 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   if (typeParam) {
     params.push(typeParam);
     conditions.push(`type = $${params.length}`);
+  }
+
+  // A designer upload is a linked presentation of a pipeline final, not a
+  // list item in its own right. This relationship is authoritative even for
+  // legacy rows whose tags were incomplete.
+  if (typeParam === "video") {
+    conditions.push("source.designer_of_id IS NULL");
   }
 
   if (designerMissing) {
