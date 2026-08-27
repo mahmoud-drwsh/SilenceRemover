@@ -7,7 +7,7 @@
  */
 
 import { Hono } from "hono";
-import { backfillLegacyNoOverlayTags, backfillLegacySourceLinks, closeDb, ensureDatabaseReady } from "./db.ts";
+import { closeDb, ensureDatabaseReady } from "./db.ts";
 import { loadConfig } from "./config.ts";
 import { ensureStorageBackendReady } from "./storage.ts";
 import { securityHeaders } from "./security.ts";
@@ -59,14 +59,9 @@ async function main(): Promise<void> {
   await ensureDatabaseReady();
   const recoveredProcessingJobs = await reconcileSourceProcessing();
   if (recoveredProcessingJobs > 0) console.log(`[startup] recovered ${recoveredProcessingJobs} source-processing job(s)`);
-  const repairedLinks = await backfillLegacySourceLinks();
-  if (repairedLinks > 0) {
-    console.log(`[startup] linked ${repairedLinks} legacy derived file(s) to originals`);
-  }
-  const repairedNoOverlayTags = await backfillLegacyNoOverlayTags();
-  if (repairedNoOverlayTags > 0) {
-    console.log(`[startup] classified ${repairedNoOverlayTags} legacy no-overlay companion(s)`);
-  }
+  // Legacy records are deliberately not altered during startup. The explicit
+  // rehearsal command reports every proposed link before an operator may
+  // opt into the guarded, non-destructive backfill.
   await ensureStorageBackendReady();
   await cleanupExpiredUploadSessions();
   console.log("[startup] checks passed; listening on :" + config.port);

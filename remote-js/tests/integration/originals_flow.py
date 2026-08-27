@@ -24,14 +24,10 @@ for _ in range(30):
 else:
     raise SystemExit("Media Manager did not become healthy")
 
-# Startup backfill repairs pre-presigned-upload records which used the same
-# pipeline ID as their original but did not store source_id.
+# Startup is read-only for legacy relationships. The separate rehearsal tool
+# is the only path that may populate missing links after its dry-run report.
 legacy = json.load(request("/api/files?type=video&check_id=legacy-source-001"))
-assert len(legacy) == 1 and legacy[0]["source_id"] == "legacy-source-001"
-legacy_companions = json.load(request("/api/files?type=video&tags=no-overlay"))
-assert any(item["id"] == "legacy-companion-001-no-overlay" for item in legacy_companions)
-legacy_normal = next(item for item in json.load(request("/api/files?type=video")) if item["id"] == "legacy-companion-001")
-assert legacy_normal["no_overlay_id"] == "legacy-companion-001-no-overlay"
+assert len(legacy) == 1 and legacy[0]["source_id"] is None
 
 with open(SOURCE, "rb") as handle:
     source = handle.read()
@@ -201,8 +197,9 @@ assert normal["designer_video_id"] == "derived-001-designer"
 assert all(item["id"] not in {"derived-001-no-overlay", "derived-001-designer"} for item in normal_videos)
 needs_designer = json.load(request("/api/files?type=video&designer_missing=true"))
 assert all(item["id"] != "derived-001" for item in needs_designer)
-no_overlay_videos = json.load(request("/api/files?type=video&tags=no-overlay"))
-assert any(item["id"] == "derived-001-no-overlay" for item in no_overlay_videos)
+no_overlay_videos = json.load(request("/api/files?type=video&view=no-overlay"))
+assert any(item["id"] == "derived-001" for item in no_overlay_videos)
+assert all(item["id"] != "derived-001-no-overlay" for item in no_overlay_videos)
 clean_stream = request("/stream/derived-001-no-overlay?type=video", headers={"Range": "bytes=0-99"})
 assert clean_stream.status == 206 and clean_stream.read() == source[:100]
 
@@ -247,12 +244,17 @@ assert complete_session(multipart_session, multipart_clean)["ok"]
 renamed_download = json.load(request("/api/originals/source-001/download"))
 assert renamed_download["filename"] == "Derived.mp4"
 
-# When a pipeline retry uploads a previously missing original, completing that
-# upload self-heals a same-ID legacy derived row without a service restart.
-legacy_video = complete_session(initiate("self-heal-001", "video", digest, title="Legacy retry", tags=["pending"]))
-assert legacy_video["ok"]
+# New derived uploads must name their original; legacy rows are repaired only
+# by the explicit, rehearsed backfill and are never recreated by this API.
+try:
+    initiate("self-heal-001", "video", digest, title="Legacy retry", tags=["pending"])
+    raise AssertionError("derived upload without source_id should fail")
+except urllib.error.HTTPError as exc:
+    assert exc.code == 400
 self_heal_original = complete_session(initiate("self-heal-001", "original", digest, original_filename="self-heal.mp4"))
 assert self_heal_original["ok"]
+legacy_video = complete_session(initiate("self-heal-001", "video", digest, title="Linked retry", tags=["pending"], source_id="self-heal-001"))
+assert legacy_video["ok"]
 self_healed = json.load(request("/api/files?type=video&check_id=self-heal-001"))
 assert len(self_healed) == 1 and self_healed[0]["source_id"] == "self-heal-001"
 

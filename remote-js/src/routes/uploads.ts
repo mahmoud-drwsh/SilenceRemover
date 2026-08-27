@@ -5,7 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getDb, linkLegacyDerivedFilesForOriginal, schemaIdent } from "../db.ts";
+import { getDb, schemaIdent } from "../db.ts";
 import { probeDurationSeconds } from "../ffprobe.ts";
 import { ALLOWED_MIME, AUDIO_MIME, VIDEO_MIME, SUBTITLE_MIME, getExtensionForMime, sniffMimeFromFile } from "../mime.ts";
 import { HttpError, type FileType } from "../schemas.ts";
@@ -161,7 +161,7 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
       designerOfId: target.id,
     };
   }
-  await assertSourceOriginalExists(project, input.sourceId);
+  if (input.type !== "original") await assertSourceOriginalExists(project, input.sourceId);
   const sql = getDb(); const ident = schemaIdent();
   const existing = (await sql.unsafe<UploadSession[]>(
     `SELECT * FROM ${ident}.upload_sessions WHERE project=$1 AND file_id=$2 AND type=$3 AND checksum_sha256=$4 AND state='active' AND expires_at > now() ORDER BY created_at DESC LIMIT 1`,
@@ -273,10 +273,7 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/:sessionId/complete", 
     const duration = session.type === "subtitle" ? 0 : await probeDurationSeconds(tempPath);
     overwritten = await resolveUploadOverwrite(session.file_id, project, session.type, session.title);
     await commitUploadMetadata({ fileId: session.file_id, project, fileType: session.type, title: session.type === "original" ? session.original_filename ?? session.file_id : session.title, tagList: sessionTags(session.tags), duration, fileSize: Number(session.file_size), mime: session.mime_type, overwritten, sourceId: session.source_id, originalFilename: session.original_filename, checksumSha256: session.checksum_sha256, designerOfId: session.designer_of_id });
-    if (session.type === "original") {
-      await linkLegacyDerivedFilesForOriginal(project, session.file_id);
-      await enqueueSourceProcessing(project, session.file_id, session.checksum_sha256);
-    }
+    if (session.type === "original") await enqueueSourceProcessing(project, session.file_id, session.checksum_sha256);
     const sql = getDb(); const ident = schemaIdent();
     await sql.unsafe(`UPDATE ${ident}.upload_sessions SET state='completed' WHERE id=$1`, [session.id]);
   } finally { await rm(tempDir, { recursive: true, force: true }); }

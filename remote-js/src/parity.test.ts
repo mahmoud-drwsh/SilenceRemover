@@ -314,42 +314,20 @@ describe("MIME tables", () => {
 });
 
 describe("frontend Media Manager UI", () => {
-  test("pending video options include Move to Trash", async () => {
+  test("video cards offer admin-only trash without folder placement", async () => {
     const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
-    expect(html).toContain("currentFilter === 'all' || currentFilter === 'pending'");
+    expect(html).not.toContain("Add to Folder");
     expect(html).toContain("confirmMoveToTrash('${safeId}')");
   });
 
-  test("video folder actions use card tags instead of refetching all videos", async () => {
+  test("video navigation uses virtual views rather than folders or publisher tags", async () => {
     const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
 
     expect(html).toContain('class="file-card video-card variant-card"');
-    expect(html).toContain('data-tags="${tagsJson}"');
-    expect(html).toContain("function getVideoCardTags(fileId)");
-    expect(html).toContain("const currentTags = getVideoCardTags(fileId);");
-
-    const removeTagBody = html.slice(
-      html.indexOf("async function removeTagFromFile"),
-      html.indexOf("function confirmMoveToReady"),
-    );
-    const openFolderBody = html.slice(
-      html.indexOf("function openFolderModal"),
-      html.indexOf("function closeFolderModal"),
-    );
-
-    expect(removeTagBody).toContain("async function removeTagFromFile");
-    expect(openFolderBody).toContain("function openFolderModal");
-    expect(removeTagBody).not.toContain("newTags.push('all')");
-    expect(removeTagBody).not.toContain("fetch(`${API_BASE}/files?type=${TYPE_VIDEO}`)");
-    expect(openFolderBody).not.toContain("fetch(`${API_BASE}/files?type=${TYPE_VIDEO}`)");
-  });
-
-  test("video restore and folder save do not write an all tag", async () => {
-    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
-
-    expect(html).toContain("const restoreTags = type === TYPE_AUDIO ? ['todo'] : []");
-    expect(html).toContain("const newTags = selectedFolders;");
-    expect(html).not.toContain("const newTags = ['all', ...selectedFolders]");
+    expect(html).toContain("const VIDEO_TABS = ['all', 'needs-designer', 'pipeline-final', 'no-overlay', 'designer', 'pending', 'trash'];");
+    expect(html).toContain("&view=${encodeURIComponent(currentFilter)}");
+    expect(html).not.toContain("'FB'");
+    expect(html).not.toContain("'TT'");
   });
 
   test("linked derived cards offer original downloads without an Originals view", async () => {
@@ -394,7 +372,7 @@ describe("frontend Media Manager UI", () => {
     const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
     const audioRenderer = html.slice(html.indexOf("function renderAudioCard(file"), html.indexOf("async function deleteFile"));
 
-    expect(html).toContain("const AUDIO_TABS = ['todo', 'ready'];");
+    expect(html).toContain("const AUDIO_TABS = ['todo', 'approved', 'trash'];");
     expect(audioRenderer).toContain("Approve title");
     expect(audioRenderer).toContain("Reopen review");
     expect(audioRenderer).not.toContain("downloadOriginal");
@@ -428,15 +406,15 @@ describe("frontend Media Manager UI", () => {
     const filesRoute = await Bun.file(new URL("./routes/files.ts", import.meta.url)).text();
 
     expect(html).toContain("'needs-designer': '✨ Needs Designer'");
-    expect(html).toContain("&designer_missing=true");
-    expect(filesRoute).toContain('designer_missing requires type=video');
-    expect(filesRoute).toContain('designer_candidate.designer_of_id');
+    expect(html).toContain("&view=${encodeURIComponent(currentFilter)}");
+    expect(filesRoute).toContain("view === \"needs-designer\"");
+    expect(filesRoute).toContain('candidate.designer_of_id=source.id');
   });
 
   test("an explicit All URL is not replaced by the designer queue", async () => {
     const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
 
-    expect(html).toContain("section === 'video' && !isAdminMode() && !folder");
+    expect(html).toContain("section === 'video' && !isAdminMode() && !filter");
   });
 
   test("designer uploads use same-origin multipart URLs", async () => {

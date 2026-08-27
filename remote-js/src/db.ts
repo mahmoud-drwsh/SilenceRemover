@@ -58,6 +58,10 @@ export async function ensureDatabaseReady(): Promise<void> {
       original_filename text,
       checksum_sha256 text,
       designer_of_id text,
+      media_variant text,
+      review_status text,
+      visibility text,
+      publication_status text,
       created_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (id, project, type)
     )
@@ -68,10 +72,18 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS original_filename text`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS checksum_sha256 text`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS designer_of_id text`);
+  // These fields are deliberately nullable during the non-destructive
+  // migration. Legacy rows retain their tags unchanged and are interpreted
+  // by the read-side compatibility mapping until the rehearsed backfill runs.
+  await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS media_variant text`);
+  await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS review_status text`);
+  await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS visibility text`);
+  await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS publication_status text`);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_project_type_idx ON ${ident}.files (project, type)`);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_tags_gin_idx ON ${ident}.files USING gin (tags)`);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_project_source_idx ON ${ident}.files (project, source_id)`);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_project_designer_of_idx ON ${ident}.files (project, designer_of_id)`);
+  await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_project_variant_idx ON ${ident}.files (project, media_variant)`);
   await sql.unsafe(`
     CREATE TABLE IF NOT EXISTS ${ident}.upload_sessions (
       id text PRIMARY KEY,
@@ -87,12 +99,20 @@ export async function ensureDatabaseReady(): Promise<void> {
       original_filename text,
       upload_id text,
       designer_of_id text,
+      media_variant text,
+      review_status text,
+      visibility text,
+      publication_status text,
       expires_at timestamptz NOT NULL,
       state text NOT NULL DEFAULT 'active' CHECK (state IN ('active', 'completed', 'aborted')),
       created_at timestamptz NOT NULL DEFAULT now()
     )
   `);
   await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD COLUMN IF NOT EXISTS designer_of_id text`);
+  await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD COLUMN IF NOT EXISTS media_variant text`);
+  await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD COLUMN IF NOT EXISTS review_status text`);
+  await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD COLUMN IF NOT EXISTS visibility text`);
+  await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD COLUMN IF NOT EXISTS publication_status text`);
   await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions DROP CONSTRAINT IF EXISTS upload_sessions_type_check`);
   await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD CONSTRAINT upload_sessions_type_check CHECK (type IN ('audio', 'video', 'original', 'subtitle'))`);
   await sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS upload_sessions_active_identity_idx ON ${ident}.upload_sessions (project, file_id, type, checksum_sha256) WHERE state = 'active'`);

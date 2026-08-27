@@ -210,21 +210,6 @@
         </div>
     </div>
 
-    <!-- Add to Folder Modal -->
-    <div id="folder-overlay" class="folder-overlay">
-        <div class="folder-modal">
-            <div class="folder-title" id="folder-title">Add to Folders</div>
-            <div class="folder-subtitle" id="folder-subtitle">Select folders for this video</div>
-            <div class="folder-list" id="folder-list">
-                <!-- Folders populated dynamically -->
-            </div>
-            <div class="folder-actions">
-                <button class="folder-cancel" onclick="closeFolderModal()">Cancel</button>
-                <button class="folder-save" onclick="saveFolderSelection()">Save</button>
-            </div>
-        </div>
-    </div>
-
     <div id="designer-overlay" class="designer-overlay">
         <form class="designer-modal" onsubmit="submitDesignerUpload(event)">
             <h2>Upload designer video</h2>
@@ -247,8 +232,7 @@
         const TYPE_AUDIO = 'audio';
         const TYPE_VIDEO = 'video';
 
-        // Parse URL path to get token, project, section, and folder
-        // URL format: /projects/TOKEN/PROJECT/audio or /projects/TOKEN/PROJECT/videos/FB
+        // Parse URL path to get token, project, section, and virtual view.
         const pathParts = window.location.pathname.split('/').filter(p => p);
         // Skip 'projects' prefix: parts[0] = 'projects', parts[1] = TOKEN, parts[2] = PROJECT
         const TOKEN = pathParts[1];
@@ -263,15 +247,10 @@
 
         // Utility: Get type constant based on current section
         function getCurrentType() {
-            // Cross-type viewing: FB tab in audio section shows videos
-            if (currentSection === 'audio' && currentFilter === 'FB') {
-                return TYPE_VIDEO;
-            }
             return currentSection === TYPE_AUDIO ? TYPE_AUDIO : TYPE_VIDEO;
         }
 
-        // Parse path for section and folder
-        // Format: /projects/TOKEN/PROJECT/audio/todo or /projects/TOKEN/PROJECT/videos/FB
+        // Format: /projects/TOKEN/PROJECT/audio/todo or /projects/TOKEN/PROJECT/videos/no-overlay
         function parsePath() {
             const path = window.location.pathname;
             const parts = path.split('/').filter(p => p);
@@ -283,33 +262,30 @@
             // Normalize video/videos to video
             if (section === 'videos') section = 'video';
             
-            // parts[4] = folder/filter (optional)
-            const folder = parts[4] || null;
+            const filter = parts[4] || null;
             
-            return { section, folder };
+            return { section, filter };
         }
 
         let currentSection = 'audio';
         let currentFilter = 'todo';
-        let strictIsolation = false; // When specific folder in URL, hide tabs
+        let strictIsolation = false;
         let currentSort = 'asc'; // 'asc' or 'desc'
         let fileLoadSequence = 0;
 
         // Fixed tabs per section
         // Audio is a small review queue: choose a title, then approve it.
-        const AUDIO_TABS = ['todo', 'ready'];
-        const VIDEO_TABS = ['needs-designer', 'FB', 'TT', 'no-overlay', 'all', 'trash', 'pending'];
+        const AUDIO_TABS = ['todo', 'approved', 'trash'];
+        const VIDEO_TABS = ['all', 'needs-designer', 'pipeline-final', 'no-overlay', 'designer', 'pending', 'trash'];
 
-        function showSection(section, folder = null, isStrict = false) {
+        function showSection(section, filter = null, isStrict = false) {
             currentSection = section;
-            // Strict isolation only applies to VIDEO with specific folder (not all/trash)
-            strictIsolation = isStrict && section === 'video' && folder && !['all', 'trash'].includes(folder) && isAdminMode();
+            strictIsolation = isStrict && section === 'video' && filter && !['all', 'trash'].includes(filter) && isAdminMode();
 
-            // Set filter: from folder, or default for section
-            if (section === 'video' && !isAdminMode() && !folder) {
+            if (section === 'video' && !isAdminMode() && !filter) {
                 currentFilter = 'needs-designer';
-            } else if (folder) {
-                currentFilter = folder;
+            } else if (filter) {
+                currentFilter = filter;
             } else {
                 currentFilter = section === 'audio' ? 'todo' : 'all';
             }
@@ -330,40 +306,40 @@
             window.history.replaceState(null, '', path);
         }
 
-        function switchToFolder(folder) {
+        function switchToView(filter) {
             const sectionName = currentSection === 'video' ? 'videos' : currentSection;
             let path = `/projects/${TOKEN}/${PROJECT}/${sectionName}`;
-            if (folder && folder !== 'all') {
-                path += `/${folder}`;
+            if (filter && filter !== 'all') {
+                path += `/${filter}`;
             }
             // Preserve hash fragment (e.g., #admin)
             path += window.location.hash;
             window.history.pushState(null, '', path);
             // Manually trigger update since pushState doesn't fire popstate
-            const { section, folder: newFolder } = parsePath();
-            const isStrict = newFolder !== null && !['all', 'trash'].includes(newFolder);
-            showSection(section, newFolder, isStrict);
+            const { section, filter: newFilter } = parsePath();
+            const isStrict = newFilter !== null && !['all', 'trash'].includes(newFilter);
+            showSection(section, newFilter, isStrict);
         }
 
         function toggleSection() {
             const newSection = currentSection === 'audio' ? 'video' : 'audio';
-            const newFolder = newSection === 'audio' ? 'todo' : 'all';
-            switchToFolderForSection(newSection, newFolder);
+            const newFilter = newSection === 'audio' ? 'todo' : 'all';
+            switchToViewForSection(newSection, newFilter);
         }
 
-        function switchToFolderForSection(section, folder) {
+        function switchToViewForSection(section, filter) {
             const sectionName = section === 'video' ? 'videos' : section;
             let path = `/projects/${TOKEN}/${PROJECT}/${sectionName}`;
-            if (folder && folder !== 'all') {
-                path += `/${folder}`;
+            if (filter && filter !== 'all') {
+                path += `/${filter}`;
             }
             // Preserve hash fragment (e.g., #admin)
             path += window.location.hash;
             window.history.pushState(null, '', path);
-            const { section: newSection, folder: newFolder } = parsePath();
-            const isStrict = newFolder !== null && !['all', 'trash'].includes(newFolder);
+            const { section: newSection, filter: newFilter } = parsePath();
+            const isStrict = newFilter !== null && !['all', 'trash'].includes(newFilter);
             updateSectionButton(newSection);
-            showSection(newSection, newFolder, isStrict);
+            showSection(newSection, newFilter, isStrict);
         }
 
         function updateSectionButton(section) {
@@ -449,11 +425,11 @@
         function getTabLabel(tab) {
             const labels = {
                 'todo': '✏️ TODO',
-                'ready': '✅ Ready',
+                'approved': '✅ Approved',
                 'all': '📋 All',
                 'trash': '🗑️ Trash',
-                'FB': '📘 Facebook',
-                'TT': '📱 TikTok',
+                'pipeline-final': '🎞️ Pipeline Final',
+                'designer': '✨ Designer Video',
                 'no-overlay': '🎬 No Overlay',
                 'needs-designer': '✨ Needs Designer',
                 'pending': '⏳ Pending'
@@ -504,11 +480,7 @@
 
             try {
                 let url = `${API_BASE}/files?type=${currentSection}`;
-                if (currentSection === 'video' && currentFilter === 'needs-designer') {
-                    url += '&designer_missing=true';
-                } else if (currentFilter !== 'all') {
-                    url += `&tags=${currentFilter}`;
-                }
+                if (currentFilter !== 'all') url += `&view=${encodeURIComponent(currentFilter)}`;
                 // Add sort parameter
                 url += `&sort=${currentSort}`;
 
@@ -523,7 +495,7 @@
                 if (loadSequence !== fileLoadSequence) return;
 
                 if (files.length === 0) {
-                    content.innerHTML = `<div class="empty">No ${currentSection} files ${currentFilter !== 'all' ? `with "${currentFilter}" tag` : ''}</div>`;
+                    content.innerHTML = `<div class="empty">No ${currentSection} files in this view</div>`;
                     const label = getTabLabel(currentFilter);
                     document.querySelector('header h1').innerHTML = `📁 ${label} (0)`;
                     return;
@@ -563,7 +535,7 @@
             const safeDesignerVideoId = file.designer_video_id ? escapeJs(file.designer_video_id) : '';
             const safeSubtitleId = file.subtitle_id ? escapeJs(file.subtitle_id) : '';
             const tagsJson = JSON.stringify(file.tags || []).replace(/"/g, '&quot;');
-            const canUploadDesigner = !(file.tags || []).includes('no-overlay') && !(file.tags || []).includes('designer');
+            const canUploadDesigner = file.media_variant === 'pipeline-final';
             const canManageVideoTrash = isAdminMode();
             let menuItem = '';
             let actionsHtml = '';
@@ -576,19 +548,7 @@
                 ` : '';
             } else {
                 // Normal view: play/download + context-aware menu
-                if (currentFilter === 'all' || currentFilter === 'pending') {
-                    // Folder placement remains available; video trash is admin-only.
-                    menuItem = `
-                        <div class="context-menu-item" onclick="openFolderModal('${safeId}', '${safeTitle}'); hideContextMenu('${safeId}')">📁 Add to Folder</div>
-                        ${canManageVideoTrash ? `<div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div>` : ''}
-                    `;
-                } else if (currentFilter === 'FB') {
-                    // In Facebook folder: show Remove from Facebook
-                    menuItem = `<div class="context-menu-item danger" onclick="confirmRemoveFromFolder('${safeId}', '${safeTitle}', 'Facebook'); hideContextMenu('${safeId}')">📘 Remove from Facebook</div>`;
-                } else if (currentFilter === 'TT') {
-                    // In TikTok folder: show Remove from TikTok
-                    menuItem = `<div class="context-menu-item danger" onclick="confirmRemoveFromFolder('${safeId}', '${safeTitle}', 'TikTok'); hideContextMenu('${safeId}')">📱 Remove from TikTok</div>`;
-                }
+                menuItem = canManageVideoTrash ? `<div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div>` : '';
                 const originalVariant = safeSourceId
                     ? `<button class="variant-action" onclick="downloadOriginal('${safeSourceId}')">📼 <span><strong>Original</strong><span>Raw source</span></span></button>`
                     : `<div class="variant-action missing">📼 <span><strong>Original</strong><span>Unavailable</span></span></div>`;
@@ -691,7 +651,7 @@
             const title = file.title || file.id;
             const tagsJson = JSON.stringify(file.tags).replace(/"/g, '&quot;');
             const safeId = escapeJs(file.id);  // Escape file ID for JavaScript context
-            const approved = (file.tags || []).includes('ready');
+            const approved = file.review_status === 'approved';
             const action = approved
                 ? `<button class="btn btn-todo" onclick="reopenTitleReview('${safeId}')">✏️ Reopen review</button>`
                 : `<button class="btn btn-ready" onclick="approveTitle('${safeId}')">✅ Approve title</button><button class="btn btn-danger" onclick="discardAudio('${safeId}')">🗑️ Discard audio</button>`;
@@ -981,42 +941,11 @@
             );
         }
 
-        function confirmRemoveFromFolder(fileId, title, folderName) {
-            const displayTitle = title || fileId;
-            showConfirmModal(
-                `Remove from ${folderName}?`,
-                `"${escapeHtml(displayTitle)}" will be removed from the ${folderName} folder.`,
-                `Remove from ${folderName}`,
-                false,
-                () => removeTagFromFile(fileId, folderName === 'Facebook' ? 'FB' : 'TT')
-            );
-        }
-
-        function getVideoCardTags(fileId) {
-            const card = document.querySelector(`.video-card[data-id="${CSS.escape(fileId)}"]`);
-            if (!card) {
-                throw new Error('File not found');
-            }
-            return JSON.parse(card.dataset.tags || '[]');
-        }
-
-        async function removeTagFromFile(fileId, tagToRemove) {
-            try {
-                const currentTags = getVideoCardTags(fileId);
-                const newTags = currentTags.filter(t => t !== tagToRemove);
-
-                // Update tags - pass TYPE_VIDEO since this is video-only function
-                await updateTags(fileId, newTags, TYPE_VIDEO);
-            } catch (err) {
-                alert('Error: ' + err.message);
-            }
-        }
-
         function confirmMoveToReady(fileId, title) {
             const displayTitle = title || fileId;
             showConfirmModal(
                 '✅ Mark as Ready?',
-                `"${escapeHtml(displayTitle)}" will be moved to the Ready folder.`,
+                `"${escapeHtml(displayTitle)}" will be approved for rendering.`,
                 'Mark Ready',
                 true,
                 () => updateTags(fileId, ['ready'], TYPE_AUDIO)
@@ -1027,7 +956,7 @@
             const displayTitle = title || fileId;
             showConfirmModal(
                 '✏️ Mark as TODO?',
-                `"${escapeHtml(displayTitle)}" will be moved to the TODO folder.`,
+                `"${escapeHtml(displayTitle)}" will return to title review.`,
                 'Mark TODO',
                 true,
                 () => updateTags(fileId, ['todo'], TYPE_AUDIO)
@@ -1038,11 +967,11 @@
             const displayTitle = title || fileId;
             // Determine type based on current section
             const type = getCurrentType();
-            // Audio restores to 'todo'; video restores with no folder tags.
+            // Audio restores to title review; video restores to its active view.
             const restoreTags = type === TYPE_AUDIO ? ['todo'] : [];
             showConfirmModal(
                 '♻️ Restore from Trash?',
-                `"${escapeHtml(displayTitle)}" will be restored to the All folder.`,
+                `"${escapeHtml(displayTitle)}" will be restored.`,
                 'Restore',
                 true,
                 () => updateTags(fileId, restoreTags, type)
@@ -1096,70 +1025,6 @@
             }
         }
 
-        // Folder modal state
-        let currentFolderFileId = null;
-        let currentFolderFileTitle = null;
-        const AVAILABLE_FOLDERS = [
-            { id: 'FB', name: '📘 Facebook', color: '#4a9eff' },
-            { id: 'TT', name: '📱 TikTok', color: '#ff6b9d' },
-            { id: 'YT', name: '📺 YouTube', color: '#ff4444' },
-            { id: 'IG', name: '📸 Instagram', color: '#e1306c' }
-        ];
-
-        function openFolderModal(fileId, title) {
-            currentFolderFileId = fileId;
-            currentFolderFileTitle = title;
-
-            try {
-                const currentTags = getVideoCardTags(fileId);
-
-                // Build folder list with checkboxes
-                const folderList = document.getElementById('folder-list');
-                folderList.innerHTML = AVAILABLE_FOLDERS.map(folder => {
-                    const isChecked = currentTags.includes(folder.id) ? 'checked' : '';
-                    return `
-                        <div class="folder-option">
-                            <input type="checkbox" id="folder-${folder.id}" value="${folder.id}" ${isChecked}>
-                            <label for="folder-${folder.id}">${folder.name}</label>
-                        </div>
-                    `;
-                }).join('');
-
-                // Update title
-                document.getElementById('folder-title').textContent = 'Add to Folders';
-                document.getElementById('folder-subtitle').textContent =
-                    title ? `"${escapeHtml(title)}"` : fileId;
-
-                // Show modal
-                document.getElementById('folder-overlay').classList.add('show');
-            } catch (err) {
-                alert('Error loading file info: ' + err.message);
-            }
-        }
-
-        function closeFolderModal() {
-            document.getElementById('folder-overlay').classList.remove('show');
-            currentFolderFileId = null;
-            currentFolderFileTitle = null;
-        }
-
-        async function saveFolderSelection() {
-            if (!currentFolderFileId) return;
-            
-            // Get selected folders
-            const checkboxes = document.querySelectorAll('#folder-list input[type="checkbox"]:checked');
-            const selectedFolders = Array.from(checkboxes).map(cb => cb.value);
-            
-            const newTags = selectedFolders;
-            
-            try {
-                await updateTags(currentFolderFileId, newTags, TYPE_VIDEO);
-                closeFolderModal();
-            } catch (err) {
-                alert('Error saving folders: ' + err.message);
-            }
-        }
-
         function formatDuration(seconds) {
             const m = Math.floor(seconds / 60);
             const s = seconds % 60;
@@ -1185,26 +1050,25 @@
 
         // Handle browser back/forward (popstate event)
         window.addEventListener('popstate', () => {
-            const { section, folder } = parsePath();
-            const isStrict = folder !== null && !['all', 'trash'].includes(folder);
-            showSection(section, folder, isStrict);
+            const { section, filter } = parsePath();
+            const isStrict = filter !== null && !['all', 'trash'].includes(filter);
+            showSection(section, filter, isStrict);
         });
 
         // ESC key to close modals
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 closeConfirmModal();
-                closeFolderModal();
             }
         });
 
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', () => {
             initSortPreference();
-            const { section, folder } = parsePath();
-            const isStrict = folder !== null && !['all', 'trash'].includes(folder);
+            const { section, filter } = parsePath();
+            const isStrict = filter !== null && !['all', 'trash'].includes(filter);
             updateSectionButton(section);
-            showSection(section, folder, isStrict);
+            showSection(section, filter, isStrict);
         });
 
         // Re-render tabs when URL hash changes (for #admin toggle)

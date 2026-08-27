@@ -63,8 +63,25 @@ normal = json.load(request("/api/files?type=video"))
 card = next(item for item in normal if item["id"] == final_id)
 assert card["no_overlay_id"] == f"{final_id}-no-overlay"
 assert card["designer_video_id"] == f"{final_id}-designer"
+assert card["media_variant"] == "pipeline-final"
+assert card["source_id"] == source_id
 assert all(item["id"] not in {f"{final_id}-no-overlay", f"{final_id}-designer"} for item in normal)
 
-no_overlay = json.load(request("/api/files?type=video&tags=no-overlay"))
-assert any(item["id"] == f"{final_id}-no-overlay" for item in no_overlay)
+no_overlay = json.load(request("/api/files?type=video&view=no-overlay"))
+assert any(item["id"] == final_id for item in no_overlay)
+assert all(item["id"] != f"{final_id}-no-overlay" for item in no_overlay)
+
+# Read-side compatibility also collapses legacy deterministic designer IDs
+# which predate designer_of_id, without changing their metadata.
+legacy_source = f"legacy-designer-source-{run_id}"
+legacy_final = f"legacy-designer-final-{run_id}"
+assert upload(legacy_source, "original", original_filename="legacy-designer.mp4")["ok"]
+assert upload(legacy_final, "video", title="Legacy final", source_id=legacy_source)["ok"]
+assert upload(f"{legacy_final}-designer", "video", title="Legacy designer", source_id=legacy_source)["ok"]
+legacy_cards = json.load(request("/api/files?type=video"))
+legacy_card = next(item for item in legacy_cards if item["id"] == legacy_final)
+assert legacy_card["designer_video_id"] == f"{legacy_final}-designer"
+assert all(item["id"] != f"{legacy_final}-designer" for item in legacy_cards)
+needs_designer = json.load(request("/api/files?type=video&view=needs-designer"))
+assert all(item["id"] != legacy_final for item in needs_designer)
 print("isolated canonical card flow passed")

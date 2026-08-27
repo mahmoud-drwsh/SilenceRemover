@@ -27,6 +27,11 @@ export const FileResponseSchema = z.object({
   designer_video_id: z.string().nullable().optional(),
   subtitle_id: z.string().nullable().optional(),
   designer_of_id: z.string().nullable().optional(),
+  media_variant: z.enum(["pipeline-final", "no-overlay", "designer"]).nullable().optional(),
+  review_status: z.enum(["todo", "approved"]).nullable().optional(),
+  visibility: z.enum(["active", "trash"]).optional(),
+  publication_status: z.enum(["pending", "published"]).nullable().optional(),
+  review_audio_id: z.string().nullable().optional(),
   created_at: z.string(),
 });
 export type FileResponse = z.infer<typeof FileResponseSchema>;

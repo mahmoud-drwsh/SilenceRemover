@@ -36,13 +36,13 @@ interface OriginalForWorker {
 
 const SHA256 = /^[a-f0-9]{64}$/;
 
-function artifactIdentity(kind: unknown, sourceId: string): { type: "audio" | "subtitle" | "video"; id: string; mime: string; ext: string; tags: string[] } {
-  if (kind === "review_audio") return { type: "audio", id: sourceId, mime: "audio/ogg", ext: ".ogg", tags: ["todo"] };
-  if (kind === "subtitle") return { type: "subtitle", id: `${sourceId}-subtitles`, mime: "application/x-subrip", ext: ".srt", tags: [] };
-  if (kind === "no_overlay_video") return { type: "video", id: `${sourceId}-no-overlay`, mime: "video/mp4", ext: ".mp4", tags: ["no-overlay"] };
+function artifactIdentity(kind: unknown, sourceId: string): { type: "audio" | "subtitle" | "video"; id: string; mime: string; ext: string; tags: string[]; mediaVariant: string | null; reviewStatus: string | null; publicationStatus: string | null } {
+  if (kind === "review_audio") return { type: "audio", id: sourceId, mime: "audio/ogg", ext: ".ogg", tags: ["todo"], mediaVariant: null, reviewStatus: "todo", publicationStatus: null };
+  if (kind === "subtitle") return { type: "subtitle", id: `${sourceId}-subtitles`, mime: "application/x-subrip", ext: ".srt", tags: [], mediaVariant: null, reviewStatus: null, publicationStatus: null };
+  if (kind === "no_overlay_video") return { type: "video", id: `${sourceId}-no-overlay`, mime: "video/mp4", ext: ".mp4", tags: ["no-overlay"], mediaVariant: "no-overlay", reviewStatus: null, publicationStatus: "published" };
   // A source is rendered only after its reviewer has approved the audio title,
   // so the final is immediately publishable under the existing tag contract.
-  if (kind === "overlaid_video") return { type: "video", id: sourceId, mime: "video/mp4", ext: ".mp4", tags: ["FB", "TT"] };
+  if (kind === "overlaid_video") return { type: "video", id: sourceId, mime: "video/mp4", ext: ".mp4", tags: [], mediaVariant: "pipeline-final", reviewStatus: null, publicationStatus: "published" };
   throw new HttpError(400, "Unsupported source-processing artifact kind");
 }
 
@@ -278,7 +278,7 @@ sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/artifac
     const head = await sourceArtifactTemporaryHead(project, jobId, token, kind);
     if (!head || head.size !== size || await sourceArtifactTemporarySha256(project, jobId, token, kind) !== checksum) throw new HttpError(400, "Uploaded artifact verification failed");
     await promoteSourceArtifact(project, jobId, token, kind, artifact.type, artifact.id, artifact.ext, artifact.mime);
-    await tx.unsafe(`INSERT INTO ${ident}.files (id,project,type,title,tags,duration,file_size,mime_type,source_id,checksum_sha256) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10)`, [artifact.id, project, artifact.type, title, JSON.stringify(artifact.tags), duration, size, artifact.mime, row.source_id, checksum]);
+    await tx.unsafe(`INSERT INTO ${ident}.files (id,project,type,title,tags,duration,file_size,mime_type,source_id,checksum_sha256,media_variant,review_status,visibility,publication_status) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,'active',$13)`, [artifact.id, project, artifact.type, title, JSON.stringify(artifact.tags), duration, size, artifact.mime, row.source_id, checksum, artifact.mediaVariant, artifact.reviewStatus, artifact.publicationStatus]);
     return artifact.id;
   });
   await deleteSourceArtifactTemporary(project, jobId, token, kind).catch(() => {});
