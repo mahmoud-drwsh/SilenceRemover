@@ -84,4 +84,12 @@ assert legacy_card["designer_video_id"] == f"{legacy_final}-designer"
 assert all(item["id"] != f"{legacy_final}-designer" for item in legacy_cards)
 needs_designer = json.load(request("/api/files?type=video&view=needs-designer"))
 assert all(item["id"] != legacy_final for item in needs_designer)
+
+# The in-service rehearsal is report-only and sees both legacy and current rows.
+rehearsal = json.load(request("/api/original-rooted-rehearsal"))
+assert rehearsal["mode"] == "dry-run"
+assert rehearsal["destructive_operations"] == 0
+assert rehearsal["object_operations"] == 0
+assert rehearsal["candidate_rows"] >= 5
+assert rehearsal["safe_updates"] >= 5
 print("isolated canonical card flow passed")

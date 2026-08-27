@@ -40,8 +40,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
 import { createHash } from "node:crypto";
+import { rehearseOriginalRootedBackfill } from "../originalRootedRehearsal.ts";
 
 export const filesRouter = new Hono();
+
+/** Report-only production rehearsal; there is intentionally no HTTP apply route. */
+filesRouter.get("/projects/:token/:project/api/original-rooted-rehearsal", async (c) => {
+  const { token, project } = c.req.param();
+  await verifyMediaToken(token);
+  return c.json(await rehearseOriginalRootedBackfill(project));
+});
 
 const MAX_OVERLAY_LOGO_BYTES = 10 * 1024 * 1024;
 const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
