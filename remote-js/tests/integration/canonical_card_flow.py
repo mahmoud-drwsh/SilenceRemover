@@ -92,4 +92,6 @@ assert rehearsal["destructive_operations"] == 0
 assert rehearsal["object_operations"] == 0
 assert rehearsal["candidate_rows"] >= 5
 assert rehearsal["safe_updates"] >= 5
+assert rehearsal["already_linked_rows"] + rehearsal["newly_linked_rows"] == rehearsal["safe_updates"]
+assert rehearsal["projected_update_rows"] + rehearsal["already_compliant_rows"] == rehearsal["safe_updates"]
 print("isolated canonical card flow passed")

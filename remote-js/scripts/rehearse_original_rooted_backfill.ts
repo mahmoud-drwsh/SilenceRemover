@@ -34,6 +34,10 @@ const candidates = await sql.unsafe<{
 type Planned = { project: string; id: string; type: string; sourceId: string; mediaVariant: string | null; reviewStatus: string | null; visibility: string; publicationStatus: string | null };
 const planned: Planned[] = [];
 const ambiguous: Array<{ project: string; id: string; type: string; reason: string }> = [];
+let alreadyLinked = 0;
+let newlyLinked = 0;
+let stateOnly = 0;
+let projected = 0;
 
 for (const row of candidates) {
   let tags: string[] = Array.isArray(row.tags) ? row.tags.map(String) : [];
@@ -61,12 +65,21 @@ for (const row of candidates) {
   }
   const variant = row.type !== "video" ? null : row.designer_of_id ? "designer"
     : row.id.endsWith("-no-overlay") ? "no-overlay" : "pipeline-final";
+  const reviewStatus = row.type === "audio" ? (tags.includes("ready") ? "approved" : "todo") : null;
+  const publicationStatus = row.type === "video" ? (tags.includes("pending") ? "pending" : "published") : null;
+  const stateWouldChange = (variant !== null && row.media_variant === null)
+    || (reviewStatus !== null && row.review_status === null)
+    || row.visibility === null
+    || (publicationStatus !== null && row.publication_status === null);
+  if (directRoot) alreadyLinked += 1; else newlyLinked += 1;
+  if (stateWouldChange && directRoot) stateOnly += 1;
+  if (!directRoot || stateWouldChange) projected += 1;
   planned.push({
     project: row.project, id: row.id, type: row.type, sourceId: root,
     mediaVariant: row.media_variant ?? variant,
-    reviewStatus: row.review_status ?? (row.type === "audio" ? (tags.includes("ready") ? "approved" : "todo") : null),
+    reviewStatus: row.review_status ?? reviewStatus,
     visibility: row.visibility ?? (tags.includes("trash") ? "trash" : "active"),
-    publicationStatus: row.publication_status ?? (row.type === "video" ? (tags.includes("pending") ? "pending" : "published") : null),
+    publicationStatus: row.publication_status ?? publicationStatus,
   });
 }
 
@@ -78,6 +91,11 @@ const report = {
   destructive_operations: 0,
   object_operations: 0,
   candidate_rows: candidates.length,
+  already_linked_rows: alreadyLinked,
+  newly_linked_rows: newlyLinked,
+  state_only_update_rows: stateOnly,
+  projected_update_rows: projected,
+  already_compliant_rows: planned.length - projected,
   safe_updates: planned.length,
   ambiguous_rows: ambiguous.length,
   ambiguous_sample: ambiguous.slice(0, 25),

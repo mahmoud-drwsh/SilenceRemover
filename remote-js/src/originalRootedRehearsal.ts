@@ -18,6 +18,16 @@ export type OriginalRootedRehearsalReport = {
   destructive_operations: 0;
   object_operations: 0;
   candidate_rows: number;
+  /** Safe rows already linked directly to an Original before this rehearsal. */
+  already_linked_rows: number;
+  /** Safe rows whose empty source_id would be filled by the guarded apply. */
+  newly_linked_rows: number;
+  /** Already-linked rows that need only explicit state/variant columns filled. */
+  state_only_update_rows: number;
+  /** Safe rows where the guarded apply would fill at least one empty column. */
+  projected_update_rows: number;
+  /** Safe rows that already satisfy the explicit original-rooted contract. */
+  already_compliant_rows: number;
   safe_updates: number;
   ambiguous_rows: number;
   ambiguous_sample: Array<{ id: string; type: string; reason: string }>;
@@ -43,6 +53,10 @@ export async function rehearseOriginalRootedBackfill(project: string): Promise<O
   `, [project]);
   const planned: Planned[] = [];
   const ambiguous: Array<{ id: string; type: string; reason: string }> = [];
+  let alreadyLinked = 0;
+  let newlyLinked = 0;
+  let stateOnly = 0;
+  let projected = 0;
 
   for (const row of candidates) {
     const roots = await sql.unsafe<{ id: string }[]>(`
@@ -62,15 +76,26 @@ export async function rehearseOriginalRootedBackfill(project: string): Promise<O
     const tags = tagsOf(row.tags);
     const variant = row.type !== "video" ? null : row.designer_of_id ? "designer"
       : row.id.endsWith("-no-overlay") ? "no-overlay" : "pipeline-final";
+    const reviewStatus = row.type === "audio" ? (tags.includes("ready") ? "approved" : "todo") : null;
+    const publicationStatus = row.type === "video" ? (tags.includes("pending") ? "pending" : "published") : null;
+    const stateWouldChange = (variant !== null && row.media_variant === null)
+      || (reviewStatus !== null && row.review_status === null)
+      || row.visibility === null
+      || (publicationStatus !== null && row.publication_status === null);
+    if (directRoot) alreadyLinked += 1; else newlyLinked += 1;
+    if (stateWouldChange && directRoot) stateOnly += 1;
+    if (!directRoot || stateWouldChange) projected += 1;
     planned.push({
       project, id: row.id, type: row.type, sourceId: root, mediaVariant: row.media_variant ?? variant,
-      reviewStatus: row.review_status ?? (row.type === "audio" ? (tags.includes("ready") ? "approved" : "todo") : null),
+      reviewStatus: row.review_status ?? reviewStatus,
       visibility: row.visibility ?? (tags.includes("trash") ? "trash" : "active"),
-      publicationStatus: row.publication_status ?? (row.type === "video" ? (tags.includes("pending") ? "pending" : "published") : null),
+      publicationStatus: row.publication_status ?? publicationStatus,
     });
   }
   const plan_sha256 = createHash("sha256").update(JSON.stringify({ planned, ambiguous })).digest("hex");
   return { mode: "dry-run", project, plan_sha256, destructive_operations: 0, object_operations: 0,
-    candidate_rows: candidates.length, safe_updates: planned.length, ambiguous_rows: ambiguous.length,
+    candidate_rows: candidates.length, already_linked_rows: alreadyLinked, newly_linked_rows: newlyLinked,
+    state_only_update_rows: stateOnly, projected_update_rows: projected,
+    already_compliant_rows: planned.length - projected, safe_updates: planned.length, ambiguous_rows: ambiguous.length,
     ambiguous_sample: ambiguous.slice(0, 25) };
 }
