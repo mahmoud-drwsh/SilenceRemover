@@ -1,9 +1,9 @@
-"""End-to-end test for the trim-plan-only source-processing worker.
+"""End-to-end test for the server-owned source-processing worker.
 
 This runs in the isolated Compose network after the existing Media Manager
 flow.  It uploads one fixture through the public upload API, then runs the
-real Python worker against the signed MinIO download URL.  No LLM endpoint is
-configured or called: trim planning uses the repository's FFmpeg probes.
+real Python worker against the signed MinIO download URL. A deterministic fake
+provider verifies that its review analysis matches the horizontal adapter.
 """
 
 from __future__ import annotations
@@ -28,6 +28,10 @@ ADMIN_BASE = f"{APP}/admin/test-admin-token/api/projects/{PROJECT}/source-proces
 TOKEN = "test-worker-token"
 SOURCE_ID = "worker-source-001"
 FIXTURE = Path("/fixtures/original.mp4")
+EXPECTED_REVIEW_ANALYSIS = {
+    "transcript": "الحمد لله رب العالمين، اليوم نتحدث عن فضل طلب العلم.",
+    "title": "اليوم نتحدث عن فضل طلب العلم",
+}
 
 
 def request(url: str, method: str = "GET", payload: object | None = None, headers: dict[str, str] | None = None):
@@ -46,6 +50,19 @@ def json_request(url: str, method: str = "GET", payload: object | None = None, h
     return json.load(request(url, method, payload, headers))
 
 
+def review_analysis_request(url: str, headers: dict[str, str] | None = None) -> dict:
+    boundary = "review-analysis-integration-boundary"
+    ogg = b"OggSintegration-review-audio"
+    body = (
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"snippet\"; filename=\"review.ogg\"\r\n"
+        "Content-Type: audio/ogg\r\n\r\n"
+    ).encode() + ogg + f"\r\n--{boundary}--\r\n".encode()
+    return json.load(request(
+        url, "POST", body,
+        {"Content-Type": f"multipart/form-data; boundary={boundary}", **(headers or {})},
+    ))
+
+
 for _ in range(30):
     try:
         if request(f"{APP}/healthz").status == 200:
@@ -54,6 +71,15 @@ for _ in range(30):
         time.sleep(1)
 else:
     raise SystemExit("Media Manager did not become healthy")
+
+# Both adapters must be indistinguishable when their shared provider sees the
+# same transient OGG bytes. The worker route is authenticated separately.
+horizontal_review = review_analysis_request(f"{MEDIA_BASE}/api/snippet-analysis")
+server_review = review_analysis_request(
+    f"{WORKER_BASE}/review-analysis", {"X-Source-Processing-Token": TOKEN},
+)
+assert horizontal_review == {"ok": True, **EXPECTED_REVIEW_ANALYSIS}
+assert server_review == horizontal_review
 
 source = FIXTURE.read_bytes()
 digest = hashlib.sha256(source).hexdigest()
@@ -87,12 +113,10 @@ json_request(f"{ADMIN_BASE}/{probe_job['id']}/retry", "POST", {})
 def fake_subtitles(**kwargs):
     Path(kwargs["output_path"]).write_text("1\n00:00:00,000 --> 00:00:02,000\nنص اختبار\n", encoding="utf-8")
 
-config = WorkerConfig(APP, PROJECT, TOKEN, Path("/tmp/source-processing-worker"), 0.2, openrouter_api_key="not-used")
+config = WorkerConfig(APP, PROJECT, TOKEN, Path("/tmp/source-processing-worker"), 0.2, openrouter_api_key="fake-provider-key")
 def run_worker():
     with SourceProcessingWorker(
         config,
-        transcriber=lambda _key, _path: "نص مراجعة اختباري",
-        title_generator=lambda _key, _text: "عنوان اختباري",
         subtitle_generator=fake_subtitles,
     ) as worker:
         assert worker.run_once()
@@ -110,6 +134,8 @@ assert checkpoint["source_id"] == SOURCE_ID
 assert checkpoint["original_checksum_sha256"] == digest
 assert checkpoint["plan"]["input_duration_sec"] > 0
 assert checkpoint["plan"]["segments_to_keep"]
+assert waiting[0]["review_transcript"] == EXPECTED_REVIEW_ANALYSIS["transcript"]
+assert waiting[0]["generated_title"] == EXPECTED_REVIEW_ANALYSIS["title"]
 
 # A reviewer edit and approval are user-owned metadata. The worker must pick
 # the same waiting job back up without an admin retry or another model call.
@@ -129,11 +155,12 @@ assert hashlib.sha256(served_audio).hexdigest() == audio[0]["checksum_sha256"]
 assert hashlib.sha256(served_srt).hexdigest() == subtitle[0]["checksum_sha256"]
 assert b"00:00:00,000 --> 00:00:02,000" in served_srt
 videos = json_request(f"{MEDIA_BASE}/api/files?type=video&include_pending=true")
-no_overlay_videos = json_request(f"{MEDIA_BASE}/api/files?type=video&tags=no-overlay")
+no_overlay_videos = json_request(f"{MEDIA_BASE}/api/files?type=video&check_id={SOURCE_ID}-no-overlay")
 video_by_id = {video["id"]: video for video in videos + no_overlay_videos}
 assert set(video_by_id) >= {SOURCE_ID, f"{SOURCE_ID}-no-overlay"}
 assert video_by_id[SOURCE_ID]["title"] == "عنوان راجعه المستخدم"
-assert video_by_id[SOURCE_ID]["tags"] == ["FB", "TT"]
+assert video_by_id[SOURCE_ID]["media_variant"] == "pipeline-final"
+assert video_by_id[SOURCE_ID]["publication_status"] == "published"
 assert video_by_id[f"{SOURCE_ID}-no-overlay"]["tags"] == ["no-overlay"]
 for video_id in (SOURCE_ID, f"{SOURCE_ID}-no-overlay"):
     assert video_by_id[video_id]["source_id"] == SOURCE_ID

@@ -11,11 +11,16 @@ from pathlib import Path
 
 from sr_media_manager import MediaManagerClient
 from sr_source_processing.api import SourceProcessingWorker
+from sr_source_processing.review_analysis import analyze_review_ogg
 from sr_subtitles import generate_srt_from_trim_segments
-from sr_title import generate_title_with_openrouter
-from sr_transcription import transcribe_with_openrouter
 from sr_trim_plan import build_trim_plan
 from src.core.constants import NON_TARGET_MIN_DURATION_SEC, NON_TARGET_NOISE_THRESHOLD_DB, NON_TARGET_PAD_SEC
+
+
+def analyze_review_audio(client: MediaManagerClient, worker_token: str, audio: Path) -> tuple[str, str]:
+    """Use the same worker-authenticated review analysis adapter as server jobs."""
+    endpoint = f"{client.base_url}/internal/source-processing/{client.project}/review-analysis"
+    return analyze_review_ogg(client._client, endpoint, worker_token, audio)
 
 
 def main() -> int:
@@ -25,6 +30,8 @@ def main() -> int:
     args = parser.parse_args()
     key = os.environ.get("OPENROUTER_API_KEY", "")
     if not key: parser.error("OPENROUTER_API_KEY is required")
+    worker_token = os.environ.get("SOURCE_PROCESSING_WORKER_TOKEN", "")
+    if not worker_token: parser.error("SOURCE_PROCESSING_WORKER_TOKEN is required")
     client = MediaManagerClient()
     args.work_dir.mkdir(parents=True, exist_ok=True)
     original = args.work_dir / "original.mkv"
@@ -46,10 +53,12 @@ def main() -> int:
     audio = args.work_dir / "review.ogg"
     if not audio.exists(): SourceProcessingWorker._create_review_audio(original, audio, segments)
     transcript_path = args.work_dir / "transcript.txt"
-    if not transcript_path.exists(): transcript_path.write_text(transcribe_with_openrouter(key, audio), encoding="utf-8")
-    transcript = transcript_path.read_text(encoding="utf-8").strip()
     title_path = args.work_dir / "title.txt"
-    if not title_path.exists(): title_path.write_text(generate_title_with_openrouter(key, transcript), encoding="utf-8")
+    if not transcript_path.exists() or not title_path.exists():
+        transcript, title = analyze_review_audio(client, worker_token, audio)
+        transcript_path.write_text(transcript, encoding="utf-8")
+        title_path.write_text(title, encoding="utf-8")
+    transcript = transcript_path.read_text(encoding="utf-8").strip()
     srt = args.work_dir / "subtitles.srt"
     if not srt.exists(): generate_srt_from_trim_segments(input_file=original, segments=segments, output_path=srt, work_dir=args.work_dir / "subtitle-work", api_key=key, log_dir=args.work_dir)
     print(json.dumps({"source_id": args.source_id, "title": title_path.read_text(encoding="utf-8").strip(), "transcript_chars": len(transcript), "srt_bytes": srt.stat().st_size, "segments": len(segments)}, ensure_ascii=False))

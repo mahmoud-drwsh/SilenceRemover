@@ -30,8 +30,7 @@ from src.core.constants import (
 )
 from sr_trim_plan import TrimPlan, build_trim_plan
 from sr_filter_graph import build_audio_concat_filter_graph
-from sr_transcription import transcribe_with_openrouter
-from sr_title import generate_title_with_openrouter
+from sr_source_processing.review_analysis import ReviewAnalysisError, analyze_review_ogg
 from sr_subtitles import generate_srt_from_trim_segments, mux_srt_track
 from src.ffmpeg.trim_script_bundle import write_trim_script_from_plan
 from src.media.trim import prepare_video_overlays, trim_single_video
@@ -98,8 +97,6 @@ class SourceProcessingWorker:
         *,
         client: httpx.Client | None = None,
         trim_planner: Callable[..., TrimPlan] = build_trim_plan,
-        transcriber: Callable[[str, Path], str] | None = None,
-        title_generator: Callable[[str, str], str] | None = None,
         subtitle_generator: Callable[..., None] | None = None,
         review_audio_builder: Callable[[Path, Path, list[tuple[float, float]]], None] | None = None,
     ) -> None:
@@ -107,8 +104,6 @@ class SourceProcessingWorker:
         self._client = client or httpx.Client(timeout=config.request_timeout_sec)
         self._owns_client = client is None
         self._trim_planner = trim_planner
-        self._transcriber = transcriber or (lambda key, path: transcribe_with_openrouter(key, path))
-        self._title_generator = title_generator or (lambda key, transcript: generate_title_with_openrouter(key, transcript))
         self._subtitle_generator = subtitle_generator or generate_srt_from_trim_segments
         self._review_audio_builder = review_audio_builder or self._create_review_audio
 
@@ -175,20 +170,18 @@ class SourceProcessingWorker:
             if not self._has_audio(original_path):
                 self._post(f"/{job_id}/waiting", {"lease_token": lease_token, "reason": "trim-plan-ready; source has no audio"})
                 return
-            review_audio = job_dir / "review.ogg"
-            self._review_audio_builder(original_path, review_audio, segments)
             transcript = str(job.get("review_transcript") or "").strip()
             title = str(job.get("generated_title") or "").strip()
             srt_text = str(job.get("srt_text") or "")
-            if not transcript:
-                key = self._require_openrouter_key()
-                transcript = self._transcriber(key, review_audio).strip()
-                if not transcript: raise WorkerError("Review transcription returned empty text")
-                self._patch(f"/{job_id}/checkpoints", {"lease_token": lease_token, "review_transcript": transcript})
-            if not title:
-                title = self._title_generator(self._require_openrouter_key(), transcript).strip()
-                if not title: raise WorkerError("Title generation returned empty text")
-                self._patch(f"/{job_id}/checkpoints", {"lease_token": lease_token, "generated_title": title})
+            review_audio: Path | None = None
+            if not transcript or not title:
+                review_audio = job_dir / "review.ogg"
+                self._review_audio_builder(original_path, review_audio, segments)
+                transcript, title = self._analyze_review_audio(review_audio)
+                self._patch(
+                    f"/{job_id}/checkpoints",
+                    {"lease_token": lease_token, "review_transcript": transcript, "generated_title": title},
+                )
             srt_path = job_dir / "subtitles.srt"
             if not srt_text:
                 self._subtitle_generator(input_file=original_path, segments=segments, output_path=srt_path, work_dir=job_dir / "subtitle-work", api_key=self._require_openrouter_key(), log_dir=job_dir)
@@ -198,6 +191,9 @@ class SourceProcessingWorker:
             else:
                 srt_path.write_text(srt_text, encoding="utf-8")
             if not bool(job.get("review_audio_uploaded")):
+                if review_audio is None:
+                    review_audio = job_dir / "review.ogg"
+                    self._review_audio_builder(original_path, review_audio, segments)
                 self._upload_artifact(job_id, lease_token, "review_audio", review_audio, title, "audio/ogg")
             if not bool(job.get("subtitle_uploaded")):
                 self._upload_artifact(job_id, lease_token, "subtitle", srt_path, title, "application/x-subrip")
@@ -265,6 +261,15 @@ class SourceProcessingWorker:
         if not self.config.openrouter_api_key:
             raise WorkerError("OPENROUTER_API_KEY is required for missing model checkpoints")
         return self.config.openrouter_api_key
+
+    def _analyze_review_audio(self, review_audio: Path) -> tuple[str, str]:
+        """Use Media Manager's worker-authenticated canonical review-analysis path."""
+        try:
+            return analyze_review_ogg(
+                self._client, self._url("/review-analysis"), self.config.worker_token, review_audio,
+            )
+        except ReviewAnalysisError as exc:
+            raise WorkerError(str(exc)) from exc
 
     @staticmethod
     def _create_review_audio(input_path: Path, output_path: Path, segments: list[tuple[float, float]]) -> None:

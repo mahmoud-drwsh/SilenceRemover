@@ -59,6 +59,13 @@ services:
     command: ["-ec", "ffmpeg -y -f lavfi -i testsrc2=size=320x180:rate=24 -f lavfi -i sine=frequency=440 -t 2 -c:v libx264 -pix_fmt yuv420p -c:a aac /fixtures/original.mp4; ffmpeg -y -f lavfi -i testsrc2=size=320x180:rate=24 -f lavfi -i sine=frequency=440 -t 2 -c:v libx264 -pix_fmt yuv420p -c:a aac /fixtures/original.mkv; tail -f /dev/null"]
     networks: [isolated]
 
+  review-provider:
+    image: python:3.12-alpine
+    volumes:
+      - ./tests/integration/fake_review_provider.py:/fake_review_provider.py:ro
+    command: ["python", "/fake_review_provider.py"]
+    networks: [isolated]
+
   app:
     build:
       context: .
@@ -70,6 +77,8 @@ services:
         condition: service_completed_successfully
       minio-init:
         condition: service_completed_successfully
+      review-provider:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql://media_manager:test-password@postgres:5432/media_manager
       DB_SCHEMA: media_manager
@@ -81,6 +90,10 @@ services:
       S3_REGION: us-east-1
       SOURCE_PROCESSING_WORKER_TOKEN: test-worker-token
       SOURCE_PROCESSING_LEASE_SECONDS: "1"
+      OPENROUTER_API_KEY: fake-provider-key
+      OPENROUTER_BASE_URL: http://review-provider:8090
+      OPENROUTER_TRANSCRIPTION_MODEL: fake-transcription
+      OPENROUTER_TITLE_MODEL: fake-title
       PORT: "8080"
     networks: [isolated]
 
@@ -113,6 +126,7 @@ services:
       SOURCE_PROCESSING_WORKER_TOKEN: test-worker-token
       SOURCE_PROCESSING_WORK_DIR: /tmp/source-processing-worker
       SOURCE_PROCESSING_HEARTBEAT_INTERVAL_SEC: "0.2"
+      OPENROUTER_API_KEY: fake-provider-key
     volumes:
       - ..:/workspace:ro
       - ../.local-test/fixtures:/fixtures:ro

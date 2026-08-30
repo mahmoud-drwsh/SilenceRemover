@@ -40,10 +40,16 @@ def _worker(tmp_path: Path, handler: httpx.MockTransport, planner=_plan, heartbe
         Path(kwargs["output_path"]).write_text("1\n00:00:00,000 --> 00:00:02,000\nنص\n", encoding="utf-8")
     def audio(_input: Path, output: Path, _segments: list[tuple[float, float]]) -> None:
         output.write_bytes(b"review-audio")
+
+    def review_analysis_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/review-analysis"):
+            return httpx.Response(200, json={"ok": True, "transcript": "نص المراجعة", "title": "عنوان"})
+        return handler.handle_request(request)
+
     worker = SourceProcessingWorker(
         WorkerConfig("https://service.example.test", "project-a", "worker-secret", tmp_path, heartbeat, openrouter_api_key="test-key"),
-        client=httpx.Client(transport=handler), trim_planner=planner,
-        transcriber=lambda _key, _path: "نص المراجعة", title_generator=lambda _key, _text: "عنوان", subtitle_generator=subtitles,
+        client=httpx.Client(transport=httpx.MockTransport(review_analysis_handler)), trim_planner=planner,
+        subtitle_generator=subtitles,
         review_audio_builder=audio,
     )
     worker._has_audio = lambda _path: True
@@ -83,6 +89,55 @@ def test_worker_checkpoints_and_waits_without_sending_worker_secret_to_object_st
     assert worker.run_once() is True
     assert (tmp_path / "project-a" / "job-001" / "trim-plan.json").is_file()
     assert seen[-1].url.path.endswith("/waiting")
+
+
+def test_worker_uses_internal_review_analysis_once_and_checkpoints_its_result(tmp_path: Path) -> None:
+    """The server worker delegates review analysis to Media Manager, once per claim."""
+    payload = b"two-second-media-bytes"
+    job = _job(payload)
+    review_analysis_requests = 0
+    checkpoint_bodies: list[dict[str, object]] = []
+
+    def subtitles(**kwargs: object) -> None:
+        Path(kwargs["output_path"]).write_text("1\n00:00:00,000 --> 00:00:02,000\nنص\n", encoding="utf-8")
+
+    def audio(_input: Path, output: Path, _segments: list[tuple[float, float]]) -> None:
+        output.write_bytes(b"OggSreview-audio")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal review_analysis_requests
+        if request.url.host == "objects.example.test":
+            return httpx.Response(200, content=payload)
+        assert request.headers["X-Source-Processing-Token"] == "worker-secret"
+        if request.url.path.endswith("/claim"):
+            return httpx.Response(200, json={"ok": True, "job": job})
+        if request.url.path.endswith("/review-analysis"):
+            review_analysis_requests += 1
+            assert request.headers["Content-Type"].startswith("multipart/form-data;")
+            assert b'OggSreview-audio' in request.content
+            return httpx.Response(200, json={"ok": True, "transcript": "نص المراجعة", "title": "عنوان"})
+        if request.url.path.endswith("/checkpoints"):
+            checkpoint_bodies.append(json.loads(request.content))
+            return httpx.Response(200, json={"ok": True})
+        if "/artifacts/" in request.url.path:
+            return httpx.Response(200, json={"ok": True, "already_uploaded": True, "id": "artifact"})
+        if request.url.path.endswith("/waiting"):
+            return httpx.Response(200, json={"ok": True})
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    worker = SourceProcessingWorker(
+        WorkerConfig("https://service.example.test", "project-a", "worker-secret", tmp_path, openrouter_api_key="subtitle-key"),
+        client=httpx.Client(transport=httpx.MockTransport(handler)), trim_planner=_plan,
+        subtitle_generator=subtitles, review_audio_builder=audio,
+    )
+    worker._has_audio = lambda _path: True
+
+    assert worker.run_once() is True
+    assert review_analysis_requests == 1
+    assert any(
+        body.get("review_transcript") == "نص المراجعة" and body.get("generated_title") == "عنوان"
+        for body in checkpoint_bodies
+    )
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required to generate the isolated media fixture")
@@ -197,6 +252,48 @@ def test_waiting_retry_reuses_valid_checkpoint_without_replanning(tmp_path: Path
     assert saved == job["trim_plan"]
 
 
+def test_waiting_retry_reuses_review_analysis_checkpoints_without_a_second_request(tmp_path: Path) -> None:
+    payload = b"unchanged-original"
+    job = _job(payload)
+    job.update({
+        "trim_plan": {
+            "version": 1, "source_id": "source-001",
+            "original_checksum_sha256": hashlib.sha256(payload).hexdigest(),
+            "plan": {"segments_to_keep": [[0.0, 2.0]], "input_duration_sec": 2.0},
+        },
+        "review_transcript": "محفوظ", "generated_title": "عنوان محفوظ",
+        "srt_text": "1\n00:00:00,000 --> 00:00:02,000\nنص\n",
+        "review_audio_uploaded": True, "subtitle_uploaded": True,
+    })
+    review_analysis_requests = 0
+
+    def subtitles(**kwargs: object) -> None:
+        Path(kwargs["output_path"]).write_text("1\n00:00:00,000 --> 00:00:02,000\nنص\n", encoding="utf-8")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal review_analysis_requests
+        if request.url.host == "objects.example.test":
+            return httpx.Response(200, content=payload)
+        if request.url.path.endswith("/review-analysis"):
+            review_analysis_requests += 1
+            return httpx.Response(500)
+        if request.url.path.endswith("/claim"):
+            return httpx.Response(200, json={"ok": True, "job": job})
+        if request.url.path.endswith("/waiting") or request.url.path.endswith("/checkpoints") or "/artifacts/" in request.url.path:
+            return httpx.Response(200, json={"ok": True, "already_uploaded": True, "id": "artifact"})
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    worker = SourceProcessingWorker(
+        WorkerConfig("https://service.example.test", "project-a", "worker-secret", tmp_path, openrouter_api_key="subtitle-key"),
+        client=httpx.Client(transport=httpx.MockTransport(handler)), trim_planner=lambda **_: (_ for _ in ()).throw(AssertionError("trim plan must be reused")),
+        subtitle_generator=subtitles, review_audio_builder=lambda *_: (_ for _ in ()).throw(AssertionError("review OGG must not be rebuilt")),
+    )
+    worker._has_audio = lambda _path: True
+
+    assert worker.run_once() is True
+    assert review_analysis_requests == 0
+
+
 def test_waiting_retry_reuses_empty_plan_for_silent_source(tmp_path: Path) -> None:
     payload = b"silent-original"
     job = _job(payload)
@@ -257,6 +354,5 @@ def test_audio_less_source_waits_without_model_calls(tmp_path: Path) -> None:
         httpx.Response(200, json={"ok": True})
     )))
     worker._has_audio = lambda _path: False
-    worker._transcriber = lambda *_: (_ for _ in ()).throw(AssertionError("model must not run"))
     assert worker.run_once()
     assert reasons == ["trim-plan-ready; source has no audio"]
