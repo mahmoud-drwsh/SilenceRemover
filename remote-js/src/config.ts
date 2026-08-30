@@ -59,6 +59,11 @@ export interface AppConfig {
   openRouterBaseUrl?: string;
   openRouterTranscriptionModel: string;
   openRouterTitleModel: string;
+  reviewAnalysisTimeoutMs: number;
+  reviewAnalysisMaxAttempts: number;
+  reviewAnalysisPublicRateLimitWindowSec: number;
+  reviewAnalysisPublicRateLimitMax: number;
+  reviewAnalysisPublicConcurrencyMax: number;
 }
 
 let cached: AppConfig | undefined;
@@ -95,6 +100,11 @@ export function loadConfig(): AppConfig {
     openRouterBaseUrl: readEnv("OPENROUTER_BASE_URL"),
     openRouterTranscriptionModel: readEnv("OPENROUTER_TRANSCRIPTION_MODEL") ?? "qwen/qwen3-asr-flash-2026-02-10",
     openRouterTitleModel: readEnv("OPENROUTER_TITLE_MODEL") ?? "google/gemini-3-flash-preview",
+    reviewAnalysisTimeoutMs: readPositiveInteger("REVIEW_ANALYSIS_TIMEOUT_MS", 20_000),
+    reviewAnalysisMaxAttempts: readPositiveInteger("REVIEW_ANALYSIS_MAX_ATTEMPTS", 3),
+    reviewAnalysisPublicRateLimitWindowSec: readPositiveInteger("REVIEW_ANALYSIS_PUBLIC_RATE_LIMIT_WINDOW_SEC", 60),
+    reviewAnalysisPublicRateLimitMax: readPositiveInteger("REVIEW_ANALYSIS_PUBLIC_RATE_LIMIT_MAX", 12),
+    reviewAnalysisPublicConcurrencyMax: readPositiveInteger("REVIEW_ANALYSIS_PUBLIC_CONCURRENCY_MAX", 2),
   };
   return cached;
 }

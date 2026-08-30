@@ -64,7 +64,7 @@ function workerTokenDigest(value: string): Buffer {
   return createHash("sha256").update(value).digest();
 }
 
-function verifyWorkerToken(header: string | undefined): void {
+export function verifySourceProcessingWorkerToken(header: string | undefined): void {
   const expected = loadConfig().sourceProcessingWorkerToken;
   if (!header || !expected || !timingSafeEqual(workerTokenDigest(header), workerTokenDigest(expected))) {
     throw new HttpError(401, "Invalid source-processing worker token");
@@ -142,7 +142,7 @@ export async function reconcileSourceProcessing(): Promise<number> {
 }
 
 sourceProcessingRouter.post("/internal/source-processing/:project/claim", async (c) => {
-  verifyWorkerToken(c.req.header("X-Source-Processing-Token"));
+  verifySourceProcessingWorkerToken(c.req.header("X-Source-Processing-Token"));
   const { project } = c.req.param();
   if (!isSourceProcessingEnabled(project)) return c.json({ ok: true, job: null });
   const sql = getDb(); const ident = schemaIdent(); const leaseToken = randomUUID();
@@ -207,7 +207,7 @@ sourceProcessingRouter.post("/internal/source-processing/:project/claim", async 
 
 /** The worker obtains the current project logo through its lease-fenced channel. */
 sourceProcessingRouter.get("/internal/source-processing/:project/:jobId/overlay-logo", async (c) => {
-  verifyWorkerToken(c.req.header("X-Source-Processing-Token"));
+  verifySourceProcessingWorkerToken(c.req.header("X-Source-Processing-Token"));
   const { project, jobId } = c.req.param();
   const token = c.req.header("X-Source-Processing-Lease-Token") ?? "";
   const sql = getDb(); const ident = schemaIdent();
@@ -224,7 +224,7 @@ sourceProcessingRouter.get("/internal/source-processing/:project/:jobId/overlay-
 });
 
 sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/artifacts/initiate", async (c) => {
-  verifyWorkerToken(c.req.header("X-Source-Processing-Token"));
+  verifySourceProcessingWorkerToken(c.req.header("X-Source-Processing-Token"));
   const { project, jobId } = c.req.param();
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
   const token = leaseToken(body); const size = Number(body.size); const checksum = String(body.checksum_sha256 ?? "").toLowerCase(); const title = String(body.title ?? "");
@@ -252,7 +252,7 @@ sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/artifac
 });
 
 sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/artifacts/complete", async (c) => {
-  verifyWorkerToken(c.req.header("X-Source-Processing-Token"));
+  verifySourceProcessingWorkerToken(c.req.header("X-Source-Processing-Token"));
   const { project, jobId } = c.req.param();
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
   const token = leaseToken(body); const size = Number(body.size); const checksum = String(body.checksum_sha256 ?? "").toLowerCase();
@@ -286,7 +286,7 @@ sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/artifac
 });
 
 sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/heartbeat", async (c) => {
-  verifyWorkerToken(c.req.header("X-Source-Processing-Token"));
+  verifySourceProcessingWorkerToken(c.req.header("X-Source-Processing-Token"));
   const { project, jobId } = c.req.param();
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
   const sql = getDb(); const ident = schemaIdent();
@@ -300,7 +300,7 @@ sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/heartbe
 
 /** Store resumable, bounded metadata while the worker still owns the lease. */
 sourceProcessingRouter.patch("/internal/source-processing/:project/:jobId/checkpoints", async (c) => {
-  verifyWorkerToken(c.req.header("X-Source-Processing-Token"));
+  verifySourceProcessingWorkerToken(c.req.header("X-Source-Processing-Token"));
   const { project, jobId } = c.req.param();
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
   const token = leaseToken(body);
@@ -335,7 +335,7 @@ sourceProcessingRouter.patch("/internal/source-processing/:project/:jobId/checkp
 
 /** A partial worker must not claim that a source is fully processed. */
 sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/waiting", async (c) => {
-  verifyWorkerToken(c.req.header("X-Source-Processing-Token"));
+  verifySourceProcessingWorkerToken(c.req.header("X-Source-Processing-Token"));
   const { project, jobId } = c.req.param();
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
   const reason = optionalString(body, "reason", 1_000);
@@ -362,7 +362,7 @@ sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/waiting
 });
 
 sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/complete", async (c) => {
-  verifyWorkerToken(c.req.header("X-Source-Processing-Token"));
+  verifySourceProcessingWorkerToken(c.req.header("X-Source-Processing-Token"));
   const { project, jobId } = c.req.param();
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
   const token = leaseToken(body); const sql = getDb(); const ident = schemaIdent();
@@ -386,7 +386,7 @@ sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/complet
 });
 
 sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/fail", async (c) => {
-  verifyWorkerToken(c.req.header("X-Source-Processing-Token"));
+  verifySourceProcessingWorkerToken(c.req.header("X-Source-Processing-Token"));
   const { project, jobId } = c.req.param();
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
   const error = String(body.error ?? "worker failed").slice(0, 2000);

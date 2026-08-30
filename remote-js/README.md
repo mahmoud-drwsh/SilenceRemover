@@ -129,3 +129,4 @@ The pipeline client and SPA depend on these stable behaviors:
 - IP-based admin login rate limit (8 attempts / 15 minutes)
 - Admin audit log writes to `media_manager.admin_audit_log`
 - Public share links use dedicated hashed tokens and expose only non-trash, non-pending videos with `FB` or `TT` publication tags
+- Transient `POST /projects/:token/:project/api/snippet-analysis` and worker-only `POST /internal/source-processing/:project/review-analysis` share the same Arabic review-analysis provider policy. Configure `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `OPENROUTER_TRANSCRIPTION_MODEL`, and `OPENROUTER_TITLE_MODEL`; tune the bounded timeout, retries, and public limits with the `REVIEW_ANALYSIS_*` variables in [`.env.example`](.env.example).
