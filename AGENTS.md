@@ -38,3 +38,4 @@ This is a single-context repository. See `docs/agents/domain.md`.
 - **Duration migration**: Media Manager startup upgrades legacy integer `files.duration` columns to `double precision`, preserving fractional probe durations required when publishing server-rendered artifacts.
 - **Manual production verification**: `scripts/black_box_source_processing.py` is an opt-in, self-cleaning source-processing black-box harness; it is deliberately excluded from CI and requires explicit production confirmation.
 - **Harness validation**: The black-box lifecycle has injectable download, FFmpeg, client, and polling seams with deterministic fake-backed tests; production remains manual and cost-bounded.
+- **Harness cleanup safety**: Production cleanup retries with a bounded stabilization readback, checks trash/delete outcomes, redacts credentials and signed URLs, and preserves the original lifecycle failure.

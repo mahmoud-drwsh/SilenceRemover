@@ -32,6 +32,8 @@ EXPECTED_REVIEW_ANALYSIS = {
     "transcript": "الحمد لله رب العالمين، اليوم نتحدث عن فضل طلب العلم.",
     "title": "اليوم نتحدث عن فضل طلب العلم",
 }
+EXPECTED_FRACTIONAL_DURATION = 25.124999
+EXPECTED_INPUT_DURATION = 25.125
 
 
 def request(url: str, method: str = "GET", payload: object | None = None, headers: dict[str, str] | None = None):
@@ -71,6 +73,13 @@ for _ in range(30):
         time.sleep(1)
 else:
     raise SystemExit("Media Manager did not become healthy")
+
+schema_check = subprocess.run(
+    ["psql", "-h", "postgres", "-U", "media_manager", "-d", "media_manager", "-At", "-c",
+     "SELECT c.data_type || ':' || f.duration::text FROM information_schema.columns c JOIN media_manager.files f ON f.id='legacy-source-001' AND f.type='original' WHERE c.table_schema='media_manager' AND c.table_name='files' AND c.column_name='duration'"],
+    check=True, capture_output=True, text=True,
+)
+assert schema_check.stdout.strip() == "double precision:17", schema_check.stdout
 
 # Both adapters must be indistinguishable when their shared provider sees the
 # same transient OGG bytes. The worker route is authenticated separately.
@@ -156,8 +165,7 @@ checkpoint = waiting[0]["trim_plan"]
 assert checkpoint["version"] == 1
 assert checkpoint["source_id"] == SOURCE_ID
 assert checkpoint["original_checksum_sha256"] == digest
-assert 25.0 < checkpoint["plan"]["input_duration_sec"] < 25.2, checkpoint
-assert abs(checkpoint["plan"]["input_duration_sec"] - round(checkpoint["plan"]["input_duration_sec"])) > 0.001, checkpoint
+assert checkpoint["plan"]["input_duration_sec"] == EXPECTED_INPUT_DURATION, checkpoint
 assert checkpoint["plan"]["segments_to_keep"]
 assert waiting[0]["review_transcript"] == EXPECTED_REVIEW_ANALYSIS["transcript"]
 assert waiting[0]["generated_title"] == EXPECTED_REVIEW_ANALYSIS["title"]
@@ -193,8 +201,7 @@ for video_id in (SOURCE_ID, f"{SOURCE_ID}-no-overlay"):
     # integer before the app starts. These public final-file responses prove
     # startup migration restored double precision and preserved the known
     # fractional render duration through artifact completion and serialization.
-    assert 25.0 < video_by_id[video_id]["duration"] < 25.2, video_by_id[video_id]
-    assert abs(video_by_id[video_id]["duration"] - round(video_by_id[video_id]["duration"])) > 0.001, video_by_id[video_id]
+    assert video_by_id[video_id]["duration"] == EXPECTED_FRACTIONAL_DURATION, video_by_id[video_id]
     served = request(f"{MEDIA_BASE}/stream/{video_id}?type=video").read()
     assert hashlib.sha256(served).hexdigest() == video_by_id[video_id]["checksum_sha256"]
     local_video = Path(f"/tmp/{video_id}.mp4")

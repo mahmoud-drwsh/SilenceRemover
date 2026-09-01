@@ -53,6 +53,32 @@ class TestMediaManagerClient:
         assert "include_trash=true" in requested_url
         assert "include_pending=true" not in requested_url
 
+    def test_update_tags_rejects_non_2xx_response(self):
+        client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
+        client._client = Mock()
+        client._client.put.return_value = httpx.Response(
+            503,
+            request=httpx.Request("PUT", "https://example.com/api/files/file-1?type=audio"),
+        )
+
+        with pytest.raises(Exception, match="Tag update failed.*503"):
+            client.update_tags("file-1", ["trash"])
+
+    def test_delete_file_rejects_non_2xx_response(self):
+        client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
+        client._client = Mock()
+        client._client.put.return_value = httpx.Response(
+            200,
+            request=httpx.Request("PUT", "https://example.com/api/files/file-1?type=video"),
+        )
+        client._client.delete.return_value = httpx.Response(
+            503,
+            request=httpx.Request("DELETE", "https://example.com/api/files/file-1?type=video"),
+        )
+
+        with pytest.raises(Exception, match="Delete failed.*503"):
+            client.delete_file("file-1", "video")
+
     def test_uploaded_video_ids_use_virtual_all_list(self):
         """Phase 9 should use the all list plus trash inclusion for idempotency."""
         client = Mock()

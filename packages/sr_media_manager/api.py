@@ -628,9 +628,10 @@ class MediaManagerClient:
                 self._url(f'/api/files/{file_id}?type={file_type}'),
                 json={'tags': tags}
             )
-            return resp.status_code == 200
+            resp.raise_for_status()
+            return True
         except Exception as e:
-            raise MediaManagerError(f"Tag update failed for {file_id}: {e}")
+            raise MediaManagerError(f"Tag update failed for {file_id}: {e}") from e
 
     def delete_file(self, file_id: str, file_type: str = 'video') -> bool:
         """Delete a file (trash first, then permanently).
@@ -641,16 +642,29 @@ class MediaManagerClient:
         
         Returns: True on success (including if file already gone)
         """
-        self.update_tags(file_id, ['trash'], file_type=file_type)
         try:
-            self._client.delete(self._url(f'/api/files/{file_id}?type={file_type}'))
+            self.update_tags(file_id, ['trash'], file_type=file_type)
+        except MediaManagerError as e:
+            # A worker may finish its cleanup before this check reaches it.
+            # Preserve the client's idempotent delete contract for that case,
+            # while surfacing every other non-2xx response to callers.
+            if isinstance(e.__cause__, httpx.HTTPStatusError) and e.__cause__.response.status_code == 404:
+                return True
+            raise
+        try:
+            response = self._client.delete(self._url(f'/api/files/{file_id}?type={file_type}'))
+            response.raise_for_status()
             return True
-        except Exception as e:
-            if '404' in str(e):
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
                 return True
             if 'Only trashed files can be deleted' in str(e):
+                raise MediaManagerError(f"Cannot delete {file_id}: file must be trashed first") from e
+            raise MediaManagerError(f"Delete failed for {file_id}: {e}") from e
+        except Exception as e:
+            if 'Only trashed files can be deleted' in str(e):
                 raise MediaManagerError(f"Cannot delete {file_id}: file must be trashed first")
-            raise MediaManagerError(f"Delete failed for {file_id}: {e}")
+            raise MediaManagerError(f"Delete failed for {file_id}: {e}") from e
     
     def close(self):
         """Close HTTP client."""

@@ -339,6 +339,8 @@ OpenRouter. Run the deterministic fake-backed checks with:
 
 The production command remains manual and requires `--confirm-production`; it
 is not invoked by tests, CI, or deployment.
+Cleanup performs bounded retries and a final readback stabilization pass so
+artifacts published late by an in-flight worker are still removed.
 
 ```bash
 .venv/bin/python scripts/black_box_source_processing.py \
