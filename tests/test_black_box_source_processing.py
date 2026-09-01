@@ -13,6 +13,7 @@ from scripts.black_box_source_processing import (
     redact_text,
     run_black_box,
     select_bounded_original,
+    wait_for,
 )
 
 
@@ -75,6 +76,27 @@ def test_bounded_selection_ignores_oversized_originals():
 
 def test_bounded_selection_requires_a_positive_size():
     assert select_bounded_original([{"id": "zero", "file_size": 0}, {"id": "bad", "file_size": "x"}]) is None
+
+
+def test_wait_for_accepts_the_real_check_id_response_shape_without_exists():
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [{"id": "stored-original", "type": "original"}]
+
+    class HttpClient:
+        def get(self, _url):
+            return Response()
+
+    class Client:
+        _client = HttpClient()
+
+        def _url(self, endpoint):
+            return endpoint
+
+    assert wait_for(Client(), "stored-original", "original", 1)["id"] == "stored-original"
 
 
 def test_run_requires_explicit_confirmation():

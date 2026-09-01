@@ -81,7 +81,11 @@ def wait_for(client: Any, file_id: str, file_type: str, timeout: float, *, sleep
         response = client._client.get(client._url(f"/api/files?type={file_type}&check_id={file_id}"))
         response.raise_for_status()
         rows = response.json()
-        if rows and rows[0].get("exists"):
+        # The pre-flight endpoint returns ``exists: false`` only for a miss.
+        # A real stored file is returned as its normal response shape, which
+        # intentionally has no ``exists`` field unless ``check_title`` was
+        # requested.
+        if rows and rows[0].get("exists") is not False:
             return rows[0]
         sleep(min(5, max(0, deadline - time.monotonic())))
     raise TimeoutError(f"Timed out waiting for {file_type}:{file_id}")
