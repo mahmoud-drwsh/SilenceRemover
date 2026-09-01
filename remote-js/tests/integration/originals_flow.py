@@ -258,6 +258,37 @@ assert legacy_video["ok"]
 self_healed = json.load(request("/api/files?type=video&check_id=self-heal-001"))
 assert len(self_healed) == 1 and self_healed[0]["source_id"] == "self-heal-001"
 
+# Drive a real original-processing job to waiting before deleting its original.
+# This avoids testing a merely dormant job: waiting work must not be able to
+# resume once the original and its artifacts have been removed.
+waiting_claim = processing_request(
+    WORKER_BASE, "/claim", "POST", {}, {"X-Source-Processing-Token": "test-worker-token"},
+)["job"]
+assert waiting_claim and waiting_claim["source_id"] == "self-heal-001"
+processing_request(
+    WORKER_BASE, f"/{waiting_claim['id']}/waiting", "POST",
+    {"lease_token": waiting_claim["lease_token"], "reason": "waiting for title review"},
+    {"X-Source-Processing-Token": "test-worker-token"},
+)
+waiting_status = processing_request(ADMIN_PROCESSING_BASE, "/status")
+assert waiting_status["states"].get("waiting") == 1
+
+# A failed job is terminal and must stay failed if its original is later
+# deleted, just as the completed source-001 job must stay completed.
+failed_original = complete_session(initiate(
+    "failed-delete-001", "original", digest, original_filename="failed-delete.mp4",
+))
+assert failed_original["ok"]
+failed_claim = processing_request(
+    WORKER_BASE, "/claim", "POST", {}, {"X-Source-Processing-Token": "test-worker-token"},
+)["job"]
+assert failed_claim and failed_claim["source_id"] == "failed-delete-001"
+processing_request(
+    WORKER_BASE, f"/{failed_claim['id']}/fail", "POST",
+    {"lease_token": failed_claim["lease_token"], "error": "terminal deletion fixture"},
+    {"X-Source-Processing-Token": "test-worker-token"},
+)
+
 # file-type reports a real MKV as video/matroska; the server must normalize it
 # to the pipeline's canonical video/x-matroska value before strict validation.
 with open("/fixtures/original.mkv", "rb") as handle:
@@ -272,6 +303,23 @@ mkv_complete = json.load(request(f"/api/uploads/{mkv_init['session_id']}/complet
     "parts": [{"part_number": 1, "etag": mkv_part.headers["ETag"]}],
 }))
 assert mkv_complete["ok"]
+
+# Deleting trashed originals stale only non-terminal work in the same metadata
+# transaction. The waiting and pending jobs cannot resume, while completed and
+# failed jobs retain their terminal states.
+for original_id in ("self-heal-001", "source-001", "failed-delete-001", "source-mkv-001"):
+    request(f"/api/files/{original_id}?type=original", "PUT", {"tags": ["trash"]})
+    deleted = json.load(request(f"/api/files/{original_id}?type=original", "DELETE"))
+    assert deleted["ok"] and deleted["deleted"]
+after_delete = processing_request(ADMIN_PROCESSING_BASE, "/status")
+assert after_delete["states"] == {"completed": 1, "failed": 1, "stale": 2}
+assert after_delete["waiting"] == []
+assert after_delete["failed"][0]["source_id"] == "failed-delete-001"
+assert after_delete["failed"][0]["last_error"] == "terminal deletion fixture"
+post_delete_claim = processing_request(
+    WORKER_BASE, "/claim", "POST", {}, {"X-Source-Processing-Token": "test-worker-token"},
+)
+assert post_delete_claim["job"] is None
 try:
     request("http://app:8080/public/test-token/test-project/api/originals/source-001/download", absolute=True)
 except urllib.error.HTTPError as exc:

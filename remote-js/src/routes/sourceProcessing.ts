@@ -147,6 +147,20 @@ sourceProcessingRouter.post("/internal/source-processing/:project/claim", async 
   if (!isSourceProcessingEnabled(project)) return c.json({ ok: true, job: null });
   const sql = getDb(); const ident = schemaIdent(); const leaseToken = randomUUID();
   const leaseSeconds = loadConfig().sourceProcessingLeaseSeconds;
+  // Reconcile orphaned jobs left by an older cleanup path (or an operator
+  // deleting the source outside this route). Without this sweep, a waiting
+  // job whose original is gone can remain invisible to the claim predicate
+  // forever because it has no review audio to make it claimable.
+  await sql.unsafe(`
+    UPDATE ${ident}.source_processing j
+       SET state='stale', lease_token=NULL, lease_until=NULL,
+           waiting_reason=NULL, last_error='original missing', updated_at=now()
+     WHERE j.project=$1 AND j.state IN ('pending', 'claimed', 'waiting')
+       AND NOT EXISTS (
+         SELECT 1 FROM ${ident}.files f
+          WHERE f.project=j.project AND f.id=j.source_id AND f.type='original'
+            AND f.checksum_sha256=j.original_checksum_sha256
+       )`, [project]);
   await sql.unsafe(`
     UPDATE ${ident}.source_processing SET state='failed',lease_token=NULL,lease_until=NULL,
       last_error='worker lease expired after maximum attempts',updated_at=now()

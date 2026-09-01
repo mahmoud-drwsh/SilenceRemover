@@ -1052,10 +1052,23 @@ filesRouter.delete("/projects/:token/:project/api/files/:id", async (c) => {
     await storageDeleteAnyExtension(row.type, project, id);
   }
 
-  await sql.unsafe(
-    `DELETE FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = $3`,
-    [id, project, row.type],
-  );
+  // Removing an original invalidates any in-flight source-processing work for
+  // that source. Keep this transition with the metadata delete so a worker
+  // cannot later resume a waiting job after its source has disappeared.
+  await sql.begin(async (tx) => {
+    await tx.unsafe(
+      `UPDATE ${ident}.source_processing
+          SET state='stale', lease_token=NULL, lease_until=NULL,
+              waiting_reason=NULL, last_error='original deleted', updated_at=now()
+        WHERE project=$1 AND source_id=$2
+          AND state IN ('pending', 'claimed', 'waiting')`,
+      [project, id],
+    );
+    await tx.unsafe(
+      `DELETE FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = $3`,
+      [id, project, row.type],
+    );
+  });
 
   return c.json({ ok: true, id, deleted: true });
 });

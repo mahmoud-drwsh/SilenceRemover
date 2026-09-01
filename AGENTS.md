@@ -39,3 +39,5 @@ This is a single-context repository. See `docs/agents/domain.md`.
 - **Manual production verification**: `scripts/black_box_source_processing.py` is an opt-in, self-cleaning source-processing black-box harness; it is deliberately excluded from CI and requires explicit production confirmation.
 - **Harness validation**: The black-box lifecycle has injectable download, FFmpeg, client, and polling seams with deterministic fake-backed tests; production remains manual and cost-bounded.
 - **Harness cleanup safety**: Production cleanup retries with a bounded stabilization readback, checks trash/delete outcomes, redacts credentials and signed URLs, and preserves the original lifecycle failure.
+- **Original deletion safety**: Deleting a trashed original transactionally stales matching nonterminal source-processing jobs and clears their lease/waiting state.
+- **Original deletion integration coverage**: The isolated API flow proves a waiting job becomes stale and cannot resume after original deletion, while completed and failed jobs stay terminal.
