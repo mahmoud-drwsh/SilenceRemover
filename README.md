@@ -323,3 +323,14 @@ Or check your `.env` file is loaded properly.
 ## Contributing
 
 [Add contribution guidelines if applicable]
+
+## Manual production black-box check
+
+Run this only when an explicit production verification is needed; it is not part of CI or deployment. The command downloads one bounded existing original, uploads a 25-second copy, waits for review analysis and subtitles, approves a unique test title, verifies both final variants and their original links, then trashes and deletes every test artifact even after a failure.
+
+It needs the normal `MEDIA_MANAGER_URL` project credential and incurs one review-analysis request plus one subtitle transcription. Develop and validate the harness locally with the isolated Docker flow first; use production only for the final confirmation.
+
+```bash
+.venv/bin/python scripts/black_box_source_processing.py \
+  --confirm-production --work-dir /tmp/silence-remover-black-box
+```
