@@ -16,7 +16,7 @@ export const FileResponseSchema = z.object({
   type: FileTypeSchema,
   title: z.string().nullable(),
   tags: z.array(z.string()),
-  duration: z.number().int(),
+  duration: z.number(),
   file_size: z.number().int(),
   mime_type: z.string(),
   source_id: z.string().nullable().optional(),
