@@ -330,6 +330,16 @@ Run this only when an explicit production verification is needed; it is not part
 
 It needs the normal `MEDIA_MANAGER_URL` project credential and incurs one review-analysis request plus one subtitle transcription. Develop and validate the harness locally with the isolated Docker flow first; use production only for the final confirmation.
 
+The lifecycle is also testable without credentials, network access, Docker, or
+OpenRouter. Run the deterministic fake-backed checks with:
+
+```bash
+.venv/bin/pytest -q tests/test_black_box_source_processing.py
+```
+
+The production command remains manual and requires `--confirm-production`; it
+is not invoked by tests, CI, or deployment.
+
 ```bash
 .venv/bin/python scripts/black_box_source_processing.py \
   --confirm-production --work-dir /tmp/silence-remover-black-box

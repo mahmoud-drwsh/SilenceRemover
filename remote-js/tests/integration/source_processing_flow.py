@@ -27,7 +27,7 @@ WORKER_BASE = f"{APP}/internal/source-processing/{PROJECT}"
 ADMIN_BASE = f"{APP}/admin/test-admin-token/api/projects/{PROJECT}/source-processing"
 TOKEN = "test-worker-token"
 SOURCE_ID = "worker-source-001"
-FIXTURE = Path("/fixtures/original.mp4")
+FIXTURE = Path("/fixtures/fractional.mp4")
 EXPECTED_REVIEW_ANALYSIS = {
     "transcript": "الحمد لله رب العالمين، اليوم نتحدث عن فضل طلب العلم.",
     "title": "اليوم نتحدث عن فضل طلب العلم",
@@ -83,6 +83,30 @@ assert server_review == horizontal_review
 
 source = FIXTURE.read_bytes()
 digest = hashlib.sha256(source).hexdigest()
+
+def initiate(file_id, media_type, checksum, payload_bytes=source, mime_type="video/mp4", **extra):
+    return json_request(f"{MEDIA_BASE}/api/uploads/initiate", "POST", {
+        "id": file_id, "type": media_type, "mime_type": mime_type,
+        "file_size": len(payload_bytes), "checksum_sha256": checksum, **extra,
+    })
+
+def complete_session(session, payload_bytes=source):
+    part_size = session.get("part_size")
+    if part_size:
+        parts = []
+        for part_number, url in enumerate(session["urls"], start=1):
+            start = (part_number - 1) * part_size
+            if url.startswith("/"):
+                url = APP + url
+            part = request(url, "PUT", payload_bytes[start:start + part_size])
+            parts.append({"part_number": part_number, "etag": part.headers["ETag"]})
+    else:
+        part = request(session["upload_url"], "PUT", payload_bytes)
+        parts = []
+    return json_request(f"{MEDIA_BASE}/api/uploads/{session['session_id']}/complete", "POST", {
+        "parts": parts,
+    })
+
 init = json_request(f"{MEDIA_BASE}/api/uploads/initiate", "POST", {
     "id": SOURCE_ID,
     "type": "original",
@@ -132,7 +156,8 @@ checkpoint = waiting[0]["trim_plan"]
 assert checkpoint["version"] == 1
 assert checkpoint["source_id"] == SOURCE_ID
 assert checkpoint["original_checksum_sha256"] == digest
-assert checkpoint["plan"]["input_duration_sec"] > 0
+assert 25.0 < checkpoint["plan"]["input_duration_sec"] < 25.2, checkpoint
+assert abs(checkpoint["plan"]["input_duration_sec"] - round(checkpoint["plan"]["input_duration_sec"])) > 0.001, checkpoint
 assert checkpoint["plan"]["segments_to_keep"]
 assert waiting[0]["review_transcript"] == EXPECTED_REVIEW_ANALYSIS["transcript"]
 assert waiting[0]["generated_title"] == EXPECTED_REVIEW_ANALYSIS["title"]
@@ -164,7 +189,12 @@ assert video_by_id[SOURCE_ID]["publication_status"] == "published"
 assert video_by_id[f"{SOURCE_ID}-no-overlay"]["tags"] == ["no-overlay"]
 for video_id in (SOURCE_ID, f"{SOURCE_ID}-no-overlay"):
     assert video_by_id[video_id]["source_id"] == SOURCE_ID
-    assert video_by_id[video_id]["duration"] > 0
+    # The legacy-seed service intentionally changes files.duration back to
+    # integer before the app starts. These public final-file responses prove
+    # startup migration restored double precision and preserved the known
+    # fractional render duration through artifact completion and serialization.
+    assert 25.0 < video_by_id[video_id]["duration"] < 25.2, video_by_id[video_id]
+    assert abs(video_by_id[video_id]["duration"] - round(video_by_id[video_id]["duration"])) > 0.001, video_by_id[video_id]
     served = request(f"{MEDIA_BASE}/stream/{video_id}?type=video").read()
     assert hashlib.sha256(served).hexdigest() == video_by_id[video_id]["checksum_sha256"]
     local_video = Path(f"/tmp/{video_id}.mp4")
