@@ -103,14 +103,14 @@ def test_run_exercises_title_approval_and_both_variants_without_network(tmp_path
 
 def test_approval_uses_raw_http_production_api_branch():
     class RawClient:
-        base_url = "https://media.example.test"
+        base_url = "http://127.0.0.1"
 
         def __init__(self):
             self._client = httpx.Client(transport=httpx.MockTransport(self.handle))
             self.request = None
 
         def _url(self, endpoint):
-            return "https://media.example.test/projects/token/project" + endpoint
+            return "http://127.0.0.1/projects/token/project" + endpoint
 
         def handle(self, request):
             self.request = request

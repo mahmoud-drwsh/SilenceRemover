@@ -186,7 +186,7 @@ def cleanup_artifacts(
                     response.raise_for_status()
                 if not _artifact_absent(client, file_id, file_type):
                     raise RuntimeError("readback still reports the artifact exists")
-            except BaseException as exc:
+            except Exception as exc:
                 attempt_failures.append(_cleanup_failure("cleanup", file_id, file_type, exc))
                 failed_items.add((file_id, file_type))
         if not attempt_failures:
@@ -226,9 +226,9 @@ def run_black_box(
     work_dir.mkdir(parents=True, exist_ok=True)
     source_id = (source_id_factory or (lambda: f"black-box-{uuid.uuid4().hex[:18]}"))()
     title = f"Black-box production verification {source_id[-6:]}"
-    lifecycle_error: BaseException | None = None
+    lifecycle_error: Exception | None = None
     cleanup_errors: list[str] = []
-    close_error: BaseException | None = None
+    close_error: Exception | None = None
     result: dict[str, Any] | None = None
     try:
         health(client)
@@ -272,11 +272,12 @@ def run_black_box(
             serve(client, str(variant["id"]), "video")
         if subtitle.get("source_id") != source_id:
             raise RuntimeError("subtitle is not linked to the original")
+        serve(client, f"{source_id}-subtitles", "subtitle")
         duration = overlaid.get("duration")
         if not isinstance(duration, (int, float)) or duration <= 0:
             raise RuntimeError("invalid final duration")
         result = {"ok": True, "source_id": source_id, "duration": duration, "variants": ["no-overlay", "overlaid"]}
-    except BaseException as exc:
+    except Exception as exc:
         # Cleanup is deliberately deferred to one common finalization path so
         # close() failures cannot replace the lifecycle failure that matters.
         lifecycle_error = exc
@@ -290,11 +291,11 @@ def run_black_box(
                 retry_delay_seconds=cleanup_retry_delay_seconds,
                 sleep=cleanup_sleep,
             )
-        except BaseException as exc:
+        except Exception as exc:
             cleanup_errors = [redact_text(f"cleanup operation failed: {type(exc).__name__}: {exc}")]
         try:
             client.close()
-        except BaseException as exc:
+        except Exception as exc:
             close_error = exc
 
     if lifecycle_error is not None:
