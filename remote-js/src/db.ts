@@ -69,6 +69,7 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`ALTER TABLE ${ident}.files DROP CONSTRAINT IF EXISTS files_type_check`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD CONSTRAINT files_type_check CHECK (type IN ('audio', 'video', 'original', 'subtitle'))`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS source_id text`);
+  await sql.unsafe(`ALTER TABLE ${ident}.files ALTER COLUMN duration TYPE double precision USING duration::double precision`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS original_filename text`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS checksum_sha256 text`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS designer_of_id text`);
