@@ -5,7 +5,7 @@ An automated video processing tool that removes silence segments, transcribes au
 ## Features
 
 - **Silence Detection & Removal**: Automatically detects and trims silence segments using FFmpeg's `silencedetect` filter
-- **Smart Trimming**: Optional target length optimization that adjusts padding to achieve desired video duration
+- **Natural target trimming**: Exclusive duration limit with fixed detection, protected short pauses, and 0.6–1.2s retained longer gaps. Unreachable targets fail without truncation. [Research](docs/research/natural-pause-budget.md).
 - **AI Transcription**: Builds a silence-removed snippet (capped at `SNIPPET_MAX_DURATION_SEC`, 180s / 3 minutes by default), encodes it as Ogg/Opus, and transcribes via OpenRouter (default model: `google/gemini-3.1-flash-lite-preview`)
 - **Intelligent Renaming**: Generates YouTube-style titles from transcripts and renames files accordingly
 - **Process Tracking**: Skips already-processed videos to avoid redundant work
@@ -103,7 +103,7 @@ python main.py /path/to/video/directory
 
 ### Options
 
-- `--target-length FLOAT`: Target length in seconds for final output. This enables a fixed internal two-stage search: threshold `-60.0..-35.0 dB` on a `0.1 dB` grid, `0.100s` minimum silence detection, and padding search from `0.060s` in `0.01s` increments.
+- `--target-length FLOAT`: Exclusive output limit; use `180` for under three minutes. Reserves 0.5s headroom, preserves short gaps, and budgets longer detected pauses between 0.6 and 1.2s. Unreachable targets fail explicitly.
 - `--non-target-noise-threshold FLOAT`: Override silence detection threshold in dB for non-target mode. Ignored when `--target-length` is set.
 - `--non-target-min-duration FLOAT`: Override minimum silence duration in seconds for non-target mode. Ignored when `--target-length` is set.
 - `--non-target-pad-sec FLOAT`: Override padding in seconds for non-target mode. Ignored when `--target-length` is set.
@@ -134,7 +134,7 @@ Trimming precision controls (advanced):
 Process videos with target length optimization:
 
 ```bash
-python main.py ~/Videos/lectures --target-length 600
+python main.py ~/Videos/lectures --target-length 180
 ```
 
 Customize title typography with a specific Google Font:
@@ -167,7 +167,9 @@ The tool processes videos sequentially through **ten** main phases:
 - Leading and trailing edge silences are re-scanned at `EDGE_RESCAN_THRESHOLD_DB` (`-40dB`) for both target and non-target final trim runs, then only the edge windows are replaced and reduced to a `EDGE_SILENCE_KEEP_SEC` (200ms) buffer before pad calculations.
 - Final encoded MP4s are written under **`output/`** (sibling to the input directory). Intermediate artifacts (snippets, transcripts, titles, FFmpeg scripts, title PNGs, fonts cache) live under **`output/temp/`** — see **Directory Structure** below.
 
-**Target Length Mode**: When `--target-length` is specified, the tool uses a fixed two-stage binary search. Stage 1 finds the earliest threshold in `[-60.0, -35.0]` whose estimated output at `0.060s` padding is at or under target, using `0.100s` minimum silence detection. Stage 2 reuses those detected silences and increases padding in `0.01s` steps without exceeding target. Because final segment building still keeps `pad_sec` on both sides of a cut silence, the practical removable-silence floor stays around `0.120s`. If even `-35.0 dB` with `0.060s` padding stays over target, the tool returns that best-effort result and does not truncate content.
+**Target Length Mode**: Detection stays fixed at −50 dB with a 0.6s minimum. Detected internal gaps are capped at 1.2s, then budgeted no shorter than 0.6s. Shorter gaps stay untouched. Rendering headroom and strict final-duration checks enforce acceptance below the limit; infeasible targets require splitting/manual editing, never truncation. Defaults require Arabic listening validation. See [ALGO.md](ALGO.md) and the [research report](docs/research/natural-pause-budget.md).
+
+Server workers use the same policy when `SOURCE_PROCESSING_TARGET_LENGTH=180`; unset retains non-target behavior. Different-target/policy checkpoints require an explicit processing/review restart. Use fresh local work/output directories for evaluation; existing completion markers and served outputs are not automatically regenerated.
 
 ### 2. Audio Extraction
 

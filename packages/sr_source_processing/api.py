@@ -29,6 +29,8 @@ from src.core.constants import (
     NON_TARGET_PAD_SEC,
 )
 from sr_trim_plan import TrimPlan, build_trim_plan
+from sr_trim_plan.pause_budget import NATURAL_PAUSE_POLICY_VERSION, PausePolicy
+from src.media.trim import validate_target_duration
 from sr_filter_graph import build_audio_concat_filter_graph
 from sr_source_processing.review_analysis import ReviewAnalysisError, analyze_review_ogg
 from sr_subtitles import generate_srt_from_trim_segments, mux_srt_track
@@ -75,8 +77,13 @@ class WorkerConfig:
         heartbeat = float(os.environ.get("SOURCE_PROCESSING_HEARTBEAT_INTERVAL_SEC", "30"))
         if heartbeat <= 0:
             raise WorkerError("SOURCE_PROCESSING_HEARTBEAT_INTERVAL_SEC must be positive")
+        target_text = os.environ.get("SOURCE_PROCESSING_TARGET_LENGTH", "").strip()
+        target = float(target_text) if target_text else None
+        if target is not None and (not math.isfinite(target) or target <= PausePolicy().render_margin_sec):
+            raise WorkerError("SOURCE_PROCESSING_TARGET_LENGTH must exceed the render margin")
         return cls(
             service_url, project, token, Path(work_dir), heartbeat,
+            target_length=target,
             openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
             encoder=os.environ.get("SOURCE_PROCESSING_ENCODER", "X265"),
             enable_title_overlay=os.environ.get("SOURCE_PROCESSING_ENABLE_TITLE_OVERLAY", "false").lower() == "true",
@@ -144,6 +151,17 @@ class SourceProcessingWorker:
             self._download_original(download_url, original_path)
             self._verify_checksum(original_path, str(job.get("original_checksum_sha256", "")))
             checkpoint = self._existing_trim_plan_checkpoint(job)
+            if checkpoint is not None:
+                saved = checkpoint["plan"]
+                if saved.get("target_length") != self.config.target_length or (
+                    self.config.target_length is not None
+                    and saved.get("policy_version") != NATURAL_PAUSE_POLICY_VERSION
+                ):
+                    raise WorkerError(
+                        "Saved trim policy differs from current target policy. "
+                        "Restart this source's processing and review explicitly; "
+                        "existing subtitles and approvals cannot be reused on a new timeline."
+                    )
             if checkpoint is None:
                 plan = self._trim_planner(
                     input_file=original_path,
@@ -242,6 +260,7 @@ class SourceProcessingWorker:
                 trim_script_path=trim_script,
             )
             mux_srt_track(no_overlay, srt_path)
+            validate_target_duration(no_overlay, self.config.target_length)
             self._upload_artifact(job_id, lease_token, "no_overlay_video", no_overlay, approved_title, "video/mp4")
         final_video = job_dir / "final.mp4"
         if not bool(job.get("overlaid_uploaded")):
@@ -255,6 +274,7 @@ class SourceProcessingWorker:
                 metadata_title=approved_title, trim_script_path=trim_script, logo_path=logo_path,
             )
             mux_srt_track(final_video, srt_path)
+            validate_target_duration(final_video, self.config.target_length)
             self._upload_artifact(job_id, lease_token, "overlaid_video", final_video, approved_title, "video/mp4")
 
     def _require_openrouter_key(self) -> str:

@@ -1,4 +1,4 @@
-"""Pure unit tests for the live target-mode binary-search helpers."""
+"""Compatibility tests for legacy binary-search helpers; natural mode uses a pause budget."""
 
 from pathlib import Path
 import sys
@@ -11,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "packages"))
 import sr_trim_plan.api as trim_plan_api
 from sr_trim_plan.api import binary_search_padding, binary_search_threshold
 from src.core.constants import (
+    NATURAL_TARGET_NOISE_THRESHOLD_DB,
+    NATURAL_TARGET_MIN_SILENCE_SEC,
     TARGET_SEARCH_BASE_PADDING_SEC,
     TARGET_SEARCH_HIGH_DB,
     TARGET_SEARCH_LOW_DB,
@@ -43,9 +45,9 @@ class TestTargetSearchConstants:
             pad_sec=4.0,
         )
 
-        assert defaults.noise_threshold == TARGET_SEARCH_LOW_DB
-        assert defaults.min_duration == TARGET_SEARCH_MIN_SILENCE_LEN_SEC
-        assert defaults.pad_sec == TARGET_SEARCH_BASE_PADDING_SEC
+        assert defaults.noise_threshold == NATURAL_TARGET_NOISE_THRESHOLD_DB
+        assert defaults.min_duration == NATURAL_TARGET_MIN_SILENCE_SEC
+        assert defaults.pad_sec == 0.3
 
 
 class TestCacheFilenameEncoding:
@@ -105,38 +107,6 @@ class TestThresholdBinarySearch:
         assert reached_target is True
         assert threshold_db == pytest.approx(-47.0)
 
-    def test_build_trim_plan_uses_best_effort_fallback_when_all_threshold_probes_fail(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-    ):
-        input_file = tmp_path / "input.mp4"
-        input_file.write_bytes(b"video")
-
-        monkeypatch.setattr(trim_plan_api, "probe_duration", lambda _path: 12.0)
-        monkeypatch.setattr(trim_plan_api, "detect_edge_only_cached", lambda *args, **kwargs: ([], []))
-
-        def _raise_invalid_probe(*args, **kwargs):
-            raise RuntimeError("probe failed")
-
-        monkeypatch.setattr(trim_plan_api, "detect_primary_with_cached_edges", _raise_invalid_probe)
-
-        plan = trim_plan_api.build_trim_plan(
-            input_file=input_file,
-            target_length=5.0,
-            noise_threshold=-55.0,
-            min_duration=0.01,
-            pad_sec=0.0,
-            temp_dir=tmp_path,
-        )
-
-        assert plan.mode == "target"
-        assert plan.should_copy_input is False
-        assert plan.resolved_noise_threshold == TARGET_SEARCH_HIGH_DB
-        assert plan.resolved_min_duration == TARGET_SEARCH_MIN_SILENCE_LEN_SEC
-        assert plan.resolved_pad_sec == TARGET_SEARCH_BASE_PADDING_SEC
-        assert plan.segments_to_keep == [(0.0, 12.0)]
-        assert plan.resulting_length_sec == 12.0
 
 
 class TestPaddingBinarySearch:

@@ -16,6 +16,17 @@ from sr_source_processing import SourceProcessingWorker, WorkerConfig, WorkerErr
 from sr_trim_plan import TrimPlan, build_trim_plan
 
 
+def test_worker_target_configuration(monkeypatch):
+    for name, value in {"SERVICE_URL": "https://example.test", "PROJECT": "p",
+                        "WORKER_TOKEN": "test", "WORK_DIR": "/tmp/work", "TARGET_LENGTH": "180"}.items():
+        monkeypatch.setenv("SOURCE_PROCESSING_" + name, value)
+    assert WorkerConfig.from_env().target_length == 180
+    for invalid in ("nan", "inf", "0.5", "-1"):
+        monkeypatch.setenv("SOURCE_PROCESSING_TARGET_LENGTH", invalid)
+        with pytest.raises(WorkerError):
+            WorkerConfig.from_env()
+
+
 def _job(payload: bytes) -> dict[str, object]:
     return {
         "id": "job-001",
@@ -33,6 +44,23 @@ def _plan(input_file: Path, **_: object) -> TrimPlan:
         resulting_length_sec=2.0, resolved_noise_threshold=-50.0,
         resolved_min_duration=1.0, resolved_pad_sec=0.5, target_length=None,
     )
+
+
+def test_worker_does_not_reuse_legacy_review_timeline_for_natural_target(tmp_path):
+    from contextlib import nullcontext
+    from dataclasses import replace
+    job = _job(b"source")
+    job["trim_plan"] = SourceProcessingWorker._trim_plan_checkpoint(job, _plan(tmp_path / "x"))
+    worker = _worker(tmp_path, httpx.MockTransport(lambda _: pytest.fail("no HTTP expected")))
+    worker.config = replace(worker.config, target_length=180)
+    worker._heartbeat = lambda *a: nullcontext()
+    worker._download_original = lambda *a: None
+    worker._verify_checksum = lambda *a: None
+    try:
+        with pytest.raises(WorkerError, match="Saved trim policy differs"):
+            worker._process_claimed_job(job)
+    finally:
+        worker.close()
 
 
 def _worker(tmp_path: Path, handler: httpx.MockTransport, planner=_plan, heartbeat=30.0) -> SourceProcessingWorker:
