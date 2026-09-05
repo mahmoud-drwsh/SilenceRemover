@@ -60,7 +60,7 @@ from src.ffmpeg.trim_script_bundle import (
     get_trim_script_path,
     is_trim_script_ready,
 )
-from src.media.trim import is_logo_overlay_cache_warm, trim_single_video
+from src.media.trim import is_logo_overlay_cache_warm, trim_single_video, validate_target_duration
 
 # Optional Media Manager integration for title sync and upload (Phases 3 and 5)
 try:
@@ -430,6 +430,7 @@ def run_subtitle_generation_phase(
 
 def run_subtitle_mux_phase(
     video_path: Path, temp_dir: Path, output_dir: Path, video_index: int, total_videos: int,
+    target_length: float | None = None,
 ) -> bool | None:
     """Mux the one SRT into the overlaid and no-overlay outputs as an off-by-default track."""
     basename = video_path.stem
@@ -445,6 +446,8 @@ def run_subtitle_mux_phase(
             raise RuntimeError("Final and no-overlay output files must exist before subtitle muxing")
         mux_srt_track(final_path, srt_path)
         mux_srt_track(no_overlay_path, srt_path)
+        validate_target_duration(final_path, target_length)
+        validate_target_duration(no_overlay_path, target_length)
         mark_subtitle_mux_completed(temp_dir, basename)
     return _run_phase_step(video_path=video_path, work_fn=_perform, video_index=video_index, total_videos=total_videos, label="Subtitle Mux")
 
@@ -991,6 +994,7 @@ def run_video_upload_phase(
     video_index: int,
     total_videos: int,
     server_cache: ServerDataCache | None,
+    target_length: float | None = None,
 ) -> bool | None:
     """Phase 9: Upload video with ['pending'] tags if it does not already exist on the server."""
     basename = video_path.stem
@@ -1007,6 +1011,7 @@ def run_video_upload_phase(
     output_path = output_dir / f"{output_basename}.mp4"
 
     def _perform() -> None:
+        validate_target_duration(output_path, target_length)
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
             result = client.upload_video(
@@ -1055,6 +1060,7 @@ def run_no_overlay_video_upload_phase(
     temp_dir: Path,
     video_index: int,
     total_videos: int,
+    target_length: float | None = None,
 ) -> bool | None:
     """Upload the clean silence-removed companion video to the same project."""
     basename = video_path.stem
@@ -1068,6 +1074,7 @@ def run_no_overlay_video_upload_phase(
     output_path = get_no_overlay_output_dir(temp_dir) / f"{output_basename}.mp4"
 
     def _perform() -> None:
+        validate_target_duration(output_path, target_length)
         client = MediaManagerClient(os.getenv("MEDIA_MANAGER_URL"))
         try:
             result = client.upload_video(
@@ -1589,7 +1596,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
             9.5,
             "Subtitle Mux",
             lambda video_file, vi, vn: run_subtitle_mux_phase(
-                video_file, temp_dir, startup.output_dir, vi, vn,
+                video_file, temp_dir, startup.output_dir, vi, vn, target_length=args.target_length,
             ),
             skip_reason=lambda video_file: (
                 "subtitle mux already completed" if is_subtitle_mux_completed(temp_dir, video_file.stem)
@@ -1651,6 +1658,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 video_index=vi,
                 total_videos=vn,
                 server_cache=server_cache,
+                target_length=args.target_length,
             ),
             skip_reason=lambda video_file: (
                 "final encode not completed"
@@ -1689,6 +1697,7 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 temp_dir=temp_dir,
                 video_index=vi,
                 total_videos=vn,
+                target_length=args.target_length,
             ),
             skip_reason=lambda video_file: (
                 "no-overlay encode missing"

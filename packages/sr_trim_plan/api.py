@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Callable, Literal, Optional
 
 from src.core.constants import (
+    NATURAL_TARGET_NOISE_THRESHOLD_DB,
+    NATURAL_TARGET_MIN_SILENCE_SEC,
     EDGE_RESCAN_MIN_DURATION_SEC,
     EDGE_RESCAN_THRESHOLD_DB,
     EDGE_SILENCE_KEEP_SEC,
@@ -23,13 +26,15 @@ from src.core.constants import (
 from src.ffmpeg.probing import probe_duration
 from src.media.silence_detector import (
     build_keep_segments_from_silences,
-    calculate_resulting_length,
     normalize_timestamp,
 )
 from sr_silence_detection import (
-    detect_edge_only_cached,
-    detect_primary_with_cached_edges,
     detect_silence_with_edges,
+    detect_silence,
+)
+
+from sr_trim_plan.pause_budget import (
+    NATURAL_PAUSE_POLICY_VERSION, PausePolicy, allocate_pause_budget,
 )
 
 TrimPlanMode = Literal["target", "non_target"]
@@ -49,33 +54,14 @@ class TrimPlan:
     resolved_pad_sec: float
     target_length: Optional[float]
     should_copy_input: bool = False
-
-
-@dataclass(frozen=True)
-class _ThresholdProbeResult:
-    silence_starts: list[float]
-    silence_ends: list[float]
-    estimated_length_sec: float
-
-
-def _full_duration_probe_result(duration_sec: float) -> _ThresholdProbeResult:
-    """Return a no-trim fallback probe that preserves the full input duration."""
-    normalized_duration = normalize_timestamp(duration_sec)
-    return _ThresholdProbeResult(
-        silence_starts=[],
-        silence_ends=[],
-        estimated_length_sec=normalized_duration,
-    )
-
-
-def should_copy_when_target_exceeds_input(duration_sec: float, target_length: Optional[float]) -> bool:
-    """Return True when target mode can skip trimming because input is already short enough."""
-    return target_length is not None and target_length >= duration_sec - TRIM_TIMESTAMP_EPSILON_SEC
+    policy_version: str | None = None
+    minimum_length_sec: float | None = None
+    planning_budget_sec: float | None = None
 
 
 def _probe_and_validate_duration(input_file: Path) -> float:
     duration_sec = probe_duration(input_file)
-    if duration_sec <= 0:
+    if not math.isfinite(duration_sec) or duration_sec <= 0:
         raise ValueError(f"Invalid video duration: {duration_sec}s. Video file may be corrupted or empty.")
     return normalize_timestamp(duration_sec)
 
@@ -235,19 +221,6 @@ def build_trim_plan(
         pad_sec=pad_sec,
     )
     duration_sec = _probe_and_validate_duration(input_file)
-    if should_copy_when_target_exceeds_input(duration_sec, target_length):
-        return TrimPlan(
-            mode="target",
-            segments_to_keep=[(0.0, normalize_timestamp(duration_sec))],
-            input_duration_sec=duration_sec,
-            resulting_length_sec=duration_sec,
-            resolved_noise_threshold=trim_defaults.noise_threshold,
-            resolved_min_duration=trim_defaults.min_duration,
-            resolved_pad_sec=trim_defaults.pad_sec,
-            target_length=target_length,
-            should_copy_input=True,
-        )
-
     if target_length is None:
         return _build_non_target_trim_plan(input_file=input_file, duration_sec=duration_sec, trim_defaults=trim_defaults)
 
@@ -298,96 +271,33 @@ def _build_target_trim_plan(
     duration_sec: float,
     target_length: float,
 ) -> TrimPlan:
-    """Build a target-mode trim plan with fixed two-stage binary search."""
-    basename = input_file.stem
-    edge_starts, edge_ends = detect_edge_only_cached(
+    """Budget detected pauses without making speech detection more aggressive."""
+    policy = PausePolicy()
+    if not math.isfinite(target_length) or target_length <= policy.render_margin_sec:
+        raise ValueError("Target must be finite and greater than render margin")
+    # Raw intervals are required: legacy edge normalization already subtracts
+    # silence and cannot represent the actual pause lengths needed by this policy.
+    silence_starts, silence_ends = detect_silence(
         input_file=input_file,
-        temp_dir=temp_dir,
-        basename=basename,
-        edge_noise_threshold=EDGE_RESCAN_THRESHOLD_DB,
-        edge_min_duration=EDGE_RESCAN_MIN_DURATION_SEC,
-        edge_keep_seconds=EDGE_SILENCE_KEEP_SEC,
-        duration_sec=duration_sec,
+        noise_threshold=NATURAL_TARGET_NOISE_THRESHOLD_DB,
+        min_duration=NATURAL_TARGET_MIN_SILENCE_SEC,
     )
-
-    threshold_probe_cache: dict[float, _ThresholdProbeResult | None] = {}
-
-    def get_threshold_probe(threshold_db: float) -> _ThresholdProbeResult | None:
-        threshold_key = round(threshold_db, 3)
-        cached_result = threshold_probe_cache.get(threshold_key)
-        if cached_result is not None or threshold_key in threshold_probe_cache:
-            return cached_result
-
-        try:
-            silence_starts, silence_ends = detect_primary_with_cached_edges(
-                input_file=input_file,
-                primary_noise_threshold=threshold_key,
-                primary_min_duration=TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
-                edge_starts=edge_starts,
-                edge_ends=edge_ends,
-                edge_keep_seconds=EDGE_SILENCE_KEEP_SEC,
-                duration_sec=duration_sec,
-                temp_dir=temp_dir,
-                basename=basename,
-            )
-            estimated_length_sec = calculate_resulting_length(
-                silence_starts,
-                silence_ends,
-                duration_sec,
-                TARGET_SEARCH_BASE_PADDING_SEC,
-            )
-            cached_result = _ThresholdProbeResult(
-                silence_starts=silence_starts,
-                silence_ends=silence_ends,
-                estimated_length_sec=estimated_length_sec,
-            )
-        except Exception:
-            cached_result = None
-
-        threshold_probe_cache[threshold_key] = cached_result
-        return cached_result
-
-    chosen_threshold_db, reached_target = binary_search_threshold(
-        target_length=target_length,
-        estimate_length=lambda threshold_db: (
-            None
-            if (probe := get_threshold_probe(threshold_db)) is None
-            else probe.estimated_length_sec
-        ),
+    allocation = allocate_pause_budget(
+        duration_sec, silence_starts, silence_ends, target_length, policy,
     )
-
-    chosen_probe = get_threshold_probe(chosen_threshold_db)
-    if chosen_probe is None:
-        chosen_probe = _full_duration_probe_result(duration_sec)
-
-    chosen_pad_sec = TARGET_SEARCH_BASE_PADDING_SEC
-    if reached_target:
-        chosen_pad_sec = binary_search_padding(
-            target_length=target_length,
-            duration_sec=duration_sec,
-            estimate_length=lambda pad_sec: calculate_resulting_length(
-                chosen_probe.silence_starts,
-                chosen_probe.silence_ends,
-                duration_sec,
-                pad_sec,
-            ),
-        )
-
-    segments_to_keep = build_keep_segments_from_silences(
-        silence_starts=chosen_probe.silence_starts,
-        silence_ends=chosen_probe.silence_ends,
-        duration_sec=duration_sec,
-        pad_sec=chosen_pad_sec,
-    )
-    resulting_length = normalize_timestamp(sum(end - start for start, end in segments_to_keep))
-
     return TrimPlan(
         mode="target",
-        segments_to_keep=segments_to_keep,
+        segments_to_keep=allocation.segments,
         input_duration_sec=duration_sec,
-        resulting_length_sec=resulting_length,
-        resolved_noise_threshold=chosen_threshold_db,
-        resolved_min_duration=TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
-        resolved_pad_sec=chosen_pad_sec,
+        resulting_length_sec=allocation.resulting_length_sec,
+        resolved_noise_threshold=NATURAL_TARGET_NOISE_THRESHOLD_DB,
+        resolved_min_duration=NATURAL_TARGET_MIN_SILENCE_SEC,
+        # Compatibility metadata: minimum retained sound per side of an edited
+        # internal pause, not a uniform padding applied to every segment.
+        resolved_pad_sec=policy.min_gap_sec / 2,
         target_length=target_length,
+        should_copy_input=allocation.segments == [(0.0, duration_sec)],
+        policy_version=NATURAL_PAUSE_POLICY_VERSION,
+        minimum_length_sec=allocation.minimum_length_sec,
+        planning_budget_sec=allocation.budget_sec,
     )

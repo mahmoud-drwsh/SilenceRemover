@@ -1,6 +1,7 @@
 """CLI argument parsing and validation utilities."""
 
 import argparse
+import math
 import shutil
 import sys
 from pathlib import Path
@@ -21,10 +22,6 @@ from src.core.constants import (
     NON_TARGET_MIN_DURATION_SEC,
     NON_TARGET_NOISE_THRESHOLD_DB,
     NON_TARGET_PAD_SEC,
-    TARGET_SEARCH_BASE_PADDING_SEC,
-    TARGET_SEARCH_HIGH_DB,
-    TARGET_SEARCH_LOW_DB,
-    TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
     TITLE_FONT_DEFAULT,
     VIDEO_EXTENSIONS,
 )
@@ -89,7 +86,7 @@ def _positive_float(value: str) -> float:
     except ValueError:
         raise argparse.ArgumentTypeError(f"Must be a number, got '{value}'")
 
-    if parsed <= 0:
+    if not math.isfinite(parsed) or parsed <= 0:
         raise argparse.ArgumentTypeError(f"Value must be greater than 0, got '{value}'")
     return parsed
 
@@ -104,9 +101,9 @@ def parse_args() -> argparse.Namespace:
         "--target-length",
         type=_positive_float,
         help=(
-            "Target length in seconds for final output (Phase 7). Uses fixed internal search "
-            f"parameters: threshold {TARGET_SEARCH_LOW_DB}..{TARGET_SEARCH_HIGH_DB} dB, "
-            f"min silence {TARGET_SEARCH_MIN_SILENCE_LEN_SEC}s, base padding {TARGET_SEARCH_BASE_PADDING_SEC}s."
+            "Exclusive maximum output duration in seconds (use 180 for under 3 minutes). "
+            "Preserves short gaps, budgets longer pauses between 0.6 and 1.2s, "
+            "and reserves 0.5s for rendering. Unreachable targets fail without truncation."
         ),
     )
     parser.add_argument(

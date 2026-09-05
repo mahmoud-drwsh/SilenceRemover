@@ -77,7 +77,7 @@ TARGET_NOISE_THRESHOLD_END_DB = -25.0
 TARGET_NOISE_THRESHOLD_STEP_DB = 0.05
 # Total: (-25 - (-60)) / 0.05 + 1 = 701 values
 
-# --- Live target-mode search policy ---
+# --- Legacy threshold search (compatibility helpers only) ---
 
 TARGET_SEARCH_LOW_DB = -60.0
 TARGET_SEARCH_HIGH_DB = -35.0
@@ -85,6 +85,10 @@ TARGET_SEARCH_STEP_DB = 0.1
 TARGET_SEARCH_MIN_SILENCE_LEN_SEC = 0.100
 TARGET_SEARCH_BASE_PADDING_SEC = 0.060
 TARGET_SEARCH_PADDING_STEP_SEC = 0.01
+
+# --- Natural target mode: fixed detector; duration is a pause budget ---
+NATURAL_TARGET_NOISE_THRESHOLD_DB = -50.0
+NATURAL_TARGET_MIN_SILENCE_SEC = 0.6
 
 # --- Snippet defaults ---
 
@@ -126,9 +130,9 @@ def resolve_trim_defaults(
         )
 
     return TrimDefaults(
-        noise_threshold=TARGET_SEARCH_LOW_DB,
-        min_duration=TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
-        pad_sec=TARGET_SEARCH_BASE_PADDING_SEC,
+        noise_threshold=NATURAL_TARGET_NOISE_THRESHOLD_DB,
+        min_duration=NATURAL_TARGET_MIN_SILENCE_SEC,
+        pad_sec=0.3,
     )
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -14,7 +14,7 @@ from src.ffmpeg.filter_graph import write_filter_graph_script
 from src.ffmpeg.probing import probe_duration, probe_has_audio_stream
 from sr_filter_graph import build_audio_concat_filter_graph, build_video_audio_concat_filter_graph
 from sr_trim_plan import build_trim_plan
-from sr_trim_plan.api import should_copy_when_target_exceeds_input
+from sr_trim_plan.pause_budget import NATURAL_PAUSE_POLICY_VERSION, PausePolicy
 
 TRIM_SCRIPTS_DIR = "trim_scripts"
 SNIPPET_TRIM_SCRIPT_SUFFIX = ".snippet.ffscript"
@@ -67,6 +67,9 @@ def _script_name(
         "min_duration": trim_defaults.min_duration,
         "pad_sec": trim_defaults.pad_sec,
     }
+    if target_length is not None:
+        payload["pause_policy"] = asdict(PausePolicy())
+        payload["policy_version"] = NATURAL_PAUSE_POLICY_VERSION
     digest = hashlib.sha1(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:12]
@@ -259,13 +262,8 @@ def load_trim_script(
     filter_graph = _read_filter_graph(script_path)
 
     if "concat=n=" in filter_graph:
-        if input_file is not None and should_copy_when_target_exceeds_input(
-            probe_duration(input_file),
-            target_length,
-        ):
-            final_strategy: FinalStrategy = "copy"
-        else:
-            final_strategy = "concat"
+        # Duration alone does not prove identity: short sources may have capped pauses.
+        final_strategy: FinalStrategy = "concat"
     else:
         final_strategy = "minimal"
 

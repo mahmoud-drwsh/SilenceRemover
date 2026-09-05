@@ -1,6 +1,7 @@
 """Video trimming functionality."""
 
 import shutil
+import math
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +17,7 @@ from src.core.constants import (
 )
 from src.ffmpeg.encoding_resolver import get_encoder_config
 from src.ffmpeg.probing import (
+    probe_duration,
     probe_ffmpeg_can_decode_image_frame,
     probe_video_dimensions,
 )
@@ -414,6 +416,21 @@ def prepare_video_overlays(
     return (title_overlay_path, logo_path_resolved, banner_top, use_logo)
 
 
+def validate_target_duration(output_file: Path, target_length: float | None) -> None:
+    """Check the actual container after encoding/remuxing; never truncate to fit."""
+    if target_length is None:
+        return
+    if not math.isfinite(target_length) or target_length <= 0:
+        raise ValueError("Target must be finite and positive")
+    actual = probe_duration(output_file)
+    if not math.isfinite(actual) or actual <= 0 or actual >= target_length:
+        raise ValueError(
+            f"Encoded duration {actual:.6f}s does not satisfy the exclusive "
+            f"{target_length:.6f}s limit; output was not accepted. "
+            "Replan with more headroom or split the source; do not truncate speech."
+        )
+
+
 def trim_single_video(
     input_file: Path,
     output_dir: Path,
@@ -479,6 +496,7 @@ def trim_single_video(
         and title_overlay_path is None
         and not use_logo
     ):
+        validate_target_duration(input_file, target_length)
         copied_output_file = _copy_input_video(
             input_file=input_file,
             output_file=output_file,
@@ -544,6 +562,7 @@ def trim_single_video(
             build_command=_build_ffmpeg_command,
             command_label=f"{encoder} encode",
         )
+        validate_target_duration(processing_output, target_length)
         _move_processing_to_final(processing_output, output_file)
         if processing_output.exists():
             processing_output.unlink()
