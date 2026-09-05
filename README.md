@@ -342,6 +342,14 @@ is not invoked by tests, CI, or deployment.
 Cleanup performs bounded retries and a final readback stabilization pass so
 artifacts published late by an in-flight worker are still removed.
 
+The `check_id` endpoint uses two success shapes: a missing file returns
+`{"exists": false}`, while a stored file returns its normal file response
+without an `exists` field. Keep the harness predicate compatible with both.
+The production acceptance run verified review/title approval, subtitle
+delivery, both served final variants, and a fractional `25.121` duration; it
+left no test file rows. Its completed source-processing job remains as normal
+historical evidence.
+
 ```bash
 .venv/bin/python scripts/black_box_source_processing.py \
   --confirm-production --work-dir /tmp/silence-remover-black-box
