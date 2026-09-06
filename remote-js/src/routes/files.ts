@@ -147,6 +147,7 @@ interface FileRow {
   derived_title: string | null;
   no_overlay_id: string | null;
   designer_video_id: string | null;
+  active_designer_revision_id: string | null;
   subtitle_id: string | null;
   designer_of_id: string | null;
   media_variant: string | null;
@@ -208,6 +209,7 @@ function rowToResponse(row: FileRow): FileResponse {
     derived_title: row.derived_title ?? null,
     no_overlay_id: row.no_overlay_id ?? null,
     designer_video_id: row.designer_video_id ?? null,
+    active_designer_revision_id: row.active_designer_revision_id ?? null,
     subtitle_id: row.subtitle_id ?? null,
     designer_of_id: row.designer_of_id ?? null,
     media_variant: mediaVariant,
@@ -343,7 +345,8 @@ export async function commitUploadMetadata(args: {
   const attributes = { ...legacyMediaAttributes(args.fileType, args.tagList, args.designerOfId ?? null), ...args.attributes };
 
   try {
-    await sql.unsafe(
+    await sql.begin(async (tx) => {
+      await tx.unsafe(
       `INSERT INTO ${ident}.files
          (id, project, type, title, tags, duration, file_size, mime_type, source_id, original_filename, checksum_sha256, designer_of_id, media_variant, review_status, visibility, publication_status)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
@@ -372,7 +375,18 @@ export async function commitUploadMetadata(args: {
         attributes.visibility,
         attributes.publicationStatus ?? null,
       ],
-    );
+      );
+      // Completion of a new designer revision is the only operation that
+      // advances the active pointer. Older revision records remain untouched.
+      if (args.fileType === "video" && args.designerOfId) {
+        await tx.unsafe(
+          `UPDATE ${ident}.files
+             SET active_designer_revision_id=$1
+           WHERE id=$2 AND project=$3 AND type='video'`,
+          [args.fileId, args.designerOfId, args.project],
+        );
+      }
+    });
   } catch (error) {
     throw mapUploadMetadataInsertError(error, args.fileId);
   }
@@ -485,7 +499,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     }
 
     const rows = await sql.unsafe<FileRow[]>(
-      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title, NULL::text AS no_overlay_id, NULL::text AS designer_video_id, NULL::text AS subtitle_id, designer_of_id
+      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title, NULL::text AS no_overlay_id, NULL::text AS designer_video_id, NULL::text AS active_designer_revision_id, NULL::text AS subtitle_id, designer_of_id
        FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = $3`,
       [sanitizedId, project, typeParam],
     );
@@ -591,7 +605,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const sortDirection = sort === "asc" ? "ASC" : "DESC";
 
   const rows = await sql.unsafe<FileRow[]>(
-    `SELECT source.id, source.project, source.type, source.title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, companion.id AS no_overlay_id, designer.id AS designer_video_id, subtitle.id AS subtitle_id, source.designer_of_id,
+    `SELECT source.id, source.project, source.type, source.title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, companion.id AS no_overlay_id, designer.id AS designer_video_id, source.active_designer_revision_id, subtitle.id AS subtitle_id, source.designer_of_id,
        COALESCE(source.media_variant, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay' ELSE 'pipeline-final' END) AS media_variant,
        COALESCE(source.review_status, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["ready"]'::jsonb THEN 'approved' WHEN source.type='audio' THEN 'todo' ELSE NULL END) AS review_status,
        COALESCE(source.visibility, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END) AS visibility,
@@ -605,6 +619,8 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
          AND candidate.source_id = source.id
          AND candidate.type IN ('video', 'audio')
          AND COALESCE(BTRIM(candidate.title), '') <> ''
+         AND candidate.designer_of_id IS NULL
+         AND candidate.id NOT LIKE '%-designer'
          AND NOT ((CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb)
        ORDER BY CASE candidate.type WHEN 'video' THEN 0 ELSE 1 END,
          CASE WHEN (CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["no-overlay"]'::jsonb THEN 1 ELSE 0 END
@@ -630,7 +646,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
        WHERE source.type = 'video'
          AND candidate.project = source.project
          AND candidate.type = 'video'
-         AND (candidate.designer_of_id = source.id OR candidate.id = source.id || '-designer')
+        AND (candidate.id = source.active_designer_revision_id OR (source.active_designer_revision_id IS NULL AND (candidate.designer_of_id = source.id OR candidate.id = source.id || '-designer')))
          AND NOT ((CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb)
        ORDER BY candidate.created_at DESC, candidate.id
        LIMIT 1

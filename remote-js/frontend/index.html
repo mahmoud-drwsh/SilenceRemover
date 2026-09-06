@@ -283,7 +283,9 @@
             strictIsolation = isStrict && section === 'video' && filter && !['all', 'trash'].includes(filter) && isAdminMode();
 
             if (section === 'video' && !isAdminMode() && !filter) {
-                currentFilter = 'needs-designer';
+                // Designers need to revisit completed cards to upload another
+                // revision, so their focused queue includes every pipeline final.
+                currentFilter = 'pipeline-final';
             } else if (filter) {
                 currentFilter = filter;
             } else {
@@ -406,7 +408,7 @@
             // Filter out 'all' and 'trash' unless in admin mode
             const adminOnlyTabs = ['all', 'trash', 'pending'];
             const baseTabs = currentSection === 'audio' ? AUDIO_TABS : VIDEO_TABS;
-            const tabs = isAdmin ? baseTabs : currentSection === 'video' ? ['needs-designer'] : baseTabs.filter(tab => !adminOnlyTabs.includes(tab));
+            const tabs = isAdmin ? baseTabs : currentSection === 'video' ? ['pipeline-final'] : baseTabs.filter(tab => !adminOnlyTabs.includes(tab));
 
             container.innerHTML = tabs.map(tab => {
                 const isActive = tab === currentFilter;
@@ -556,7 +558,7 @@
                     ? `<a class="variant-action" href="/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.no_overlay_id)}?type=${TYPE_VIDEO}" download>✂️ <span><strong>Silence Removed</strong><span>No overlay</span></span></a>`
                     : `<div class="variant-action missing">✂️ <span><strong>Silence Removed</strong><span>Unavailable</span></span></div>`;
                 const designerVariant = safeDesignerVideoId
-                    ? `<a class="variant-action" href="/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.designer_video_id)}?type=${TYPE_VIDEO}" download>✨ <span><strong>Designer Video</strong><span>Redesigned overlay</span></span></a>`
+                    ? `<a class="variant-action" href="/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.designer_video_id)}?type=${TYPE_VIDEO}" download>✨ <span><strong>Designer Video</strong><span>Active redesign</span></span></a>`
                     : `<div class="variant-action missing">✨ <span><strong>Designer Video</strong><span>Not uploaded</span></span></div>`;
                 const subtitleVariant = safeSubtitleId
                     ? `<a class="variant-action" href="/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.subtitle_id)}?type=subtitle" download>💬 <span><strong>Subtitles</strong><span>Download SRT</span></span></a>`
@@ -579,14 +581,14 @@
                         <div class="file-meta">${duration} ${size ? '• ' + size : ''} • <span style="color: #666; font-size: 0.75rem;">${escapeHtml(file.id)}</span></div>
                     </div>
                     <div class="file-actions">${actionsHtml}</div>
-                    ${currentFilter === 'trash' ? '' : `<div class="variant-footer"><button class="btn btn-primary" onclick="playVideo('${safeId}', '${safeTitle}')">▶️ Play pipeline final</button>${canUploadDesigner ? `<button class="btn btn-designer" onclick="openDesignerUpload('${safeId}', '${safeTitle}')">✨ Upload designer video</button>` : ''}<div class="menu-container"><button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${file.id}">${menuItem}</div></div></div>`}
+                    ${currentFilter === 'trash' ? '' : `<div class="variant-footer"><button class="btn btn-primary" onclick="playVideo('${safeId}', '${safeTitle}')">▶️ Play pipeline final</button>${canUploadDesigner ? `<button class="btn btn-designer" onclick="openDesignerUpload('${safeId}', '${safeTitle}')">✨ ${safeDesignerVideoId ? 'Upload new revision' : 'Upload designer video'}</button>` : ''}<div class="menu-container"><button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${file.id}">${menuItem}</div></div></div>`}
                 </div>
             `;
         }
 
         function openDesignerUpload(targetId, targetTitle) {
             document.getElementById('designer-target-id').value = targetId;
-            document.getElementById('designer-target').textContent = `Linking to pipeline final: ${targetTitle}`;
+            document.getElementById('designer-target').textContent = `Saving a new revision for: ${targetTitle}`;
             document.getElementById('designer-title').value = `${targetTitle} (Designer)`;
             document.getElementById('designer-file').value = '';
             document.getElementById('designer-progress').textContent = '';
@@ -635,7 +637,7 @@
                         parts.push({part_number: index + 1, etag});
                     }
                 }
-                progress.textContent = 'Linking designer video…';
+                progress.textContent = 'Saving designer revision…';
                 const completed = await fetch(`${API_BASE}/uploads/${encodeURIComponent(session.session_id)}/complete`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(partSize ? {parts} : {})});
                 if (!completed.ok) throw new Error((await completed.json()).detail || 'Could not complete designer upload');
                 closeDesignerUpload();

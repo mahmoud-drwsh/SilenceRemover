@@ -187,14 +187,20 @@ assert clean_video["ok"]
 needs_designer = json.load(request("/api/files?type=video&designer_missing=true"))
 assert any(item["id"] == "derived-001" for item in needs_designer)
 designer_video = complete_session(initiate("ignored-client-id", "video", digest, title="Designer revision", designer_of_id="derived-001"))
-assert designer_video["ok"] and designer_video["id"] == "derived-001-designer"
+assert designer_video["ok"] and designer_video["id"].startswith("derived-001-designer-")
+designer_video_id = designer_video["id"]
+designer_video_next = complete_session(initiate("ignored-client-id", "video", digest, title="Designer revision 2", designer_of_id="derived-001"))
+assert designer_video_next["ok"] and designer_video_next["id"].startswith("derived-001-designer-")
+designer_video_next_id = designer_video_next["id"]
+assert designer_video_next_id != designer_video_id
 derived = json.load(request("/api/originals/source-001/derived"))
-assert {item["id"] for item in derived} == {"derived-001", "derived-001-no-overlay", "derived-001-designer"}
+assert {item["id"] for item in derived} == {"derived-001", "derived-001-no-overlay", designer_video_id, designer_video_next_id}
 normal_videos = json.load(request("/api/files?type=video"))
 normal = next(item for item in normal_videos if item["id"] == "derived-001")
 assert normal["no_overlay_id"] == "derived-001-no-overlay"
-assert normal["designer_video_id"] == "derived-001-designer"
-assert all(item["id"] not in {"derived-001-no-overlay", "derived-001-designer"} for item in normal_videos)
+assert normal["designer_video_id"] == designer_video_next_id
+assert normal["active_designer_revision_id"] == designer_video_next_id
+assert all(item["id"] not in {"derived-001-no-overlay", designer_video_id, designer_video_next_id} for item in normal_videos)
 needs_designer = json.load(request("/api/files?type=video&designer_missing=true"))
 assert all(item["id"] != "derived-001" for item in needs_designer)
 no_overlay_videos = json.load(request("/api/files?type=video&view=no-overlay"))
@@ -214,7 +220,7 @@ srt_session = initiate(
 )
 assert complete_session(srt_session, srt)["ok"]
 enqueued = json.load(request("/api/remux/enqueue", "POST", {}))
-assert enqueued["enqueued"] == 3
+assert enqueued["enqueued"] == 4
 claimed = json.load(request("/api/remux/claim", "POST", {}))["job"]
 assert claimed and claimed["input_checksum_sha256"] == digest
 upload = json.load(request(f"/api/remux/{claimed['id']}/upload", "POST", {
@@ -228,7 +234,7 @@ promoted = json.load(request(f"/api/remux/{claimed['id']}/complete", "POST", {
 }))
 assert promoted["ok"] and promoted["checksum_sha256"] == digest
 status = json.load(request("/api/remux/status"))
-assert status["states"]["completed"] == 1 and status["states"]["pending"] == 2
+assert status["states"]["completed"] == 1 and status["states"]["pending"] == 3
 
 # The production pipeline's no-overlay videos are multipart uploads. Keep the
 # MP4 header valid while crossing the 8 MiB multipart boundary.

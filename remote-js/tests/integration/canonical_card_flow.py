@@ -56,16 +56,21 @@ assert upload(
     tags=["no-overlay"],
     source_id=source_id,
 )["ok"]
-designer = upload("ignored-client-id", "video", title="Designer revision", designer_of_id=final_id)
-assert designer["id"] == f"{final_id}-designer"
+designer = upload("ignored-client-id", "video", title="Designer revision one", designer_of_id=final_id)
+designer_id = designer["id"]
+assert designer_id.startswith(f"{final_id}-designer-")
+designer_next = upload("ignored-client-id", "video", title="Designer revision two", designer_of_id=final_id)
+designer_next_id = designer_next["id"]
+assert designer_next_id.startswith(f"{final_id}-designer-") and designer_next_id != designer_id
 
 normal = json.load(request("/api/files?type=video"))
 card = next(item for item in normal if item["id"] == final_id)
 assert card["no_overlay_id"] == f"{final_id}-no-overlay"
-assert card["designer_video_id"] == f"{final_id}-designer"
+assert card["designer_video_id"] == designer_next_id
+assert card["active_designer_revision_id"] == designer_next_id
 assert card["media_variant"] == "pipeline-final"
 assert card["source_id"] == source_id
-assert all(item["id"] not in {f"{final_id}-no-overlay", f"{final_id}-designer"} for item in normal)
+assert all(item["id"] not in {f"{final_id}-no-overlay", designer_id, designer_next_id} for item in normal)
 
 no_overlay = json.load(request("/api/files?type=video&view=no-overlay"))
 assert any(item["id"] == final_id for item in no_overlay)

@@ -21,6 +21,8 @@ originalsRouter.get("/projects/:token/:project/api/originals/:id/download", asyn
        SELECT title FROM ${ident}.files AS candidate
        WHERE candidate.project = source.project AND candidate.source_id = source.id
          AND candidate.type IN ('video', 'audio') AND COALESCE(BTRIM(candidate.title), '') <> ''
+         AND candidate.designer_of_id IS NULL
+         AND candidate.id NOT LIKE '%-designer'
          AND NOT ((CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb)
        ORDER BY CASE candidate.type WHEN 'video' THEN 0 ELSE 1 END,
          CASE WHEN (CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["no-overlay"]'::jsonb THEN 1 ELSE 0 END

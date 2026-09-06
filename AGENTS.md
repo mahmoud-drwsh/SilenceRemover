@@ -42,3 +42,4 @@ This is a single-context repository. See `docs/agents/domain.md`.
 - **Original deletion safety**: Deleting a trashed original transactionally stales matching nonterminal source-processing jobs and clears their lease/waiting state.
 - **Original deletion integration coverage**: The isolated API flow proves a waiting job becomes stale and cannot resume after original deletion, while completed and failed jobs stay terminal.
 - **Production acceptance evidence**: The manual harness passed after review, subtitle, both served finals, fractional-duration, and cleanup checks; public `check_id` returns stored rows without `exists`, and only a missing row carries `exists: false`.
+- **Designer revisions**: Each designer upload now creates an immutable linked revision; successful completion atomically selects it as the canonical card's active designer video, while legacy deterministic designer rows remain readable. Server-enforced admin authorization remains deferred.

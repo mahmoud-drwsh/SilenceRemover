@@ -25,6 +25,7 @@ export const FileResponseSchema = z.object({
   derived_title: z.string().nullable().optional(),
   no_overlay_id: z.string().nullable().optional(),
   designer_video_id: z.string().nullable().optional(),
+  active_designer_revision_id: z.string().nullable().optional(),
   subtitle_id: z.string().nullable().optional(),
   designer_of_id: z.string().nullable().optional(),
   media_variant: z.enum(["pipeline-final", "no-overlay", "designer"]).nullable().optional(),

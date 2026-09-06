@@ -58,6 +58,7 @@ export async function ensureDatabaseReady(): Promise<void> {
       original_filename text,
       checksum_sha256 text,
       designer_of_id text,
+      active_designer_revision_id text,
       media_variant text,
       review_status text,
       visibility text,
@@ -73,6 +74,9 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS original_filename text`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS checksum_sha256 text`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS designer_of_id text`);
+  // The current designer revision is a pointer from a pipeline final. Designer
+  // video rows themselves are immutable revisions, rather than replacements.
+  await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS active_designer_revision_id text`);
   // These fields are deliberately nullable during the non-destructive
   // migration. Legacy rows retain their tags unchanged and are interpreted
   // by the read-side compatibility mapping until the rehearsed backfill runs.
@@ -84,6 +88,7 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_tags_gin_idx ON ${ident}.files USING gin (tags)`);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_project_source_idx ON ${ident}.files (project, source_id)`);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_project_designer_of_idx ON ${ident}.files (project, designer_of_id)`);
+  await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_project_active_designer_idx ON ${ident}.files (project, active_designer_revision_id)`);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS files_project_variant_idx ON ${ident}.files (project, media_variant)`);
   await sql.unsafe(`
     CREATE TABLE IF NOT EXISTS ${ident}.upload_sessions (

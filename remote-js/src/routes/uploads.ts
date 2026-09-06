@@ -155,7 +155,9 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
     const target = await resolveDesignerTarget(project, input.designerOfId);
     input = {
       ...input,
-      id: `${target.id}-designer`,
+      // A designer upload is a retained revision, never a replacement of the
+      // deterministic legacy `${target.id}-designer` object.
+      id: `${target.id}-designer-${randomUUID()}`,
       sourceId: target.sourceId,
       tags: ["designer"],
       designerOfId: target.id,
