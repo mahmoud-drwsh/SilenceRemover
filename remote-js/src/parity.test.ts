@@ -15,7 +15,7 @@ import {
   parseContentLengthHeader,
 } from "./routes/files.ts";
 import { normalizeTitle, sanitizeFileId, sanitizeFilename } from "./sanitize.ts";
-import { AUDIO_TAGS, HttpError } from "./schemas.ts";
+import { AUDIO_TAGS, VIDEO_TAGS, HttpError, validateVideoTags } from "./schemas.ts";
 import {
   ALLOWED_MIME,
   AUDIO_MIME,
@@ -200,6 +200,24 @@ describe("AUDIO_TAGS", () => {
   test("all is a virtual view and not a persisted audio tag", () => {
     expect(AUDIO_TAGS.has("all")).toBe(false);
     expect(AUDIO_TAGS.has("trash")).toBe(true);
+  });
+});
+
+describe("VIDEO_TAGS", () => {
+  test("only trash remains writable", () => {
+    expect([...VIDEO_TAGS]).toEqual(["trash"]);
+    expect(validateVideoTags([])).toEqual([]);
+    expect(validateVideoTags(["trash"])).toEqual(["trash"]);
+    for (const legacy of ["all", "designer", "no-overlay", "pending", "FB", "TT", "YT"]) {
+      expect(() => validateVideoTags([legacy])).toThrow(HttpError);
+    }
+  });
+});
+
+describe("explicit video lifecycle", () => {
+  test("admin design-system assets receive usable MIME types", async () => {
+    const admin = await Bun.file(new URL("./routes/admin.ts", import.meta.url)).text();
+    expect(admin).toContain('"text/css; charset=utf-8"');
   });
 });
 

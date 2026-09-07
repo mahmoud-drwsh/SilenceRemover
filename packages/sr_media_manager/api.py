@@ -132,7 +132,7 @@ class MediaManagerClient:
         """Fetch video files from API.
         
         Args:
-            tags: Optional tag filter (e.g., "FB", "TT", "trash")
+            tags: Optional legacy tag filter (for example, "trash")
             include_trash: If True, include trashed files even when no tag filter (default: False)
             include_pending: If True, include pending files even when no tag filter (default: False)
         
@@ -334,6 +334,8 @@ class MediaManagerClient:
     def _upload_presigned(
         self, *, file_id: str, file_type: str, title: str, path: Path, tags: list,
         source_id: str | None = None, original_filename: str | None = None,
+        media_variant: str | None = None, visibility: str | None = None,
+        publication_status: str | None = None,
         progress_callback: callable = None,
     ) -> dict:
         """Transfer one file directly to S3 through the shared upload-session API."""
@@ -351,6 +353,12 @@ class MediaManagerClient:
             payload['source_id'] = source_id
         if original_filename:
             payload['original_filename'] = original_filename
+        if media_variant:
+            payload['media_variant'] = media_variant
+        if visibility:
+            payload['visibility'] = visibility
+        if publication_status:
+            payload['publication_status'] = publication_status
 
         for session_restart in range(2):
             session = None
@@ -446,6 +454,9 @@ class MediaManagerClient:
         progress_callback: callable = None,
         skip_if_exists_with_title: bool = False,
         source_id: str | None = None,
+        media_variant: str = 'pipeline-final',
+        visibility: str = 'active',
+        publication_status: str = 'published',
     ) -> dict:
         """Upload final video with title and tags.
 
@@ -453,7 +464,7 @@ class MediaManagerClient:
             file_id: Unique identifier (usually video basename)
             title: Title/caption for the video
             video_path: Path to video file
-            tags: List of tags (default: ["FB", "TT"])
+            tags: Video tags; only ``trash`` is supported (default: no tags)
             progress_callback: Optional callback(uploaded_bytes, total_bytes) for progress updates
             skip_if_exists_with_title: If True, check existence+title before upload to avoid unnecessary transfers
 
@@ -466,7 +477,7 @@ class MediaManagerClient:
                 'error': str or None
             }
         """
-        tags = tags or ['FB', 'TT']
+        tags = tags or []
 
         # Pre-flight check if requested
         if skip_if_exists_with_title:
@@ -488,6 +499,8 @@ class MediaManagerClient:
             response_json = self._upload_presigned(
                 file_id=file_id, file_type='video', title=title, path=video_path, tags=tags,
                 source_id=source_id, progress_callback=progress_callback,
+                media_variant=media_variant, visibility=visibility,
+                publication_status=publication_status,
             )
             overwritten = response_json.get('overwritten', False) if isinstance(response_json, dict) else False
             return {
@@ -632,6 +645,17 @@ class MediaManagerClient:
             return True
         except Exception as e:
             raise MediaManagerError(f"Tag update failed for {file_id}: {e}") from e
+
+    def publish_video(self, file_id: str) -> bool:
+        """Promote an active video through explicit publication state."""
+        try:
+            response = self._client.post(
+                self._url(f'/api/files/{quote(file_id, safe="")}/publish')
+            )
+            response.raise_for_status()
+            return True
+        except Exception as exc:
+            raise MediaManagerError(f'Failed to publish video {file_id}: {exc}') from exc
 
     def delete_file(self, file_id: str, file_type: str = 'video') -> bool:
         """Delete a file (trash first, then permanently).

@@ -39,9 +39,9 @@ const SHA256 = /^[a-f0-9]{64}$/;
 function artifactIdentity(kind: unknown, sourceId: string): { type: "audio" | "subtitle" | "video"; id: string; mime: string; ext: string; tags: string[]; mediaVariant: string | null; reviewStatus: string | null; publicationStatus: string | null } {
   if (kind === "review_audio") return { type: "audio", id: sourceId, mime: "audio/ogg", ext: ".ogg", tags: ["todo"], mediaVariant: null, reviewStatus: "todo", publicationStatus: null };
   if (kind === "subtitle") return { type: "subtitle", id: `${sourceId}-subtitles`, mime: "application/x-subrip", ext: ".srt", tags: [], mediaVariant: null, reviewStatus: null, publicationStatus: null };
-  if (kind === "no_overlay_video") return { type: "video", id: `${sourceId}-no-overlay`, mime: "video/mp4", ext: ".mp4", tags: ["no-overlay"], mediaVariant: "no-overlay", reviewStatus: null, publicationStatus: "published" };
+  if (kind === "no_overlay_video") return { type: "video", id: `${sourceId}-no-overlay`, mime: "video/mp4", ext: ".mp4", tags: [], mediaVariant: "no-overlay", reviewStatus: null, publicationStatus: "published" };
   // A source is rendered only after its reviewer has approved the audio title,
-  // so the final is immediately publishable under the existing tag contract.
+  // so the final is immediately publishable through explicit lifecycle state.
   if (kind === "overlaid_video") return { type: "video", id: sourceId, mime: "video/mp4", ext: ".mp4", tags: [], mediaVariant: "pipeline-final", reviewStatus: null, publicationStatus: "published" };
   throw new HttpError(400, "Unsupported source-processing artifact kind");
 }

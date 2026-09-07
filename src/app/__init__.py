@@ -15,7 +15,7 @@ from src.app.pipeline import (
     run_video_reconciliation_phase,
     run_video_upload_phase,
     run_no_overlay_video_upload_phase,
-    run_video_tag_promotion_phase,
+    run_video_publication_phase,
 )
 
 __all__ = [
@@ -33,5 +33,5 @@ __all__ = [
     "run_video_reconciliation_phase",
     "run_video_upload_phase",
     "run_no_overlay_video_upload_phase",
-    "run_video_tag_promotion_phase",
+    "run_video_publication_phase",
 ]

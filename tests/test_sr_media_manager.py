@@ -444,6 +444,19 @@ class TestVideoOverwrite:
         assert result.get("uploaded") is True
         assert upload.call_args.kwargs["file_type"] == "video"
         assert upload.call_args.kwargs["path"] == video_path
+        assert upload.call_args.kwargs["tags"] == []
+        assert upload.call_args.kwargs["media_variant"] == "pipeline-final"
+        assert upload.call_args.kwargs["visibility"] == "active"
+        assert upload.call_args.kwargs["publication_status"] == "published"
+
+    def test_publish_video_uses_explicit_state_endpoint(self):
+        with patch("httpx.Client") as http_client:
+            client = self._client(http_client)
+            assert client.publish_video("video/id") is True
+
+        request = http_client.return_value.post
+        assert request.call_args.args[0].endswith("/api/files/video%2Fid/publish")
+        request.return_value.raise_for_status.assert_called_once_with()
 
     def test_upload_video_failure_logs_context(self, tmp_path, capsys):
         """Video upload failures should expose enough context to diagnose retry loops."""

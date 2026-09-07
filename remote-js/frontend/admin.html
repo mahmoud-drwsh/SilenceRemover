@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Media Manager Admin</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -222,10 +222,11 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="design-system.css">
 </head>
-<body>
+<body class="mm-admin">
     <header>
-        <h1>🛡️ Media Manager Admin</h1>
+        <h1>Media Manager Admin</h1>
         <div class="toolbar">
             <button class="refresh-btn" onclick="loadProjects()">🔄 Refresh</button>
             <button class="refresh-btn" onclick="refreshAdminToken()">🛡️ Refresh Admin Token</button>
@@ -234,7 +235,7 @@
     </header>
 
     <main>
-        <div id="content">
+        <div id="content" aria-live="polite" aria-busy="true">
             <div class="loading">Loading projects...</div>
         </div>
     </main>
@@ -321,6 +322,7 @@
         async function loadProjects() {
             const loadSequence = ++projectLoadSequence;
             const content = document.getElementById('content');
+            content.setAttribute('aria-busy', 'true');
             content.innerHTML = '<div class="loading">Loading projects...</div>';
 
             try {
@@ -340,9 +342,11 @@
                 latestTotalS3Storage = null;
                 s3StorageStatus = 'loading';
                 renderProjects();
+                content.setAttribute('aria-busy', 'false');
                 loadS3StorageTotals(loadSequence);
             } catch (err) {
                 content.innerHTML = `<div class="error">Error: ${err.message}</div>`;
+                content.setAttribute('aria-busy', 'false');
             }
         }
 
@@ -461,13 +465,12 @@
                 const encodedToken = encodeURIComponent(mediaToken || '');
                 const audioUrl = `/projects/${encodedToken}/${encodedProject}/audio#admin`;
                 const videoUrl = `/projects/${encodedToken}/${encodedProject}/videos#admin`;
-                const publicShareButton = `<button class="open-btn share-btn" onclick="createPublicShareLink('${encodeURIComponent(p.project)}')">🔗 Create public ready-videos link</button>`;
                 const disabled = mediaToken ? '' : ' onclick="return false"';
                 const disabledLabel = mediaToken ? '' : ' (set project token first)';
                 
                 return `
                     <div class="project-card">
-                        <div class="project-name">📁 ${escapeHtml(p.project)}</div>
+                        <div class="project-name">${escapeHtml(p.project)}</div>
                         
                         <div class="project-stats">
                             <div class="stat-row">
@@ -492,25 +495,11 @@
                         <a href="${audioUrl}" class="open-btn" target="_blank"${disabled}>🎵 Open Audio${disabledLabel}</a>
                         <a href="${videoUrl}" class="open-btn secondary" target="_blank"${disabled}>🎬 Open Video${disabledLabel}</a>
                         <button class="open-btn logo-btn" onclick="uploadOverlayLogo('${encodeURIComponent(p.project)}')">🖼️ Upload / replace overlay logo</button>
-                        ${publicShareButton}
                     </div>
                 `;
             }).join('');
 
             content.innerHTML = summaryHtml + `<div class="project-grid">${gridHtml}</div>`;
-        }
-
-        async function createPublicShareLink(encodedProject) {
-            const project = decodeURIComponent(encodedProject);
-            try {
-                const res = await fetch(`${API_BASE}/share-links`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project }) });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const payload = await res.json();
-                const url = new URL(payload.url, window.location.origin).toString();
-                window.prompt('Copy this public view-only link:', url);
-            } catch (err) {
-                window.alert(`Could not create public link: ${err.message}`);
-            }
         }
 
         async function uploadOverlayLogo(encodedProject) {

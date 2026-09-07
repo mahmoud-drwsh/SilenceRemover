@@ -3,8 +3,8 @@
 This package replaces the old sr_mp3_manager and supports the Phase-0-to-13 workflow:
 - Phase 4: Upload original source recording
 - Phase 5: Upload audio snippet for review (tags: ["todo"])
-- Phases 11-12: Upload overlaid and no-overlay videos with tags ["pending"]
-- Phase 13: Promote the overlaid video to ["FB", "TT"] when audio approved
+- Phases 11-12: Upload video variants with explicit lifecycle attributes
+- Phase 13: Publish the overlaid video when audio is approved
 - Two-way sync: Pull edited titles from Media Manager before processing
 """
 

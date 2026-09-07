@@ -98,11 +98,9 @@ remote-js/
 │   ├── ffprobe.ts          # duration probe via Bun.spawn
 │   ├── schemas.ts          # zod schemas
 │   ├── security.ts         # security-headers middleware
-│   ├── shareLinks.ts       # hashed public share-token creation and verification
 │   └── routes/
 │       ├── files.ts        # File list/upload/update/delete routes, including raw video PUT /content
 │       ├── stream.ts       # GET /projects/:t/:p/stream/:id
-│       ├── public.ts       # Public share-token ready-video list and read-only streams
 │       ├── projectSpa.ts   # /static/*, /video-player, SPA fallback
 │       └── admin.ts        # /admin/:admin_token/* dashboard + admin API
 ├── frontend/               # Browser SPA assets served by the backend
@@ -128,5 +126,5 @@ The pipeline client and SPA depend on these stable behaviors:
 - Token storage: SHA-256 hashes in `media_manager.auth_tokens`; recoverable media token encrypted with `TOKEN_ENCRYPTION_KEY`
 - IP-based admin login rate limit (8 attempts / 15 minutes)
 - Admin audit log writes to `media_manager.admin_audit_log`
-- Public share links use dedicated hashed tokens and expose only non-trash, non-pending videos with `FB` or `TT` publication tags
+- The retired view-only share-link routes are not registered. Existing `public_share_links` table rows are inert legacy data and are deliberately left untouched for safe rollback/audit purposes.
 - Transient `POST /projects/:token/:project/api/snippet-analysis` and worker-only `POST /internal/source-processing/:project/review-analysis` share the same Arabic review-analysis provider policy. Configure `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `OPENROUTER_TRANSCRIPTION_MODEL`, and `OPENROUTER_TITLE_MODEL`; tune the bounded timeout, retries, and public limits with the `REVIEW_ANALYSIS_*` variables in [`.env.example`](.env.example).

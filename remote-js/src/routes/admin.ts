@@ -19,7 +19,6 @@ import { getDb, schemaIdent } from "../db.ts";
 import { getPeerIp, verifyAdminToken } from "../http.ts";
 import { HttpError, SetMediaTokenRequestSchema } from "../schemas.ts";
 import { storageProjectSizeTotals, storagePutProjectOverlayLogo } from "../storage.ts";
-import { createPublicShareLink, listPublicShareLinks } from "../shareLinks.ts";
 
 export const adminRouter = new Hono();
 
@@ -129,31 +128,6 @@ adminRouter.post("/admin/:admin_token/api/media-token", async (c) => {
     persisted: true,
     persistence: "postgres-encrypted",
   });
-});
-
-/* -------------------------------------------------------------------------- */
-/* Public read-only share links                                              */
-/* -------------------------------------------------------------------------- */
-
-adminRouter.post("/admin/:admin_token/api/share-links", async (c) => {
-  const adminToken = c.req.param("admin_token");
-  await verifyAdminToken(c, adminToken);
-  const json = await c.req.json().catch(() => null) as { project?: unknown } | null;
-  const project = typeof json?.project === "string" ? json.project.trim() : "";
-  if (!project) throw new HttpError(400, "Project is required");
-  const token = await createPublicShareLink(project);
-  await writeAdminAuditEvent("token-admin", "create_public_share_link", buildAuditRequest(c), { project });
-  return c.json({
-    ok: true,
-    project,
-    token,
-    url: `/public/${encodeURIComponent(token)}/`,
-  }, 201);
-});
-
-adminRouter.get("/admin/:admin_token/api/share-links", async (c) => {
-  await verifyAdminToken(c, c.req.param("admin_token"));
-  return c.json({ links: await listPublicShareLinks() });
 });
 
 /* -------------------------------------------------------------------------- */
@@ -279,7 +253,7 @@ async function serveAdminFile(filePath: string): Promise<Response> {
     throw new HttpError(404, "File not found");
   }
   return new Response(file, {
-    headers: { "Content-Type": "text/html; charset=utf-8" },
+    headers: { "Content-Type": filePath.toLowerCase().endsWith(".css") ? "text/css; charset=utf-8" : filePath.toLowerCase().endsWith(".js") ? "application/javascript; charset=utf-8" : "text/html; charset=utf-8" },
   });
 }
 

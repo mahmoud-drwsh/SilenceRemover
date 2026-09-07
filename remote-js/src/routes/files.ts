@@ -23,6 +23,7 @@ import {
   type FileResponse,
   type FileType,
   validateAudioTags,
+  validateVideoTags,
 } from "../schemas.ts";
 import { normalizeTitle, sanitizeFileId } from "../sanitize.ts";
 import {
@@ -263,6 +264,8 @@ export function parseUploadTags(value: string, fileType: FileType): string[] {
   let tags = parsed.map(String);
   if (fileType === "audio") {
     tags = validateAudioTags(tags);
+  } else if (fileType === "video") {
+    tags = validateVideoTags(tags);
   }
 
   if (tags.length === 0 && fileType === "audio") {
@@ -981,6 +984,8 @@ filesRouter.put("/projects/:token/:project/api/files/:id", async (c) => {
 
   if (rowType === "audio") {
     tags = validateAudioTags(tags);
+  } else if (rowType === "video") {
+    tags = validateVideoTags(tags);
   }
   if (tags.length === 0 && rowType === "audio") {
     tags = ["todo"];
@@ -991,8 +996,7 @@ filesRouter.put("/projects/:token/:project/api/files/:id", async (c) => {
       `UPDATE ${ident}.files
          SET tags = $1::jsonb, title = $2,
              visibility = CASE WHEN $1::jsonb @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END,
-             review_status = CASE WHEN $5 = 'audio' THEN CASE WHEN $1::jsonb @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END ELSE review_status END,
-             publication_status = CASE WHEN $5 = 'video' THEN CASE WHEN $1::jsonb @> '["pending"]'::jsonb THEN 'pending' ELSE 'published' END ELSE publication_status END
+             review_status = CASE WHEN $5 = 'audio' THEN CASE WHEN $1::jsonb @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END ELSE review_status END
          WHERE id = $3 AND project = $4 AND type = $5`,
       [JSON.stringify(tags), title, id, project, rowType],
     );
@@ -1001,8 +1005,7 @@ filesRouter.put("/projects/:token/:project/api/files/:id", async (c) => {
       `UPDATE ${ident}.files
          SET tags = $1::jsonb,
              visibility = CASE WHEN $1::jsonb @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END,
-             review_status = CASE WHEN $4 = 'audio' THEN CASE WHEN $1::jsonb @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END ELSE review_status END,
-             publication_status = CASE WHEN $4 = 'video' THEN CASE WHEN $1::jsonb @> '["pending"]'::jsonb THEN 'pending' ELSE 'published' END ELSE publication_status END
+             review_status = CASE WHEN $4 = 'audio' THEN CASE WHEN $1::jsonb @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END ELSE review_status END
          WHERE id = $2 AND project = $3 AND type = $4`,
       [JSON.stringify(tags), id, project, rowType],
     );
@@ -1014,6 +1017,25 @@ filesRouter.put("/projects/:token/:project/api/files/:id", async (c) => {
     tags,
     title: title ?? null,
   });
+});
+
+filesRouter.post("/projects/:token/:project/api/files/:id/publish", async (c) => {
+  const { token, project, id: idRaw } = c.req.param();
+  await verifyMediaToken(token);
+  const id = sanitizeFileId(idRaw);
+  if (!id) throw new HttpError(400, "Invalid file ID");
+  const sql = getDb();
+  const ident = schemaIdent();
+  const rows = await sql.unsafe<{ id: string }[]>(
+    `UPDATE ${ident}.files
+        SET publication_status='published'
+      WHERE id=$1 AND project=$2 AND type='video'
+        AND COALESCE(visibility, CASE WHEN (CASE WHEN jsonb_typeof(tags)='string' THEN (tags #>> '{}')::jsonb ELSE tags END) @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END)='active'
+      RETURNING id`,
+    [id, project],
+  );
+  if (!rows[0]) throw new HttpError(404, "Active video not found");
+  return c.json({ ok: true, id, publication_status: "published" });
 });
 
 /* -------------------------------------------------------------------------- */

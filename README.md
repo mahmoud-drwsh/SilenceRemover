@@ -80,16 +80,11 @@ This enables the **Phase-0-to-13 workflow**:
 8. **Phase 8**: Create final video locally with overlays
 9. **Phase 9**: Create a silence-removed no-overlay companion video under `temp/no_overlay/`
 10. **Phase 10**: Reconcile the overlaid video on the server if its title changed
-11. **Phase 11**: Upload the overlaid video with `tags: ["pending"]`
-12. **Phase 12**: Upload the no-overlay companion with `tags: ["pending"]`
-13. **Phase 13**: Promote the overlaid video from `pending` to `tags: ["FB", "TT"]` when audio is approved
+11. **Phase 11**: Upload the overlaid video with explicit pending publication state
+12. **Phase 12**: Upload the no-overlay companion with explicit variant and publication state
+13. **Phase 13**: Publish the overlaid video when audio is approved
 
 Plus **two-way sync**: At startup, fetch edited titles from Media Manager and trigger re-encode if changed.
-
-The Media Manager admin dashboard can also create a separate public, view-only
-ready-videos link for a project. The link uses a dedicated share token and
-exposes only published, non-pending videos; it does not expose the project
-media token or any upload/edit endpoints.
 
 ## Usage
 

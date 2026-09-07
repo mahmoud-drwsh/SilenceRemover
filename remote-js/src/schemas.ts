@@ -63,12 +63,23 @@ export const AUDIO_TAGS: ReadonlySet<string> = new Set([
   "trash",
 ]);
 
+/** Video tags carry only recoverable deletion state; workflow lives in explicit columns. */
+export const VIDEO_TAGS: ReadonlySet<string> = new Set(["trash"]);
+
 /** Throw if any of the supplied tags is not in the audio tag set. */
 export function validateAudioTags(tags: string[]): string[] {
   const invalid = tags.filter((t) => !AUDIO_TAGS.has(t));
   if (invalid.length > 0) {
     const allowed = [...AUDIO_TAGS].join(", ");
     throw new HttpError(400, `Invalid audio tags: ${JSON.stringify(invalid)}. Allowed: {${allowed}}`);
+  }
+  return tags;
+}
+
+export function validateVideoTags(tags: string[]): string[] {
+  const invalid = tags.filter((tag) => !VIDEO_TAGS.has(tag));
+  if (invalid.length > 0) {
+    throw new HttpError(400, `Invalid video tags: ${JSON.stringify(invalid)}. Allowed: {trash}`);
   }
   return tags;
 }

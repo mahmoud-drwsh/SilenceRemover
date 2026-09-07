@@ -584,7 +584,6 @@ def existing_subtitle_skip_reason(
 
 _server_data_cache: ServerDataCache | None = None
 NO_OVERLAY_VIDEO_SUFFIX = "-no-overlay"
-NO_OVERLAY_VIDEO_TAG = "no-overlay"
 
 
 def no_overlay_video_id(source_id: str) -> str:
@@ -992,7 +991,7 @@ def run_video_upload_phase(
     total_videos: int,
     server_cache: ServerDataCache | None,
 ) -> bool | None:
-    """Phase 9: Upload video with ['pending'] tags if it does not already exist on the server."""
+    """Upload the pipeline final with explicit pending publication state."""
     basename = video_path.stem
     file_id = basename
     title_path = get_title_path(temp_dir, basename)
@@ -1011,7 +1010,7 @@ def run_video_upload_phase(
         try:
             result = client.upload_video(
                 file_id, local_title, output_path,
-                tags=['pending'],
+                tags=[],
                 progress_callback=_build_upload_progress_callback(
                     label="Video Upload",
                     video_path=video_path,
@@ -1020,6 +1019,9 @@ def run_video_upload_phase(
                 ),
                 skip_if_exists_with_title=True,
                 source_id=video_path.stem,
+                media_variant='pipeline-final',
+                visibility='active',
+                publication_status='pending',
             )
             if isinstance(result, dict) and not result.get("success", False):
                 raise RuntimeError(f"Video upload failed: {result.get('error') or 'unknown error'}")
@@ -1074,7 +1076,7 @@ def run_no_overlay_video_upload_phase(
                 no_overlay_video_id(basename),
                 no_overlay_video_title(title_text),
                 output_path,
-                tags=[NO_OVERLAY_VIDEO_TAG],
+                tags=[],
                 progress_callback=_build_upload_progress_callback(
                     label="No-Overlay Upload",
                     video_path=video_path,
@@ -1083,6 +1085,9 @@ def run_no_overlay_video_upload_phase(
                 ),
                 skip_if_exists_with_title=True,
                 source_id=basename,
+                media_variant='no-overlay',
+                visibility='active',
+                publication_status='published',
             )
             if isinstance(result, dict) and not result.get("success", False):
                 raise RuntimeError(f"No-overlay video upload failed: {result.get('error') or 'unknown error'}")
@@ -1111,7 +1116,7 @@ def run_subtitle_upload_phase(video_path: Path, temp_dir: Path, video_index: int
     return _run_phase_step(video_path=video_path, work_fn=_perform, video_index=video_index, total_videos=total_videos, label="Subtitle Upload")
 
 
-def run_video_tag_promotion_phase(
+def run_video_publication_phase(
     video_path: Path,
     output_dir: Path,
     temp_dir: Path,
@@ -1119,14 +1124,14 @@ def run_video_tag_promotion_phase(
     total_videos: int,
     server_cache: ServerDataCache | None,
 ) -> bool | None:
-    """Phase 10: Promote pending video tags to ['FB', 'TT'] when audio is approved."""
+    """Promote a pending pipeline final through explicit publication state."""
     basename = video_path.stem
     file_id = basename
 
     def _perform() -> None:
         client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
         try:
-            client.update_tags(file_id, ['FB', 'TT'], file_type='video')
+            client.publish_video(file_id)
         finally:
             client.close()
 
@@ -1722,11 +1727,11 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 f"server:subtitle/{video_file.stem}-subtitles",
             ],
         ),
-        # Phase 13 - Publish Video (pending -> FB/TT only)
+        # Phase 13 - Publish the pipeline final after audio approval.
         _PipelinePhase(
             13,
             "Publish Video",
-            lambda video_file, vi, vn: run_video_tag_promotion_phase(
+            lambda video_file, vi, vn: run_video_publication_phase(
                 video_path=video_file,
                 output_dir=startup.output_dir,
                 temp_dir=temp_dir,
@@ -1744,14 +1749,11 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                         "video not found on server"
                         if not _video_meta(video_file)
                         else (
-                            "video not pending"
-                            if "pending" not in _video_meta(video_file).get("tags", [])
+                            "already published"
+                            if _video_meta(video_file).get("publication_status") == "published"
                             else (
-                                "already published"
-                                if (
-                                    "FB" in _video_meta(video_file).get("tags", [])
-                                    or "TT" in _video_meta(video_file).get("tags", [])
-                                )
+                                "video not pending"
+                                if _video_meta(video_file).get("publication_status") != "pending"
                                 else None
                             )
                         )

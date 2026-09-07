@@ -212,19 +212,9 @@ export async function ensureDatabaseReady(): Promise<void> {
     )
   `);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS admin_audit_log_created_at_idx ON ${ident}.admin_audit_log (created_at DESC)`);
-  await sql.unsafe(`
-    CREATE TABLE IF NOT EXISTS ${ident}.public_share_links (
-      token_hash text PRIMARY KEY,
-      project text NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      revoked_at timestamptz
-    )
-  `);
-  await sql.unsafe(`CREATE INDEX IF NOT EXISTS public_share_links_project_idx ON ${ident}.public_share_links (project, created_at DESC)`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.files LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.auth_tokens LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.admin_audit_log LIMIT 1`);
-  await sql.unsafe(`SELECT 1 FROM ${ident}.public_share_links LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.upload_sessions LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.subtitle_remux_jobs LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.source_processing LIMIT 1`);
@@ -249,38 +239,6 @@ export async function backfillLegacySourceLinks(): Promise<number> {
         AND derived.source_id IS NULL
         AND original.type = 'original'
         AND derived.id = original.id
-      RETURNING 1
-    )
-    SELECT COUNT(*)::text AS count FROM updated
-  `);
-  return Number(rows[0]?.count ?? 0);
-}
-
-/**
- * Repair companions uploaded before their dedicated `no-overlay` tag was
- * persisted. The exact source-ID relationship keeps this limited to genuine
- * linked pipeline companions with empty tags; it never changes content or
- * user-managed tags such as `trash`.
- */
-export async function backfillLegacyNoOverlayTags(): Promise<number> {
-  const sql = getDb();
-  const ident = schemaIdent();
-  const rows = await sql.unsafe<{ count: string }[]>(`
-    WITH updated AS (
-      UPDATE ${ident}.files AS companion
-      SET tags = '["no-overlay"]'::jsonb
-      WHERE companion.type = 'video'
-        AND companion.id LIKE '%-no-overlay'
-        AND companion.source_id = left(companion.id, length(companion.id) - length('-no-overlay'))
-        AND (CASE WHEN jsonb_typeof(companion.tags) = 'string'
-                  THEN (companion.tags #>> '{}')::jsonb
-                  ELSE companion.tags END) = '[]'::jsonb
-        AND EXISTS (
-          SELECT 1 FROM ${ident}.files AS original
-          WHERE original.project = companion.project
-            AND original.type = 'original'
-            AND original.id = companion.source_id
-        )
       RETURNING 1
     )
     SELECT COUNT(*)::text AS count FROM updated

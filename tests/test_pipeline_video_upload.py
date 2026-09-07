@@ -252,12 +252,18 @@ def test_run_video_upload_phase_notifies_on_success(
             progress_callback,
             skip_if_exists_with_title,
             source_id=None,
+            media_variant=None,
+            visibility=None,
+            publication_status=None,
         ):
             upload_calls.append((file_id, title, output_path))
-            assert tags == ["pending"]
+            assert tags == []
             assert callable(progress_callback)
             assert skip_if_exists_with_title is True
             assert source_id == "clip"
+            assert media_variant == "pipeline-final"
+            assert visibility == "active"
+            assert publication_status == "pending"
             progress_callback(512, 1024)
             return {"success": True, "uploaded": True, "skipped": False, "overwritten": False}
 
@@ -320,6 +326,7 @@ def test_run_video_upload_phase_skips_notification_on_non_uploaded_result(
             progress_callback,
             skip_if_exists_with_title,
             source_id=None,
+            **_attributes,
         ):
             assert callable(progress_callback)
             assert skip_if_exists_with_title is True
@@ -386,7 +393,12 @@ def test_no_overlay_variant_encodes_without_title_or_logo_and_uploads_with_same_
     )
 
     class FakeClient:
-        def upload_video(self, file_id, title, output_path, tags, progress_callback, skip_if_exists_with_title, source_id=None):
+        def upload_video(self, file_id, title, output_path, tags, progress_callback, skip_if_exists_with_title, source_id=None, **attributes):
+            assert attributes == {
+                "media_variant": "no-overlay",
+                "visibility": "active",
+                "publication_status": "published",
+            }
             upload_calls.append((file_id, title, output_path, tags, source_id))
             return {"success": True, "uploaded": True, "skipped": False, "overwritten": False}
 
@@ -451,10 +463,39 @@ def test_no_overlay_variant_encodes_without_title_or_logo_and_uploads_with_same_
             "clip-no-overlay",
             "My Title (No Overlay)",
             temp_dir / "no_overlay" / "final-name-no-overlay.mp4",
-            ["no-overlay"],
+            [],
             "clip",
         )
     ]
+
+
+def test_publish_phase_uses_explicit_publication_state(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    class FakeClient:
+        def publish_video(self, file_id: str) -> bool:
+            calls.append(file_id)
+            return True
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(pipeline, "MediaManagerClient", lambda _url: FakeClient())
+    monkeypatch.setattr(
+        pipeline,
+        "_run_phase_step",
+        lambda *, work_fn, **_kwargs: work_fn() or True,
+    )
+
+    assert pipeline.run_video_publication_phase(
+        video_path=tmp_path / "clip.mkv",
+        output_dir=tmp_path,
+        temp_dir=tmp_path,
+        video_index=1,
+        total_videos=1,
+        server_cache=None,
+    ) is True
+    assert calls == ["clip"]
 
 
 def test_no_overlay_encode_requires_final_completion_marker(tmp_path: Path) -> None:

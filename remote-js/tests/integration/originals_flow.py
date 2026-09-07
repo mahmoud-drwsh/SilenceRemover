@@ -326,8 +326,4 @@ post_delete_claim = processing_request(
     WORKER_BASE, "/claim", "POST", {}, {"X-Source-Processing-Token": "test-worker-token"},
 )
 assert post_delete_claim["job"] is None
-try:
-    request("http://app:8080/public/test-token/test-project/api/originals/source-001/download", absolute=True)
-except urllib.error.HTTPError as exc:
-    assert exc.code == 404
 print("isolated originals flow passed")

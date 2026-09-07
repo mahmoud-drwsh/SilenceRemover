@@ -103,14 +103,23 @@
             }
         }
     </style>
+    <script>
+        const playerPath = window.location.pathname.split('/').filter(Boolean);
+        if (playerPath[0] === 'projects' && playerPath[1] && playerPath[2]) {
+            const sharedStyles = document.createElement('link');
+            sharedStyles.rel = 'stylesheet';
+            sharedStyles.href = `/projects/${encodeURIComponent(playerPath[1])}/${encodeURIComponent(playerPath[2])}/static/design-system.css`;
+            document.head.appendChild(sharedStyles);
+        }
+    </script>
 </head>
-<body>
+<body class="mm-player">
     <div class="player-shell">
         <div class="player-header">
-            <div class="player-title" id="video-title">Loading…</div>
+            <h1 class="player-title" id="video-title">Loading…</h1>
             <button class="close-button" id="close-player">Close</button>
         </div>
-        <div class="player-container" id="player-container"></div>
+        <div class="player-container" id="player-container" aria-live="polite" aria-busy="true"></div>
     </div>
 
     <script>
@@ -136,6 +145,7 @@
         videoTitle.textContent = title;
 
         if (!fileId) {
+            playerContainer.setAttribute('aria-busy', 'false');
             playerContainer.innerHTML = `<div class="error">Missing video id.</div>`;
             throw new Error('Missing file id');
         }
@@ -149,8 +159,10 @@
         video.playsInline = true;
         video.appendChild(source);
         playerContainer.appendChild(video);
+        playerContainer.setAttribute('aria-busy', 'false');
 
         video.addEventListener('error', () => {
+            playerContainer.setAttribute('aria-busy', 'false');
             playerContainer.innerHTML = `
                 <div class="error">
                     <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>

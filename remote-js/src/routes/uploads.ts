@@ -28,6 +28,9 @@ type UploadSession = {
   file_size: number; checksum_sha256: string; title: string; tags: unknown;
   source_id: string | null; original_filename: string | null; upload_id: string | null;
   designer_of_id: string | null;
+  media_variant: "pipeline-final" | "no-overlay" | "designer" | null;
+  visibility: "active" | "trash" | null;
+  publication_status: "pending" | "published" | null;
   expires_at: string | Date; state: "active" | "completed" | "aborted";
 };
 
@@ -37,7 +40,7 @@ function checksum(value: unknown): string {
   return result;
 }
 
-function parseBody(body: unknown): { id: string; type: FileType; mime: string; size: number; checksum: string; title: string; tags: string[]; sourceId: string | null; filename: string | null; designerOfId: string | null } {
+function parseBody(body: unknown): { id: string; type: FileType; mime: string; size: number; checksum: string; title: string; tags: string[]; sourceId: string | null; filename: string | null; designerOfId: string | null; mediaVariant: "pipeline-final" | "no-overlay" | "designer" | null; visibility: "active" | "trash" | null; publicationStatus: "pending" | "published" | null } {
   if (!body || typeof body !== "object") throw new HttpError(400, "JSON body is required");
   const data = body as Record<string, unknown>;
   const type = data.type;
@@ -58,17 +61,27 @@ function parseBody(body: unknown): { id: string; type: FileType; mime: string; s
   const designerOfId = designerOfIdRaw ? sanitizeFileId(designerOfIdRaw) : null;
   if (designerOfIdRaw && !designerOfId) throw new HttpError(400, "Invalid designer_of_id");
   if (designerOfId && type !== "video") throw new HttpError(400, "Designer uploads must be videos");
-  return { id, type, mime, size, checksum: checksum(data.checksum_sha256), title: String(data.title ?? ""), tags: parseUploadTags(tagValue, type), sourceId, filename, designerOfId };
+  const mediaVariant = data.media_variant == null ? null : String(data.media_variant);
+  const visibility = data.visibility == null ? null : String(data.visibility);
+  const publicationStatus = data.publication_status == null ? null : String(data.publication_status);
+  if (mediaVariant !== null && !["pipeline-final", "no-overlay", "designer"].includes(mediaVariant)) throw new HttpError(400, "Invalid media_variant");
+  if (visibility !== null && visibility !== "active" && visibility !== "trash") throw new HttpError(400, "Invalid visibility");
+  if (publicationStatus !== null && publicationStatus !== "pending" && publicationStatus !== "published") throw new HttpError(400, "Invalid publication_status");
+  if (type === "video" && !designerOfId && (!mediaVariant || !visibility || !publicationStatus)) throw new HttpError(400, "Video uploads require explicit media_variant, visibility, and publication_status");
+  if (type !== "video" && (mediaVariant !== null || publicationStatus !== null)) throw new HttpError(400, "Video media attributes are only valid for video uploads");
+  return { id, type, mime, size, checksum: checksum(data.checksum_sha256), title: String(data.title ?? ""), tags: parseUploadTags(tagValue, type), sourceId, filename, designerOfId, mediaVariant: mediaVariant as "pipeline-final" | "no-overlay" | "designer" | null, visibility: visibility as "active" | "trash" | null, publicationStatus: publicationStatus as "pending" | "published" | null };
 }
 
 async function resolveDesignerTarget(project: string, targetId: string): Promise<{ id: string; sourceId: string }> {
   const sql = getDb(); const ident = schemaIdent();
-  const target = (await sql.unsafe<{ id: string; source_id: string | null; tags: unknown }[]>(
-    `SELECT id, source_id, tags FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = 'video'`,
+  const target = (await sql.unsafe<{ id: string; source_id: string | null; tags: unknown; media_variant: string | null; visibility: string | null }[]>(
+    `SELECT id, source_id, tags, media_variant, visibility FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = 'video'`,
     [targetId, project],
   ))[0];
   const tags = target ? parseTagsValue(target.tags) : [];
-  if (!target || !target.source_id || tags.includes("no-overlay") || tags.includes("designer") || tags.includes("trash")) {
+  const variant = target?.media_variant ?? (tags.includes("no-overlay") ? "no-overlay" : tags.includes("designer") ? "designer" : "pipeline-final");
+  const visibility = target?.visibility ?? (tags.includes("trash") ? "trash" : "active");
+  if (!target || !target.source_id || variant !== "pipeline-final" || visibility !== "active") {
     throw new HttpError(400, "designer_of_id must select an available pipeline-final video in this project");
   }
   return { id: target.id, sourceId: target.source_id };
@@ -159,8 +172,11 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
       // deterministic legacy `${target.id}-designer` object.
       id: `${target.id}-designer-${randomUUID()}`,
       sourceId: target.sourceId,
-      tags: ["designer"],
+      tags: [],
       designerOfId: target.id,
+      mediaVariant: "designer",
+      visibility: "active",
+      publicationStatus: "published",
     };
   }
   if (input.type !== "original") await assertSourceOriginalExists(project, input.sourceId);
@@ -187,16 +203,28 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
     if (existing) return false;
     throw error;
   });
-  if (existing) return c.json(await sessionResponse(existing, partCount, true, token));
+  if (existing) {
+    // Resume with the caller's current explicit lifecycle contract. This also
+    // sanitizes an active session created by a pre-migration client.
+    await sql.unsafe(
+      `UPDATE ${ident}.upload_sessions
+          SET tags=$1::jsonb, media_variant=$2, visibility=$3, publication_status=$4
+        WHERE id=$5`,
+      [JSON.stringify(input.tags), input.mediaVariant, input.visibility, input.publicationStatus, existing.id],
+    );
+    return c.json(await sessionResponse(existing, partCount, true, token));
+  }
   const ext = getExtensionForMime(input.mime);
   const uploadId = partCount ? await createMultipartUpload(input.type, project, input.id, ext, input.mime) : null;
   const session: UploadSession = {
     id: randomUUID(), project, file_id: input.id, type: input.type, mime_type: input.mime, file_size: input.size,
     checksum_sha256: input.checksum, title: input.title, tags: input.tags, source_id: input.sourceId,
-    original_filename: input.filename, upload_id: uploadId, designer_of_id: input.designerOfId, expires_at: new Date(Date.now() + SESSION_TTL_MS), state: "active",
+    original_filename: input.filename, upload_id: uploadId, designer_of_id: input.designerOfId,
+    media_variant: input.mediaVariant, visibility: input.visibility, publication_status: input.publicationStatus,
+    expires_at: new Date(Date.now() + SESSION_TTL_MS), state: "active",
   };
-  await sql.unsafe(`INSERT INTO ${ident}.upload_sessions (id,project,file_id,type,mime_type,file_size,checksum_sha256,title,tags,source_id,original_filename,upload_id,designer_of_id,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14)`,
-    [session.id, project, input.id, input.type, input.mime, input.size, input.checksum, input.title, JSON.stringify(input.tags), input.sourceId, input.filename, uploadId, input.designerOfId, session.expires_at]);
+  await sql.unsafe(`INSERT INTO ${ident}.upload_sessions (id,project,file_id,type,mime_type,file_size,checksum_sha256,title,tags,source_id,original_filename,upload_id,designer_of_id,media_variant,visibility,publication_status,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17)`,
+    [session.id, project, input.id, input.type, input.mime, input.size, input.checksum, input.title, JSON.stringify(input.tags), input.sourceId, input.filename, uploadId, input.designerOfId, input.mediaVariant, input.visibility, input.publicationStatus, session.expires_at]);
   return c.json({ ...(await sessionResponse(session, partCount, true, token)), overwritten });
 });
 
@@ -274,7 +302,19 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/:sessionId/complete", 
     if (!detected || !allowedDetectedMime.has(detected)) throw new HttpError(400, `Uploaded object MIME type is invalid: expected ${session.type}, got ${detected ?? "unknown"}`);
     const duration = session.type === "subtitle" ? 0 : await probeDurationSeconds(tempPath);
     overwritten = await resolveUploadOverwrite(session.file_id, project, session.type, session.title);
-    await commitUploadMetadata({ fileId: session.file_id, project, fileType: session.type, title: session.type === "original" ? session.original_filename ?? session.file_id : session.title, tagList: sessionTags(session.tags), duration, fileSize: Number(session.file_size), mime: session.mime_type, overwritten, sourceId: session.source_id, originalFilename: session.original_filename, checksumSha256: session.checksum_sha256, designerOfId: session.designer_of_id });
+    await commitUploadMetadata({
+      fileId: session.file_id, project, fileType: session.type,
+      title: session.type === "original" ? session.original_filename ?? session.file_id : session.title,
+      tagList: sessionTags(session.tags), duration, fileSize: Number(session.file_size),
+      mime: session.mime_type, overwritten, sourceId: session.source_id,
+      originalFilename: session.original_filename, checksumSha256: session.checksum_sha256,
+      designerOfId: session.designer_of_id,
+      attributes: {
+        ...(session.media_variant ? { mediaVariant: session.media_variant } : {}),
+        ...(session.visibility ? { visibility: session.visibility } : {}),
+        ...(session.publication_status ? { publicationStatus: session.publication_status } : {}),
+      },
+    });
     if (session.type === "original") await enqueueSourceProcessing(project, session.file_id, session.checksum_sha256);
     const sql = getDb(); const ident = schemaIdent();
     await sql.unsafe(`UPDATE ${ident}.upload_sessions SET state='completed' WHERE id=$1`, [session.id]);

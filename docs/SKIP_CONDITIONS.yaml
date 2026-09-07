@@ -234,11 +234,11 @@ pipeline:
       - condition: "video not pending"
         checked_path_templates: []
         checked_runtime_templates:
-          - 'server_cache.get_video("{basename}")["tags"] does not contain "pending"'
+          - 'server_cache.get_video("{basename}")["publication_status"] is not "pending"'
       - condition: "already published"
         checked_path_templates: []
         checked_runtime_templates:
-          - 'server_cache.get_video("{basename}")["tags"] contains "FB" or "TT"'
+          - 'server_cache.get_video("{basename}")["publication_status"] is "published"'
     robustness: "reasonable; this phase only promotes server videos that are explicitly in the pending state"
 
 summary:

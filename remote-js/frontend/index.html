@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Media Manager</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -113,22 +113,6 @@
         .confirm-proceed { background: #ff4444; color: #fff; }
         .confirm-proceed.secondary { background: #4a9eff; }
 
-        /* Folder Selection Modal */
-        .folder-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 1rem; }
-        .folder-overlay.show { display: flex; }
-        .folder-modal { background: #2a2a2a; border-radius: 8px; max-width: 400px; width: 100%; padding: 1.5rem; }
-        .folder-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; color: #fff; text-align: center; }
-        .folder-subtitle { font-size: 0.9rem; color: #aaa; margin-bottom: 1rem; text-align: center; }
-        .folder-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.5rem; }
-        .folder-option { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: #3a3a3a; border-radius: 6px; cursor: pointer; transition: background 0.2s; }
-        .folder-option:hover { background: #4a4a4a; }
-        .folder-option input[type="checkbox"] { width: 20px; height: 20px; accent-color: #4a9eff; cursor: pointer; }
-        .folder-option label { flex: 1; color: #fff; cursor: pointer; font-size: 0.95rem; }
-        .folder-actions { display: flex; gap: 0.75rem; }
-        .folder-actions button { flex: 1; padding: 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.95rem; }
-        .folder-cancel { background: #3a3a3a; color: #fff; }
-        .folder-save { background: #4a9eff; color: #fff; }
-
         .empty { text-align: center; padding: 3rem; color: #666; }
         .loading { text-align: center; padding: 2rem; color: #888; }
         .error { text-align: center; padding: 2rem; color: #ff4444; }
@@ -167,18 +151,27 @@
     .audio-actions button { min-height: 40px; font-size: 0.9rem; }
     .context-menu { position: fixed; left: 50% !important; top: 50% !important; transform: translate(-50%, -50%); width: 90vw; max-width: 300px; border-radius: 12px; }
     .context-menu-item { padding: 1rem; font-size: 1rem; }
-    .confirm-modal, .folder-modal { width: 90vw; max-width: none; margin: 1rem; padding: 1.5rem; }
-    .confirm-title, .folder-title { font-size: 1.25rem; }
+    .confirm-modal { width: 90vw; max-width: none; margin: 1rem; padding: 1.5rem; }
+    .confirm-title { font-size: 1.25rem; }
     .confirm-message { font-size: 1rem; }
-    .confirm-actions button, .folder-actions button { padding: 1rem; font-size: 1rem; min-height: 48px; }
+    .confirm-actions button { padding: 1rem; font-size: 1rem; min-height: 48px; }
 }
 @media (max-width: 360px) { html { font-size: 16px; } }
 @media (min-width: 481px) and (max-width: 768px) { html { font-size: 17px; } .file-card { padding: 1rem; } .filter-tabs button { min-height: 46px; } }
 </style>
+    <script>
+        const shellPath = window.location.pathname.split('/').filter(Boolean);
+        if (shellPath[0] === 'projects' && shellPath[1] && shellPath[2]) {
+            const sharedStyles = document.createElement('link');
+            sharedStyles.rel = 'stylesheet';
+            sharedStyles.href = `/projects/${encodeURIComponent(shellPath[1])}/${encodeURIComponent(shellPath[2])}/static/design-system.css`;
+            document.head.appendChild(sharedStyles);
+        }
+    </script>
 </head>
-<body>
+<body class="mm-app">
     <header>
-        <h1>📁 Media Manager</h1>
+        <h1>Media Manager</h1>
         <button id="section-toggle" class="section-toggle" onclick="toggleSection()" title="Switch section">
             <span id="section-icon">🎵</span> <span id="section-label">Audio</span>
         </button>
@@ -194,14 +187,16 @@
         </div>
     </main>
 
-    <nav id="bottom-nav">
+    <nav id="bottom-nav" aria-label="Virtual views">
         <div id="filter-tabs" class="filter-tabs"></div>
     </nav>
 
+    <div id="app-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+
     <!-- Confirmation Modal -->
-    <div id="confirm-overlay" class="confirm-overlay">
-        <div class="confirm-modal">
-            <div class="confirm-title" id="confirm-title">Confirm Action</div>
+    <div id="confirm-overlay" class="confirm-overlay" role="presentation">
+        <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message" tabindex="-1">
+            <h2 class="confirm-title" id="confirm-title">Confirm Action</h2>
             <div class="confirm-message" id="confirm-message">Are you sure?</div>
             <div class="confirm-actions">
                 <button class="confirm-cancel" onclick="closeConfirmModal()">Cancel</button>
@@ -210,16 +205,16 @@
         </div>
     </div>
 
-    <div id="designer-overlay" class="designer-overlay">
-        <form class="designer-modal" onsubmit="submitDesignerUpload(event)">
-            <h2>Upload designer video</h2>
+    <div id="designer-overlay" class="designer-overlay" role="presentation">
+        <form class="designer-modal" onsubmit="submitDesignerUpload(event)" role="dialog" aria-modal="true" aria-labelledby="designer-title-heading" aria-describedby="designer-target" tabindex="-1">
+            <h2 id="designer-title-heading">Upload designer video</h2>
             <div class="designer-target" id="designer-target"></div>
             <input id="designer-target-id" type="hidden">
             <label for="designer-title">Designer video title</label>
             <input id="designer-title" required maxlength="200">
             <label for="designer-file">Redesigned video</label>
             <input id="designer-file" type="file" accept="video/*" required>
-            <div class="designer-progress" id="designer-progress"></div>
+            <div class="designer-progress" id="designer-progress" role="status" aria-live="polite"></div>
             <div class="designer-modal-actions">
                 <button class="btn btn-secondary" type="button" onclick="closeDesignerUpload()">Cancel</button>
                 <button class="btn btn-designer" id="designer-submit" type="submit">Upload and link</button>
@@ -272,6 +267,26 @@
         let strictIsolation = false;
         let currentSort = 'asc'; // 'asc' or 'desc'
         let fileLoadSequence = 0;
+        let dialogReturnFocus = null;
+
+        function announce(message) {
+            const region = document.getElementById('app-status');
+            region.textContent = '';
+            requestAnimationFrame(() => { region.textContent = message; });
+        }
+
+        function focusDialog(dialog) {
+            dialogReturnFocus = document.activeElement;
+            requestAnimationFrame(() => {
+                const firstControl = dialog.querySelector('button, input, textarea, select, [href], [tabindex]:not([tabindex="-1"])');
+                (firstControl || dialog).focus();
+            });
+        }
+
+        function restoreDialogFocus() {
+            if (dialogReturnFocus && document.contains(dialogReturnFocus)) dialogReturnFocus.focus();
+            dialogReturnFocus = null;
+        }
 
         // Fixed tabs per section
         // Audio is a small review queue: choose a title, then approve it.
@@ -387,14 +402,14 @@
             updateSortControl();
             updateBulkAudioApprovalControl();
 
-            // The designer enters through one focused queue, not a folder browser.
+            // The designer enters through one focused queue with no secondary navigation.
             if (currentSection === 'video' && !isAdmin) {
                 container.style.display = 'none';
                 document.getElementById('bottom-nav').style.display = 'none';
                 return;
             }
 
-            // Strict isolation mode (specific folder URL): hide unless admin
+            // Strict isolation mode (a direct virtual-view URL): hide unless admin
             if (strictIsolation && !isAdmin) {
                 container.style.display = 'none';
                 document.getElementById('bottom-nav').style.display = 'none';
@@ -413,7 +428,7 @@
             container.innerHTML = tabs.map(tab => {
                 const isActive = tab === currentFilter;
                 const label = getTabLabel(tab);
-                return `<button class="${isActive ? 'active' : ''}" onclick="setFilter('${tab}')">${label}</button>`;
+                return `<button class="${isActive ? 'active' : ''}" onclick="setFilter('${tab}')" ${isActive ? 'aria-current="page"' : ''}>${label}</button>`;
             }).join('');
         }
 
@@ -477,8 +492,9 @@
             const loadSequence = ++fileLoadSequence;
             const content = document.getElementById('content');
             const label = getTabLabel(currentFilter);
-            document.querySelector('header h1').innerHTML = `📁 ${label}`;
-            content.innerHTML = '<div class="loading">Loading...</div>';
+            document.querySelector('header h1').textContent = label.replace(/^\S+\s/, '');
+            content.setAttribute('aria-busy', 'true');
+            content.innerHTML = '<div class="loading" role="status">Loading…</div>';
 
             try {
                 let url = `${API_BASE}/files?type=${currentSection}`;
@@ -499,7 +515,8 @@
                 if (files.length === 0) {
                     content.innerHTML = `<div class="empty">No ${currentSection} files in this view</div>`;
                     const label = getTabLabel(currentFilter);
-                    document.querySelector('header h1').innerHTML = `📁 ${label} (0)`;
+                    document.querySelector('header h1').textContent = `${label.replace(/^\S+\s/, '')} (0)`;
+                    content.setAttribute('aria-busy', 'false');
                     return;
                 }
 
@@ -507,10 +524,12 @@
                 
                 // Update header with count
                 const label = getTabLabel(currentFilter);
-                document.querySelector('header h1').innerHTML = `📁 ${label} (${files.length})`;
+                document.querySelector('header h1').textContent = `${label.replace(/^\S+\s/, '')} (${files.length})`;
+                content.setAttribute('aria-busy', 'false');
             } catch (err) {
                 if (loadSequence !== fileLoadSequence) return;
                 content.innerHTML = `<div class="error">Error: ${err.message}</div>`;
+                content.setAttribute('aria-busy', 'false');
             }
         }
 
@@ -550,7 +569,7 @@
                 ` : '';
             } else {
                 // Normal view: play/download + context-aware menu
-                menuItem = canManageVideoTrash ? `<div class="context-menu-item danger" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</div>` : '';
+                menuItem = canManageVideoTrash ? `<button class="context-menu-item danger" type="button" onclick="confirmMoveToTrash('${safeId}'); hideContextMenu('${safeId}')">🗑️ Move to Trash</button>` : '';
                 const originalVariant = safeSourceId
                     ? `<button class="variant-action" onclick="downloadOriginal('${safeSourceId}')">📼 <span><strong>Original</strong><span>Raw source</span></span></button>`
                     : `<div class="variant-action missing">📼 <span><strong>Original</strong><span>Unavailable</span></span></div>`;
@@ -575,14 +594,14 @@
             }
 
             return `
-                <div class="file-card video-card variant-card" data-id="${escapeHtml(file.id)}" data-tags="${tagsJson}">
+                <article class="file-card video-card variant-card" data-id="${escapeHtml(file.id)}" data-tags="${tagsJson}" aria-labelledby="title-${escapeHtml(file.id)}">
                     <div class="file-info variant-info">
-                        <div class="file-title">${escapeHtml(title)}</div>
+                        <h2 class="file-title" id="title-${escapeHtml(file.id)}">${escapeHtml(title)}</h2>
                         <div class="file-meta">${duration} ${size ? '• ' + size : ''} • <span style="color: #666; font-size: 0.75rem;">${escapeHtml(file.id)}</span></div>
                     </div>
                     <div class="file-actions">${actionsHtml}</div>
-                    ${currentFilter === 'trash' ? '' : `<div class="variant-footer"><button class="btn btn-primary" onclick="playVideo('${safeId}', '${safeTitle}')">▶️ Play pipeline final</button>${canUploadDesigner ? `<button class="btn btn-designer" onclick="openDesignerUpload('${safeId}', '${safeTitle}')">✨ ${safeDesignerVideoId ? 'Upload new revision' : 'Upload designer video'}</button>` : ''}<div class="menu-container"><button class="btn btn-menu" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${file.id}">${menuItem}</div></div></div>`}
-                </div>
+                    ${currentFilter === 'trash' ? '' : `<div class="variant-footer"><button class="btn btn-primary" onclick="playVideo('${safeId}', '${safeTitle}')">▶️ Play pipeline final</button>${canUploadDesigner ? `<button class="btn btn-designer" onclick="openDesignerUpload('${safeId}', '${safeTitle}')">✨ ${safeDesignerVideoId ? 'Upload new revision' : 'Upload designer video'}</button>` : ''}<div class="menu-container"><button class="btn btn-menu" aria-label="More actions for ${escapeHtml(title)}" aria-expanded="false" aria-controls="menu-${escapeHtml(file.id)}" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${escapeHtml(file.id)}">${menuItem}</div></div></div>`}
+                </article>
             `;
         }
 
@@ -592,11 +611,14 @@
             document.getElementById('designer-title').value = `${targetTitle} (Designer)`;
             document.getElementById('designer-file').value = '';
             document.getElementById('designer-progress').textContent = '';
-            document.getElementById('designer-overlay').classList.add('show');
+            const overlay = document.getElementById('designer-overlay');
+            overlay.classList.add('show');
+            focusDialog(overlay.querySelector('[role="dialog"]'));
         }
 
         function closeDesignerUpload() {
             document.getElementById('designer-overlay').classList.remove('show');
+            restoreDialogFocus();
         }
 
         async function sha256(file) {
@@ -621,7 +643,7 @@
                 const initiated = await fetch(`${API_BASE}/uploads/initiate`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: `${targetId}-designer`, type: 'video', title, mime_type: mime, file_size: file.size, checksum_sha256: checksum, designer_of_id: targetId}) });
                 if (!initiated.ok) throw new Error((await initiated.json()).detail || 'Could not start designer upload');
                 const session = await initiated.json();
-                if (session.already_uploaded) { closeDesignerUpload(); loadFiles(); return; }
+                if (session.already_uploaded) { closeDesignerUpload(); announce('Designer video was already uploaded.'); loadFiles(); return; }
                 const partSize = session.part_size;
                 const urls = session.urls || [session.upload_url];
                 const parts = [];
@@ -641,6 +663,7 @@
                 const completed = await fetch(`${API_BASE}/uploads/${encodeURIComponent(session.session_id)}/complete`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(partSize ? {parts} : {})});
                 if (!completed.ok) throw new Error((await completed.json()).detail || 'Could not complete designer upload');
                 closeDesignerUpload();
+                announce('Designer revision uploaded successfully.');
                 loadFiles();
             } catch (error) {
                 progress.textContent = error.message || 'Designer upload failed';
@@ -658,7 +681,7 @@
                 ? `<button class="btn btn-todo" onclick="reopenTitleReview('${safeId}')">✏️ Reopen review</button>`
                 : `<button class="btn btn-ready" onclick="approveTitle('${safeId}')">✅ Approve title</button><button class="btn btn-danger" onclick="discardAudio('${safeId}')">🗑️ Discard audio</button>`;
 
-            return `<div class="file-card audio-card" data-id="${file.id}" data-tags="${tagsJson}"><div class="audio-row"><div class="audio-player"><audio controls preload="none"><source src="${streamUrl}" type="${file.mime_type}"></audio></div></div><div class="audio-title-edit"><textarea data-file-id="${file.id}" placeholder="Choose a title..." dir="auto" ${approved ? 'readonly' : ''} oninput="debouncedTitleUpdate(this)">${escapeHtml(title)}</textarea><div style="color: #666; font-size: 0.7rem; margin-top: 2px;">${duration}${size ? ' • ' + size : ''}</div><div class="save-status" id="status-${file.id}"></div></div><div class="audio-actions">${action}</div></div>`;
+            return `<article class="file-card audio-card" data-id="${file.id}" data-tags="${tagsJson}" aria-label="Audio review: ${escapeHtml(title)}"><div class="audio-row"><div class="audio-player"><audio controls preload="none" aria-label="Preview ${escapeHtml(title)}"><source src="${streamUrl}" type="${file.mime_type}"></audio></div></div><div class="audio-title-edit"><textarea data-file-id="${file.id}" aria-label="Title for ${escapeHtml(title)}" placeholder="Choose a title..." dir="auto" ${approved ? 'readonly' : ''} oninput="debouncedTitleUpdate(this)">${escapeHtml(title)}</textarea><div class="file-meta">${duration}${size ? ' • ' + size : ''}</div><div class="save-status" id="status-${file.id}" role="status" aria-live="polite"></div></div><div class="audio-actions">${action}</div></article>`;
         }
 
         async function deleteFile(fileId) {
@@ -687,6 +710,7 @@
 
             // Hide all other menus
             document.querySelectorAll('.context-menu').forEach(m => m.classList.remove('show'));
+            document.querySelectorAll('.btn-menu').forEach(button => button.setAttribute('aria-expanded', 'false'));
 
             // Toggle this menu
             if (!isShowing) {
@@ -722,17 +746,21 @@
                 menu.style.bottom = 'auto';
 
                 menu.classList.add('show');
+                button.setAttribute('aria-expanded', 'true');
             }
         }
 
         function hideContextMenu(fileId) {
             const menu = document.getElementById(`menu-${fileId}`);
             if (menu) menu.classList.remove('show');
+            const button = document.querySelector(`[aria-controls="menu-${CSS.escape(fileId)}"]`);
+            if (button) button.setAttribute('aria-expanded', 'false');
         }
 
         // Close menus and modal when clicking outside
         document.addEventListener('click', (e) => {
             document.querySelectorAll('.context-menu').forEach(m => m.classList.remove('show'));
+            document.querySelectorAll('.btn-menu').forEach(button => button.setAttribute('aria-expanded', 'false'));
             // Close confirm modal if clicking outside the modal content
             const overlay = document.getElementById('confirm-overlay');
             if (overlay.classList.contains('show') && e.target === overlay) {
@@ -914,12 +942,15 @@
             proceedBtn.textContent = proceedText;
             proceedBtn.className = isSecondary ? 'confirm-proceed secondary' : 'confirm-proceed';
             confirmCallback = callback;
-            document.getElementById('confirm-overlay').classList.add('show');
+            const overlay = document.getElementById('confirm-overlay');
+            overlay.classList.add('show');
+            focusDialog(overlay.querySelector('[role="dialog"]'));
         }
 
         function closeConfirmModal() {
             document.getElementById('confirm-overlay').classList.remove('show');
             confirmCallback = null;
+            restoreDialogFocus();
         }
 
         function executeConfirmedAction() {
@@ -1057,10 +1088,22 @@
             showSection(section, filter, isStrict);
         });
 
-        // ESC key to close modals
+        // Dialog keyboard behavior: Escape closes, Tab stays inside the active dialog.
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
-                closeConfirmModal();
+                if (document.getElementById('designer-overlay').classList.contains('show')) closeDesignerUpload();
+                else if (document.getElementById('confirm-overlay').classList.contains('show')) closeConfirmModal();
+                return;
+            }
+            if (e.key === 'Tab') {
+                const overlay = document.querySelector('.designer-overlay.show, .confirm-overlay.show');
+                if (!overlay) return;
+                const focusable = [...overlay.querySelectorAll('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')];
+                if (!focusable.length) return;
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
             }
         });
 

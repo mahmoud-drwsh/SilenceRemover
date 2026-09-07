@@ -158,7 +158,7 @@ def ensure_video_uploaded(
             file_id,
             title,
             Path(video_path),
-            tags=['FB', 'TT'],
+            tags=[],
             skip_if_exists_with_title=optimize
         )
 
