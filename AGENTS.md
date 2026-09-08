@@ -23,6 +23,10 @@ Use the default five triage labels. See `docs/agents/triage-labels.md`.
 
 This is a single-context repository. See `docs/agents/domain.md`.
 
+### Deploying Media Manager
+
+For a `remote-js/` release: run `bun run typecheck` from `remote-js/`, run `git diff --check`, then commit only the intended files and push `main` to `origin`. Dokploy builds from the `remote-js/` context with `remote-js/Dockerfile`; trigger or observe that deployment in Dokploy when its Git integration does not deploy automatically. Confirm the deployed service at `/healthz` before reporting success. `remote-js/README.md` is the source of truth for Dokploy environment setup; keep its credentials out of Git and UI output.
+
 ## Condensed changelog
 
 - **Architecture and data model**: `src/app/pipeline.py` is the client-owned orchestrator; reusable media/FFmpeg/LLM packages live under `src/` and `packages/`; `remote-js/` is the Bun/Hono Media Manager. Every original has a stable source ID, and canonical pipeline-final cards link their overlaid/no-overlay finals, designer revisions, original, and subtitle actions.
