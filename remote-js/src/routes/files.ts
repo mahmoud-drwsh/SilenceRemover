@@ -475,6 +475,8 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const tagsParam = url.searchParams.get("tags") ?? undefined;
   const view = url.searchParams.get("view") ?? undefined;
   const sort = url.searchParams.get("sort") ?? "asc";
+  const limitParam = url.searchParams.get("limit");
+  const offsetParam = url.searchParams.get("offset");
   const checkId = url.searchParams.get("check_id");
   const checkTitle = url.searchParams.get("check_title");
   const includeTrash = url.searchParams.get("include_trash") === "true";
@@ -486,6 +488,23 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
 
   if (typeParam && typeParam !== "audio" && typeParam !== "video" && typeParam !== "original" && typeParam !== "subtitle") {
     throw new HttpError(400, "Invalid type parameter");
+  }
+
+  let pageSize: number | null = null;
+  let pageOffset = 0;
+  if (limitParam !== null) {
+    pageSize = Number(limitParam);
+    if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+      throw new HttpError(400, "limit must be an integer between 1 and 100");
+    }
+    if (offsetParam !== null) {
+      pageOffset = Number(offsetParam);
+      if (!Number.isSafeInteger(pageOffset) || pageOffset < 0) {
+        throw new HttpError(400, "offset must be a non-negative integer");
+      }
+    }
+  } else if (offsetParam !== null) {
+    throw new HttpError(400, "offset requires limit");
   }
 
   const sql = getDb();
@@ -607,7 +626,18 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const whereClause = conditions.join(" AND ");
   const sortDirection = sort === "asc" ? "ASC" : "DESC";
 
-  const rows = await sql.unsafe<FileRow[]>(
+  let pageClause = "";
+  if (pageSize !== null) {
+    // Fetch one extra row so callers can know whether to request another page
+    // without transferring or rendering the full virtual view.
+    params.push(pageSize + 1);
+    const limitPosition = params.length;
+    params.push(pageOffset);
+    const offsetPosition = params.length;
+    pageClause = ` LIMIT $${limitPosition} OFFSET $${offsetPosition}`;
+  }
+
+  const rowsPromise = sql.unsafe<FileRow[]>(
     `SELECT source.id, source.project, source.type, source.title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, companion.id AS no_overlay_id, designer.id AS designer_video_id, source.active_designer_revision_id, subtitle.id AS subtitle_id, source.designer_of_id,
        COALESCE(source.media_variant, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay' ELSE 'pipeline-final' END) AS media_variant,
        COALESCE(source.review_status, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["ready"]'::jsonb THEN 'approved' WHEN source.type='audio' THEN 'todo' ELSE NULL END) AS review_status,
@@ -677,11 +707,25 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
        ORDER BY candidate.created_at DESC LIMIT 1
      ) AS review ON TRUE
      WHERE ${whereClause}
-     ORDER BY source.id ${sortDirection}`,
+     ORDER BY source.id ${sortDirection}${pageClause}`,
     params,
   );
 
-  return c.json(rows.map(rowToResponse));
+  const countPromise = pageSize !== null && pageOffset === 0
+    ? sql.unsafe<{ total: string }[]>(
+      `SELECT COUNT(*)::text AS total FROM ${ident}.files AS source WHERE ${whereClause}`,
+      params.slice(0, params.length - 2),
+    )
+    : Promise.resolve(null);
+  const [rows, countRows] = await Promise.all([rowsPromise, countPromise]);
+  const hasMore = pageSize !== null && rows.length > pageSize;
+  const visibleRows = pageSize !== null && hasMore ? rows.slice(0, pageSize) : rows;
+  const headers: Record<string, string> = {};
+  if (pageSize !== null) {
+    headers["X-Has-More"] = String(hasMore);
+    if (countRows?.[0]) headers["X-Total-Count"] = countRows[0].total;
+  }
+  return c.json(visibleRows.map(rowToResponse), 200, headers);
 });
 
 /* -------------------------------------------------------------------------- */

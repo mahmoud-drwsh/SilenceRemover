@@ -96,6 +96,7 @@ body.mm-app > #bottom-nav {
 .filter-tabs button { flex: 1 0 auto !important; min-width: max-content !important; padding: .6rem .85rem !important; color: var(--mm-text-muted) !important; background: transparent !important; border: 1px solid transparent !important; }
 .filter-tabs button.active { box-shadow: inset 0 0 0 1px rgb(255 255 255 / .08); }
 .file-list { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: var(--mm-space-4) !important; }
+.load-more { display: flex; justify-content: center; padding: var(--mm-space-5) 0 var(--mm-space-6); }
 .file-card {
   padding: var(--mm-space-4) !important; align-content: start; overflow: visible;
   background: linear-gradient(145deg, var(--mm-surface-raised), var(--mm-surface)) !important;

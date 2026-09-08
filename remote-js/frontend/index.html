@@ -268,6 +268,12 @@
         let currentSort = 'asc'; // 'asc' or 'desc'
         let fileLoadSequence = 0;
         let dialogReturnFocus = null;
+        const PAGE_SIZE = 24;
+        let loadedFiles = [];
+        let nextPageOffset = 0;
+        let hasMorePages = false;
+        let prefetchedPage = null;
+        let loadMoreObserver = null;
 
         function announce(message) {
             const region = document.getElementById('app-status');
@@ -501,22 +507,16 @@
             content.innerHTML = '<div class="loading" role="status">Loading…</div>';
 
             try {
-                let url = `${API_BASE}/files?type=${currentSection}`;
-                if (currentFilter !== 'all') url += `&view=${encodeURIComponent(currentFilter)}`;
-                // Add sort parameter
-                url += `&sort=${currentSort}`;
-
-                const res = await fetch(url);
-
-                if (!res.ok) {
-                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-                }
-
-                const files = await res.json();
+                const page = await fetchFilesPage(0);
 
                 if (loadSequence !== fileLoadSequence) return;
 
-                if (files.length === 0) {
+                loadedFiles = page.files;
+                nextPageOffset = page.files.length;
+                hasMorePages = page.hasMore;
+                prefetchedPage = null;
+
+                if (loadedFiles.length === 0) {
                     content.innerHTML = `<div class="empty">No ${currentSection} files in this view</div>`;
                     const label = getTabLabel(currentFilter);
                     document.querySelector('header h1').textContent = `${label.replace(/^\S+\s/, '')} (0)`;
@@ -524,16 +524,74 @@
                     return;
                 }
 
-                content.innerHTML = `<div class="file-list">${files.map(f => renderFileCard(f)).join('')}</div>`;
-                
-                // Update header with count
+                renderLoadedFiles();
                 const label = getTabLabel(currentFilter);
-                document.querySelector('header h1').textContent = `${label.replace(/^\S+\s/, '')} (${files.length})`;
+                document.querySelector('header h1').textContent = `${label.replace(/^\S+\s/, '')} (${page.totalCount ?? loadedFiles.length})`;
                 content.setAttribute('aria-busy', 'false');
+                schedulePagePrefetch(loadSequence);
             } catch (err) {
                 if (loadSequence !== fileLoadSequence) return;
                 content.innerHTML = `<div class="error">Error: ${err.message}</div>`;
                 content.setAttribute('aria-busy', 'false');
+            }
+        }
+
+        async function fetchFilesPage(offset) {
+            let url = `${API_BASE}/files?type=${currentSection}`;
+            if (currentFilter !== 'all') url += `&view=${encodeURIComponent(currentFilter)}`;
+            url += `&sort=${currentSort}&limit=${PAGE_SIZE}&offset=${offset}`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+            return {
+                files: await res.json(),
+                hasMore: res.headers.get('X-Has-More') === 'true',
+                totalCount: Number(res.headers.get('X-Total-Count')) || null,
+                offset,
+            };
+        }
+
+        function renderLoadedFiles() {
+            const more = hasMorePages
+                ? `<div class="load-more"><button class="btn btn-secondary" type="button" onclick="loadMoreFiles()">Load more</button></div>`
+                : '';
+            document.getElementById('content').innerHTML = `<div class="file-list">${loadedFiles.map(f => renderFileCard(f)).join('')}</div>${more}`;
+            loadMoreObserver?.disconnect();
+            const button = document.querySelector('.load-more button');
+            if (button && 'IntersectionObserver' in window) {
+                loadMoreObserver = new IntersectionObserver(entries => {
+                    if (entries.some(entry => entry.isIntersecting)) {
+                        loadMoreObserver.disconnect();
+                        loadMoreFiles();
+                    }
+                }, { rootMargin: '300px' });
+                loadMoreObserver.observe(button);
+            }
+        }
+
+        function schedulePagePrefetch(loadSequence) {
+            if (!hasMorePages) return;
+            const prefetch = () => fetchFilesPage(nextPageOffset)
+                .then(page => { if (loadSequence === fileLoadSequence) prefetchedPage = page; })
+                .catch(() => {});
+            if ('requestIdleCallback' in window) window.requestIdleCallback(prefetch, { timeout: 1500 });
+            else setTimeout(prefetch, 200);
+        }
+
+        async function loadMoreFiles() {
+            const content = document.getElementById('content');
+            const button = content.querySelector('.load-more button');
+            if (button?.disabled) return;
+            if (button) { button.disabled = true; button.textContent = 'Loading…'; }
+            try {
+                const page = prefetchedPage?.offset === nextPageOffset ? prefetchedPage : await fetchFilesPage(nextPageOffset);
+                prefetchedPage = null;
+                loadedFiles.push(...page.files);
+                nextPageOffset += page.files.length;
+                hasMorePages = page.hasMore;
+                renderLoadedFiles();
+                schedulePagePrefetch(fileLoadSequence);
+            } catch (err) {
+                if (button) { button.disabled = false; button.textContent = `Retry loading more: ${err.message}`; }
             }
         }
 

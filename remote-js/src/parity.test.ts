@@ -357,6 +357,18 @@ describe("frontend Media Manager UI", () => {
     expect(css).toContain("body.mm-app.mm-navigation-hidden > main");
   });
 
+  test("media lists page immediately and prefetch later cards instead of loading every card", async () => {
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
+    const filesRoute = await Bun.file(new URL("./routes/files.ts", import.meta.url)).text();
+
+    expect(filesRoute).toContain("const limitParam = url.searchParams.get(\"limit\")");
+    expect(filesRoute).toContain('"X-Has-More"');
+    expect(html).toContain("const PAGE_SIZE = 24;");
+    expect(html).toContain("&limit=${PAGE_SIZE}&offset=${offset}");
+    expect(html).toContain("function schedulePagePrefetch");
+    expect(html).toContain("function loadMoreFiles");
+  });
+
   test("linked derived cards offer original downloads without an Originals view", async () => {
     const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
     const routes = await Bun.file(new URL("./routes/projectSpa.ts", import.meta.url)).text();
