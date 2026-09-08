@@ -633,13 +633,19 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
        SELECT candidate.id
        FROM ${ident}.files AS candidate
        WHERE source.type = 'video'
-         AND NOT ((CASE WHEN jsonb_typeof(source.tags) = 'string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["no-overlay"]'::jsonb)
+         AND COALESCE(source.media_variant,
+           CASE WHEN (CASE WHEN jsonb_typeof(source.tags) = 'string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay'
+                ELSE 'pipeline-final' END) <> 'no-overlay'
          AND candidate.project = source.project
          AND candidate.type = 'video'
          AND (candidate.source_id = source.source_id OR (source.source_id IS NULL AND candidate.id = source.id || '-no-overlay'))
          AND candidate.id <> source.id
-         AND (CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["no-overlay"]'::jsonb
-         AND NOT ((CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb)
+         AND COALESCE(candidate.media_variant,
+           CASE WHEN (CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay'
+                ELSE 'pipeline-final' END) = 'no-overlay'
+         AND COALESCE(candidate.visibility,
+           CASE WHEN (CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb THEN 'trash'
+                ELSE 'active' END) <> 'trash'
        ORDER BY candidate.created_at DESC, candidate.id
        LIMIT 1
      ) AS companion ON TRUE

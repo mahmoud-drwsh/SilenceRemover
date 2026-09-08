@@ -373,6 +373,8 @@ describe("frontend Media Manager UI", () => {
     expect(filesRoute).toContain("excludedVideoVariantTags(tagList, designerMissing)");
     expect(filesRoute).toContain("source.designer_of_id IS NULL");
     expect(filesRoute).toContain("candidate.source_id = source.source_id");
+    expect(filesRoute).toContain("COALESCE(candidate.media_variant,");
+    expect(filesRoute).toContain("= 'no-overlay'");
     expect(filesRoute).toContain("AS no_overlay_id");
     expect(filesRoute).toContain("AS designer_video_id");
     expect(filesRoute).toContain("AS subtitle_id");
