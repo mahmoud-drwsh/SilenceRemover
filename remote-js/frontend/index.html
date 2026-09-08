@@ -398,27 +398,31 @@
 
         function renderTabs() {
             const container = document.getElementById('filter-tabs');
+            const navigation = document.getElementById('bottom-nav');
             const isAdmin = isAdminMode();
             updateSortControl();
             updateBulkAudioApprovalControl();
 
+            function setNavigationVisible(visible) {
+                container.style.display = visible ? 'flex' : 'none';
+                navigation.style.display = visible ? 'block' : 'none';
+                document.body.classList.toggle('mm-navigation-hidden', !visible);
+            }
+
             // The designer enters through one focused queue with no secondary navigation.
             if (currentSection === 'video' && !isAdmin) {
-                container.style.display = 'none';
-                document.getElementById('bottom-nav').style.display = 'none';
+                setNavigationVisible(false);
                 return;
             }
 
             // Strict isolation mode (a direct virtual-view URL): hide unless admin
             if (strictIsolation && !isAdmin) {
-                container.style.display = 'none';
-                document.getElementById('bottom-nav').style.display = 'none';
+                setNavigationVisible(false);
                 return;
             }
 
             // Non-admin designers get one focused queue; admins get all video views.
-            container.style.display = 'flex';
-            document.getElementById('bottom-nav').style.display = 'block';
+            setNavigationVisible(true);
 
             // Filter out 'all' and 'trash' unless in admin mode
             const adminOnlyTabs = ['all', 'trash', 'pending'];

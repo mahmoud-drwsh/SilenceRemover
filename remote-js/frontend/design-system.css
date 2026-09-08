@@ -160,6 +160,8 @@ body.mm-player .player-title { color: var(--mm-text-muted) !important; }
   body.mm-app > header { grid-column: 1 / -1; }
   body.mm-app > main { grid-column: 2; grid-row: 2; }
   body.mm-app > #bottom-nav { grid-column: 1; grid-row: 2; position: sticky; top: 68px; bottom: auto; align-self: start; height: calc(100dvh - 68px); padding: 1rem; border-top: 0; border-right: 1px solid var(--mm-border); }
+  body.mm-app.mm-navigation-hidden { grid-template-columns: minmax(0, 1fr); }
+  body.mm-app.mm-navigation-hidden > main { grid-column: 1; width: 100%; max-width: none; }
   .filter-tabs { flex-direction: column; overflow: visible; }
   .filter-tabs button { flex: 0 0 auto !important; width: 100%; text-align: left; }
 }

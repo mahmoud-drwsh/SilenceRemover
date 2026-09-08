@@ -348,6 +348,15 @@ describe("frontend Media Manager UI", () => {
     expect(html).not.toContain("'TT'");
   });
 
+  test("focused views reclaim the desktop navigation column when navigation is hidden", async () => {
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
+    const css = await Bun.file(new URL("../frontend/design-system.css", import.meta.url)).text();
+
+    expect(html).toContain("mm-navigation-hidden");
+    expect(css).toContain("body.mm-app.mm-navigation-hidden");
+    expect(css).toContain("body.mm-app.mm-navigation-hidden > main");
+  });
+
   test("linked derived cards offer original downloads without an Originals view", async () => {
     const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
     const routes = await Bun.file(new URL("./routes/projectSpa.ts", import.meta.url)).text();
