@@ -658,8 +658,9 @@
             return `
                 <article class="file-card video-card variant-card" data-id="${escapeHtml(file.id)}" data-tags="${tagsJson}" aria-labelledby="title-${escapeHtml(file.id)}">
                     <div class="file-info variant-info">
+                        <div class="card-eyebrow"><span class="card-eyebrow-mark" aria-hidden="true"></span><span>Canonical production bundle</span><span class="card-eyebrow-status">Pipeline final</span></div>
                         <h2 class="file-title" id="title-${escapeHtml(file.id)}">${escapeHtml(title)}</h2>
-                        <div class="file-meta">${duration} ${size ? '• ' + size : ''} • <span style="color: #666; font-size: 0.75rem;">${escapeHtml(file.id)}</span></div>
+                        <div class="file-meta">${duration} ${size ? '• ' + size : ''} • <span class="media-id">${escapeHtml(file.id)}</span></div>
                     </div>
                     <div class="file-actions">${actionsHtml}</div>
                     ${currentFilter === 'trash' ? '' : `<div class="variant-footer"><button class="btn btn-primary" onclick="playVideo('${safeId}', '${safeTitle}')">▶️ Play pipeline final</button>${canUploadDesigner ? `<button class="btn btn-designer" onclick="openDesignerUpload('${safeId}', '${safeTitle}')">✨ ${safeDesignerVideoId ? 'Upload new revision' : 'Upload designer video'}</button>` : ''}<div class="menu-container"><button class="btn btn-menu" aria-label="More actions for ${escapeHtml(title)}" aria-expanded="false" aria-controls="menu-${escapeHtml(file.id)}" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${escapeHtml(file.id)}">${menuItem}</div></div></div>`}
@@ -743,7 +744,7 @@
                 ? `<button class="btn btn-todo" onclick="reopenTitleReview('${safeId}')">✏️ Reopen review</button>`
                 : `<button class="btn btn-ready" onclick="approveTitle('${safeId}')">✅ Approve title</button><button class="btn btn-danger" onclick="discardAudio('${safeId}')">🗑️ Discard audio</button>`;
 
-            return `<article class="file-card audio-card" data-id="${file.id}" data-tags="${tagsJson}" aria-label="Audio review: ${escapeHtml(title)}"><div class="audio-row"><div class="audio-player"><audio controls preload="none" aria-label="Preview ${escapeHtml(title)}"><source src="${streamUrl}" type="${file.mime_type}"></audio></div></div><div class="audio-title-edit"><textarea data-file-id="${file.id}" aria-label="Title for ${escapeHtml(title)}" placeholder="Choose a title..." dir="auto" ${approved ? 'readonly' : ''} oninput="debouncedTitleUpdate(this)">${escapeHtml(title)}</textarea><div class="file-meta">${duration}${size ? ' • ' + size : ''}</div><div class="save-status" id="status-${file.id}" role="status" aria-live="polite"></div></div><div class="audio-actions">${action}</div></article>`;
+            return `<article class="file-card audio-card" data-id="${file.id}" data-tags="${tagsJson}" aria-label="Audio review: ${escapeHtml(title)}"><div class="audio-row"><div class="audio-player"><div class="audio-review-heading"><span class="audio-review-mark" aria-hidden="true"></span><span>Audio review</span><span class="audio-review-state">${approved ? 'Approved' : 'Awaiting title approval'}</span></div><audio controls preload="none" aria-label="Preview ${escapeHtml(title)}"><source src="${streamUrl}" type="${file.mime_type}"></audio></div></div><div class="audio-title-edit"><textarea data-file-id="${file.id}" aria-label="Title for ${escapeHtml(title)}" placeholder="Choose a title..." dir="auto" ${approved ? 'readonly' : ''} oninput="debouncedTitleUpdate(this)">${escapeHtml(title)}</textarea><div class="file-meta">${duration}${size ? ' • ' + size : ''}</div><div class="save-status" id="status-${file.id}" role="status" aria-live="polite"></div></div><div class="audio-actions">${action}</div></article>`;
         }
 
         async function deleteFile(fileId) {

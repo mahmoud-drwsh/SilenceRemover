@@ -32,7 +32,7 @@ html { min-height: 100%; background: var(--mm-canvas); }
 body {
   min-height: 100%;
   margin: 0;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "IBM Plex Sans Arabic", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--mm-text);
   background:
     radial-gradient(circle at 12% 0%, rgb(98 116 245 / .13), transparent 30rem),
@@ -103,14 +103,42 @@ body.mm-app > #bottom-nav {
   box-shadow: 0 8px 28px rgb(0 0 0 / .14) !important;
 }
 .file-card:hover { border-color: #415474; }
+.video-card { position: relative; }
+.video-card::before {
+  position: absolute; inset: 0 auto auto 0; width: 100%; height: 3px;
+  content: ""; background: linear-gradient(90deg, var(--mm-accent-strong), var(--mm-accent), #7357d8 68%, transparent);
+  opacity: .9;
+}
 .file-title { margin: 0 0 .3rem !important; font-size: 1rem; font-weight: 740 !important; overflow-wrap: anywhere; }
 .file-meta { color: var(--mm-text-muted) !important; font-size: .78rem !important; }
+.media-id { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #aeb8ff; }
+.card-eyebrow, .audio-review-heading {
+  display: flex; align-items: center; gap: .45rem; min-width: 0; margin-bottom: .45rem;
+  color: var(--mm-text-muted); font-size: .67rem; font-weight: 760; letter-spacing: .06em; text-transform: uppercase;
+}
+.card-eyebrow-mark, .audio-review-mark {
+  width: .55rem; height: .55rem; border-radius: 999px; flex: 0 0 auto;
+  background: var(--mm-success); box-shadow: 0 0 0 4px rgb(57 201 138 / .13);
+}
+.card-eyebrow-status, .audio-review-state {
+  margin-inline-start: auto; padding: .18rem .45rem; border-radius: 999px;
+  background: rgb(124 140 255 / .12); color: #c5cbff; font-size: .62rem; letter-spacing: .02em; text-transform: none;
+}
 .variant-card { display: grid !important; grid-template-columns: 1fr; }
 .variant-info { min-width: 0 !important; }
 .variant-actions { min-width: 0 !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
 .variant-action { min-height: 58px; border-color: var(--mm-border) !important; background: rgb(8 15 28 / .55) !important; border-radius: .75rem !important; }
+.variant-action {
+  position: relative; overflow: hidden; padding: .7rem .75rem !important;
+}
+.variant-action::after {
+  position: absolute; inset: auto .75rem .5rem; height: 1px; content: "";
+  background: linear-gradient(90deg, transparent, rgb(174 184 255 / .45), transparent); opacity: .55;
+}
 .variant-action:hover { border-color: var(--mm-accent) !important; }
+.variant-action:hover:not(.missing) { transform: translateY(-1px); box-shadow: 0 8px 18px rgb(0 0 0 / .18); }
 .variant-action span span { color: var(--mm-text-muted) !important; }
+.variant-action.missing { background: rgb(8 15 28 / .25) !important; border-style: dashed; }
 .variant-footer { border-color: var(--mm-border) !important; flex-wrap: wrap; }
 .variant-footer > .btn { flex: 1 1 auto; }
 .variant-footer .menu-container { margin-left: auto; }
@@ -121,8 +149,13 @@ body.mm-app > #bottom-nav {
 /* Audio review rows stay deliberately compact. */
 .file-card.audio-card { display: grid !important; grid-template-columns: minmax(180px, .75fr) minmax(240px, 1fr) auto; align-items: center !important; gap: .75rem !important; padding: .75rem !important; }
 .audio-player audio { width: 100%; min-width: 0; height: 40px !important; }
+.audio-review-heading { margin: 0 0 .4rem; }
+.audio-review-mark { background: var(--mm-accent); box-shadow: 0 0 0 4px rgb(124 140 255 / .13); }
+.audio-review-state { background: rgb(242 184 75 / .12); color: #f8d588; }
+.audio-card:has(textarea[readonly]) .audio-review-state { background: rgb(57 201 138 / .13); color: #83e5ba; }
 .audio-title-edit { margin: 0 !important; }
 .audio-title-edit textarea { min-height: 44px !important; padding: .6rem .7rem !important; color: var(--mm-text) !important; background: rgb(8 15 28 / .7) !important; border-color: var(--mm-border) !important; }
+.audio-title-edit textarea:focus { border-color: var(--mm-accent) !important; box-shadow: 0 0 0 3px rgb(124 140 255 / .16); }
 .audio-actions { min-height: 44px !important; }
 .audio-actions button { min-height: 44px !important; padding-inline: .8rem !important; }
 .save-status { color: var(--mm-text-muted) !important; }
