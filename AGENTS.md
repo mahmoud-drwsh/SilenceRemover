@@ -25,7 +25,7 @@ This is a single-context repository. See `docs/agents/domain.md`.
 
 ### Deploying Media Manager
 
-For a `remote-js/` release: run `bun run typecheck` from `remote-js/`, run `git diff --check`, then commit only the intended files and push `main` to `origin`. Dokploy builds from the `remote-js/` context with `remote-js/Dockerfile`; trigger or observe that deployment in Dokploy when its Git integration does not deploy automatically. Confirm the deployed service at `/healthz` before reporting success. `remote-js/README.md` is the source of truth for Dokploy environment setup; keep its credentials out of Git and UI output.
+For a `remote-js/` release: run `bun run typecheck` from `remote-js/`, run `git diff --check`, then commit only the intended files and push `main` to `origin`. Before triggering a deployment restart, confirm production has zero non-expired `upload_sessions` in `active` state; wait if any upload is in progress. Dokploy builds from the `remote-js/` context with `remote-js/Dockerfile`; trigger or observe that deployment in Dokploy when its Git integration does not deploy automatically. Confirm the deployed service at `/healthz` before reporting success. `remote-js/README.md` is the source of truth for Dokploy environment setup; keep its credentials out of Git and UI output.
 
 ## Condensed changelog
 

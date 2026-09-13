@@ -44,7 +44,8 @@ This service is a Docker container that listens on port `8080`. Dokploy / Traefi
 2. Create a new **Application** in Dokploy and point it at this repo.
 3. Set the build context to `remote-js/` (so Dokploy uses [`Dockerfile`](Dockerfile)).
 4. Add the env vars from [`.env.example`](.env.example) under the Dokploy "Environment" tab.
-5. Deploy. The container exposes `:8080`; Dokploy wires Traefik in front.
+5. Before a deployment that restarts the service, confirm there are no non-expired rows in `upload_sessions` with `state = 'active'`; wait for uploads to finish rather than interrupting them.
+6. Deploy, then confirm `/healthz` returns `{ "ok": true }`. The container exposes `:8080`; Dokploy wires Traefik in front.
 
 Alternatively, drop the [`docker-compose.yml`](docker-compose.yml) into Dokploy's "Compose" mode.
 
@@ -115,13 +116,15 @@ remote-js/
 The pipeline client and SPA depend on these stable behaviors:
 
 - HTTP paths, methods, query parameters, and body shapes
+- `GET .../api/files` remains an array response for existing callers; optional `limit` (1–100) and `offset` page media lists, with `X-Has-More` and first-page `X-Total-Count` response headers.
 - Pipeline media bytes use only `POST /projects/:token/:project/api/uploads/initiate`, `POST .../api/uploads/:sessionId/complete`, and `POST .../api/uploads/:sessionId/abort`; Media Manager authorizes and verifies transfers but does not proxy them.
 - Status codes (200/201/400/401/404/409/413/429)
 - Upload lifecycle logs (`UPLOAD_START`, `UPLOAD_RECEIVED`, `UPLOAD_STORED`, `UPLOAD_COMMITTED`, `UPLOAD_FAILED`)
 - Headers (`Accept-Ranges`, `Content-Range`, `Content-Disposition: inline; filename*=UTF-8''<...>`), plus the same `SECURITY_HEADERS` block
 - `MAX_FILE_SIZE = 500 * 1024 * 1024` (500 MB upload cap)
 - Audio tag set `{todo, ready, trash}` (strict); `all` is a virtual unfiltered view, not a stored tag
-- Video tags freeform; `all` is a virtual unfiltered view, not a stored tag; same overwrite rules (audio = strict 409, video = different-title overwrite)
+- Video tag set `{trash}` (strict); all other video organization is expressed by explicit state and virtual views, with legacy tags readable for compatibility.
+- A designer revision inherits the linked pipeline final's approved title. Pipeline-final, no-overlay, and designer-video downloads use that canonical title as their filename; the presentation variant is never appended.
 - Pre-flight `?check_id=...&check_title=...` envelope with `{exists, would_overwrite, existing_title, provided_title}`
 - Token storage: SHA-256 hashes in `media_manager.auth_tokens`; recoverable media token encrypted with `TOKEN_ENCRYPTION_KEY`
 - IP-based admin login rate limit (8 attempts / 15 minutes)
