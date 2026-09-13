@@ -72,10 +72,10 @@ function parseBody(body: unknown): { id: string; type: FileType; mime: string; s
   return { id, type, mime, size, checksum: checksum(data.checksum_sha256), title: String(data.title ?? ""), tags: parseUploadTags(tagValue, type), sourceId, filename, designerOfId, mediaVariant: mediaVariant as "pipeline-final" | "no-overlay" | "designer" | null, visibility: visibility as "active" | "trash" | null, publicationStatus: publicationStatus as "pending" | "published" | null };
 }
 
-async function resolveDesignerTarget(project: string, targetId: string): Promise<{ id: string; sourceId: string }> {
+async function resolveDesignerTarget(project: string, targetId: string): Promise<{ id: string; sourceId: string; title: string }> {
   const sql = getDb(); const ident = schemaIdent();
-  const target = (await sql.unsafe<{ id: string; source_id: string | null; tags: unknown; media_variant: string | null; visibility: string | null }[]>(
-    `SELECT id, source_id, tags, media_variant, visibility FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = 'video'`,
+  const target = (await sql.unsafe<{ id: string; source_id: string | null; title: string | null; tags: unknown; media_variant: string | null; visibility: string | null }[]>(
+    `SELECT id, source_id, title, tags, media_variant, visibility FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = 'video'`,
     [targetId, project],
   ))[0];
   const tags = target ? parseTagsValue(target.tags) : [];
@@ -84,7 +84,7 @@ async function resolveDesignerTarget(project: string, targetId: string): Promise
   if (!target || !target.source_id || variant !== "pipeline-final" || visibility !== "active") {
     throw new HttpError(400, "designer_of_id must select an available pipeline-final video in this project");
   }
-  return { id: target.id, sourceId: target.source_id };
+  return { id: target.id, sourceId: target.source_id, title: target.title?.trim() || target.id };
 }
 
 async function hasCommittedVideo(project: string, fileId: string): Promise<boolean> {
@@ -172,6 +172,9 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
       // deterministic legacy `${target.id}-designer` object.
       id: `${target.id}-designer-${randomUUID()}`,
       sourceId: target.sourceId,
+      // A designer revision inherits its approved title from the pipeline
+      // final; its presentation variant is not part of the media title.
+      title: target.title,
       tags: [],
       designerOfId: target.id,
       mediaVariant: "designer",

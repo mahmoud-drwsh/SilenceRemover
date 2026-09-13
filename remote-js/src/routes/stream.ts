@@ -32,6 +32,7 @@ interface StreamRow {
   mime_type: string;
   tags: unknown;
   title: string | null;
+  canonical_download_title: string | null;
 }
 
 function parseTagsValue(value: unknown): string[] {
@@ -66,9 +67,27 @@ streamRouter.get("/projects/:token/:project/stream/:id", async (c) => {
   const sql = getDb();
   const ident = schemaIdent();
   const rows = await sql.unsafe<StreamRow[]>(
-    `SELECT type, mime_type, tags, title
-       FROM ${ident}.files
-       WHERE id = $1 AND project = $2 AND type = $3`,
+    `SELECT file.type, file.mime_type, file.tags, file.title,
+            COALESCE(designer_target.title, no_overlay_target.title, file.title) AS canonical_download_title
+       FROM ${ident}.files AS file
+       LEFT JOIN ${ident}.files AS designer_target
+         ON designer_target.project = file.project
+        AND designer_target.id = file.designer_of_id
+        AND designer_target.type = 'video'
+       LEFT JOIN LATERAL (
+         SELECT candidate.title
+           FROM ${ident}.files AS candidate
+          WHERE file.type = 'video'
+            AND file.media_variant = 'no-overlay'
+            AND candidate.project = file.project
+            AND candidate.source_id = file.source_id
+            AND candidate.type = 'video'
+            AND candidate.media_variant = 'pipeline-final'
+            AND candidate.visibility = 'active'
+          ORDER BY candidate.created_at DESC
+          LIMIT 1
+       ) AS no_overlay_target ON true
+       WHERE file.id = $1 AND file.project = $2 AND file.type = $3`,
     [decodedId, project, fileType],
   );
   const row = rows[0];
@@ -89,7 +108,7 @@ streamRouter.get("/projects/:token/:project/stream/:id", async (c) => {
   const totalSize = head.size;
   const byteRange = parseRangeHeader(c.req.header("range") ?? null, totalSize);
 
-  const safeTitle = sanitizeFilename(normalizeTitle(row.title));
+  const safeTitle = sanitizeFilename(normalizeTitle(row.canonical_download_title));
   const downloadFilename = safeTitle ? `${safeTitle}${ext}` : `${decodedId}${ext}`;
 
   const headers: Record<string, string> = {

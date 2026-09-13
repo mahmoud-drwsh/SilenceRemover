@@ -215,6 +215,17 @@ describe("VIDEO_TAGS", () => {
 });
 
 describe("explicit video lifecycle", () => {
+  test("designer uploads and video downloads use the canonical approved title", async () => {
+    const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
+    const uploads = await Bun.file(new URL("./routes/uploads.ts", import.meta.url)).text();
+    const stream = await Bun.file(new URL("./routes/stream.ts", import.meta.url)).text();
+
+    expect(html).toContain("document.getElementById('designer-title').value = targetTitle");
+    expect(html).not.toContain("${targetTitle} (Designer)");
+    expect(uploads).toContain("title: target.title");
+    expect(stream).toContain("canonical_download_title");
+  });
+
   test("admin design-system assets receive usable MIME types", async () => {
     const admin = await Bun.file(new URL("./routes/admin.ts", import.meta.url)).text();
     expect(admin).toContain('"text/css; charset=utf-8"');

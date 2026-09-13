@@ -210,8 +210,8 @@
             <h2 id="designer-title-heading">Upload designer video</h2>
             <div class="designer-target" id="designer-target"></div>
             <input id="designer-target-id" type="hidden">
-            <label for="designer-title">Designer video title</label>
-            <input id="designer-title" required maxlength="200">
+            <label for="designer-title">Approved video title</label>
+            <input id="designer-title" required maxlength="200" readonly>
             <label for="designer-file">Redesigned video</label>
             <input id="designer-file" type="file" accept="video/*" required>
             <div class="designer-progress" id="designer-progress" role="status" aria-live="polite"></div>
@@ -671,7 +671,7 @@
         function openDesignerUpload(targetId, targetTitle) {
             document.getElementById('designer-target-id').value = targetId;
             document.getElementById('designer-target').textContent = `Saving a new revision for: ${targetTitle}`;
-            document.getElementById('designer-title').value = `${targetTitle} (Designer)`;
+            document.getElementById('designer-title').value = targetTitle;
             document.getElementById('designer-file').value = '';
             document.getElementById('designer-progress').textContent = '';
             const overlay = document.getElementById('designer-overlay');
