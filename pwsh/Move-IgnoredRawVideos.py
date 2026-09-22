@@ -270,8 +270,6 @@ def get_unique_ignored_destination(file_path: Path, ignored_dir: Path) -> Path:
 
 
 def move_to_ignored(file_path: Path, ignored_dir: Path, reason: str, dry_run: bool) -> None:
-    LIVE_SKIP_STATUS.close()
-
     if dry_run:
         destination = ignored_dir / file_path.name
         print(

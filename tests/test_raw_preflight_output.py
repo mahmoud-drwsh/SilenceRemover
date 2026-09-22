@@ -45,3 +45,31 @@ def test_raw_preflight_batches_completed_and_locked_skip_output(
     )
     assert summary.completed_skipped == 2
     assert summary.locked == 1
+
+
+def test_raw_preflight_moves_short_horizontal_video_without_live_status(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    source = raw_dir / "unfinished.mkv"
+    source.write_bytes(b"video")
+    monkeypatch.setattr(raw_preflight, "is_file_locked", lambda _path: False)
+    monkeypatch.setattr(raw_preflight, "get_media_duration_seconds", lambda _path: 12.0)
+
+    summary = raw_preflight.invoke_raw_preflight_scan(
+        label="Horizontal",
+        raw_path=raw_dir,
+        short_duration_seconds=30.0,
+        silence_threshold_db=-50.0,
+        silence_min_duration_seconds=0.1,
+        dry_run=False,
+    )
+
+    output = capsys.readouterr().out
+    assert "moved 'unfinished.mkv'" in output
+    assert not source.exists()
+    assert (raw_dir / "ignored" / source.name).exists()
+    assert summary.moved == 1
