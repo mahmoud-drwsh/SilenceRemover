@@ -1,38 +1,13 @@
-"""Media Manager API integration - black box package for title sync and media upload.
+"""Media Manager API client for the PC pipeline.
 
-This package replaces the old sr_mp3_manager and supports the pipeline workflow:
-- Upload the original source recording
-- Upload the audio snippet for review (tags: ["todo"])
-- Upload the no-overlay video with explicit lifecycle attributes
-- Two-way sync: Pull edited titles from Media Manager before processing
+The PC pipeline uses this client to:
+- Upload the original source recording.
+- Send the review snippet for transient title analysis.
 """
 
 from .api import MediaManagerClient, MediaManagerError
-from .sync import sync_titles_from_api, get_ready_audio_ids
-from .upload import (
-    ensure_audio_uploaded,
-    ensure_video_uploaded,
-    get_uploaded_audio_ids,
-    get_uploaded_video_ids,
-    check_uploaded,
-    check_uploaded_with_title,
-)
 
 __all__ = [
-    # API Client
     'MediaManagerClient',
     'MediaManagerError',
-    # Sync (Two-way title sync + ready audio query)
-    'sync_titles_from_api',
-    'get_ready_audio_ids',
-    # Upload helpers
-    'ensure_audio_uploaded',
-    'ensure_video_uploaded',
-    'get_uploaded_audio_ids',
-    'get_uploaded_video_ids',
-    'check_uploaded',
-    'check_uploaded_with_title',
 ]
-
-# Backwards compatibility alias for old import name
-Mp3ApiClient = MediaManagerClient
