@@ -24,7 +24,6 @@ interface SourceProcessingJob {
   trim_plan: unknown;
   review_transcript: string | null;
   generated_title: string | null;
-  srt_text: string | null;
   waiting_reason: string | null;
   last_error: string | null;
 }
@@ -36,13 +35,13 @@ interface OriginalForWorker {
 
 const SHA256 = /^[a-f0-9]{64}$/;
 
-function artifactIdentity(kind: unknown, sourceId: string): { type: "audio" | "subtitle" | "video"; id: string; mime: string; ext: string; tags: string[]; mediaVariant: string | null; reviewStatus: string | null; publicationStatus: string | null } {
+/**
+ * The worker uploads only two artifact kinds: the review audio and the
+ * no-overlay video (#44). Other kinds get 400.
+ */
+function artifactIdentity(kind: unknown, sourceId: string): { type: "audio" | "video"; id: string; mime: string; ext: string; tags: string[]; mediaVariant: string | null; reviewStatus: string | null; publicationStatus: string | null } {
   if (kind === "review_audio") return { type: "audio", id: sourceId, mime: "audio/ogg", ext: ".ogg", tags: ["todo"], mediaVariant: null, reviewStatus: "todo", publicationStatus: null };
-  if (kind === "subtitle") return { type: "subtitle", id: `${sourceId}-subtitles`, mime: "application/x-subrip", ext: ".srt", tags: [], mediaVariant: null, reviewStatus: null, publicationStatus: null };
   if (kind === "no_overlay_video") return { type: "video", id: `${sourceId}-no-overlay`, mime: "video/mp4", ext: ".mp4", tags: [], mediaVariant: "no-overlay", reviewStatus: null, publicationStatus: "published" };
-  // A source is rendered only after its reviewer has approved the audio title,
-  // so the final is immediately publishable through explicit lifecycle state.
-  if (kind === "overlaid_video") return { type: "video", id: sourceId, mime: "video/mp4", ext: ".mp4", tags: [], mediaVariant: "pipeline-final", reviewStatus: null, publicationStatus: "published" };
   throw new HttpError(400, "Unsupported source-processing artifact kind");
 }
 
@@ -56,8 +55,13 @@ function jsonObject(value: unknown): unknown {
   }
 }
 
+/**
+ * `SELECT *` can still return the old `srt_text` column until the data move
+ * drops it. The response never includes it.
+ */
 function serializeJob(row: SourceProcessingJob): SourceProcessingJob {
-  return { ...row, trim_plan: jsonObject(row.trim_plan) };
+  const { srt_text: _removed, ...job } = row as SourceProcessingJob & { srt_text?: unknown };
+  return { ...job, trim_plan: jsonObject(job.trim_plan) };
 }
 
 function workerTokenDigest(value: string): Buffer {
@@ -207,9 +211,7 @@ sourceProcessingRouter.post("/internal/source-processing/:project/claim", async 
     original_download_url: await presignOriginalDownload(project, job.source_id, ext, filename),
     original_filename: filename,
     review_audio_uploaded: Boolean((await sql.unsafe<{ id: string }[]>(`SELECT id FROM ${ident}.files WHERE project=$1 AND id=$2 AND type='audio'`, [project, job.source_id]))[0]),
-    subtitle_uploaded: Boolean((await sql.unsafe<{ id: string }[]>(`SELECT id FROM ${ident}.files WHERE project=$1 AND id=$2 AND type='subtitle'`, [project, `${job.source_id}-subtitles`]))[0]),
     no_overlay_uploaded: Boolean((await sql.unsafe<{ id: string }[]>(`SELECT id FROM ${ident}.files WHERE project=$1 AND id=$2 AND type='video'`, [project, `${job.source_id}-no-overlay`]))[0]),
-    overlaid_uploaded: Boolean((await sql.unsafe<{ id: string }[]>(`SELECT id FROM ${ident}.files WHERE project=$1 AND id=$2 AND type='video'`, [project, job.source_id]))[0]),
     approved_title: (await sql.unsafe<{ title: string }[]>(`
       SELECT title FROM ${ident}.files a
       WHERE a.project=$1 AND a.id=$2 AND a.type='audio'
@@ -276,7 +278,6 @@ sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/artifac
     const approved = await approvedAudioTitle(sql, ident, project, row.source_id);
     if (!approved || title !== approved) throw new HttpError(409, "Video title must match the approved review title");
   }
-  if (artifact.type === "subtitle" && (!row.srt_text || createHash("sha256").update(row.srt_text).digest("hex") !== checksum)) throw new HttpError(409, "Subtitle bytes must match the checkpointed SRT");
   return c.json({ ok: true, id: artifact.id, upload_url: await presignSourceArtifactPut(project, jobId, token, String(body.kind), artifact.mime) });
 });
 
@@ -298,7 +299,6 @@ sourceProcessingRouter.post("/internal/source-processing/:project/:jobId/artifac
       const approved = await approvedAudioTitle(tx, ident, project, row.source_id);
       if (!approved || title !== approved) throw new HttpError(409, "Video title must match the approved review title");
     }
-    if (artifact.type === "subtitle" && (!row.srt_text || createHash("sha256").update(row.srt_text).digest("hex") !== checksum)) throw new HttpError(409, "Subtitle bytes must match the checkpointed SRT");
     const existing = (await tx.unsafe<{ checksum_sha256: string | null }[]>(`SELECT checksum_sha256 FROM ${ident}.files WHERE project=$1 AND id=$2 AND type=$3`, [project, artifact.id, artifact.type]))[0];
     if (existing) {
       if (existing.checksum_sha256 === checksum) return artifact.id;
@@ -336,19 +336,20 @@ sourceProcessingRouter.patch("/internal/source-processing/:project/:jobId/checkp
   const trimPlan = optionalTrimPlan(body);
   const transcript = optionalString(body, "review_transcript", 200_000);
   const title = optionalString(body, "generated_title", 1_000);
-  const srt = optionalString(body, "srt_text", 500_000);
-  if (trimPlan === undefined && transcript === undefined && title === undefined && srt === undefined) {
+  if (trimPlan === undefined && transcript === undefined && title === undefined) {
+    // An old worker can still send only `srt_text`. Ignore it (#44).
+    if ("srt_text" in body) return c.json({ ok: true });
     throw new HttpError(400, "At least one checkpoint is required");
   }
   const sql = getDb(); const ident = schemaIdent();
   const rows = await sql.unsafe<{ id: string }[]>(`
     UPDATE ${ident}.source_processing j
     SET trim_plan=COALESCE($1::jsonb,trim_plan), review_transcript=COALESCE($2,review_transcript),
-        generated_title=COALESCE($3,generated_title), srt_text=COALESCE($4,srt_text), updated_at=now()
-    WHERE project=$5 AND id=$6 AND state='claimed' AND lease_token=$7 AND lease_until > now()
+        generated_title=COALESCE($3,generated_title), updated_at=now()
+    WHERE project=$4 AND id=$5 AND state='claimed' AND lease_token=$6 AND lease_until > now()
       AND EXISTS (SELECT 1 FROM ${ident}.files f WHERE f.project=j.project AND f.id=j.source_id
         AND f.type='original' AND f.checksum_sha256=j.original_checksum_sha256)
-    RETURNING id`, [trimPlan ?? null, transcript ?? null, title ?? null, srt ?? null, project, jobId, token]);
+    RETURNING id`, [trimPlan ?? null, transcript ?? null, title ?? null, project, jobId, token]);
   if (!rows[0]) {
     const stale = await sql.unsafe<{ id: string }[]>(`
       UPDATE ${ident}.source_processing j SET state='stale',lease_token=NULL,lease_until=NULL,updated_at=now()

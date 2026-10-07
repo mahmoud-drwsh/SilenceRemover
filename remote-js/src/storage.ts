@@ -82,7 +82,7 @@ export async function sourceArtifactTemporarySha256(project: string, jobId: stri
   return hash.digest("hex");
 }
 
-export async function promoteSourceArtifact(project: string, jobId: string, leaseToken: string, kind: string, type: "audio" | "subtitle" | "video", id: string, ext: string, mime: string): Promise<void> {
+export async function promoteSourceArtifact(project: string, jobId: string, leaseToken: string, kind: string, type: "audio" | "video", id: string, ext: string, mime: string): Promise<void> {
   const config = loadConfig(); await getS3Client().send(new CopyObjectCommand({ Bucket: config.s3Bucket, CopySource: `${config.s3Bucket}/${sourceArtifactTemporaryObjectKey(project, jobId, leaseToken, kind)}`, Key: storageObjectKey(type, project, id, ext), ContentType: mime, MetadataDirective: "REPLACE" }));
 }
 
