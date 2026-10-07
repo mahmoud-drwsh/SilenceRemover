@@ -237,7 +237,7 @@ sourceProcessingRouter.post("/internal/source-processing/:project/prerender-cand
       AND f.type='original' AND f.checksum_sha256=j.original_checksum_sha256
     WHERE j.project=$1 AND j.state='waiting' AND j.waiting_reason='waiting for title review'
       AND j.trim_plan IS NOT NULL
-      AND j.id NOT IN (SELECT jsonb_array_elements_text($2::jsonb))
+      AND j.id NOT IN (SELECT jsonb_array_elements_text($2::text::jsonb))
     ORDER BY j.updated_at,j.id LIMIT 1`, [project, JSON.stringify(exclude)]))[0];
   if (!job) return c.json({ ok: true, job: null });
   const ext = getExtensionForMime(job.mime_type);
