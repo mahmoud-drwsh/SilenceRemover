@@ -27,7 +27,10 @@ export interface VideoRow {
   active_designer_revision_id: string | null;
   media_variant: string | null;
   tags: unknown;
+  title: string | null;
+  review_status: string | null;
   visibility: string | null;
+  publication_status: string | null;
   file_size: number | string | null;
   mime_type: string;
   created_at: Date | string | null;
@@ -77,6 +80,29 @@ export interface PointerConflict {
   kept_revision_id: string;
 }
 
+/** The approved title of the overlaid row goes to the no-overlay row. */
+export interface TitleCopy {
+  project: string;
+  no_overlay_id: string;
+  overlaid_id: string;
+  previous: string | null;
+  title: string;
+}
+
+/** Trash, pending and review state of the overlaid row goes to the no-overlay row. */
+export interface StateCopy {
+  project: string;
+  no_overlay_id: string;
+  overlaid_id: string;
+  visibility: "trash" | null;
+  publication_status: "pending" | null;
+  review_status: string | null;
+  /** Tags to add, so that tag-based reads give the same state. */
+  add_tags: string[];
+  /** The tags of the no-overlay row before the copy. */
+  previous_tags: unknown;
+}
+
 export interface BlockedOverlaid {
   project: string;
   id: string;
@@ -94,6 +120,8 @@ export interface DataMovePlan {
   designer_relinks: DesignerRelink[];
   pointer_moves: PointerMove[];
   pointer_conflicts: PointerConflict[];
+  title_copies: TitleCopy[];
+  state_copies: StateCopy[];
   /** Overlaid rows that apply deletes (blocked rows are not in this list). */
   overlaid_deletes: OverlaidItem[];
   blocked_overlaid: BlockedOverlaid[];
@@ -124,6 +152,18 @@ function isTrashed(row: VideoRow): boolean {
   if (row.visibility === "trash") return true;
   if (row.visibility === "active") return false;
   return parseTags(row.tags).includes("trash");
+}
+
+function isPending(row: VideoRow): boolean {
+  if (row.publication_status === "pending") return true;
+  if (row.publication_status === "published") return false;
+  return parseTags(row.tags).includes("pending");
+}
+
+/** A non-empty trimmed title, or null. */
+function approvedTitle(row: VideoRow): string | null {
+  const title = row.title?.trim() ?? "";
+  return title === "" ? null : title;
 }
 
 /**
@@ -306,18 +346,54 @@ export function planNoOverlayDataMove(videos: VideoRow[]): DataMovePlan {
     if (current === revisionId) continue;
     if (current) {
       // A designer upload after the deploy sets the pointer on the no-overlay
-      // row. The newest revision stays active, as for any designer upload.
-      const currentTime = time(byKey.get(key(row.project, current))?.created_at ?? null);
-      const movedTime = time(byKey.get(key(row.project, revisionId))?.created_at ?? null);
-      const kept = movedTime > currentTime ? revisionId : current;
-      pointer_conflicts.push({ project: row.project, overlaid_id: row.id, no_overlay_id: item.companion_id, overlaid_revision_id: revisionId, no_overlay_revision_id: current, kept_revision_id: kept });
-      if (kept === current) continue;
+      // row. Never overwrite a pointer that is already set.
+      pointer_conflicts.push({ project: row.project, overlaid_id: row.id, no_overlay_id: item.companion_id, overlaid_revision_id: revisionId, no_overlay_revision_id: current, kept_revision_id: current });
+      continue;
     }
     pointer_moves.push({ project: row.project, overlaid_id: row.id, no_overlay_id: item.companion_id, revision_id: revisionId, implicit, previous: current });
     pointers.set(companionKey, revisionId);
   }
 
-  return { designer_relinks, pointer_moves, pointer_conflicts, overlaid_deletes, blocked_overlaid, unresolved_designers };
+  // Title and state: the overlaid row was the card, so its approved title and
+  // its trash, pending and review state go to the no-overlay row. When more
+  // than one overlaid row has the same no-overlay row, use the same row as the
+  // read-side title fallback: not in trash first, then the newest.
+  const primary = new Map<string, VideoRow>();
+  for (const row of overlaidRows) {
+    const companionId = companions.get(key(row.project, row.id))!.companion_id;
+    if (!companionId) continue;
+    const companionKey = key(row.project, companionId);
+    const best = primary.get(companionKey);
+    if (!best || preferOverlaid(row, best) < 0) primary.set(companionKey, row);
+  }
+  const title_copies: TitleCopy[] = [];
+  const state_copies: StateCopy[] = [];
+  for (const [companionKey, overlaid] of primary) {
+    const companion = byKey.get(companionKey)!;
+    const title = approvedTitle(overlaid);
+    if (title !== null && title !== companion.title) {
+      title_copies.push({ project: companion.project, no_overlay_id: companion.id, overlaid_id: overlaid.id, previous: companion.title, title });
+    }
+    const trash = isTrashed(overlaid) && !isTrashed(companion);
+    const pending = isPending(overlaid) && !isPending(companion);
+    const review = overlaid.review_status !== null && companion.review_status === null ? overlaid.review_status : null;
+    if (trash || pending || review !== null) {
+      const tags = parseTags(companion.tags);
+      const add_tags = [...(trash ? ["trash"] : []), ...(pending ? ["pending"] : [])].filter((tag) => !tags.includes(tag));
+      state_copies.push({
+        project: companion.project, no_overlay_id: companion.id, overlaid_id: overlaid.id,
+        visibility: trash ? "trash" : null, publication_status: pending ? "pending" : null, review_status: review,
+        add_tags, previous_tags: companion.tags,
+      });
+    }
+  }
+
+  return { designer_relinks, pointer_moves, pointer_conflicts, title_copies, state_copies, overlaid_deletes, blocked_overlaid, unresolved_designers };
+}
+
+/** Sort order of overlaid rows: not in trash first, then the newest, then the ID. */
+function preferOverlaid(a: VideoRow, b: VideoRow): number {
+  return Number(isTrashed(a)) - Number(isTrashed(b)) || time(b.created_at) - time(a.created_at) || a.id.localeCompare(b.id);
 }
 
 /** S3 key of a `files` row. The layout is `<type>/<project>/<id><ext>`. */

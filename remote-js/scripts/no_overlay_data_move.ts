@@ -29,7 +29,7 @@ import { closeDb, getDb, schemaIdent } from "../src/db.ts";
 import { MIME_TO_EXT, getExtensionForMime } from "../src/mime.ts";
 import {
   fileObjectKey, isLogoKey, isRemovedWorkerTempKey, isRemuxTempKey, isSubtitleKey, logoObjectKey, logoPrefix,
-  planNoOverlayDataMove, remuxTempPrefix, subtitlePrefix, toBytes, videoRole, workerTempPrefix,
+  parseTags, planNoOverlayDataMove, remuxTempPrefix, subtitlePrefix, toBytes, videoRole, workerTempPrefix,
   type DataMovePlan, type OverlaidItem, type VideoRow,
 } from "../src/noOverlayDataMove.ts";
 import { getS3Client } from "../src/storage.ts";
@@ -135,7 +135,7 @@ async function listObjects(prefix: string): Promise<ObjectEntry[]> {
 
 async function loadVideos(): Promise<VideoRow[]> {
   return sql.unsafe<VideoRow[]>(`
-    SELECT project,id,source_id,designer_of_id,active_designer_revision_id,media_variant,tags,visibility,file_size,mime_type,created_at
+    SELECT project,id,source_id,designer_of_id,active_designer_revision_id,media_variant,tags,title,review_status,visibility,publication_status,file_size,mime_type,created_at
     FROM ${ident}.files WHERE type='video' AND ($1::text IS NULL OR project=$1) ORDER BY project,id`, [project]);
 }
 
@@ -173,6 +173,8 @@ function groups(inv: Inventory): Record<string, Group> {
     designer_relinks: group(plan.designer_relinks.map((row) => ({ project: row.project, id: row.id, bytes: 0, detail: `${row.from_target} -> ${row.to_target}${row.legacy_suffix ? " (legacy -designer row)" : ""}` }))),
     active_pointer_moves: group(plan.pointer_moves.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: `revision=${row.revision_id} from=${row.overlaid_id}${row.implicit ? " (implicit newest revision)" : ""}` }))),
     pointer_conflicts: group(plan.pointer_conflicts.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: `overlaid=${row.overlaid_revision_id} no-overlay=${row.no_overlay_revision_id} kept=${row.kept_revision_id}` }))),
+    title_copies: group(plan.title_copies.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: `from=${row.overlaid_id} title=${JSON.stringify(row.title)} previous=${JSON.stringify(row.previous)}` }))),
+    state_copies: group(plan.state_copies.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: `from=${row.overlaid_id}${row.visibility ? " visibility=trash" : ""}${row.publication_status ? " publication_status=pending" : ""}${row.review_status ? ` review_status=${row.review_status}` : ""}${row.add_tags.length ? ` add_tags=${row.add_tags.join(",")}` : ""}` }))),
     overlaid_videos: group(overlaid(plan.overlaid_deletes)),
     overlaid_videos_without_no_overlay: group(overlaid(plan.overlaid_deletes.filter((item) => !item.companion_id))),
     overlaid_videos_with_trashed_no_overlay: group(overlaid(plan.overlaid_deletes.filter((item) => item.companion_trashed))),
@@ -191,7 +193,7 @@ function groups(inv: Inventory): Record<string, Group> {
 
 /** Groups that apply must bring to zero. Info groups are not in this list. */
 const WORK_GROUPS = [
-  "designer_relinks", "active_pointer_moves", "overlaid_videos", "subtitle_files", "subtitle_orphan_objects",
+  "designer_relinks", "active_pointer_moves", "title_copies", "state_copies", "overlaid_videos", "subtitle_files", "subtitle_orphan_objects",
   "project_logos", "logo_orphan_objects", "remux_jobs", "subtitle_upload_sessions", "remux_temp_objects", "worker_temp_objects",
 ];
 
@@ -255,7 +257,7 @@ async function deleteObject(objectKey: string): Promise<void> {
 }
 
 async function relinkAndMovePointers(plan: DataMovePlan): Promise<void> {
-  if (plan.designer_relinks.length === 0 && plan.pointer_moves.length === 0) return;
+  if (moveWork(plan) === 0) return;
   await sql.begin(async (tx) => {
     for (const row of plan.designer_relinks) {
       const updated = await tx.unsafe(`
@@ -276,14 +278,40 @@ async function relinkAndMovePointers(plan: DataMovePlan): Promise<void> {
         RETURNING n.id`, [move.project, move.no_overlay_id, move.revision_id, move.previous]);
       if (updated.length !== 1) throw new Error(`Active pointer of ${move.project}/${move.no_overlay_id} changed during apply. Run apply again.`);
     }
+    for (const copy of plan.title_copies) {
+      const updated = await tx.unsafe(`
+        UPDATE ${ident}.files n SET title=$3
+        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${VARIANT("n")}='no-overlay'
+          AND n.title IS NOT DISTINCT FROM $4
+        RETURNING n.id`, [copy.project, copy.no_overlay_id, copy.title, copy.previous]);
+      if (updated.length !== 1) throw new Error(`Title of ${copy.project}/${copy.no_overlay_id} changed during apply. Run apply again.`);
+    }
+    for (const copy of plan.state_copies) {
+      const tags = [...parseTags(copy.previous_tags), ...copy.add_tags];
+      const updated = await tx.unsafe(`
+        UPDATE ${ident}.files n
+        SET visibility=COALESCE($3, n.visibility), publication_status=COALESCE($4, n.publication_status),
+            review_status=COALESCE($5, n.review_status), tags=$6::jsonb
+        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${VARIANT("n")}='no-overlay'
+          AND n.tags = $7::jsonb
+        RETURNING n.id`, [copy.project, copy.no_overlay_id, copy.visibility, copy.publication_status, copy.review_status, JSON.stringify(tags), JSON.stringify(copy.previous_tags)]);
+      if (updated.length !== 1) throw new Error(`State of ${copy.project}/${copy.no_overlay_id} changed during apply. Run apply again.`);
+    }
   });
   done.designer_relinks = plan.designer_relinks.length;
   done.active_pointer_moves = plan.pointer_moves.length;
+  done.title_copies = plan.title_copies.length;
+  done.state_copies = plan.state_copies.length;
+}
+
+/** Link, pointer, title and state work that must be done before any delete. */
+function moveWork(plan: DataMovePlan): number {
+  return plan.designer_relinks.length + plan.pointer_moves.length + plan.title_copies.length + plan.state_copies.length;
 }
 
 async function deleteOverlaid(item: OverlaidItem, refused: string[]): Promise<void> {
   const rows = await sql.unsafe<(VideoRow & { blocked: boolean })[]>(`
-    SELECT f.project,f.id,f.source_id,f.designer_of_id,f.active_designer_revision_id,f.media_variant,f.tags,f.visibility,f.file_size,f.mime_type,f.created_at,
+    SELECT f.project,f.id,f.source_id,f.designer_of_id,f.active_designer_revision_id,f.media_variant,f.tags,f.title,f.review_status,f.visibility,f.publication_status,f.file_size,f.mime_type,f.created_at,
            ${POINTS_AT_F} AS blocked
     FROM ${ident}.files f WHERE f.project=$1 AND f.id=$2 AND f.type='video'`, [item.project, item.id]);
   const row = rows[0];
@@ -310,13 +338,15 @@ async function runApply(): Promise<number> {
   const before = await inventory();
   printReport("plan before apply", groups(before), before.schema);
 
-  // Step 1 and 2: move every designer link and active pointer in one transaction.
+  // Step 1 and 2: in one transaction, move every designer link and active
+  // pointer, and copy the approved title and the trash, pending and review
+  // state of each overlaid row to its no-overlay row.
   await relinkAndMovePointers(before.plan);
 
   // Re-read the state. The deletes start only when no link or pointer is left to move.
   const inv = await inventory();
-  if (inv.plan.designer_relinks.length > 0 || inv.plan.pointer_moves.length > 0) {
-    throw new Error("Designer links or pointers are still left to move. No row was deleted. Run apply again.");
+  if (moveWork(inv.plan) > 0) {
+    throw new Error("Designer links, pointers, titles or state are still left to move. No row was deleted. Run apply again.");
   }
 
   // Step 3: overlaid videos. Delete the object first, then the row, so a retry finds the row again.

@@ -8,7 +8,7 @@ function row(overrides: Partial<VideoRow>): VideoRow {
   clock += 1;
   return {
     project: "p", id: "x", source_id: null, designer_of_id: null, active_designer_revision_id: null,
-    media_variant: null, tags: [], visibility: null, file_size: 10, mime_type: "video/mp4",
+    media_variant: null, tags: [], title: null, review_status: null, visibility: null, publication_status: null, file_size: 10, mime_type: "video/mp4",
     created_at: new Date(Date.UTC(2026, 0, 1, 0, 0, clock)), ...overrides,
   };
 }
@@ -90,7 +90,53 @@ describe("no-overlay data move plan", () => {
     expect(plan.designer_relinks).toEqual([]);
   });
 
-  test("keeps the newer pointer when the no-overlay row already has one", () => {
+  test("never overwrites a pointer that the no-overlay row already has", () => {
+    const plan = planNoOverlayDataMove([
+      row({ id: "s", active_designer_revision_id: "d-new" }),
+      row({ id: "s-no-overlay", media_variant: "no-overlay", active_designer_revision_id: "d-old" }),
+      row({ id: "d-old", designer_of_id: "s-no-overlay" }),
+      row({ id: "d-new", designer_of_id: "s" }),
+    ]);
+    expect(plan.pointer_moves).toEqual([]);
+    expect(plan.pointer_conflicts.map((item) => item.kept_revision_id)).toEqual(["d-old"]);
+  });
+
+  test("copies the approved title to the no-overlay row", () => {
+    const plan = planNoOverlayDataMove([
+      row({ id: "s", title: "  Approved  " }),
+      row({ id: "s-no-overlay", media_variant: "no-overlay", title: "Approved (No Overlay)" }),
+      row({ id: "t", title: "Same" }),
+      row({ id: "t-no-overlay", media_variant: "no-overlay", title: "Same" }),
+      row({ id: "u", title: " " }),
+      row({ id: "u-no-overlay", media_variant: "no-overlay", title: "Kept" }),
+    ]);
+    expect(plan.title_copies).toEqual([{ project: "p", no_overlay_id: "s-no-overlay", overlaid_id: "s", previous: "Approved (No Overlay)", title: "Approved" }]);
+  });
+
+  test("prefers the overlaid row that is not in trash for title and state", () => {
+    const plan = planNoOverlayDataMove([
+      row({ id: "a", source_id: "src", title: "Active", media_variant: "pipeline-final" }),
+      row({ id: "b", source_id: "src", title: "Trashed", media_variant: "pipeline-final", visibility: "trash" }),
+      row({ id: "src-no-overlay", source_id: "src", media_variant: "no-overlay", title: "Old" }),
+    ]);
+    expect(plan.title_copies.map((item) => [item.overlaid_id, item.title])).toEqual([["a", "Active"]]);
+    expect(plan.state_copies).toEqual([]);
+  });
+
+  test("copies trash, pending and review state with the matching tags", () => {
+    const plan = planNoOverlayDataMove([
+      row({ id: "s", tags: JSON.stringify(JSON.stringify(["trash", "pending"])) }),
+      row({ id: "s-no-overlay", tags: ["no-overlay"] }),
+      row({ id: "r", media_variant: "pipeline-final", review_status: "approved", publication_status: "published" }),
+      row({ id: "r-no-overlay", media_variant: "no-overlay", publication_status: "pending" }),
+    ]);
+    expect(plan.state_copies.map(({ previous_tags: _, ...item }) => item)).toEqual([
+      { project: "p", no_overlay_id: "s-no-overlay", overlaid_id: "s", visibility: "trash", publication_status: "pending", review_status: null, add_tags: ["trash", "pending"] },
+      { project: "p", no_overlay_id: "r-no-overlay", overlaid_id: "r", visibility: null, publication_status: null, review_status: "approved", add_tags: [] },
+    ]);
+  });
+
+  test("keeps the no-overlay pointer when it is newer", () => {
     const older = row({ id: "d-old", designer_of_id: "s" });
     const newer = row({ id: "d-new", designer_of_id: "s-no-overlay" });
     const plan = planNoOverlayDataMove([
@@ -107,7 +153,7 @@ describe("no-overlay data move plan", () => {
       row({ id: "s1-no-overlay", source_id: "s1", media_variant: "no-overlay", active_designer_revision_id: "d" }),
       row({ id: "d", source_id: "s1", designer_of_id: "s1-no-overlay", media_variant: "designer" }),
     ]);
-    expect(plan).toEqual({ designer_relinks: [], pointer_moves: [], pointer_conflicts: [], overlaid_deletes: [], blocked_overlaid: [], unresolved_designers: [] });
+    expect(plan).toEqual({ designer_relinks: [], pointer_moves: [], pointer_conflicts: [], title_copies: [], state_copies: [], overlaid_deletes: [], blocked_overlaid: [], unresolved_designers: [] });
   });
 });
 
