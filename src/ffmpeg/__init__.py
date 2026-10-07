@@ -13,9 +13,7 @@ from sr_filter_graph import (
     build_audio_concat_filter_graph,
     build_filter_graph_script,
     build_video_audio_concat_filter_graph,
-    build_video_audio_concat_filter_graph_with_title_overlay,
     build_video_lavfi_audio_concat_filter_graph,
-    build_video_lavfi_audio_concat_filter_graph_with_title_overlay,
 )
 from src.ffmpeg.filter_graph import write_filter_graph_script
 from src.ffmpeg.probing import (
@@ -24,7 +22,6 @@ from src.ffmpeg.probing import (
     get_available_encoders,
     probe_bitrate_bps,
     probe_duration,
-    probe_ffmpeg_can_decode_image_frame,
     probe_has_audio_stream,
     probe_video_dimensions,
 )
@@ -48,16 +45,13 @@ __all__ = [
     "build_audio_concat_filter_graph",
     "build_filter_graph_script",
     "build_video_audio_concat_filter_graph",
-    "build_video_audio_concat_filter_graph_with_title_overlay",
     "build_video_lavfi_audio_concat_filter_graph",
-    "build_video_lavfi_audio_concat_filter_graph_with_title_overlay",
     "write_filter_graph_script",
     "BITRATE_FALLBACK_BPS",
     "can_run_encoder",
     "get_available_encoders",
     "probe_bitrate_bps",
     "probe_duration",
-    "probe_ffmpeg_can_decode_image_frame",
     "probe_has_audio_stream",
     "probe_video_dimensions",
     "ExecutionMode",

@@ -161,14 +161,6 @@ class MediaManagerClient:
         except Exception as e:
             raise MediaManagerError(f"Failed to fetch original files: {e}")
 
-    def get_subtitle_files(self) -> list[dict]:
-        try:
-            resp = self._client.get(self._url('/api/files?type=subtitle'))
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as e:
-            raise MediaManagerError(f"Failed to fetch subtitle files: {e}")
-    
     def check_exists(self, file_id: str, file_type: str = 'audio') -> bool:
         """Check if file exists on server by ID and type."""
         try:
@@ -343,7 +335,6 @@ class MediaManagerClient:
         mime = {
             '.ogg': 'application/ogg', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/x-m4a',
             '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska', '.webm': 'video/webm',
-            '.srt': 'application/x-subrip',
         }.get(path.suffix.lower(), 'video/mp4' if file_type != 'audio' else 'audio/ogg')
         payload = {
             'id': file_id, 'type': file_type, 'title': title, 'tags': tags,
@@ -454,7 +445,7 @@ class MediaManagerClient:
         progress_callback: callable = None,
         skip_if_exists_with_title: bool = False,
         source_id: str | None = None,
-        media_variant: str = 'pipeline-final',
+        media_variant: str = 'no-overlay',
         visibility: str = 'active',
         publication_status: str = 'published',
     ) -> dict:
@@ -578,56 +569,6 @@ class MediaManagerClient:
             raise MediaManagerError("Server-side snippet analysis returned an invalid title")
         return transcript.strip(), title.strip()
 
-    def upload_overlay_logo_if_missing(self, logo_path: Path) -> bool:
-        """Seed the project's server-side PNG logo once without replacing an admin logo."""
-        if not logo_path.is_file():
-            return False
-        size = logo_path.stat().st_size
-        if size <= 0 or size > 10 * 1024 * 1024:
-            raise MediaManagerError("Overlay logo must be a PNG no larger than 10 MiB")
-        # The control plane is JSON; bytes go straight to R2 by presigned URL,
-        # matching the proven original-upload transport on Windows.
-        content = logo_path.read_bytes()
-        checksum = hashlib.sha256(content).hexdigest()
-        payload = {"size": size, "checksum_sha256": checksum}
-        for attempt in range(1, 4):
-            try:
-                initiated = self._client.post(
-                    self._url("/api/overlay-logo-if-missing/initiate"), json=payload,
-                )
-                initiated.raise_for_status()
-                result = initiated.json()
-                if not isinstance(result, dict) or result.get("ok") is not True:
-                    raise MediaManagerError("Overlay logo upload returned an invalid response")
-                if result.get("already_configured"):
-                    return False
-                upload_url = result.get("upload_url")
-                if not isinstance(upload_url, str) or not upload_url.startswith("https://"):
-                    raise MediaManagerError("Overlay logo upload did not return a valid presigned URL")
-                uploaded = httpx.put(upload_url, content=content, headers={"Content-Type": "image/png"}, timeout=VIDEO_UPLOAD_TIMEOUT)
-                uploaded.raise_for_status()
-                completed = self._client.post(
-                    self._url("/api/overlay-logo-if-missing/complete"), json=payload,
-                )
-                completed.raise_for_status()
-                result = completed.json()
-                if not isinstance(result, dict) or result.get("ok") is not True:
-                    raise MediaManagerError("Overlay logo completion returned an invalid response")
-                return bool(result.get("uploaded"))
-            except httpx.HTTPError as exc:
-                if attempt == 3:
-                    raise MediaManagerError(f"Overlay logo upload failed after {attempt} attempts: {exc}") from exc
-                time.sleep(PART_RETRY_DELAYS_SEC[attempt - 1])
-        raise AssertionError("unreachable")
-
-    def upload_subtitle(self, source_id: str, title: str, subtitle_path: Path) -> bool:
-        """Upload the pipeline-generated SRT under its deterministic source ID."""
-        self._upload_presigned(
-            file_id=f'{source_id}-subtitles', file_type='subtitle', title=title,
-            path=subtitle_path, tags=[], source_id=source_id,
-        )
-        return True
-    
     def update_tags(self, file_id: str, tags: list, file_type: str = 'audio') -> bool:
         """Update file tags.
         
@@ -645,17 +586,6 @@ class MediaManagerClient:
             return True
         except Exception as e:
             raise MediaManagerError(f"Tag update failed for {file_id}: {e}") from e
-
-    def publish_video(self, file_id: str) -> bool:
-        """Promote an active video through explicit publication state."""
-        try:
-            response = self._client.post(
-                self._url(f'/api/files/{quote(file_id, safe="")}/publish')
-            )
-            response.raise_for_status()
-            return True
-        except Exception as exc:
-            raise MediaManagerError(f'Failed to publish video {file_id}: {exc}') from exc
 
     def delete_file(self, file_id: str, file_type: str = 'video') -> bool:
         """Delete a file (trash first, then permanently).

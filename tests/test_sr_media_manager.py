@@ -156,42 +156,6 @@ class TestMediaManagerClient:
             client.analyze_ogg_snippet(snippet)
         client._client.post.assert_not_called()
 
-    def test_upload_overlay_logo_if_missing_uses_presigned_r2_transport(self, tmp_path):
-        logo = tmp_path / "logo.png"
-        logo.write_bytes(b"\x89PNG\r\n\x1a\nlogo")
-        client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
-        client._client = Mock()
-        initiated = Mock()
-        initiated.json.return_value = {"ok": True, "upload_url": "https://objects.example/logo"}
-        completed = Mock()
-        completed.json.return_value = {"ok": True, "uploaded": True}
-        client._client.post.side_effect = [initiated, completed]
-        r2_response = Mock()
-
-        with patch("sr_media_manager.api.httpx.put", return_value=r2_response) as put:
-            assert client.upload_overlay_logo_if_missing(logo) is True
-
-        assert client._client.post.call_args_list[0].args[0].endswith("/api/overlay-logo-if-missing/initiate")
-        assert client._client.post.call_args_list[1].args[0].endswith("/api/overlay-logo-if-missing/complete")
-        assert put.call_args.args[0] == "https://objects.example/logo"
-        assert put.call_args.kwargs["content"] == logo.read_bytes()
-
-    def test_upload_overlay_logo_if_missing_retries_connection_reset(self, tmp_path, monkeypatch):
-        logo = tmp_path / "logo.png"
-        logo.write_bytes(b"\x89PNG\r\n\x1a\nlogo")
-        client = MediaManagerClient("https://example.com/projects/TOKEN123/lessons/")
-        client._client = Mock()
-        initiated = Mock()
-        initiated.json.return_value = {"ok": True, "upload_url": "https://objects.example/logo"}
-        complete = Mock()
-        complete.json.return_value = {"ok": True, "uploaded": False}
-        client._client.post.side_effect = [initiated, initiated, complete]
-        monkeypatch.setattr("sr_media_manager.api.time.sleep", lambda _seconds: None)
-
-        with patch("sr_media_manager.api.httpx.put", side_effect=[httpx.ReadError("reset"), Mock()] ) as put:
-            assert client.upload_overlay_logo_if_missing(logo) is False
-        assert put.call_count == 2
-
     def test_upload_original_aborts_session_after_part_failure(self, tmp_path):
         original = tmp_path / "source.mp4"
         original.write_bytes(b"original-video-bytes")
@@ -445,18 +409,9 @@ class TestVideoOverwrite:
         assert upload.call_args.kwargs["file_type"] == "video"
         assert upload.call_args.kwargs["path"] == video_path
         assert upload.call_args.kwargs["tags"] == []
-        assert upload.call_args.kwargs["media_variant"] == "pipeline-final"
+        assert upload.call_args.kwargs["media_variant"] == "no-overlay"
         assert upload.call_args.kwargs["visibility"] == "active"
         assert upload.call_args.kwargs["publication_status"] == "published"
-
-    def test_publish_video_uses_explicit_state_endpoint(self):
-        with patch("httpx.Client") as http_client:
-            client = self._client(http_client)
-            assert client.publish_video("video/id") is True
-
-        request = http_client.return_value.post
-        assert request.call_args.args[0].endswith("/api/files/video%2Fid/publish")
-        request.return_value.raise_for_status.assert_called_once_with()
 
     def test_upload_video_failure_logs_context(self, tmp_path, capsys):
         """Video upload failures should expose enough context to diagnose retry loops."""
