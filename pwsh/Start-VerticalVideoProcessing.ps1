@@ -1,10 +1,6 @@
 param(
     [ValidateSet("QSV", "AMF", "X265")]
-    [string]$Encoder = "QSV",
-
-    [double]$TitleYFraction = (1.0 / 6.0),
-
-    [double]$TitleHeightFraction = (1.0 / 6.0)
+    [string]$Encoder = "QSV"
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,12 +38,6 @@ $pipelineArgs = @(
     $Encoder
     "--target-length"
     "179"
-    "--enable-title-overlay"
-    "--enable-logo-overlay"
-    "--title-y-fraction"
-    $TitleYFraction.ToString([System.Globalization.CultureInfo]::InvariantCulture)
-    "--title-height-fraction"
-    $TitleHeightFraction.ToString([System.Globalization.CultureInfo]::InvariantCulture)
 )
 
 & uv @pipelineArgs

@@ -34,6 +34,21 @@ def test_parse_args_accepts_non_target_names(monkeypatch, tmp_path):
     assert parsed.non_target_pad_sec == 0.5
 
 
+@pytest.mark.parametrize(
+    "removed_flag",
+    [
+        ["--enable-title-overlay"],
+        ["--enable-logo-overlay"],
+        ["--title-font", "Noto Naskh Arabic"],
+        ["--title-y-fraction", "0.2"],
+        ["--title-height-fraction", "0.2"],
+    ],
+)
+def test_parse_args_rejects_removed_overlay_flags(monkeypatch, tmp_path, removed_flag):
+    with pytest.raises(SystemExit):
+        _parse_args_with(monkeypatch, [str(tmp_path), *removed_flag])
+
+
 def test_parse_args_accepts_local_title_and_trim_only(monkeypatch, tmp_path):
     parsed = _parse_args_with(monkeypatch, [str(tmp_path), "--local-title-and-trim-only"])
 
@@ -89,9 +104,6 @@ def test_startup_context_reads_non_target_trim_flags(monkeypatch, tmp_path):
             non_target_noise_threshold=-44.0,
             non_target_min_duration=1.7,
             non_target_pad_sec=0.8,
-            title_font="Noto Naskh Arabic",
-            enable_title_overlay=False,
-            enable_logo_overlay=False,
         )
     )
 

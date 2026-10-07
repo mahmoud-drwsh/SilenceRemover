@@ -17,9 +17,6 @@ def test_local_title_and_trim_only_runs_no_subtitle_overlay_or_upload_phases(mon
         min_duration=1.0,
         pad_sec=0.5,
         output_dir=tmp_path / "output",
-        title_font="Noto Naskh Arabic",
-        enable_title_overlay=False,
-        enable_logo_overlay=False,
     )
     phase_indexes: list[int] = []
 
@@ -35,8 +32,6 @@ def test_local_title_and_trim_only_runs_no_subtitle_overlay_or_upload_phases(mon
         Namespace(
             local_title_and_trim_only=True,
             encoder="X265",
-            title_y_fraction=None,
-            title_height_fraction=None,
         )
     )
 
