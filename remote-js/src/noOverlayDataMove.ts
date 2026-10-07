@@ -471,3 +471,30 @@ export function isRemuxTempKey(objectKey: string): boolean {
 export function isSubtitleKey(objectKey: string): boolean {
   return /^subtitle\/[^/]+\/[^/]+$/.test(objectKey);
 }
+
+/** The result of the guarded row lock before a delete. */
+export type LockResult = "ok" | "missing" | "refused";
+
+/** The steps of one row delete. The script runs them in one transaction. */
+export interface RowDeleteSteps {
+  /** Lock the row (SELECT ... FOR UPDATE) and check all guards. */
+  lock(): Promise<LockResult>;
+  /** Delete the objects of the row. An object that is missing is not an error. */
+  deleteObjects(): Promise<void>;
+  /** Delete the locked row. Returns false when no row was deleted. */
+  deleteRow(): Promise<boolean>;
+}
+
+/**
+ * Delete one row and its objects in this order: lock and guard, objects, row.
+ * A refused or missing row deletes nothing. When the row delete fails after
+ * the objects are gone, this throws, so that the transaction rolls back and
+ * the next apply finds the row again.
+ */
+export async function deleteRowWithObjects(steps: RowDeleteSteps): Promise<"deleted" | "missing" | "refused"> {
+  const lock = await steps.lock();
+  if (lock !== "ok") return lock;
+  await steps.deleteObjects();
+  if (!(await steps.deleteRow())) throw new Error("The locked row was not deleted");
+  return "deleted";
+}

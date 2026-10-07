@@ -24,12 +24,13 @@
  * the removed schema.
  */
 import { AbortMultipartUploadCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import type { TransactionSql } from "postgres";
 import { loadConfig } from "../src/config.ts";
 import { closeDb, getDb, schemaIdent } from "../src/db.ts";
 import { MIME_TO_EXT, getExtensionForMime } from "../src/mime.ts";
 import {
   isRemovedWorkerTempKey, isRemuxTempKey, isSubtitleKey,
-  parseTags, planNoOverlayDataMove, remuxTempPrefix, subtitlePrefix, toBytes, videoRole, workerTempPrefix,
+  parseTags, planNoOverlayDataMove, remuxTempPrefix, subtitlePrefix, toBytes, deleteRowWithObjects, workerTempPrefix,
   type DataMovePlan, type OverlaidItem, type StateCopy, type VideoRow,
 } from "../src/noOverlayDataMove.ts";
 import { getS3Client, storageObjectKey } from "../src/storage.ts";
@@ -349,29 +350,77 @@ function moveWork(plan: DataMovePlan): number {
   return plan.designer_relinks.length + plan.pointer_moves.length + plan.title_copies.length + plan.state_copies.length;
 }
 
-async function deleteOverlaid(item: OverlaidItem, refused: string[]): Promise<void> {
-  const rows = await sql.unsafe<(VideoRow & { blocked: boolean })[]>(`
-    SELECT f.project,f.id,f.source_id,f.designer_of_id,f.active_designer_revision_id,f.media_variant,f.tags,f.title,f.review_status,f.visibility,f.publication_status,f.file_size,f.mime_type,f.created_at,
-           ${POINTS_AT_F} AS blocked
-    FROM ${ident}.files f WHERE f.project=$1 AND f.id=$2 AND f.type='video'`, [item.project, item.id]);
-  const row = rows[0];
-  if (!row) return;
-  if (videoRole(row) !== "overlaid") throw new Error(`Refusing to delete ${item.project}/${item.id}: it is not an overlaid video`);
-  if (row.blocked) {
-    refused.push(`${item.project}/${item.id}`);
-    return;
-  }
-  for (const objectKey of overlaidObjectKeys(item)) await deleteObject(objectKey);
-  const deleted = await sql.unsafe(`
-    DELETE FROM ${ident}.files f
-    WHERE f.project=$1 AND f.id=$2 AND f.type='video'
+/**
+ * Guards for the delete of the overlaid row `f`. It is a pipeline-final video
+ * that is not a designer or no-overlay row, and no designer revision points
+ * at it. When the plan found a companion ($3), that no-overlay row must still
+ * exist. When the plan found none, the row must have no active pointer.
+ */
+const OVERLAID_DELETE_GUARDS = `
+      f.type='video'
       AND f.designer_of_id IS NULL AND f.id NOT LIKE '%-designer' AND f.id NOT LIKE '%-no-overlay'
       AND f.id !~* '-designer-[0-9a-f-]{36}$'
       AND ${videoVariantSql("f")}='pipeline-final'
       AND NOT ${POINTS_AT_F}
-    RETURNING f.id`, [item.project, item.id]);
-  if (deleted.length === 1) count(item.companion_id ? "overlaid_videos" : "overlaid_videos_without_no_overlay");
-  else refused.push(`${item.project}/${item.id}`);
+      AND (CASE WHEN $3::text IS NULL THEN f.active_designer_revision_id IS NULL
+        ELSE EXISTS (SELECT 1 FROM ${ident}.files n WHERE n.project=f.project AND n.id=$3 AND n.type='video' AND ${videoVariantSql("n")}='no-overlay') END)`;
+
+type Tx = TransactionSql;
+
+/**
+ * Delete one row and its objects in one transaction: lock the row with all
+ * guards, delete the objects, delete the row, commit. A refused row keeps its
+ * objects. The step count changes only after the commit, so --stop-after
+ * never rolls back a row whose objects are gone.
+ */
+async function guardedDelete(
+  name: string, label: string, refused: string[], objectKeys: string[],
+  lock: (tx: Tx) => Promise<Array<{ allowed: boolean }>>, remove: (tx: Tx) => Promise<unknown[]>,
+): Promise<void> {
+  const result = await sql.begin((tx) => deleteRowWithObjects({
+    lock: async () => {
+      const rows = await lock(tx);
+      if (rows.length === 0) return "missing";
+      return rows[0]!.allowed ? "ok" : "refused";
+    },
+    deleteObjects: async () => { for (const objectKey of objectKeys) await deleteObject(objectKey); },
+    deleteRow: async () => (await remove(tx)).length === 1,
+  }));
+  if (result === "refused") refused.push(label);
+  if (result === "deleted") count(name);
+}
+
+async function deleteOverlaid(item: OverlaidItem, refused: string[]): Promise<void> {
+  const params = [item.project, item.id, item.companion_id];
+  await guardedDelete(
+    item.companion_id ? "overlaid_videos" : "overlaid_videos_without_no_overlay", `${item.project}/${item.id}`, refused, overlaidObjectKeys(item),
+    (tx) => tx.unsafe<Array<{ allowed: boolean }>>(`
+      SELECT (${OVERLAID_DELETE_GUARDS}) AS allowed
+      FROM ${ident}.files f WHERE f.project=$1 AND f.id=$2 AND f.type='video'
+      FOR UPDATE OF f`, params),
+    (tx) => tx.unsafe(`
+      DELETE FROM ${ident}.files f
+      WHERE f.project=$1 AND f.id=$2 AND ${OVERLAID_DELETE_GUARDS}
+      RETURNING f.id`, params),
+  );
+}
+
+async function deleteSubtitle(row: SubtitleRow, refused: string[]): Promise<void> {
+  await guardedDelete(
+    "subtitle_files", `${row.project}/${row.id}`, refused, subtitleObjectKeys(row),
+    (tx) => tx.unsafe<Array<{ allowed: boolean }>>(
+      `SELECT true AS allowed FROM ${ident}.files WHERE project=$1 AND id=$2 AND type='subtitle' FOR UPDATE`, [row.project, row.id]),
+    (tx) => tx.unsafe(`DELETE FROM ${ident}.files WHERE project=$1 AND id=$2 AND type='subtitle' RETURNING id`, [row.project, row.id]),
+  );
+}
+
+async function deleteLogo(projectName: string, refused: string[]): Promise<void> {
+  await guardedDelete(
+    "project_logos", `logo ${projectName}`, refused, [logoObjectKey(projectName)],
+    (tx) => tx.unsafe<Array<{ allowed: boolean }>>(
+      `SELECT true AS allowed FROM ${ident}.project_overlay_logos WHERE project=$1 FOR UPDATE`, [projectName]),
+    (tx) => tx.unsafe(`DELETE FROM ${ident}.project_overlay_logos WHERE project=$1 RETURNING project`, [projectName]),
+  );
 }
 
 async function runApply(): Promise<number> {
@@ -389,22 +438,15 @@ async function runApply(): Promise<number> {
     throw new Error("Designer links, pointers, titles or state are still left to move. No row was deleted. Run apply again.");
   }
 
-  // Step 3: overlaid videos. Delete the object first, then the row, so a retry finds the row again.
+  // Step 3: overlaid videos. Each row is locked and guarded in a transaction
+  // before its objects are deleted. A refused row keeps its objects.
   const refused: string[] = [];
   for (const item of inv.plan.overlaid_deletes) await deleteOverlaid(item, refused);
 
   // Step 4: SRTs, logos, remux jobs, subtitle sessions and temp objects.
-  for (const row of inv.subtitles) {
-    for (const objectKey of subtitleObjectKeys(row)) await deleteObject(objectKey);
-    await sql.unsafe(`DELETE FROM ${ident}.files WHERE project=$1 AND id=$2 AND type='subtitle'`, [row.project, row.id]);
-    count("subtitle_files");
-  }
+  for (const row of inv.subtitles) await deleteSubtitle(row, refused);
   for (const entry of inv.subtitleOrphans) { await deleteObject(entry.key); count("subtitle_orphan_objects"); }
-  for (const row of inv.logos) {
-    await deleteObject(logoObjectKey(row.project));
-    await sql.unsafe(`DELETE FROM ${ident}.project_overlay_logos WHERE project=$1`, [row.project]);
-    count("project_logos");
-  }
+  for (const row of inv.logos) await deleteLogo(row.project, refused);
   for (const entry of inv.logoOrphans) { await deleteObject(entry.key); count("logo_orphan_objects"); }
   if (inv.schema.subtitle_remux_jobs_table && inv.remuxJobs.length > 0) {
     const deleted = await sql.unsafe(`DELETE FROM ${ident}.subtitle_remux_jobs WHERE ($1::text IS NULL OR project=$1) RETURNING id`, [project]);
@@ -427,7 +469,7 @@ async function runApply(): Promise<number> {
   const blocked = after.plan.blocked_overlaid.length + refused.length;
   console.log(`SUMMARY ${JSON.stringify({ mode: "apply", project: project ?? "all-projects", done, refused, after: summary(afterGroups), schema: after.schema })}`);
   if (blocked > 0) {
-    console.error(`Apply left ${after.plan.blocked_overlaid.length} blocked overlaid videos. A designer revision still points at each one. See blocked_overlaid_videos.`);
+    console.error(`Apply left ${after.plan.blocked_overlaid.length} blocked overlaid videos (see blocked_overlaid_videos) and refused ${refused.length} deletes because a guard failed (see refused). The refused rows keep their objects.`);
     return 3;
   }
   return 0;

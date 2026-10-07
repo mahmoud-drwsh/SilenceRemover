@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  isRemovedWorkerTempKey, isRemuxTempKey, planNoOverlayDataMove, stateCopy, videoRole, type VideoRow,
+  deleteRowWithObjects, isRemovedWorkerTempKey, isRemuxTempKey, planNoOverlayDataMove, stateCopy, videoRole, type VideoRow,
 } from "./noOverlayDataMove.ts";
 
 let clock = 0;
@@ -216,5 +216,42 @@ describe("temp object keys", () => {
     expect(isRemovedWorkerTempKey("source-processing/p/job/lease/no_overlay_video")).toBe(false);
     expect(isRemuxTempKey("remux/p/job.mp4")).toBe(true);
     expect(isRemuxTempKey("video/p/job.mp4")).toBe(false);
+  });
+});
+
+describe("guarded row delete", () => {
+  function steps(lock: "ok" | "missing" | "refused", rowDeleted = true) {
+    const calls: string[] = [];
+    return {
+      calls,
+      steps: {
+        lock: async () => { calls.push("lock"); return lock; },
+        deleteObjects: async () => { calls.push("objects"); },
+        deleteRow: async () => { calls.push("row"); return rowDeleted; },
+      },
+    };
+  }
+
+  test("deletes the objects, then the row, after the guarded lock", async () => {
+    const run = steps("ok");
+    expect(await deleteRowWithObjects(run.steps)).toBe("deleted");
+    expect(run.calls).toEqual(["lock", "objects", "row"]);
+  });
+
+  test("a refused row keeps its objects", async () => {
+    const run = steps("refused");
+    expect(await deleteRowWithObjects(run.steps)).toBe("refused");
+    expect(run.calls).toEqual(["lock"]);
+  });
+
+  test("a missing row deletes nothing", async () => {
+    const run = steps("missing");
+    expect(await deleteRowWithObjects(run.steps)).toBe("missing");
+    expect(run.calls).toEqual(["lock"]);
+  });
+
+  test("a row delete that fails throws so that the transaction rolls back", async () => {
+    const run = steps("ok", false);
+    await expect(deleteRowWithObjects(run.steps)).rejects.toThrow("not deleted");
   });
 });
