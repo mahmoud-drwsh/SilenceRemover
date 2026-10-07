@@ -29,9 +29,6 @@ import { normalizeTitle, sanitizeFileId } from "../sanitize.ts";
 import {
   storageDelete,
   storageDeleteAnyExtension,
-  presignProjectOverlayLogoPut,
-  storageProjectOverlayLogoSha256,
-  storagePutProjectOverlayLogo,
   storagePutBytes,
 } from "../storage.ts";
 import { probeDurationSeconds } from "../ffprobe.ts";
@@ -40,8 +37,16 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { createHash } from "node:crypto";
 import { rehearseOriginalRootedBackfill } from "../originalRootedRehearsal.ts";
+import {
+  cardTitleNeedsLegacySql,
+  legacyOverlaidMatchSql,
+  legacyOverlaidOrderSql,
+  normalizedTagsSql,
+  publicationStatusSql,
+  videoVariantSql,
+  visibilitySql,
+} from "../videoSql.ts";
 
 export const filesRouter = new Hono();
 
@@ -50,86 +55,6 @@ filesRouter.get("/projects/:token/:project/api/original-rooted-rehearsal", async
   const { token, project } = c.req.param();
   await verifyMediaToken(token);
   return c.json(await rehearseOriginalRootedBackfill(project));
-});
-
-const MAX_OVERLAY_LOGO_BYTES = 10 * 1024 * 1024;
-const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-
-/**
- * Client migration seam: a project media token may seed its logo once, but
- * cannot replace an existing admin-managed logo.
- */
-filesRouter.put("/projects/:token/:project/api/overlay-logo-if-missing", async (c) => {
-  const { token, project } = c.req.param();
-  await verifyMediaToken(token);
-  const contentType = c.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-  const declaredLength = Number(c.req.header("content-length"));
-  if (contentType !== "image/png") throw new HttpError(415, "Overlay logo must be an image/png file");
-  if (!Number.isSafeInteger(declaredLength) || declaredLength <= 0 || declaredLength > MAX_OVERLAY_LOGO_BYTES) {
-    throw new HttpError(413, "Overlay logo must be no larger than 10 MiB");
-  }
-  const sql = getDb(); const ident = schemaIdent();
-  const existing = (await sql.unsafe<{ project: string }[]>(
-    `SELECT project FROM ${ident}.project_overlay_logos WHERE project=$1`, [project],
-  ))[0];
-  if (existing) return c.json({ ok: true, uploaded: false, reason: "already_configured" });
-  const bytes = new Uint8Array(await c.req.arrayBuffer());
-  if (bytes.byteLength !== declaredLength || bytes.byteLength < PNG_SIGNATURE.byteLength || !PNG_SIGNATURE.every((value, index) => bytes[index] === value)) {
-    throw new HttpError(415, "Overlay logo content is not a PNG file");
-  }
-  const projectExists = (await sql.unsafe<{ project: string }[]>(
-    `SELECT project FROM ${ident}.files WHERE project=$1 LIMIT 1`, [project],
-  ))[0];
-  if (!projectExists) throw new HttpError(404, "Project not found");
-  const checksum = createHash("sha256").update(bytes).digest("hex");
-  await storagePutProjectOverlayLogo(project, bytes);
-  const inserted = await sql.unsafe<{ project: string }[]>(`
-    INSERT INTO ${ident}.project_overlay_logos (project, checksum_sha256, file_size, updated_at)
-    VALUES ($1,$2,$3,now())
-    ON CONFLICT (project) DO NOTHING
-    RETURNING project`, [project, checksum, bytes.byteLength]);
-  if (!inserted[0]) return c.json({ ok: true, uploaded: false, reason: "already_configured" });
-  return c.json({ ok: true, uploaded: true, checksum_sha256: checksum, file_size: bytes.byteLength }, 201);
-});
-
-function parseLogoSeedPayload(body: unknown): { size: number; checksum: string } {
-  const value = body as { size?: unknown; checksum_sha256?: unknown } | null;
-  const size = Number(value?.size);
-  const checksum = String(value?.checksum_sha256 ?? "").toLowerCase();
-  if (!Number.isSafeInteger(size) || size <= 0 || size > MAX_OVERLAY_LOGO_BYTES || !/^[a-f0-9]{64}$/.test(checksum)) {
-    throw new HttpError(400, "Valid PNG size and checksum_sha256 are required");
-  }
-  return { size, checksum };
-}
-
-/** JSON/R2 migration path for clients whose proxy resets binary requests. */
-filesRouter.post("/projects/:token/:project/api/overlay-logo-if-missing/initiate", async (c) => {
-  const { token, project } = c.req.param();
-  await verifyMediaToken(token);
-  const { size, checksum } = parseLogoSeedPayload(await c.req.json().catch(() => null));
-  const sql = getDb(); const ident = schemaIdent();
-  const existing = (await sql.unsafe<{ project: string }[]>(`SELECT project FROM ${ident}.project_overlay_logos WHERE project=$1`, [project]))[0];
-  if (existing) return c.json({ ok: true, already_configured: true });
-  const projectExists = (await sql.unsafe<{ project: string }[]>(`SELECT project FROM ${ident}.files WHERE project=$1 LIMIT 1`, [project]))[0];
-  if (!projectExists) throw new HttpError(404, "Project not found");
-  return c.json({ ok: true, already_configured: false, size, checksum_sha256: checksum, upload_url: await presignProjectOverlayLogoPut(project) });
-});
-
-filesRouter.post("/projects/:token/:project/api/overlay-logo-if-missing/complete", async (c) => {
-  const { token, project } = c.req.param();
-  await verifyMediaToken(token);
-  const { size, checksum } = parseLogoSeedPayload(await c.req.json().catch(() => null));
-  const sql = getDb(); const ident = schemaIdent();
-  const existing = (await sql.unsafe<{ project: string }[]>(`SELECT project FROM ${ident}.project_overlay_logos WHERE project=$1`, [project]))[0];
-  if (existing) return c.json({ ok: true, uploaded: false, reason: "already_configured" });
-  const stored = await storageProjectOverlayLogoSha256(project);
-  if (!stored || stored.size !== size || stored.checksum !== checksum) {
-    throw new HttpError(400, "Uploaded overlay logo verification failed");
-  }
-  const inserted = await sql.unsafe<{ project: string }[]>(`
-    INSERT INTO ${ident}.project_overlay_logos (project, checksum_sha256, file_size, updated_at)
-    VALUES ($1,$2,$3,now()) ON CONFLICT (project) DO NOTHING RETURNING project`, [project, checksum, size]);
-  return c.json({ ok: true, uploaded: Boolean(inserted[0]), reason: inserted[0] ? undefined : "already_configured" });
 });
 
 interface FileRow {
@@ -146,10 +71,8 @@ interface FileRow {
   original_filename: string | null;
   checksum_sha256: string | null;
   derived_title: string | null;
-  no_overlay_id: string | null;
   designer_video_id: string | null;
   active_designer_revision_id: string | null;
-  subtitle_id: string | null;
   designer_of_id: string | null;
   media_variant: string | null;
   review_status: string | null;
@@ -208,10 +131,8 @@ function rowToResponse(row: FileRow): FileResponse {
     original_filename: row.original_filename ?? null,
     checksum_sha256: row.checksum_sha256 ?? null,
     derived_title: row.derived_title ?? null,
-    no_overlay_id: row.no_overlay_id ?? null,
     designer_video_id: row.designer_video_id ?? null,
     active_designer_revision_id: row.active_designer_revision_id ?? null,
-    subtitle_id: row.subtitle_id ?? null,
     designer_of_id: row.designer_of_id ?? null,
     media_variant: mediaVariant,
     review_status: reviewStatus,
@@ -310,9 +231,6 @@ export async function resolveUploadOverwrite(
 
   if (fileType === "audio") {
     throw new HttpError(409, `Audio file with id '${fileId}' already exists`);
-  }
-  if (fileType === "subtitle") {
-    return true;
   }
 
   const oldTitle = normalizeTitle(existing.title);
@@ -429,18 +347,22 @@ export function addTagListConditions(args: {
   includeTrash: boolean;
   includePending: boolean;
   excludedTags?: string[];
+  /** Changes the `trash` tag condition, for example to use the card state. */
+  trashCondition?: (tagCondition: string) => string;
 }): void {
   const normalizedTagsSql =
     "CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END";
+  const trashCondition = args.trashCondition ?? ((tagCondition: string) => tagCondition);
 
   if (args.tagList) {
     for (const tag of args.tagList) {
       args.params.push([tag]);
-      args.conditions.push(`${normalizedTagsSql} @> CAST($${args.params.length} AS jsonb)`);
+      const tagCondition = `${normalizedTagsSql} @> CAST($${args.params.length} AS jsonb)`;
+      args.conditions.push(tag === "trash" ? trashCondition(tagCondition) : tagCondition);
     }
   } else if (!args.includeTrash) {
     args.params.push(["trash"]);
-    args.conditions.push(`NOT (${normalizedTagsSql} @> CAST($${args.params.length} AS jsonb))`);
+    args.conditions.push(`NOT (${trashCondition(`${normalizedTagsSql} @> CAST($${args.params.length} AS jsonb)`)})`);
   }
 
   for (const tag of args.excludedTags ?? []) {
@@ -450,17 +372,163 @@ export function addTagListConditions(args: {
 }
 
 /**
- * Video lists expose one canonical pipeline-final row per original. Linked
- * no-overlay and designer variants are represented on that row as actions,
- * never as duplicate cards.
+ * Video lists expose one canonical no-overlay row per original. Its designer
+ * revisions and its original are actions on that row, never duplicate cards.
+ * The explicit variant predicate selects the card; only designer tags stay
+ * excluded here, because legacy no-overlay rows carry a "no-overlay" tag.
  */
 export function excludedVideoVariantTags(
-  tagList: string[] | null,
+  _tagList: string[] | null,
   _designerMissing = false,
 ): string[] {
-  if (tagList?.includes("no-overlay")) return ["designer"];
-  return ["no-overlay", "designer"];
+  return ["designer"];
 }
+
+/** Virtual video views. Removed view names (#44) fall back to All. */
+export const VIDEO_VIEWS: ReadonlySet<string> = new Set(["all", "needs-designer", "designer", "pending", "trash"]);
+export const REMOVED_VIDEO_VIEWS: ReadonlySet<string> = new Set(["pipeline-final", "no-overlay"]);
+
+export { normalizedTagsSql, videoVariantSql };
+
+/* ========================================================================== */
+/* Legacy designer-link fallback (#44): remove after the data move.           */
+/*                                                                            */
+/* Before #44 the overlaid video (variant pipeline-final, usually ID          */
+/* `<source_id>`) was the canonical card. Old designer revisions point at it  */
+/* (designer_of_id) or use the `<overlaid id>-designer` ID. Its row can hold  */
+/* the active designer revision pointer, the approved title and the card      */
+/* state (trash, pending, review). The data move (#47) moves these to the     */
+/* no-overlay row. The rules are in the "Legacy overlaid contract" section of */
+/* src/videoSql.ts; remove that section too. After the data move:            */
+/*   - legacyOverlaidJoinSql: remove it and each `${legacyOverlaidJoinSql(...)}`*/
+/*     call (GET /api/files rows and count, stream.ts, uploads.ts, publish, */
+/*     PUT and DELETE in this file).                                          */
+/*   - designerLinkSql      -> `${candidate}.designer_of_id = ${card}.id`     */
+/*   - activeDesignerRevisionSql -> `${card}.active_designer_revision_id`     */
+/*   - canonicalVideoTitleSql    -> `${card}.title`                           */
+/*   - cardStateSql(legacy, column, expr) -> `expr`                           */
+/*   - cardTrashConditionSql: remove it (addTagListConditions uses the tag).  */
+/*   - writeThroughLegacyOverlaid: remove it and its calls.                  */
+/* ========================================================================== */
+
+/** Postgres client or transaction: the part that the helpers below use. */
+type SqlRunner = Pick<ReturnType<typeof getDb>, "unsafe">;
+
+/**
+ * LEFT JOIN LATERAL that finds the primary legacy overlaid row of the
+ * no-overlay card `card` one time, as the alias `legacy`. The row is NULL
+ * when `card` is not a no-overlay video or has no legacy overlaid row.
+ * The lateral gives only these columns, so it adds no ambiguous `project`,
+ * `type` or `tags` column to a query: id, title, active_designer_revision_id,
+ * visibility, publication_status, review_status (effective values).
+ */
+export function legacyOverlaidJoinSql(ident: string, card: string, legacy = "legacy"): string {
+  const row = `${legacy}_row`;
+  return `LEFT JOIN LATERAL (
+       SELECT ${row}.id, ${row}.title, ${row}.active_designer_revision_id,
+              ${visibilitySql(row)} AS visibility,
+              ${publicationStatusSql(row)} AS publication_status,
+              COALESCE(${row}.review_status, CASE WHEN ${normalizedTagsSql(row)} @> '["ready"]'::jsonb THEN 'approved' END) AS review_status
+         FROM ${ident}.files AS ${row}
+        WHERE ${card}.type = 'video' AND ${videoVariantSql(card)} = 'no-overlay'
+          AND ${legacyOverlaidMatchSql(card, row)}
+        ORDER BY ${legacyOverlaidOrderSql(row)}
+        LIMIT 1
+     ) AS ${legacy} ON TRUE`;
+}
+
+/**
+ * State rule: while a legacy overlaid row exists, the card state comes from
+ * it. `column` is visibility, publication_status or review_status, and
+ * `cardExpr` is the effective value of the card row itself.
+ */
+export function cardStateSql(legacy: string, column: "visibility" | "publication_status" | "review_status", cardExpr: string): string {
+  return `(CASE WHEN ${legacy}.id IS NOT NULL THEN ${legacy}.${column} ELSE ${cardExpr} END)`;
+}
+
+/** Trash condition for addTagListConditions: the legacy row wins over the card tag. */
+export function cardTrashConditionSql(legacy: string): (tagCondition: string) => string {
+  return (tagCondition) => `(CASE WHEN ${legacy}.id IS NOT NULL THEN ${legacy}.visibility = 'trash' ELSE ${tagCondition} END)`;
+}
+
+/**
+ * True when the candidate row is a designer revision of the card. The match
+ * includes the revisions of each legacy overlaid row, not only the primary
+ * row, because the data move relinks all of them. The probes start from the
+ * candidate ID columns, so each probe can use the primary key.
+ */
+export function designerLinkSql(ident: string, card: string, candidate: string): string {
+  return `(${candidate}.designer_of_id = ${card}.id
+    OR EXISTS (SELECT 1 FROM ${ident}.files AS legacy_link
+      WHERE (legacy_link.id = ${candidate}.designer_of_id
+          OR (${candidate}.id LIKE '%-designer' AND legacy_link.id = left(${candidate}.id, -length('-designer'))))
+        AND ${legacyOverlaidMatchSql(card, "legacy_link")}))`;
+}
+
+/**
+ * The active designer revision ID. The card's own pointer wins, then the
+ * pointer of the primary legacy overlaid row. When both are NULL, the list
+ * uses the newest linked revision.
+ */
+export function activeDesignerRevisionSql(card: string, legacy: string): string {
+  return `COALESCE(${card}.active_designer_revision_id, ${legacy}.active_designer_revision_id)`;
+}
+
+/**
+ * Title rule: the approved title of a video card. The card title wins. The
+ * legacy overlaid title is used only when the card title is blank or has the
+ * old " (No Overlay)" suffix, and the legacy title is not blank.
+ */
+export function canonicalVideoTitleSql(card: string, legacy: string): string {
+  return `(CASE WHEN ${legacy}.id IS NOT NULL AND ${cardTitleNeedsLegacySql(card)}
+      AND COALESCE(BTRIM(${legacy}.title), '') <> '' THEN BTRIM(${legacy}.title) ELSE ${card}.title END)`;
+}
+
+/**
+ * Write-through: a write that changes the state or the title of a no-overlay
+ * card also changes all of its legacy overlaid rows, in the same
+ * transaction. Then the state rule above reads the new value. Only the
+ * fields in `change` are written. Of the tags, only `trash` is changed.
+ * Returns the number of legacy rows that changed.
+ */
+export async function writeThroughLegacyOverlaid(
+  tx: SqlRunner,
+  ident: string,
+  project: string,
+  cardId: string,
+  change: { trash?: boolean; publicationStatus?: "pending" | "published"; title?: string | null },
+): Promise<number> {
+  const params: (string | boolean | null)[] = [cardId, project];
+  const sets: string[] = [];
+  if (change.trash !== undefined) {
+    params.push(change.trash);
+    const ref = `$${params.length}::boolean`;
+    sets.push(`tags = (${normalizedTagsSql("legacy")} - 'trash') || CASE WHEN ${ref} THEN '["trash"]'::jsonb ELSE '[]'::jsonb END`);
+    sets.push(`visibility = CASE WHEN ${ref} THEN 'trash' ELSE 'active' END`);
+  }
+  if (change.publicationStatus !== undefined) {
+    params.push(change.publicationStatus);
+    sets.push(`publication_status = $${params.length}`);
+  }
+  if (change.title !== undefined) {
+    params.push(change.title);
+    sets.push(`title = $${params.length}`);
+  }
+  if (sets.length === 0) return 0;
+  const rows = await tx.unsafe<{ id: string }[]>(
+    `UPDATE ${ident}.files AS legacy
+        SET ${sets.join(", ")}
+       FROM ${ident}.files AS card
+      WHERE card.id = $1 AND card.project = $2 AND card.type = 'video'
+        AND ${videoVariantSql("card")} = 'no-overlay'
+        AND ${legacyOverlaidMatchSql("card", "legacy")}
+      RETURNING legacy.id`,
+    params,
+  );
+  return rows.length;
+}
+
+/* ===================== End of legacy designer-link fallback ================ */
 
 /* -------------------------------------------------------------------------- */
 /* GET /api/files                                                             */
@@ -473,20 +541,25 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const url = new URL(c.req.url);
   const typeParam = url.searchParams.get("type") as FileType | null;
   const tagsParam = url.searchParams.get("tags") ?? undefined;
-  const view = url.searchParams.get("view") ?? undefined;
+  const requestedView = url.searchParams.get("view") ?? undefined;
   const sort = url.searchParams.get("sort") ?? "asc";
   const limitParam = url.searchParams.get("limit");
   const offsetParam = url.searchParams.get("offset");
   const checkId = url.searchParams.get("check_id");
   const checkTitle = url.searchParams.get("check_title");
-  const includeTrash = url.searchParams.get("include_trash") === "true";
+  const includeTrashParam = url.searchParams.get("include_trash") === "true";
   const includePending = url.searchParams.get("include_pending") === "true";
   const designerMissing = url.searchParams.get("designer_missing") === "true";
 
-  const validViews = new Set(["all", "needs-designer", "pipeline-final", "no-overlay", "designer", "pending", "trash", "todo", "approved"]);
-  if (view && !validViews.has(view)) throw new HttpError(400, "Invalid view parameter");
+  // A bookmark or an old cached page can still send a removed view name.
+  const view = requestedView && REMOVED_VIDEO_VIEWS.has(requestedView) ? "all" : requestedView;
+  // The Trash view shows trashed items, so it cannot also hide them.
+  const includeTrash = includeTrashParam || view === "trash";
+  if (view && !VIDEO_VIEWS.has(view) && view !== "todo" && view !== "approved") {
+    throw new HttpError(400, "Invalid view parameter");
+  }
 
-  if (typeParam && typeParam !== "audio" && typeParam !== "video" && typeParam !== "original" && typeParam !== "subtitle") {
+  if (typeParam && typeParam !== "audio" && typeParam !== "video" && typeParam !== "original") {
     throw new HttpError(400, "Invalid type parameter");
   }
 
@@ -521,7 +594,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     }
 
     const rows = await sql.unsafe<FileRow[]>(
-      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title, NULL::text AS no_overlay_id, NULL::text AS designer_video_id, NULL::text AS active_designer_revision_id, NULL::text AS subtitle_id, designer_of_id
+      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title, NULL::text AS designer_video_id, NULL::text AS active_designer_revision_id, designer_of_id, media_variant, review_status, visibility, publication_status
        FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = $3`,
       [sanitizedId, project, typeParam],
     );
@@ -565,21 +638,18 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   if (typeParam) {
     params.push(typeParam);
     conditions.push(`type = $${params.length}`);
+  } else {
+    // Old subtitle rows stay in the database until the data move (#44).
+    conditions.push("type IN ('audio', 'video', 'original')");
   }
 
-  // A designer upload is a linked presentation of a pipeline final, not a
-  // list item in its own right. This relationship is authoritative even for
-  // legacy rows whose tags were incomplete.
+  // The no-overlay video is the canonical card. A designer revision is a
+  // linked presentation of that card, not a list item in its own right.
+  // Legacy designer rows use the `-designer` suffix and no designer_of_id.
   if (typeParam === "video") {
     conditions.push("source.designer_of_id IS NULL");
-    // Legacy designer uploads used the deterministic `-designer` suffix
-    // before designer_of_id existed. Keep them on their parent card without
-    // mutating the historical row; the rehearsed backfill can later persist
-    // a relationship only when its original is proven.
     conditions.push("source.id NOT LIKE '%-designer'");
-    conditions.push(`COALESCE(source.media_variant,
-      CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay'
-           ELSE 'pipeline-final' END) = 'pipeline-final'`);
+    conditions.push(`${videoVariantSql("source")} = 'no-overlay'`);
   }
 
   if (designerMissing) {
@@ -588,30 +658,29 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
       SELECT 1 FROM ${ident}.files AS designer_candidate
       WHERE designer_candidate.project = source.project
         AND designer_candidate.type = 'video'
-        AND (designer_candidate.designer_of_id = source.id OR designer_candidate.id = source.id || '-designer')
-        AND NOT ((CASE WHEN jsonb_typeof(designer_candidate.tags) = 'string' THEN (designer_candidate.tags #>> '{}')::jsonb ELSE designer_candidate.tags END) @> '["trash"]'::jsonb)
+        AND ${designerLinkSql(ident, "source", "designer_candidate")}
+        AND NOT (${normalizedTagsSql("designer_candidate")} @> '["trash"]'::jsonb)
     )`);
   }
 
   // Virtual views are relationship/state queries. They never create a second
   // card for a derived object and do not depend on folder or publisher tags.
-  if (view === "trash") conditions.push(`COALESCE(source.visibility, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END) = 'trash'`);
-  if (view === "pending") conditions.push(`COALESCE(source.publication_status, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["pending"]'::jsonb THEN 'pending' ELSE 'published' END) = 'pending'`);
-  if (view === "todo") conditions.push(`COALESCE(source.review_status, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END) = 'todo'`);
-  if (view === "approved") conditions.push(`COALESCE(source.review_status, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END) = 'approved'`);
+  // The card state uses the legacy overlaid row while it exists.
+  const visibilityExpr = cardStateSql("legacy", "visibility", visibilitySql("source"));
+  const publicationExpr = cardStateSql("legacy", "publication_status", `COALESCE(source.publication_status, CASE WHEN ${normalizedTagsSql("source")} @> '["pending"]'::jsonb THEN 'pending' WHEN source.type='video' THEN 'published' ELSE NULL END)`);
+  const reviewExpr = cardStateSql("legacy", "review_status", `COALESCE(source.review_status, CASE WHEN ${normalizedTagsSql("source")} @> '["ready"]'::jsonb THEN 'approved' WHEN source.type='audio' THEN 'todo' ELSE NULL END)`);
+  if (view === "trash") conditions.push(`${visibilityExpr} = 'trash'`);
+  if (view === "pending") conditions.push(`${publicationExpr} = 'pending'`);
+  if (view === "todo") conditions.push(`COALESCE(${reviewExpr}, 'todo') = 'todo'`);
+  if (view === "approved") conditions.push(`COALESCE(${reviewExpr}, 'todo') = 'approved'`);
   if (view === "needs-designer") conditions.push(`NOT EXISTS (
     SELECT 1 FROM ${ident}.files candidate WHERE candidate.project=source.project
-      AND candidate.type='video' AND (candidate.designer_of_id=source.id OR candidate.id=source.id || '-designer')
-      AND COALESCE(candidate.visibility, CASE WHEN (CASE WHEN jsonb_typeof(candidate.tags)='string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END) <> 'trash'
-  )`);
-  if (view === "no-overlay") conditions.push(`EXISTS (
-    SELECT 1 FROM ${ident}.files candidate WHERE candidate.project=source.project
-      AND candidate.type='video' AND candidate.source_id=source.source_id
-      AND COALESCE(candidate.media_variant, CASE WHEN (CASE WHEN jsonb_typeof(candidate.tags)='string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay' ELSE 'pipeline-final' END)='no-overlay'
+      AND candidate.type='video' AND ${designerLinkSql(ident, "source", "candidate")}
+      AND COALESCE(candidate.visibility, CASE WHEN ${normalizedTagsSql("candidate")} @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END) <> 'trash'
   )`);
   if (view === "designer") conditions.push(`EXISTS (
     SELECT 1 FROM ${ident}.files candidate WHERE candidate.project=source.project
-      AND candidate.type='video' AND (candidate.designer_of_id=source.id OR candidate.id=source.id || '-designer')
+      AND candidate.type='video' AND ${designerLinkSql(ident, "source", "candidate")}
   )`);
 
   addTagListConditions({
@@ -621,7 +690,9 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     includeTrash,
     includePending,
     excludedTags: typeParam === "video" ? excludedVideoVariantTags(tagList, designerMissing) : [],
+    ...(typeParam === "video" ? { trashCondition: cardTrashConditionSql("legacy") } : {}),
   });
+  const legacyJoin = legacyOverlaidJoinSql(ident, "source");
 
   const whereClause = conditions.join(" AND ");
   const sortDirection = sort === "asc" ? "ASC" : "DESC";
@@ -638,13 +709,14 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   }
 
   const rowsPromise = sql.unsafe<FileRow[]>(
-    `SELECT source.id, source.project, source.type, source.title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, companion.id AS no_overlay_id, designer.id AS designer_video_id, source.active_designer_revision_id, subtitle.id AS subtitle_id, source.designer_of_id,
-       COALESCE(source.media_variant, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay' ELSE 'pipeline-final' END) AS media_variant,
-       COALESCE(source.review_status, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["ready"]'::jsonb THEN 'approved' WHEN source.type='audio' THEN 'todo' ELSE NULL END) AS review_status,
-       COALESCE(source.visibility, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END) AS visibility,
-       COALESCE(source.publication_status, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["pending"]'::jsonb THEN 'pending' WHEN source.type='video' THEN 'published' ELSE NULL END) AS publication_status,
+    `SELECT source.id, source.project, source.type, ${typeParam === "video" ? canonicalVideoTitleSql("source", "legacy") : "source.title"} AS title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, designer.id AS designer_video_id, active_designer.id AS active_designer_revision_id, source.designer_of_id,
+       ${videoVariantSql("source")} AS media_variant,
+       ${reviewExpr} AS review_status,
+       ${visibilityExpr} AS visibility,
+       ${publicationExpr} AS publication_status,
        review.id AS review_audio_id
      FROM ${ident}.files AS source
+     ${legacyJoin}
      LEFT JOIN LATERAL (
        SELECT title
        FROM ${ident}.files AS candidate
@@ -660,45 +732,19 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
        LIMIT 1
      ) AS derived ON TRUE
      LEFT JOIN LATERAL (
-       SELECT candidate.id
-       FROM ${ident}.files AS candidate
-       WHERE source.type = 'video'
-         AND COALESCE(source.media_variant,
-           CASE WHEN (CASE WHEN jsonb_typeof(source.tags) = 'string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay'
-                ELSE 'pipeline-final' END) <> 'no-overlay'
-         AND candidate.project = source.project
-         AND candidate.type = 'video'
-         AND (candidate.source_id = source.source_id OR (source.source_id IS NULL AND candidate.id = source.id || '-no-overlay'))
-         AND candidate.id <> source.id
-         AND COALESCE(candidate.media_variant,
-           CASE WHEN (CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay'
-                ELSE 'pipeline-final' END) = 'no-overlay'
-         AND COALESCE(candidate.visibility,
-           CASE WHEN (CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb THEN 'trash'
-                ELSE 'active' END) <> 'trash'
-       ORDER BY candidate.created_at DESC, candidate.id
-       LIMIT 1
-     ) AS companion ON TRUE
+       SELECT CASE WHEN source.type = 'video' THEN ${activeDesignerRevisionSql("source", "legacy")} END AS id
+     ) AS active_designer ON TRUE
      LEFT JOIN LATERAL (
        SELECT candidate.id
        FROM ${ident}.files AS candidate
        WHERE source.type = 'video'
          AND candidate.project = source.project
          AND candidate.type = 'video'
-        AND (candidate.id = source.active_designer_revision_id OR (source.active_designer_revision_id IS NULL AND (candidate.designer_of_id = source.id OR candidate.id = source.id || '-designer')))
-         AND NOT ((CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb)
+         AND (candidate.id = active_designer.id OR (active_designer.id IS NULL AND ${designerLinkSql(ident, "source", "candidate")}))
+         AND NOT (${normalizedTagsSql("candidate")} @> '["trash"]'::jsonb)
        ORDER BY candidate.created_at DESC, candidate.id
        LIMIT 1
      ) AS designer ON TRUE
-     LEFT JOIN LATERAL (
-       SELECT candidate.id
-       FROM ${ident}.files AS candidate
-       WHERE source.type = 'video'
-         AND candidate.project = source.project
-         AND candidate.type = 'subtitle'
-         AND candidate.id = COALESCE(source.source_id, source.id) || '-subtitles'
-       LIMIT 1
-     ) AS subtitle ON TRUE
      LEFT JOIN LATERAL (
        SELECT candidate.id FROM ${ident}.files AS candidate
        WHERE source.type='video' AND candidate.project=source.project AND candidate.type='audio'
@@ -713,7 +759,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
 
   const countPromise = pageSize !== null && pageOffset === 0
     ? sql.unsafe<{ total: string }[]>(
-      `SELECT COUNT(*)::text AS total FROM ${ident}.files AS source WHERE ${whereClause}`,
+      `SELECT COUNT(*)::text AS total FROM ${ident}.files AS source ${legacyJoin} WHERE ${whereClause}`,
       params.slice(0, params.length - 2),
     )
     : Promise.resolve(null);
@@ -998,7 +1044,7 @@ filesRouter.put("/projects/:token/:project/api/files/:id", async (c) => {
 
   const url = new URL(c.req.url);
   const typeRaw = url.searchParams.get("type");
-  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original" && typeRaw !== "subtitle") {
+  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original") {
     throw new HttpError(400, "Type parameter is required");
   }
   const fileType = typeRaw as FileType;
@@ -1041,25 +1087,33 @@ filesRouter.put("/projects/:token/:project/api/files/:id", async (c) => {
     tags = ["todo"];
   }
 
-  if (title !== undefined) {
-    await sql.unsafe(
-      `UPDATE ${ident}.files
-         SET tags = $1::jsonb, title = $2,
-             visibility = CASE WHEN $1::jsonb @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END,
-             review_status = CASE WHEN $5 = 'audio' THEN CASE WHEN $1::jsonb @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END ELSE review_status END
-         WHERE id = $3 AND project = $4 AND type = $5`,
-      [JSON.stringify(tags), title, id, project, rowType],
-    );
-  } else {
-    await sql.unsafe(
-      `UPDATE ${ident}.files
-         SET tags = $1::jsonb,
-             visibility = CASE WHEN $1::jsonb @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END,
-             review_status = CASE WHEN $4 = 'audio' THEN CASE WHEN $1::jsonb @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END ELSE review_status END
-         WHERE id = $2 AND project = $3 AND type = $4`,
-      [JSON.stringify(tags), id, project, rowType],
-    );
-  }
+  await sql.begin(async (tx) => {
+    if (title !== undefined) {
+      await tx.unsafe(
+        `UPDATE ${ident}.files
+           SET tags = $1::jsonb, title = $2,
+               visibility = CASE WHEN $1::jsonb @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END,
+               review_status = CASE WHEN $5 = 'audio' THEN CASE WHEN $1::jsonb @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END ELSE review_status END
+           WHERE id = $3 AND project = $4 AND type = $5`,
+        [JSON.stringify(tags), title, id, project, rowType],
+      );
+    } else {
+      await tx.unsafe(
+        `UPDATE ${ident}.files
+           SET tags = $1::jsonb,
+               visibility = CASE WHEN $1::jsonb @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END,
+               review_status = CASE WHEN $4 = 'audio' THEN CASE WHEN $1::jsonb @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END ELSE review_status END
+           WHERE id = $2 AND project = $3 AND type = $4`,
+        [JSON.stringify(tags), id, project, rowType],
+      );
+    }
+    if (rowType === "video") {
+      await writeThroughLegacyOverlaid(tx, ident, project, id, {
+        trash: tags.includes("trash"),
+        ...(title !== undefined ? { title } : {}),
+      });
+    }
+  });
 
   return c.json({
     ok: true,
@@ -1076,15 +1130,23 @@ filesRouter.post("/projects/:token/:project/api/files/:id/publish", async (c) =>
   if (!id) throw new HttpError(400, "Invalid file ID");
   const sql = getDb();
   const ident = schemaIdent();
-  const rows = await sql.unsafe<{ id: string }[]>(
-    `UPDATE ${ident}.files
-        SET publication_status='published'
-      WHERE id=$1 AND project=$2 AND type='video'
-        AND COALESCE(visibility, CASE WHEN (CASE WHEN jsonb_typeof(tags)='string' THEN (tags #>> '{}')::jsonb ELSE tags END) @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END)='active'
-      RETURNING id`,
-    [id, project],
-  );
-  if (!rows[0]) throw new HttpError(404, "Active video not found");
+  // The card must be active. While a legacy overlaid row exists, it holds
+  // the card state.
+  const published = await sql.begin(async (tx) => {
+    const rows = await tx.unsafe<{ id: string }[]>(
+      `UPDATE ${ident}.files AS card
+          SET publication_status='published'
+        WHERE card.id=$1 AND card.project=$2 AND card.type='video'
+          AND (SELECT ${cardStateSql("legacy", "visibility", visibilitySql("card"))}
+                 FROM (SELECT 1) AS one ${legacyOverlaidJoinSql(ident, "card")}) = 'active'
+        RETURNING card.id`,
+      [id, project],
+    );
+    if (!rows[0]) return false;
+    await writeThroughLegacyOverlaid(tx, ident, project, id, { publicationStatus: "published" });
+    return true;
+  });
+  if (!published) throw new HttpError(404, "Active video not found");
   return c.json({ ok: true, id, publication_status: "published" });
 });
 
@@ -1098,7 +1160,7 @@ filesRouter.delete("/projects/:token/:project/api/files/:id", async (c) => {
 
   const url = new URL(c.req.url);
   const typeRaw = url.searchParams.get("type");
-  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original" && typeRaw !== "subtitle") {
+  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original") {
     throw new HttpError(400, "Type parameter is required");
   }
   const fileType = typeRaw as FileType;
@@ -1115,10 +1177,12 @@ filesRouter.delete("/projects/:token/:project/api/files/:id", async (c) => {
     type: FileType;
     tags: unknown;
     mime_type: string;
+    legacy_visibility: string | null;
   }[]>(
-    `SELECT type, tags, mime_type
-       FROM ${ident}.files
-       WHERE id = $1 AND project = $2 AND type = $3`,
+    `SELECT file.type, file.tags, file.mime_type, legacy.visibility AS legacy_visibility
+       FROM ${ident}.files AS file
+       ${legacyOverlaidJoinSql(ident, "file")}
+       WHERE file.id = $1 AND file.project = $2 AND file.type = $3`,
     [id, project, fileType],
   );
   if (rows.length === 0) {
@@ -1126,7 +1190,9 @@ filesRouter.delete("/projects/:token/:project/api/files/:id", async (c) => {
   }
   const row = rows[0]!;
   const tags = parseTagsValue(row.tags);
-  if (!tags.includes("trash")) {
+  // While a legacy overlaid row exists, it holds the card state.
+  const trashed = row.legacy_visibility !== null ? row.legacy_visibility === "trash" : tags.includes("trash");
+  if (!trashed) {
     throw new HttpError(
       400,
       "Only trashed files can be deleted. Add 'trash' tag first.",

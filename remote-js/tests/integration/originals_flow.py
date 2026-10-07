@@ -1,9 +1,11 @@
 import hashlib
+import io
 import json
 import os
 import time
 import urllib.error
 import urllib.request
+import wave
 
 BASE = "http://app:8080/projects/test-token/test-project"
 SOURCE = "/fixtures/original.mp4"
@@ -180,88 +182,112 @@ assert stream.status == 206 and stream.read() == source[:100]
 download = json.load(request("/api/originals/source-001/download"))
 assert urllib.request.urlopen(download["url"], timeout=20).read() == source
 
-video = complete_session(initiate("derived-001", "video", digest, title="Derived", tags=["pending"], source_id="source-001"))
-assert video["ok"]
-clean_video = complete_session(initiate("derived-001-no-overlay", "video", digest, title="Derived (No Overlay)", tags=["no-overlay"], source_id="source-001"))
-assert clean_video["ok"]
+def status_of(path, method="GET", payload=None, headers=None, absolute=False):
+    """Return the HTTP status code of a request that can fail."""
+    try:
+        return request(path, method, payload, headers, absolute).status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+
+# Since #44 the no-overlay video is the only pipeline video and the canonical
+# card. Its designer revisions and its original are actions on that card.
+NO_OVERLAY = {"media_variant": "no-overlay", "visibility": "active", "publication_status": "published"}
+card_id = "derived-001-no-overlay"
+clean_video = complete_session(initiate(card_id, "video", digest, title="Derived", tags=[], source_id="source-001", **NO_OVERLAY))
+assert clean_video["ok"] and clean_video["id"] == card_id
 needs_designer = json.load(request("/api/files?type=video&designer_missing=true"))
-assert any(item["id"] == "derived-001" for item in needs_designer)
-designer_video = complete_session(initiate("ignored-client-id", "video", digest, title="Designer revision", designer_of_id="derived-001"))
-assert designer_video["ok"] and designer_video["id"].startswith("derived-001-designer-")
+assert any(item["id"] == card_id for item in needs_designer)
+designer_video = complete_session(initiate("ignored-client-id", "video", digest, title="Designer revision", designer_of_id=card_id))
+assert designer_video["ok"] and designer_video["id"].startswith(f"{card_id}-designer-")
 designer_video_id = designer_video["id"]
-designer_video_next = complete_session(initiate("ignored-client-id", "video", digest, title="Designer revision 2", designer_of_id="derived-001"))
-assert designer_video_next["ok"] and designer_video_next["id"].startswith("derived-001-designer-")
+designer_video_next = complete_session(initiate("ignored-client-id", "video", digest, title="Designer revision 2", designer_of_id=card_id))
+assert designer_video_next["ok"] and designer_video_next["id"].startswith(f"{card_id}-designer-")
 designer_video_next_id = designer_video_next["id"]
 assert designer_video_next_id != designer_video_id
 derived = json.load(request("/api/originals/source-001/derived"))
-assert {item["id"] for item in derived} == {"derived-001", "derived-001-no-overlay", designer_video_id, designer_video_next_id}
+assert {item["id"] for item in derived} == {card_id, designer_video_id, designer_video_next_id}
 normal_videos = json.load(request("/api/files?type=video"))
-normal = next(item for item in normal_videos if item["id"] == "derived-001")
-assert normal["no_overlay_id"] == "derived-001-no-overlay"
+normal = next(item for item in normal_videos if item["id"] == card_id)
+assert normal["media_variant"] == "no-overlay" and normal["title"] == "Derived"
 assert normal["designer_video_id"] == designer_video_next_id
 assert normal["active_designer_revision_id"] == designer_video_next_id
-assert all(item["id"] not in {"derived-001-no-overlay", designer_video_id, designer_video_next_id} for item in normal_videos)
+assert "no_overlay_id" not in normal and "subtitle_id" not in normal
+assert all(item["id"] not in {designer_video_id, designer_video_next_id} for item in normal_videos)
 needs_designer = json.load(request("/api/files?type=video&designer_missing=true"))
-assert all(item["id"] != "derived-001" for item in needs_designer)
-no_overlay_videos = json.load(request("/api/files?type=video&view=no-overlay"))
-assert any(item["id"] == "derived-001" for item in no_overlay_videos)
-assert all(item["id"] != "derived-001-no-overlay" for item in no_overlay_videos)
-clean_stream = request("/stream/derived-001-no-overlay?type=video", headers={"Range": "bytes=0-99"})
+assert all(item["id"] != card_id for item in needs_designer)
+# A removed view name opens All.
+removed_view = json.load(request("/api/files?type=video&view=no-overlay"))
+assert {item["id"] for item in removed_view} == {item["id"] for item in normal_videos}
+clean_stream = request(f"/stream/{card_id}?type=video", headers={"Range": "bytes=0-99"})
 assert clean_stream.status == 206 and clean_stream.read() == source[:100]
 
-# A verified SRT creates durable, checksum-pinned jobs for every linked video
-# variant. The worker uploads to a temporary key; completion atomically
-# promotes it without changing titles, tags, or links.
-srt = b"1\n00:00:00,000 --> 00:00:01,000\nArabic subtitle\n"
-srt_digest = hashlib.sha256(srt).hexdigest()
-srt_session = initiate(
-    "source-001-subtitles", "subtitle", srt_digest, payload_bytes=srt,
-    mime_type="application/x-subrip", title="Derived", source_id="source-001",
-)
-assert complete_session(srt_session, srt)["ok"]
-enqueued = json.load(request("/api/remux/enqueue", "POST", {}))
-assert enqueued["enqueued"] == 4
-claimed = json.load(request("/api/remux/claim", "POST", {}))["job"]
-assert claimed and claimed["input_checksum_sha256"] == digest
-upload = json.load(request(f"/api/remux/{claimed['id']}/upload", "POST", {
-    "lease_token": claimed["lease_token"], "size": len(source), "checksum_sha256": digest,
-}))
-urllib.request.urlopen(urllib.request.Request(
-    upload["upload_url"], data=source, headers={"Content-Type": "video/mp4"}, method="PUT",
-), timeout=20)
-promoted = json.load(request(f"/api/remux/{claimed['id']}/complete", "POST", {
-    "lease_token": claimed["lease_token"],
-}))
-assert promoted["ok"] and promoted["checksum_sha256"] == digest
-status = json.load(request("/api/remux/status"))
-assert status["states"]["completed"] == 1 and status["states"]["pending"] == 3
+# Review audio uploads still work.
+wav_buffer = io.BytesIO()
+with wave.open(wav_buffer, "wb") as wav_writer:
+    wav_writer.setnchannels(1)
+    wav_writer.setsampwidth(2)
+    wav_writer.setframerate(8000)
+    wav_writer.writeframes(b"\0\0" * 8000)
+wav = wav_buffer.getvalue()
+wav_digest = hashlib.sha256(wav).hexdigest()
+audio = complete_session(initiate(
+    "source-001", "audio", wav_digest, payload_bytes=wav, mime_type="audio/wav",
+    title="Derived", source_id="source-001",
+), wav)
+assert audio["ok"] and audio["type"] == "audio"
+audio_rows = json.load(request("/api/files?type=audio&check_id=source-001"))
+assert audio_rows[0]["review_status"] == "todo" and audio_rows[0]["source_id"] == "source-001"
 
-# The production pipeline's no-overlay videos are multipart uploads. Keep the
-# MP4 header valid while crossing the 8 MiB multipart boundary.
-multipart_clean = source + (b"\0" * (9 * 8 * 1024 * 1024))
-multipart_digest = hashlib.sha256(multipart_clean).hexdigest()
-multipart_session = initiate(
-    "derived-multipart-no-overlay", "video", multipart_digest,
-    payload_bytes=multipart_clean, title="Multipart (No Overlay)",
-    tags=["no-overlay"], source_id="source-001",
-)
-assert multipart_session.get("part_size")
-assert complete_session(multipart_session, multipart_clean)["ok"]
-renamed_download = json.load(request("/api/originals/source-001/download"))
-assert renamed_download["filename"] == "Derived.mp4"
+# New uploads cannot use the removed subtitle type or pipeline-final variant.
+srt = b"1\n00:00:00,000 --> 00:00:01,000\nArabic subtitle\n"
+assert status_of("/api/uploads/initiate", "POST", {
+    "id": "source-001-subtitles", "type": "subtitle", "mime_type": "application/x-subrip",
+    "file_size": len(srt), "checksum_sha256": hashlib.sha256(srt).hexdigest(),
+    "title": "Derived", "source_id": "source-001",
+}) == 400
+assert status_of("/api/uploads/initiate", "POST", {
+    "id": "source-001", "type": "video", "mime_type": "video/mp4",
+    "file_size": len(source), "checksum_sha256": digest, "title": "Derived",
+    "tags": [], "source_id": "source-001", "media_variant": "pipeline-final",
+    "visibility": "active", "publication_status": "published",
+}) == 400
+assert status_of("/api/files?type=subtitle") == 400
+assert status_of("/stream/source-001-subtitles?type=subtitle") == 400
+
+# The remux queue and the overlay logo routes are removed.
+for method, path in (
+    ("POST", "/api/remux/enqueue"), ("POST", "/api/remux/claim"),
+    ("POST", "/api/remux/job-001/upload"), ("POST", "/api/remux/job-001/complete"),
+    ("POST", "/api/remux/job-001/fail"), ("POST", "/api/remux/checksum/source-001"),
+    ("GET", "/api/remux/status"),
+    ("POST", "/api/overlay-logo-if-missing/initiate"),
+    ("POST", "/api/overlay-logo-if-missing/complete"),
+):
+    assert status_of(path, method, {}) == 404, (method, path)
+assert status_of("/api/overlay-logo-if-missing", "PUT", b"\x89PNG", {"Content-Type": "image/png"}) == 404
+assert status_of(
+    "http://app:8080/admin/test-admin-token/api/projects/test-project/overlay-logo", "POST",
+    b"\x89PNG", {"Content-Type": "image/png"}, absolute=True,
+) == 404
+assert status_of(
+    f"{WORKER_BASE}/{retry['id']}/overlay-logo",
+    headers={"X-Source-Processing-Token": "test-worker-token"}, absolute=True,
+) == 404
+admin_projects = json.load(request("http://app:8080/admin/test-admin-token/api/projects", absolute=True))
+assert all("overlay_logo_configured" not in project for project in admin_projects["projects"])
 
 # New derived uploads must name their original; legacy rows are repaired only
 # by the explicit, rehearsed backfill and are never recreated by this API.
 try:
-    initiate("self-heal-001", "video", digest, title="Legacy retry", tags=["pending"])
+    initiate("self-heal-001-no-overlay", "video", digest, title="Legacy retry", tags=[], **NO_OVERLAY)
     raise AssertionError("derived upload without source_id should fail")
 except urllib.error.HTTPError as exc:
     assert exc.code == 400
 self_heal_original = complete_session(initiate("self-heal-001", "original", digest, original_filename="self-heal.mp4"))
 assert self_heal_original["ok"]
-legacy_video = complete_session(initiate("self-heal-001", "video", digest, title="Linked retry", tags=["pending"], source_id="self-heal-001"))
+legacy_video = complete_session(initiate("self-heal-001-no-overlay", "video", digest, title="Linked retry", tags=[], source_id="self-heal-001", **NO_OVERLAY))
 assert legacy_video["ok"]
-self_healed = json.load(request("/api/files?type=video&check_id=self-heal-001"))
+self_healed = json.load(request("/api/files?type=video&check_id=self-heal-001-no-overlay"))
 assert len(self_healed) == 1 and self_healed[0]["source_id"] == "self-heal-001"
 
 # Drive a real original-processing job to waiting before deleting its original.

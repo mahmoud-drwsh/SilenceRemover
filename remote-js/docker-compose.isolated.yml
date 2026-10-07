@@ -123,6 +123,25 @@ services:
     command: ["python", "/tests/originals_flow.py"]
     networks: [isolated]
 
+  # The canonical card flow seeds legacy rows with psql; the worker image
+  # has Python and the PostgreSQL client.
+  canonical-card-integration:
+    build:
+      context: ..
+      dockerfile: remote-js/Dockerfile.worker
+    depends_on:
+      app:
+        condition: service_started
+      fixture:
+        condition: service_started
+    environment:
+      PGPASSWORD: test-password
+    volumes:
+      - ../.local-test/fixtures:/fixtures:ro
+      - ./tests/integration:/tests:ro
+    command: ["python", "/tests/canonical_card_flow.py"]
+    networks: [isolated]
+
   source-processing-integration:
     build:
       context: ..
@@ -139,7 +158,6 @@ services:
       SOURCE_PROCESSING_WORKER_TOKEN: test-worker-token
       SOURCE_PROCESSING_WORK_DIR: /tmp/source-processing-worker
       SOURCE_PROCESSING_HEARTBEAT_INTERVAL_SEC: "0.2"
-      OPENROUTER_API_KEY: fake-provider-key
       PGPASSWORD: test-password
     volumes:
       - ..:/workspace:ro

@@ -52,73 +52,12 @@ export function getS3Client(): S3Client {
 
 /** Build the S3 object key matching the existing storage tree layout. */
 export function storageObjectKey(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
 ): string {
   return `${fileType}/${project}/${fileId}${ext}`;
-}
-
-/** One replaceable PNG used by the server worker for this project's overlays. */
-export function projectOverlayLogoObjectKey(project: string): string {
-  return `project-overlay-logo/${encodeURIComponent(project)}.png`;
-}
-
-export async function storagePutProjectOverlayLogo(project: string, body: Uint8Array): Promise<void> {
-  const config = loadConfig();
-  await getS3Client().send(new PutObjectCommand({
-    Bucket: config.s3Bucket,
-    Key: projectOverlayLogoObjectKey(project),
-    Body: body,
-    ContentType: "image/png",
-  }));
-}
-
-export async function presignProjectOverlayLogoPut(project: string): Promise<string> {
-  const config = loadConfig();
-  return getSignedUrl(getS3Client(), new PutObjectCommand({
-    Bucket: config.s3Bucket,
-    Key: projectOverlayLogoObjectKey(project),
-    ContentType: "image/png",
-  }), { expiresIn: PRESIGNED_URL_TTL_SEC });
-}
-
-export async function storageProjectOverlayLogoSha256(project: string): Promise<{ size: number; checksum: string } | null> {
-  const body = await storageGetProjectOverlayLogo(project);
-  if (!body) return null;
-  const reader = body.getReader(); const hash = createHash("sha256"); let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength; hash.update(value);
-    }
-  } finally { reader.releaseLock(); }
-  return { size, checksum: hash.digest("hex") };
-}
-
-export async function storageGetProjectOverlayLogo(project: string): Promise<ReadableStream<Uint8Array> | null> {
-  const config = loadConfig();
-  try {
-    const result = await getS3Client().send(new GetObjectCommand({
-      Bucket: config.s3Bucket,
-      Key: projectOverlayLogoObjectKey(project),
-    }));
-    const body = result.Body;
-    if (!body || typeof (body as { transformToWebStream?: () => unknown }).transformToWebStream !== "function") {
-      throw new Error("S3 GetObject returned no body");
-    }
-    return (body as { transformToWebStream: () => ReadableStream<Uint8Array> }).transformToWebStream();
-  } catch (error) {
-    const name = error instanceof Error ? error.name : "";
-    if (name === "NotFound" || name === "NoSuchKey") return null;
-    throw error;
-  }
-}
-
-export function remuxTemporaryObjectKey(project: string, jobId: string): string {
-  return `remux/${project}/${jobId}.mp4`;
 }
 
 function sourceArtifactTemporaryObjectKey(project: string, jobId: string, leaseToken: string, kind: string): string {
@@ -143,72 +82,12 @@ export async function sourceArtifactTemporarySha256(project: string, jobId: stri
   return hash.digest("hex");
 }
 
-export async function promoteSourceArtifact(project: string, jobId: string, leaseToken: string, kind: string, type: "audio" | "subtitle" | "video", id: string, ext: string, mime: string): Promise<void> {
+export async function promoteSourceArtifact(project: string, jobId: string, leaseToken: string, kind: string, type: "audio" | "video", id: string, ext: string, mime: string): Promise<void> {
   const config = loadConfig(); await getS3Client().send(new CopyObjectCommand({ Bucket: config.s3Bucket, CopySource: `${config.s3Bucket}/${sourceArtifactTemporaryObjectKey(project, jobId, leaseToken, kind)}`, Key: storageObjectKey(type, project, id, ext), ContentType: mime, MetadataDirective: "REPLACE" }));
 }
 
 export async function deleteSourceArtifactTemporary(project: string, jobId: string, leaseToken: string, kind: string): Promise<void> {
   const config = loadConfig(); await getS3Client().send(new DeleteObjectCommand({ Bucket: config.s3Bucket, Key: sourceArtifactTemporaryObjectKey(project, jobId, leaseToken, kind) }));
-}
-
-export async function presignTemporaryRemuxPut(project: string, jobId: string): Promise<string> {
-  const config = loadConfig();
-  return getSignedUrl(getS3Client(), new PutObjectCommand({
-    Bucket: config.s3Bucket,
-    Key: remuxTemporaryObjectKey(project, jobId),
-    ContentType: "video/mp4",
-  }), { expiresIn: PRESIGNED_URL_TTL_SEC });
-}
-
-export async function temporaryRemuxHead(project: string, jobId: string): Promise<StorageHead | null> {
-  const config = loadConfig();
-  try {
-    const result = await getS3Client().send(new HeadObjectCommand({
-      Bucket: config.s3Bucket, Key: remuxTemporaryObjectKey(project, jobId),
-    }));
-    return { size: Number(result.ContentLength ?? 0) };
-  } catch {
-    return null;
-  }
-}
-
-export async function temporaryRemuxSha256(project: string, jobId: string): Promise<string> {
-  const config = loadConfig();
-  const result = await getS3Client().send(new GetObjectCommand({
-    Bucket: config.s3Bucket, Key: remuxTemporaryObjectKey(project, jobId),
-  }));
-  const body = result.Body;
-  if (!body || typeof (body as { transformToWebStream?: () => unknown }).transformToWebStream !== "function") {
-    throw new Error("S3 GetObject returned no body");
-  }
-  const reader = (body as { transformToWebStream: () => ReadableStream<Uint8Array> }).transformToWebStream().getReader();
-  const hash = createHash("sha256");
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      hash.update(value);
-    }
-  } finally { reader.releaseLock(); }
-  return hash.digest("hex");
-}
-
-export async function promoteTemporaryRemux(project: string, jobId: string, videoId: string, ext: string): Promise<void> {
-  const config = loadConfig();
-  await getS3Client().send(new CopyObjectCommand({
-    Bucket: config.s3Bucket,
-    CopySource: `${config.s3Bucket}/${remuxTemporaryObjectKey(project, jobId)}`,
-    Key: storageObjectKey("video", project, videoId, ext),
-    ContentType: "video/mp4",
-    MetadataDirective: "REPLACE",
-  }));
-}
-
-export async function deleteTemporaryRemux(project: string, jobId: string): Promise<void> {
-  const config = loadConfig();
-  await getS3Client().send(new DeleteObjectCommand({
-    Bucket: config.s3Bucket, Key: remuxTemporaryObjectKey(project, jobId),
-  }));
 }
 
 /** HeadBucket smoke check used at startup. */
@@ -219,7 +98,7 @@ export async function ensureStorageBackendReady(): Promise<void> {
 
 /** Delete a single object from S3. Throws on failure. */
 export async function storageDelete(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -239,7 +118,7 @@ export async function storageDelete(
  * may imply the wrong extension. Returns true if any delete succeeded.
  */
 export async function storageDeleteAnyExtension(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
 ): Promise<boolean> {
@@ -258,7 +137,7 @@ export async function storageDeleteAnyExtension(
 
 /** Upload bytes to S3. Throws on failure. */
 export async function storagePutBytes(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -282,7 +161,7 @@ export interface StorageHead {
 
 /** HeadObject; throws (or returns null) when the object does not exist. */
 export async function storageHead(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -308,7 +187,7 @@ export async function storageHead(
  * encoding, dropping any Content-Length header set by the caller.
  */
 export async function storageGet(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -338,7 +217,7 @@ export async function storageGet(
  * size is within a safe in-memory limit.
  */
 export async function storageGetBytes(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -362,7 +241,7 @@ export async function storageGetBytes(
 
 /** Stream an object's SHA-256 digest without buffering the original in memory. */
 export async function storageSha256(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -524,8 +403,8 @@ export async function presignOriginalDownload(
 }
 
 /**
- * Aggregate exact object-byte totals per project by listing both the
- * `audio/`, `video/`, and `original/` prefixes. Mirrors
+ * Aggregate exact object-byte totals per project by listing the `audio/`,
+ * `video/`, and `original/` prefixes. Old `subtitle/` objects do not count. Mirrors
  * `storage_project_size_totals`.
  */
 export async function storageProjectSizeTotals(): Promise<
@@ -535,7 +414,7 @@ export async function storageProjectSizeTotals(): Promise<
   const client = getS3Client();
   const totals = new Map<string, number>();
 
-  for (const fileType of ["audio", "video", "original", "subtitle"] as const) {
+  for (const fileType of ["audio", "video", "original"] as const) {
     const prefix = `${fileType}/`;
     let continuationToken: string | undefined;
     while (true) {

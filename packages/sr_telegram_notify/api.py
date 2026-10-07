@@ -71,7 +71,7 @@ def notify_final_encoding_started(
     input_name: str,
     title: str,
 ) -> None:
-    """Notify that Phase 7 final encoding is about to start (before FFmpeg)."""
+    """Notify that Phase 8 final encoding is about to start (before FFmpeg)."""
     _telegram_send_if_configured(_status_message(
         "STARTED",
         video_index=video_index,
@@ -87,43 +87,9 @@ def notify_final_output_ready(
     input_name: str,
     title: str,
 ) -> None:
-    """Notify that Phase 7 encoding finished successfully."""
+    """Notify that Phase 8 encoding finished successfully."""
     _telegram_send_if_configured(_status_message(
         "READY",
-        video_index=video_index,
-        total_videos=total_videos,
-        input_name=input_name,
-        title=title,
-    ))
-
-
-def notify_audio_uploaded(
-    *,
-    video_index: int,
-    total_videos: int,
-    input_name: str,
-    title: str,
-) -> None:
-    """Notify that audio snippet was uploaded to Media Manager (Phase 4)."""
-    _telegram_send_if_configured(_status_message(
-        "AUDIO",
-        video_index=video_index,
-        total_videos=total_videos,
-        input_name=input_name,
-        title=title,
-    ))
-
-
-def notify_video_uploaded(
-    *,
-    video_index: int,
-    total_videos: int,
-    input_name: str,
-    title: str,
-) -> None:
-    """Notify that final video was uploaded to Media Manager (Phase 9)."""
-    _telegram_send_if_configured(_status_message(
-        "VIDEO",
         video_index=video_index,
         total_videos=total_videos,
         input_name=input_name,

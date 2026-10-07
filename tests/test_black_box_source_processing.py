@@ -24,15 +24,8 @@ class FakeClient:
             ("audio", "black-box-test"): {
                 "id": "black-box-test", "exists": True, "tags": ["todo"], "title": "generated"
             },
-            ("subtitle", "black-box-test-subtitles"): {
-                "id": "black-box-test-subtitles", "exists": True, "source_id": "black-box-test"
-            },
             ("video", "black-box-test-no-overlay"): {
                 "id": "black-box-test-no-overlay", "exists": True, "source_id": "black-box-test",
-                "title": "approved", "duration": 25.1
-            },
-            ("video", "black-box-test"): {
-                "id": "black-box-test", "exists": True, "source_id": "black-box-test",
                 "title": "approved", "duration": 25.1
             },
         }
@@ -55,8 +48,7 @@ class FakeClient:
     def approve_audio_title(self, source_id: str, title: str):
         self.approved = True
         self.files[("audio", source_id)] = {"id": source_id, "exists": True, "tags": ["ready"], "title": title}
-        for file_type, file_id in (("video", source_id), ("video", f"{source_id}-no-overlay")):
-            self.files[(file_type, file_id)]["title"] = title
+        self.files[("video", f"{source_id}-no-overlay")]["title"] = title
 
     def close(self):
         self.closed = True
@@ -104,7 +96,7 @@ def test_run_requires_explicit_confirmation():
         run_black_box(FakeClient(), Path("/tmp/unused"), confirm_production=False)
 
 
-def test_run_exercises_title_approval_and_both_variants_without_network(tmp_path: Path):
+def test_run_exercises_title_approval_and_the_no_overlay_video_without_network(tmp_path: Path):
     client = FakeClient()
     result = run_black_box(
         client,
@@ -118,7 +110,7 @@ def test_run_exercises_title_approval_and_both_variants_without_network(tmp_path
         serve=lambda _client, _file_id, _file_type: None,
     )
     assert result["ok"] is True
-    assert result["variants"] == ["no-overlay", "overlaid"]
+    assert result["variants"] == ["no-overlay"]
     assert client.approved is True
     assert client.closed is True
 
@@ -155,8 +147,7 @@ def test_cleanup_attempts_every_artifact_after_failure():
     )
     assert set(client.deleted) == {
         ("black-box-test", "original"), ("black-box-test", "audio"),
-        ("black-box-test-subtitles", "subtitle"), ("black-box-test-no-overlay", "video"),
-        ("black-box-test", "video"),
+        ("black-box-test-no-overlay", "video"), ("black-box-test", "video"),
     }
     assert client.closed is False
 
@@ -168,7 +159,6 @@ class LateArtifactClient:
         self.remaining = {
             ("video", "source"),
             ("video", "source-no-overlay"),
-            ("subtitle", "source-subtitles"),
             ("audio", "source"),
             ("original", "source"),
         }
@@ -184,10 +174,10 @@ class LateArtifactClient:
     def verify_absent(self, file_id: str, file_type: str) -> bool:
         return (file_type, file_id) not in self.remaining
 
-    def publish_late_subtitle(self) -> None:
+    def publish_late_video(self) -> None:
         if not self.late_published:
             self.late_published = True
-            self.remaining.add(("subtitle", "source-subtitles"))
+            self.remaining.add(("video", "source-no-overlay"))
 
 
 def test_cleanup_retries_until_late_worker_artifact_is_absent():
@@ -197,11 +187,11 @@ def test_cleanup_retries_until_late_worker_artifact_is_absent():
         "source",
         attempts=3,
         retry_delay_seconds=0,
-        sleep=lambda _seconds: client.publish_late_subtitle(),
+        sleep=lambda _seconds: client.publish_late_video(),
     )
     assert failures == []
     assert client.remaining == set()
-    assert client.delete_calls.count(("source-subtitles", "subtitle")) == 2
+    assert client.delete_calls.count(("source-no-overlay", "video")) == 2
 
 
 class FailedCleanupClient(FakeClient):
@@ -281,7 +271,7 @@ def test_run_cleans_up_when_a_lifecycle_step_fails(tmp_path: Path):
     client = FakeClient()
 
     def failing_wait(_client, file_id, file_type, _timeout):
-        if file_type == "subtitle":
+        if file_id == "black-box-test-no-overlay":
             raise RuntimeError("worker failed")
         return client.files[(file_type, file_id)]
 
@@ -298,4 +288,4 @@ def test_run_cleans_up_when_a_lifecycle_step_fails(tmp_path: Path):
             cleanup_sleep=lambda _seconds: None,
         )
     assert client.closed is True
-    assert len(client.deleted) == 5
+    assert len(client.deleted) == 4

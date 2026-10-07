@@ -32,9 +32,7 @@ export const VIDEO_MIME = new Set<string>([
   "video/x-matroska",
 ]);
 
-export const SUBTITLE_MIME = new Set<string>(["application/x-subrip"]);
-
-export const ALLOWED_MIME = new Set<string>([...AUDIO_MIME, ...VIDEO_MIME, ...SUBTITLE_MIME]);
+export const ALLOWED_MIME = new Set<string>([...AUDIO_MIME, ...VIDEO_MIME]);
 
 export const MIME_TO_EXT: Record<string, string> = {
   "audio/mpeg": ".mp3",
@@ -56,7 +54,6 @@ export const MIME_TO_EXT: Record<string, string> = {
   "video/quicktime": ".mov",
   "video/x-msvideo": ".avi",
   "video/x-matroska": ".mkv",
-  "application/x-subrip": ".srt",
 };
 
 const EXT_ALIASES: Record<string, string> = {

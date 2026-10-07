@@ -245,7 +245,7 @@
             return currentSection === TYPE_AUDIO ? TYPE_AUDIO : TYPE_VIDEO;
         }
 
-        // Format: /projects/TOKEN/PROJECT/audio/todo or /projects/TOKEN/PROJECT/videos/no-overlay
+        // Format: /projects/TOKEN/PROJECT/audio/todo or /projects/TOKEN/PROJECT/videos/needs-designer
         function parsePath() {
             const path = window.location.pathname;
             const parts = path.split('/').filter(p => p);
@@ -257,7 +257,9 @@
             // Normalize video/videos to video
             if (section === 'videos') section = 'video';
             
-            const filter = parts[4] || null;
+            let filter = parts[4] || null;
+            // Bookmarks with a removed video view name fall back to All.
+            if (section === 'video' && REMOVED_VIDEO_TABS.includes(filter)) filter = 'all';
             
             return { section, filter };
         }
@@ -297,7 +299,8 @@
         // Fixed tabs per section
         // Audio is a small review queue: choose a title, then approve it.
         const AUDIO_TABS = ['todo', 'approved', 'trash'];
-        const VIDEO_TABS = ['all', 'needs-designer', 'pipeline-final', 'no-overlay', 'designer', 'pending', 'trash'];
+        const VIDEO_TABS = ['all', 'needs-designer', 'designer', 'pending', 'trash'];
+        const REMOVED_VIDEO_TABS = ['pipeline-final', 'no-overlay'];
 
         function showSection(section, filter = null, isStrict = false) {
             currentSection = section;
@@ -305,8 +308,8 @@
 
             if (section === 'video' && !isAdminMode() && !filter) {
                 // Designers need to revisit completed cards to upload another
-                // revision, so their focused queue includes every pipeline final.
-                currentFilter = 'pipeline-final';
+                // revision, so their focused queue includes every video card.
+                currentFilter = 'all';
             } else if (filter) {
                 currentFilter = filter;
             } else {
@@ -433,7 +436,7 @@
             // Filter out 'all' and 'trash' unless in admin mode
             const adminOnlyTabs = ['all', 'trash', 'pending'];
             const baseTabs = currentSection === 'audio' ? AUDIO_TABS : VIDEO_TABS;
-            const tabs = isAdmin ? baseTabs : currentSection === 'video' ? ['pipeline-final'] : baseTabs.filter(tab => !adminOnlyTabs.includes(tab));
+            const tabs = isAdmin ? baseTabs : currentSection === 'video' ? ['all'] : baseTabs.filter(tab => !adminOnlyTabs.includes(tab));
 
             container.innerHTML = tabs.map(tab => {
                 const isActive = tab === currentFilter;
@@ -455,9 +458,7 @@
                 'approved': '✅ Approved',
                 'all': '📋 All',
                 'trash': '🗑️ Trash',
-                'pipeline-final': '🎞️ Pipeline Final',
                 'designer': '✨ Designer Video',
-                'no-overlay': '🎬 No Overlay',
                 'needs-designer': '✨ Needs Designer',
                 'pending': '⏳ Pending'
             };
@@ -609,16 +610,14 @@
                 return renderAudioCard(file, audioStreamUrl, duration, size);
             }
 
-            // Video card: the pipeline final is the canonical item. Its other
-            // variants remain visible and downloadable in one place.
+            // Video card: the no-overlay video is the canonical item. Its
+            // original and designer video stay downloadable in one place.
             const safeTitle = title.replace(/'/g, "\\'").replace(/"/g, '\\"');
             const safeId = escapeJs(file.id);  // Escape file ID for JavaScript context
             const safeSourceId = file.source_id ? escapeJs(file.source_id) : '';
-            const safeNoOverlayId = file.no_overlay_id ? escapeJs(file.no_overlay_id) : '';
             const safeDesignerVideoId = file.designer_video_id ? escapeJs(file.designer_video_id) : '';
-            const safeSubtitleId = file.subtitle_id ? escapeJs(file.subtitle_id) : '';
             const tagsJson = JSON.stringify(file.tags || []).replace(/"/g, '&quot;');
-            const canUploadDesigner = file.media_variant === 'pipeline-final';
+            const canUploadDesigner = file.media_variant === 'no-overlay';
             const canManageVideoTrash = isAdminMode();
             let menuItem = '';
             let actionsHtml = '';
@@ -635,22 +634,14 @@
                 const originalVariant = safeSourceId
                     ? `<button class="variant-action" onclick="downloadOriginal('${safeSourceId}')">📼 <span><strong>Original</strong><span>Raw source</span></span></button>`
                     : `<div class="variant-action missing">📼 <span><strong>Original</strong><span>Unavailable</span></span></div>`;
-                const noOverlayVariant = safeNoOverlayId
-                    ? `<a class="variant-action" href="/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.no_overlay_id)}?type=${TYPE_VIDEO}" download>✂️ <span><strong>Silence Removed</strong><span>No overlay</span></span></a>`
-                    : `<div class="variant-action missing">✂️ <span><strong>Silence Removed</strong><span>Unavailable</span></span></div>`;
                 const designerVariant = safeDesignerVideoId
                     ? `<a class="variant-action" href="/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.designer_video_id)}?type=${TYPE_VIDEO}" download>✨ <span><strong>Designer Video</strong><span>Active redesign</span></span></a>`
                     : `<div class="variant-action missing">✨ <span><strong>Designer Video</strong><span>Not uploaded</span></span></div>`;
-                const subtitleVariant = safeSubtitleId
-                    ? `<a class="variant-action" href="/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.subtitle_id)}?type=subtitle" download>💬 <span><strong>Subtitles</strong><span>Download SRT</span></span></a>`
-                    : `<div class="variant-action missing">💬 <span><strong>Subtitles</strong><span>Unavailable</span></span></div>`;
                 actionsHtml = `
                     <div class="variant-actions">
                         ${originalVariant}
-                        ${noOverlayVariant}
-                        <a class="variant-action" href="${videoStreamUrl}" download>🎞️ <span><strong>Pipeline Final</strong><span>Current final output</span></span></a>
+                        <a class="variant-action" href="${videoStreamUrl}" download>✂️ <span><strong>Silence Removed</strong><span>Video for the designer</span></span></a>
                         ${designerVariant}
-                        ${subtitleVariant}
                     </div>
                 `;
             }
@@ -658,12 +649,12 @@
             return `
                 <article class="file-card video-card variant-card" data-id="${escapeHtml(file.id)}" data-tags="${tagsJson}" aria-labelledby="title-${escapeHtml(file.id)}">
                     <div class="file-info variant-info">
-                        <div class="card-eyebrow"><span class="card-eyebrow-mark" aria-hidden="true"></span><span>Canonical production bundle</span><span class="card-eyebrow-status">Pipeline final</span></div>
+                        <div class="card-eyebrow"><span class="card-eyebrow-mark" aria-hidden="true"></span><span>Canonical production bundle</span><span class="card-eyebrow-status">Silence removed</span></div>
                         <h2 class="file-title" id="title-${escapeHtml(file.id)}">${escapeHtml(title)}</h2>
                         <div class="file-meta">${duration} ${size ? '• ' + size : ''} • <span class="media-id">${escapeHtml(file.id)}</span></div>
                     </div>
                     <div class="file-actions">${actionsHtml}</div>
-                    ${currentFilter === 'trash' ? '' : `<div class="variant-footer"><button class="btn btn-primary" onclick="playVideo('${safeId}', '${safeTitle}')">▶️ Play pipeline final</button>${canUploadDesigner ? `<button class="btn btn-designer" onclick="openDesignerUpload('${safeId}', '${safeTitle}')">✨ ${safeDesignerVideoId ? 'Upload new revision' : 'Upload designer video'}</button>` : ''}<div class="menu-container"><button class="btn btn-menu" aria-label="More actions for ${escapeHtml(title)}" aria-expanded="false" aria-controls="menu-${escapeHtml(file.id)}" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${escapeHtml(file.id)}">${menuItem}</div></div></div>`}
+                    ${currentFilter === 'trash' ? '' : `<div class="variant-footer"><button class="btn btn-primary" onclick="playVideo('${safeId}', '${safeTitle}')">▶️ Play video</button>${canUploadDesigner ? `<button class="btn btn-designer" onclick="openDesignerUpload('${safeId}', '${safeTitle}')">✨ ${safeDesignerVideoId ? 'Upload new revision' : 'Upload designer video'}</button>` : ''}<div class="menu-container"><button class="btn btn-menu" aria-label="More actions for ${escapeHtml(title)}" aria-expanded="false" aria-controls="menu-${escapeHtml(file.id)}" onclick="toggleContextMenu('${safeId}', event)">⋮</button><div class="context-menu" id="menu-${escapeHtml(file.id)}">${menuItem}</div></div></div>`}
                 </article>
             `;
         }

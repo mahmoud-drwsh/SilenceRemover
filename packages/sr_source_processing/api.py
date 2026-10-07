@@ -1,8 +1,10 @@
 """A small, lease-fenced worker for server-owned source recordings.
 
-This module deliberately stops after the deterministic trim plan.  It proves
-the worker control/data-plane boundary without invoking OpenRouter or encoding
-derived media, and has no dependency on the client-owned pipeline runtime.
+The worker makes the trim plan, the review audio and the review analysis, and
+then waits for title review. After approval, it uploads one no-overlay video
+with the approved title in its metadata. It needs no OpenRouter key, because
+Media Manager does the review analysis. It has no dependency on the
+client-owned pipeline runtime.
 """
 
 from __future__ import annotations
@@ -31,12 +33,9 @@ from src.core.constants import (
 from sr_trim_plan import TrimPlan, build_trim_plan
 from sr_filter_graph import build_audio_concat_filter_graph
 from sr_source_processing.review_analysis import ReviewAnalysisError, analyze_review_ogg
-from sr_subtitles import generate_srt_from_trim_segments, mux_srt_track
-from src.ffmpeg.core import build_ffmpeg_cmd
 from src.ffmpeg.encoding_resolver import get_encoder_config
-from src.ffmpeg.runner import run
 from src.ffmpeg.trim_script_bundle import write_trim_script_from_plan
-from src.media.trim import prepare_video_overlays, trim_single_video
+from src.media.trim import set_metadata_title, trim_single_video
 
 
 class WorkerError(RuntimeError):
@@ -57,11 +56,7 @@ class WorkerConfig:
     noise_threshold: float = NON_TARGET_NOISE_THRESHOLD_DB
     min_duration: float = NON_TARGET_MIN_DURATION_SEC
     pad_sec: float = NON_TARGET_PAD_SEC
-    openrouter_api_key: str | None = None
     encoder: str = "X265"
-    enable_title_overlay: bool = False
-    enable_logo_overlay: bool = False
-    title_font: str | None = None
 
     @classmethod
     def from_env(cls) -> "WorkerConfig":
@@ -80,11 +75,7 @@ class WorkerConfig:
             raise WorkerError("SOURCE_PROCESSING_HEARTBEAT_INTERVAL_SEC must be positive")
         return cls(
             service_url, project, token, Path(work_dir), heartbeat,
-            openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
             encoder=os.environ.get("SOURCE_PROCESSING_ENCODER", "X265"),
-            enable_title_overlay=os.environ.get("SOURCE_PROCESSING_ENABLE_TITLE_OVERLAY", "false").lower() == "true",
-            enable_logo_overlay=os.environ.get("SOURCE_PROCESSING_ENABLE_LOGO_OVERLAY", "false").lower() == "true",
-            title_font=os.environ.get("SOURCE_PROCESSING_TITLE_FONT") or None,
         )
 
 
@@ -104,14 +95,12 @@ class SourceProcessingWorker:
         *,
         client: httpx.Client | None = None,
         trim_planner: Callable[..., TrimPlan] = build_trim_plan,
-        subtitle_generator: Callable[..., None] | None = None,
         review_audio_builder: Callable[[Path, Path, list[tuple[float, float]]], None] | None = None,
     ) -> None:
         self.config = config
         self._client = client or httpx.Client(timeout=config.request_timeout_sec)
         self._owns_client = client is None
         self._trim_planner = trim_planner
-        self._subtitle_generator = subtitle_generator or generate_srt_from_trim_segments
         self._review_audio_builder = review_audio_builder or self._create_review_audio
 
     def close(self) -> None:
@@ -166,7 +155,7 @@ class SourceProcessingWorker:
             segments = [(float(start), float(end)) for start, end in checkpoint["plan"]["segments_to_keep"]]
             approved_title = str(job.get("approved_title") or "").strip()
             if approved_title:
-                self._render_and_upload_final_variants(
+                self._render_and_upload_no_overlay_video(
                     job, original_path, job_dir, lease_token, segments, approved_title,
                 )
                 self._post(f"/{job_id}/complete", {"lease_token": lease_token})
@@ -179,7 +168,6 @@ class SourceProcessingWorker:
                 return
             transcript = str(job.get("review_transcript") or "").strip()
             title = str(job.get("generated_title") or "").strip()
-            srt_text = str(job.get("srt_text") or "")
             review_audio: Path | None = None
             if not transcript or not title:
                 review_audio = job_dir / "review.ogg"
@@ -189,21 +177,11 @@ class SourceProcessingWorker:
                     f"/{job_id}/checkpoints",
                     {"lease_token": lease_token, "review_transcript": transcript, "generated_title": title},
                 )
-            srt_path = job_dir / "subtitles.srt"
-            if not srt_text:
-                self._subtitle_generator(input_file=original_path, segments=segments, output_path=srt_path, work_dir=job_dir / "subtitle-work", api_key=self._require_openrouter_key(), log_dir=job_dir)
-                srt_text = srt_path.read_text(encoding="utf-8")
-                if not srt_text.strip(): raise WorkerError("Subtitle generation returned empty SRT")
-                self._patch(f"/{job_id}/checkpoints", {"lease_token": lease_token, "srt_text": srt_text})
-            else:
-                srt_path.write_text(srt_text, encoding="utf-8")
             if not bool(job.get("review_audio_uploaded")):
                 if review_audio is None:
                     review_audio = job_dir / "review.ogg"
                     self._review_audio_builder(original_path, review_audio, segments)
                 self._upload_artifact(job_id, lease_token, "review_audio", review_audio, title, "audio/ogg")
-            if not bool(job.get("subtitle_uploaded")):
-                self._upload_artifact(job_id, lease_token, "subtitle", srt_path, title, "application/x-subrip")
             self._write_checkpoint(job_dir / _AWAITING_REVIEW_MARKER, {
                 "original_filename": original_path.name,
                 "original_checksum_sha256": str(job.get("original_checksum_sha256", "")),
@@ -213,66 +191,37 @@ class SourceProcessingWorker:
                 {"lease_token": lease_token, "reason": "waiting for title review"},
             )
 
-    def _render_and_upload_final_variants(
+    def _render_and_upload_no_overlay_video(
         self, job: Mapping[str, Any], original_path: Path, job_dir: Path, lease_token: str,
         segments: list[tuple[float, float]], approved_title: str,
     ) -> None:
-        """Render the two served variants from durable data after human approval."""
+        """Render the one served video from durable data after human approval."""
         if not segments:
-            raise WorkerError("Cannot render final variants without retained speech")
+            raise WorkerError("Cannot render the no-overlay video without retained speech")
         job_id = str(job["id"])
         (job_dir / _AWAITING_REVIEW_MARKER).unlink(missing_ok=True)
-        srt_text = str(job.get("srt_text") or "")
-        if not srt_text.strip():
-            raise WorkerError("Cannot render final variants without a checkpointed SRT")
-        srt_path = job_dir / "subtitles.srt"
-        srt_path.write_text(srt_text, encoding="utf-8")
-        trim_script = write_trim_script_from_plan(
-            input_file=original_path, temp_dir=job_dir,
-            target_length=self.config.target_length, noise_threshold=self.config.noise_threshold,
-            min_duration=self.config.min_duration, pad_sec=self.config.pad_sec,
-            segments_to_keep=segments,
-        )
-        title_path = job_dir / "approved-title.txt"
-        title_path.write_text(approved_title, encoding="utf-8")
-        logo_path = self._download_project_logo(job_id, lease_token, job_dir) if self.config.enable_logo_overlay else None
-        if self.config.enable_title_overlay or self.config.enable_logo_overlay:
-            prepare_video_overlays(
-                input_file=original_path, temp_dir=job_dir, title_path=title_path,
-                title_font=self.config.title_font, enable_title_overlay=self.config.enable_title_overlay,
-                enable_logo_overlay=self.config.enable_logo_overlay,
-                title_y_fraction=None, title_height_fraction=None,
-                logo_path=logo_path,
-            )
+        if bool(job.get("no_overlay_uploaded")):
+            return
         no_overlay = job_dir / "no-overlay.mp4"
-        if not bool(job.get("no_overlay_uploaded")):
-            prerender_key = self._prerender_key(str(job.get("original_checksum_sha256", "")), segments)
-            if self._take_prerender(job_dir, prerender_key, no_overlay):
-                print(f"SOURCE_PROCESSING_PRERENDER_REUSED {job_id}", flush=True)
-                self._set_metadata_title(no_overlay, approved_title)
-            else:
-                trim_single_video(
-                    input_file=original_path, output_dir=job_dir, output_basename="no-overlay",
-                    noise_threshold=self.config.noise_threshold, min_duration=self.config.min_duration,
-                    pad_sec=self.config.pad_sec, target_length=self.config.target_length,
-                    encoder=self.config.encoder, temp_dir=job_dir, metadata_title=approved_title,
-                    trim_script_path=trim_script,
-                )
-            mux_srt_track(no_overlay, srt_path)
-            self._upload_artifact(job_id, lease_token, "no_overlay_video", no_overlay, approved_title, "video/mp4")
-        final_video = job_dir / "final.mp4"
-        if not bool(job.get("overlaid_uploaded")):
+        prerender_key = self._prerender_key(str(job.get("original_checksum_sha256", "")), segments)
+        if self._take_prerender(job_dir, prerender_key, no_overlay):
+            print(f"SOURCE_PROCESSING_PRERENDER_REUSED {job_id}", flush=True)
+            self._set_metadata_title(no_overlay, approved_title)
+        else:
+            trim_script = write_trim_script_from_plan(
+                input_file=original_path, temp_dir=job_dir,
+                target_length=self.config.target_length, noise_threshold=self.config.noise_threshold,
+                min_duration=self.config.min_duration, pad_sec=self.config.pad_sec,
+                segments_to_keep=segments,
+            )
             trim_single_video(
-                input_file=original_path, output_dir=job_dir, output_basename="final",
+                input_file=original_path, output_dir=job_dir, output_basename="no-overlay",
                 noise_threshold=self.config.noise_threshold, min_duration=self.config.min_duration,
                 pad_sec=self.config.pad_sec, target_length=self.config.target_length,
-                encoder=self.config.encoder, title_path=title_path, title_font=self.config.title_font,
-                enable_title_overlay=self.config.enable_title_overlay,
-                enable_logo_overlay=self.config.enable_logo_overlay, temp_dir=job_dir,
-                metadata_title=approved_title, trim_script_path=trim_script, logo_path=logo_path,
+                encoder=self.config.encoder, temp_dir=job_dir, metadata_title=approved_title,
+                trim_script_path=trim_script,
             )
-            mux_srt_track(final_video, srt_path)
-            self._upload_artifact(job_id, lease_token, "overlaid_video", final_video, approved_title, "video/mp4")
+        self._upload_artifact(job_id, lease_token, "no_overlay_video", no_overlay, approved_title, "video/mp4")
 
     def prerender_once(self) -> bool:
         """Encode one no-overlay video for a job that waits for title review.
@@ -406,18 +355,7 @@ class SourceProcessingWorker:
     @staticmethod
     def _set_metadata_title(video_path: Path, title: str) -> None:
         """Set the container title without re-encoding video or audio."""
-        replacement = video_path.with_name(f"{video_path.stem}.titled.mp4")
-        cmd = build_ffmpeg_cmd(
-            True, "-v", "error", "-i", str(video_path), "-map", "0", "-c", "copy",
-            "-metadata", f"title={title}", "-movflags", "+faststart", str(replacement),
-        )
-        run(cmd, capture_output=True)
-        replacement.replace(video_path)
-
-    def _require_openrouter_key(self) -> str:
-        if not self.config.openrouter_api_key:
-            raise WorkerError("OPENROUTER_API_KEY is required for missing model checkpoints")
-        return self.config.openrouter_api_key
+        set_metadata_title(video_path, title)
 
     def _analyze_review_audio(self, review_audio: Path) -> tuple[str, str]:
         """Use Media Manager's worker-authenticated canonical review-analysis path."""
@@ -503,28 +441,6 @@ class SourceProcessingWorker:
         except (OSError, httpx.HTTPError) as exc:
             temporary.unlink(missing_ok=True)
             raise WorkerError(f"Original download failed: {exc}") from exc
-
-    def _download_project_logo(self, job_id: str, lease_token: str, job_dir: Path) -> Path | None:
-        """Fetch the current project PNG only for the overlaid final."""
-        destination = job_dir / "project-overlay-logo.png"
-        try:
-            with self._client.stream(
-                "GET", self._url(f"/{job_id}/overlay-logo"),
-                headers={**self._headers(), "X-Source-Processing-Lease-Token": lease_token},
-            ) as response:
-                if response.status_code == 404:
-                    return None
-                response.raise_for_status()
-                with destination.open("wb") as handle:
-                    for chunk in response.iter_bytes():
-                        handle.write(chunk)
-        except (OSError, httpx.HTTPError) as exc:
-            destination.unlink(missing_ok=True)
-            raise WorkerError(f"Project overlay logo download failed: {exc}") from exc
-        if destination.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
-            destination.unlink(missing_ok=True)
-            raise WorkerError("Project overlay logo is not a PNG file")
-        return destination
 
     @staticmethod
     def _verify_checksum(path: Path, expected: str) -> None:

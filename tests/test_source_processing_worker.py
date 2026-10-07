@@ -1,4 +1,4 @@
-"""Focused contract tests for the trim-plan-only server worker slice."""
+"""Focused contract tests for the server worker that makes only the no-overlay video."""
 
 from __future__ import annotations
 
@@ -36,8 +36,6 @@ def _plan(input_file: Path, **_: object) -> TrimPlan:
 
 
 def _worker(tmp_path: Path, handler: httpx.MockTransport, planner=_plan, heartbeat=30.0) -> SourceProcessingWorker:
-    def subtitles(**kwargs: object) -> None:
-        Path(kwargs["output_path"]).write_text("1\n00:00:00,000 --> 00:00:02,000\nنص\n", encoding="utf-8")
     def audio(_input: Path, output: Path, _segments: list[tuple[float, float]]) -> None:
         output.write_bytes(b"review-audio")
 
@@ -47,9 +45,8 @@ def _worker(tmp_path: Path, handler: httpx.MockTransport, planner=_plan, heartbe
         return handler.handle_request(request)
 
     worker = SourceProcessingWorker(
-        WorkerConfig("https://service.example.test", "project-a", "worker-secret", tmp_path, heartbeat, openrouter_api_key="test-key"),
+        WorkerConfig("https://service.example.test", "project-a", "worker-secret", tmp_path, heartbeat),
         client=httpx.Client(transport=httpx.MockTransport(review_analysis_handler)), trim_planner=planner,
-        subtitle_generator=subtitles,
         review_audio_builder=audio,
     )
     worker._has_audio = lambda _path: True
@@ -98,9 +95,6 @@ def test_worker_uses_internal_review_analysis_once_and_checkpoints_its_result(tm
     review_analysis_requests = 0
     checkpoint_bodies: list[dict[str, object]] = []
 
-    def subtitles(**kwargs: object) -> None:
-        Path(kwargs["output_path"]).write_text("1\n00:00:00,000 --> 00:00:02,000\nنص\n", encoding="utf-8")
-
     def audio(_input: Path, output: Path, _segments: list[tuple[float, float]]) -> None:
         output.write_bytes(b"OggSreview-audio")
 
@@ -126,14 +120,15 @@ def test_worker_uses_internal_review_analysis_once_and_checkpoints_its_result(tm
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     worker = SourceProcessingWorker(
-        WorkerConfig("https://service.example.test", "project-a", "worker-secret", tmp_path, openrouter_api_key="subtitle-key"),
+        WorkerConfig("https://service.example.test", "project-a", "worker-secret", tmp_path),
         client=httpx.Client(transport=httpx.MockTransport(handler)), trim_planner=_plan,
-        subtitle_generator=subtitles, review_audio_builder=audio,
+        review_audio_builder=audio,
     )
     worker._has_audio = lambda _path: True
 
     assert worker.run_once() is True
     assert review_analysis_requests == 1
+    assert all("srt_text" not in body for body in checkpoint_bodies)
     assert any(
         body.get("review_transcript") == "نص المراجعة" and body.get("generated_title") == "عنوان"
         for body in checkpoint_bodies
@@ -262,13 +257,9 @@ def test_waiting_retry_reuses_review_analysis_checkpoints_without_a_second_reque
             "plan": {"segments_to_keep": [[0.0, 2.0]], "input_duration_sec": 2.0},
         },
         "review_transcript": "محفوظ", "generated_title": "عنوان محفوظ",
-        "srt_text": "1\n00:00:00,000 --> 00:00:02,000\nنص\n",
-        "review_audio_uploaded": True, "subtitle_uploaded": True,
+        "review_audio_uploaded": True,
     })
     review_analysis_requests = 0
-
-    def subtitles(**kwargs: object) -> None:
-        Path(kwargs["output_path"]).write_text("1\n00:00:00,000 --> 00:00:02,000\nنص\n", encoding="utf-8")
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal review_analysis_requests
@@ -284,9 +275,9 @@ def test_waiting_retry_reuses_review_analysis_checkpoints_without_a_second_reque
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     worker = SourceProcessingWorker(
-        WorkerConfig("https://service.example.test", "project-a", "worker-secret", tmp_path, openrouter_api_key="subtitle-key"),
+        WorkerConfig("https://service.example.test", "project-a", "worker-secret", tmp_path),
         client=httpx.Client(transport=httpx.MockTransport(handler)), trim_planner=lambda **_: (_ for _ in ()).throw(AssertionError("trim plan must be reused")),
-        subtitle_generator=subtitles, review_audio_builder=lambda *_: (_ for _ in ()).throw(AssertionError("review OGG must not be rebuilt")),
+        review_audio_builder=lambda *_: (_ for _ in ()).throw(AssertionError("review OGG must not be rebuilt")),
     )
     worker._has_audio = lambda _path: True
 
@@ -365,16 +356,20 @@ def test_idle_worker_prerenders_no_overlay_video_and_reuses_it_after_approval(
 
     payload = b"two-second-media-bytes"
     checkpoints: dict[str, object] = {}
+    checkpoint_bodies: list[dict[str, object]] = []
     uploads: list[tuple[str, str]] = []
+    paths: list[str] = []
     claims = [_job(payload)]
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "objects.example.test":
             return httpx.Response(200, content=payload)
+        paths.append(request.url.path)
         body = json.loads(request.content or b"{}")
         if request.url.path.endswith("/claim"):
             return httpx.Response(200, json={"ok": True, "job": claims.pop(0) if claims else None})
         if request.url.path.endswith("/checkpoints"):
+            checkpoint_bodies.append(body)
             checkpoints.update({key: value for key, value in body.items() if key != "lease_token"})
             return httpx.Response(200, json={"ok": True})
         if request.url.path.endswith("/artifacts/initiate"):
@@ -395,7 +390,6 @@ def test_idle_worker_prerenders_no_overlay_video_and_reuses_it_after_approval(
 
     monkeypatch.setattr(worker_api, "trim_single_video", fake_trim)
     monkeypatch.setattr(worker_api, "write_trim_script_from_plan", lambda **kwargs: kwargs["temp_dir"] / "trim.txt")
-    monkeypatch.setattr(worker_api, "mux_srt_track", lambda _video, _srt: None)
     monkeypatch.setattr(
         worker_api.SourceProcessingWorker, "_set_metadata_title",
         staticmethod(lambda video, title: titled.append((video.name, title))),
@@ -404,23 +398,28 @@ def test_idle_worker_prerenders_no_overlay_video_and_reuses_it_after_approval(
     worker._duration = lambda _path: 2.0
     job_dir = tmp_path / "project-a" / "job-001"
 
-    # Before approval: review artifacts first, then the idle-time encode.
+    # Before approval: the review audio first, then the idle-time encode.
     assert worker.run_once() is True
     assert encodes == []
+    assert uploads == [("review_audio", "عنوان")]
     assert (job_dir / "awaiting-title-review.json").is_file()
     assert worker.run_once() is False
     assert worker.prerender_once() is True
     assert encodes == [("no-overlay.prerender", None)]
     assert worker.prerender_once() is False
 
-    # After approval: only the overlaid video is encoded; the no-overlay video gets its title by remux.
+    # After approval: no new encode. The prerender gets the approved title by remux.
+    uploads.clear()
     approved = {**_job(payload), **checkpoints, "approved_title": "العنوان المعتمد",
-                "review_audio_uploaded": True, "subtitle_uploaded": True}
+                "review_audio_uploaded": True}
     claims.append(approved)
     assert worker.run_once() is True
-    assert encodes == [("no-overlay.prerender", None), ("final", "العنوان المعتمد")]
+    assert encodes == [("no-overlay.prerender", None)]
     assert titled == [("no-overlay.mp4", "العنوان المعتمد")]
-    assert ("no_overlay_video", "العنوان المعتمد") in uploads
+    assert uploads == [("no_overlay_video", "العنوان المعتمد")]
+    assert paths[-1].endswith("/job-001/complete")
+    assert all("srt_text" not in body for body in checkpoint_bodies)
+    assert not any("logo" in path for path in paths)
     assert not (job_dir / "awaiting-title-review.json").exists()
     assert worker.prerender_once() is False
 
@@ -504,3 +503,83 @@ def test_idle_worker_seeds_prerender_from_server_for_jobs_without_local_files(
 def test_prerender_seed_tolerates_a_server_without_the_endpoint(tmp_path: Path) -> None:
     worker = _worker(tmp_path, httpx.MockTransport(lambda _request: httpx.Response(404, json={"ok": False})))
     assert worker.prerender_once() is False
+
+
+def test_approved_job_without_prerender_encodes_and_uploads_one_titled_no_overlay_video(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sr_source_processing.api as worker_api
+
+    payload = b"two-second-media-bytes"
+    job = {
+        **_job(payload),
+        "trim_plan": {
+            "version": 1, "source_id": "source-001",
+            "original_checksum_sha256": hashlib.sha256(payload).hexdigest(),
+            "plan": {"segments_to_keep": [[0.0, 2.0]]},
+        },
+        "approved_title": "العنوان المعتمد",
+        # An old server can still send these fields. The worker ignores them.
+        "srt_text": "", "subtitle_uploaded": False, "overlaid_uploaded": False,
+    }
+    claims = [job]
+    uploads: list[tuple[str, str]] = []
+    paths: list[str] = []
+    encodes: list[tuple[str, str | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "objects.example.test":
+            return httpx.Response(200, content=payload)
+        paths.append(request.url.path)
+        body = json.loads(request.content or b"{}")
+        if request.url.path.endswith("/claim"):
+            return httpx.Response(200, json={"ok": True, "job": claims.pop(0) if claims else None})
+        if request.url.path.endswith("/artifacts/initiate"):
+            uploads.append((body["kind"], body["title"]))
+            return httpx.Response(200, json={"ok": True, "already_uploaded": True})
+        if request.url.path.endswith(("/artifacts/complete", "/complete")):
+            return httpx.Response(200, json={"ok": True})
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    def fake_trim(*, output_dir: Path, output_basename: str, metadata_title: str | None = None, **_: object) -> Path:
+        encodes.append((output_basename, metadata_title))
+        output = output_dir / f"{output_basename}.mp4"
+        output.write_bytes(b"video")
+        return output
+
+    monkeypatch.setattr(worker_api, "trim_single_video", fake_trim)
+    monkeypatch.setattr(worker_api, "write_trim_script_from_plan", lambda **kwargs: kwargs["temp_dir"] / "trim.txt")
+    worker = _worker(tmp_path, httpx.MockTransport(handler))
+    worker._duration = lambda _path: 2.0
+    # A failed prerender must not block the normal encode after approval.
+    job_dir = tmp_path / "project-a" / "job-001"
+    job_dir.mkdir(parents=True)
+    (job_dir / "no-overlay.prerender.failed").write_text("ffmpeg failed", encoding="utf-8")
+
+    assert worker.run_once() is True
+    assert encodes == [("no-overlay", "العنوان المعتمد")]
+    assert uploads == [("no_overlay_video", "العنوان المعتمد")]
+    assert paths[-1].endswith("/job-001/complete")
+    assert not any("logo" in path for path in paths)
+
+
+def test_worker_config_needs_no_openrouter_key_or_overlay_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("OPENROUTER_API_KEY", "SOURCE_PROCESSING_ENCODER", "SOURCE_PROCESSING_HEARTBEAT_INTERVAL_SEC"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("SOURCE_PROCESSING_SERVICE_URL", "https://service.example.test/")
+    monkeypatch.setenv("SOURCE_PROCESSING_PROJECT", "project-a")
+    monkeypatch.setenv("SOURCE_PROCESSING_WORKER_TOKEN", "worker-secret")
+    monkeypatch.setenv("SOURCE_PROCESSING_WORK_DIR", str(tmp_path))
+    # Old overlay settings can stay in an old env file. The worker ignores them.
+    monkeypatch.setenv("SOURCE_PROCESSING_ENABLE_TITLE_OVERLAY", "true")
+    monkeypatch.setenv("SOURCE_PROCESSING_ENABLE_LOGO_OVERLAY", "true")
+
+    config = WorkerConfig.from_env()
+
+    assert config.service_url == "https://service.example.test"
+    assert config.encoder == "X265"
+    assert not any(field in vars(config) for field in (
+        "openrouter_api_key", "enable_title_overlay", "enable_logo_overlay", "title_font",
+    ))

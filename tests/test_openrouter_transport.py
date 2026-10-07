@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "packages"))
 
 import pytest
 
-from openrouter_transport import request, transcribe_audio
+from openrouter_transport import request
 from openrouter_transport.client import (
     _parse_retry_seconds_from_error,
     _status_code_from_error,
@@ -46,34 +46,6 @@ class TestRequestSuccessful:
             )
             
             assert result == "Test response"
-
-
-def test_transcribe_audio_uses_dedicated_stt_endpoint(tmp_path):
-    audio = tmp_path / "segment.wav"
-    audio.write_bytes(b"RIFFaudio")
-    response = MagicMock()
-    response.json.return_value = {
-        "text": "  أهلا   بكم  ",
-        "usage": {"cost": 0.001, "seconds": 2.0},
-    }
-    response.headers = {"X-Generation-Id": "gen-1"}
-    with patch("openrouter_transport.client.httpx.Client") as client_class:
-        client_class.return_value.__enter__.return_value.post.return_value = response
-        result = transcribe_audio("key", "qwen/model", audio, log_dir=tmp_path)
-    assert result == "أهلا بكم"
-    request = client_class.return_value.__enter__.return_value.post.call_args
-    assert request.args[0].endswith("/audio/transcriptions")
-    assert request.kwargs["json"]["language"] == "ar"
-    assert request.kwargs["json"]["temperature"] == 0
-    assert request.kwargs["json"]["model"] == "qwen/model"
-    assert "COST_USD: 0.001" in (tmp_path / "logs" / "stt-segment.txt").read_text(encoding="utf-8")
-
-
-def test_transcribe_audio_rejects_empty_file(tmp_path):
-    audio = tmp_path / "empty.wav"
-    audio.touch()
-    with pytest.raises(RuntimeError, match="empty audio"):
-        transcribe_audio("key", "qwen/model", audio)
 
 
 def test_optional_cost_controls_are_forwarded():

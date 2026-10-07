@@ -81,21 +81,6 @@ def probe_video_dimensions(input_file: Path) -> tuple[int, int]:
     return width, height
 
 
-def probe_ffmpeg_can_decode_image_frame(path: Path) -> None:
-    """Raise ``RuntimeError`` if FFmpeg cannot decode at least one frame.
-
-    Use for optional assets (e.g. logo PNG) where ffprobe dimensions can succeed
-    while the PNG demuxer/decoder fails during encode (corrupt chunks, AV locks).
-    """
-    cmd = build_ffmpeg_cmd(True, "-v", "error", "-i", str(path), "-frames:v", "1", "-f", "null", "-")
-    result = run(cmd, capture_output=True, check=False)
-    if result.returncode != 0:
-        tail = (result.stderr or "").strip()
-        if len(tail) > 400:
-            tail = f"{tail[:400]}..."
-        raise RuntimeError(tail or f"FFmpeg could not decode image: {path}")
-
-
 def can_run_encoder(codec: str, codec_args: Sequence[str] = ()) -> bool:
     """Check whether the given codec can run in a minimal encode test."""
     import subprocess
@@ -146,20 +131,6 @@ def read_format_tags(input_file: Path) -> dict[str, str]:
         if isinstance(k, str):
             out[k] = v if isinstance(v, str) else str(v)
     return out
-
-
-def is_mp4_container(input_file: Path) -> bool:
-    """Return whether ffprobe identifies a local file as an MP4-family container."""
-    result = run(build_ffprobe_format_json_command(input_file), capture_output=True, check=False)
-    if result.returncode != 0 or result.stdout is None:
-        return False
-    try:
-        raw = result.stdout
-        text_out = raw if isinstance(raw, str) else raw.decode("utf-8", errors="replace")
-        format_name = json.loads(text_out).get("format", {}).get("format_name", "")
-    except (json.JSONDecodeError, AttributeError):
-        return False
-    return "mp4" in str(format_name).split(",")
 
 
 def _nfc(s: str) -> str:

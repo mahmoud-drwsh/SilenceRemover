@@ -1,16 +1,12 @@
 """Shared OpenRouter SDK client with retry logic for transcribe and title modules."""
 
-import base64
 import random
 import re
 import time
 from pathlib import Path
 from typing import Optional
 
-import httpx
 from openrouter import OpenRouter
-
-OPENROUTER_STT_URL = "https://openrouter.ai/api/v1/audio/transcriptions"
 
 
 def _parse_retry_seconds_from_error(err: Exception) -> float:
@@ -277,63 +273,3 @@ def request(
         attempt += 1
 
     raise last_err
-
-
-def transcribe_audio(
-    api_key: str,
-    model: str,
-    audio_path: Path,
-    *,
-    language: str = "ar",
-    max_attempts: int = 3,
-    log_dir: Path | None = None,
-) -> str:
-    """Transcribe one bounded audio segment through OpenRouter's STT endpoint."""
-    audio = audio_path.read_bytes()
-    if not audio:
-        raise RuntimeError(f"Cannot transcribe empty audio: {audio_path.name}")
-    payload = {
-        "model": model,
-        "input_audio": {
-            "data": base64.b64encode(audio).decode("ascii"),
-            "format": audio_path.suffix.lower().lstrip("."),
-        },
-        "language": language,
-        "temperature": 0,
-    }
-    last_error: Exception | None = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            with httpx.Client(timeout=180) as client:
-                response = client.post(
-                    OPENROUTER_STT_URL,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "https://github.com/SilenceRemover",
-                        "X-OpenRouter-Title": "SilenceRemover",
-                    },
-                    json=payload,
-                )
-                response.raise_for_status()
-                body = response.json()
-            text = " ".join(str(body.get("text") or "").split())
-            if not text:
-                raise RuntimeError("OpenRouter STT returned an empty transcript")
-            if log_dir is not None:
-                usage = body.get("usage") or {}
-                metadata = (
-                    f"MODEL: {model}\nAUDIO: {audio_path.name}\n"
-                    f"GENERATION_ID: {response.headers.get('X-Generation-Id', '')}\n"
-                    f"COST_USD: {usage.get('cost', '')}\nSECONDS: {usage.get('seconds', '')}\n"
-                    f"OUTPUT:\n{text}\n"
-                )
-                logs = log_dir / "logs"
-                logs.mkdir(parents=True, exist_ok=True)
-                (logs / f"stt-{audio_path.stem}.txt").write_text(metadata, encoding="utf-8")
-            return text
-        except (httpx.HTTPError, RuntimeError, ValueError) as error:
-            last_error = error
-            if attempt < max_attempts:
-                time.sleep(2 ** (attempt - 1))
-    raise RuntimeError(f"OpenRouter STT failed after {max_attempts} attempts: {last_error}")

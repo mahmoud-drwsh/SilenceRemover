@@ -9,7 +9,7 @@ from pathlib import Path
 
 from src.core.cli import collect_video_files, fail, require_input_dir, require_tools
 from src.core.config import get_config, load_config
-from src.core.constants import TITLE_FONT_DEFAULT, resolve_trim_defaults
+from src.core.constants import resolve_trim_defaults
 from src.core.paths import create_temp_subdirs, sibling_dir
 
 
@@ -27,10 +27,6 @@ class StartupContext:
     pad_sec: float
     target_length: float | None
     api_key: str
-    title_font: str
-
-    enable_title_overlay: bool
-    enable_logo_overlay: bool
 
 
 def build_startup_context(args: Namespace) -> StartupContext:
@@ -77,7 +73,4 @@ def build_startup_context(args: Namespace) -> StartupContext:
         pad_sec=pad_sec,
         target_length=args.target_length,
         api_key=api_key,
-        title_font=(args.title_font or "").strip() or TITLE_FONT_DEFAULT,
-        enable_title_overlay=getattr(args, "enable_title_overlay", False),
-        enable_logo_overlay=getattr(args, "enable_logo_overlay", False),
     )

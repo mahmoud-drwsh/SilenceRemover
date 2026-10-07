@@ -11,10 +11,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "packages"))
 
 from src.ffmpeg.core import build_qsv_hwaccel_flags
 from src.ffmpeg.encoding_resolver import get_encoder_config
-from sr_filter_graph import (
-    build_minimal_encode_overlay_filter_complex,
-    build_video_audio_concat_filter_graph_with_title_overlay,
-)
 from src.ffmpeg.probing import can_run_encoder, get_available_encoders
 from src.ffmpeg.transcode import build_final_trim_command, build_minimal_video_command
 
@@ -98,27 +94,6 @@ def main() -> None:
         if not all(flag in cmd_min_qsv for flag in hw_flags):
             _fail("QSV minimal command is missing one or more hardware-path flags.")
         _ok("QSV minimal command includes hardware-path flags.")
-
-    overlay_fc = build_video_audio_concat_filter_graph_with_title_overlay(
-        segments_to_keep=[(0.0, 1.0)],
-        overlay_y=10,
-        logo_enabled=True,
-    )
-    if "format=nv12[outv]" not in overlay_fc:
-        _fail("Overlay concat filter graph is missing final nv12 normalization.")
-    if "scale=" in overlay_fc:
-        _fail("Overlay concat filter graph should not include runtime logo scaling.")
-    _ok("Overlay concat filter graph includes final nv12 normalization.")
-
-    minimal_overlay_fc = build_minimal_encode_overlay_filter_complex(
-        title_overlay_y=10,
-        logo_enabled=True,
-    )
-    if "format=nv12[outv]" not in minimal_overlay_fc:
-        _fail("Minimal overlay filter graph is missing final nv12 normalization.")
-    if "scale=" in minimal_overlay_fc:
-        _fail("Minimal overlay filter graph should not include runtime logo scaling.")
-    _ok("Minimal overlay filter graph includes final nv12 normalization.")
 
     print("Smoke test completed successfully.")
 

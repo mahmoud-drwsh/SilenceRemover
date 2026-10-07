@@ -32,7 +32,10 @@ EXPECTED_REVIEW_ANALYSIS = {
     "transcript": "الحمد لله رب العالمين، اليوم نتحدث عن فضل طلب العلم.",
     "title": "اليوم نتحدث عن فضل طلب العلم",
 }
-EXPECTED_FRACTIONAL_DURATION = 25.124999
+# The format duration of the rendered no-overlay video. Before #44 the worker
+# also added an SRT track with a stream-copy remux, and that remux gave
+# 25.124999. Without the remux, ffprobe gives the audio stream end.
+EXPECTED_FRACTIONAL_DURATION = 25.123991
 EXPECTED_INPUT_DURATION = 25.125
 
 
@@ -136,6 +139,39 @@ assert completed["ok"]
 probe = json_request(f"{WORKER_BASE}/claim", "POST", {}, {"X-Source-Processing-Token": TOKEN})
 assert probe["job"] and probe["job"].get("original_download_url", "").startswith(("http://", "https://")), probe
 probe_job = probe["job"]
+# The claim has no subtitle flag, no overlaid flag and no SRT text (#44).
+for removed_field in ("subtitle_uploaded", "overlaid_uploaded", "srt_text"):
+    assert removed_field not in probe_job, (removed_field, sorted(probe_job))
+assert "no_overlay_uploaded" in probe_job and "review_audio_uploaded" in probe_job
+
+
+def worker_status(url: str, payload: dict) -> int:
+    try:
+        return request(url, "POST", payload, {"X-Source-Processing-Token": TOKEN}).status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+
+
+# The artifact API accepts only review_audio and no_overlay_video.
+for removed_kind in ("subtitle", "overlaid_video"):
+    assert worker_status(f"{WORKER_BASE}/{probe_job['id']}/artifacts/initiate", {
+        "lease_token": probe_job["lease_token"], "kind": removed_kind,
+        "size": len(source), "checksum_sha256": digest, "title": "x",
+    }) == 400, removed_kind
+# An old worker can still send only srt_text. The server ignores it.
+srt_only = json.load(request(
+    f"{WORKER_BASE}/{probe_job['id']}/checkpoints", "PATCH",
+    {"lease_token": probe_job["lease_token"], "srt_text": "1\n00:00:00,000 --> 00:00:01,000\nx\n"},
+    {"X-Source-Processing-Token": TOKEN},
+))
+assert srt_only == {"ok": True}
+try:
+    request(f"{WORKER_BASE}/{probe_job['id']}/overlay-logo", headers={
+        "X-Source-Processing-Token": TOKEN, "X-Source-Processing-Lease-Token": probe_job["lease_token"],
+    })
+    raise AssertionError("the worker logo route still exists")
+except urllib.error.HTTPError as exc:
+    assert exc.code == 404
 json_request(
     f"{WORKER_BASE}/{probe_job['id']}/fail", "POST",
     {"lease_token": probe_job["lease_token"], "error": "payload preflight"},
@@ -143,15 +179,10 @@ json_request(
 )
 json_request(f"{ADMIN_BASE}/{probe_job['id']}/retry", "POST", {})
 
-def fake_subtitles(**kwargs):
-    Path(kwargs["output_path"]).write_text("1\n00:00:00,000 --> 00:00:02,000\nنص اختبار\n", encoding="utf-8")
-
-config = WorkerConfig(APP, PROJECT, TOKEN, Path("/tmp/source-processing-worker"), 0.2, openrouter_api_key="fake-provider-key")
+# The worker needs no OpenRouter key: Media Manager does the review analysis.
+config = WorkerConfig(APP, PROJECT, TOKEN, Path("/tmp/source-processing-worker"), 0.2)
 def run_worker():
-    with SourceProcessingWorker(
-        config,
-        subtitle_generator=fake_subtitles,
-    ) as worker:
+    with SourceProcessingWorker(config) as worker:
         assert worker.run_once()
 
 run_worker()
@@ -178,38 +209,34 @@ status = json_request(f"{ADMIN_BASE}/status")
 assert status["states"].get("completed") == 1, status
 assert status["waiting"] == []
 audio = json_request(f"{MEDIA_BASE}/api/files?type=audio&check_id={SOURCE_ID}")
-subtitle = json_request(f"{MEDIA_BASE}/api/files?type=subtitle&check_id={SOURCE_ID}-subtitles")
 assert audio[0]["title"] == "عنوان راجعه المستخدم" and audio[0]["tags"] == ["ready"]
 assert audio[0]["source_id"] == SOURCE_ID and len(audio[0]["checksum_sha256"]) == 64
-assert subtitle[0]["source_id"] == SOURCE_ID and len(subtitle[0]["checksum_sha256"]) == 64
-served_srt = request(f"{MEDIA_BASE}/stream/{SOURCE_ID}-subtitles?type=subtitle").read()
 served_audio = request(f"{MEDIA_BASE}/stream/{SOURCE_ID}?type=audio").read()
 assert hashlib.sha256(served_audio).hexdigest() == audio[0]["checksum_sha256"]
-assert hashlib.sha256(served_srt).hexdigest() == subtitle[0]["checksum_sha256"]
-assert b"00:00:00,000 --> 00:00:02,000" in served_srt
+# The worker makes one video only: the no-overlay video. It makes no overlaid video.
 videos = json_request(f"{MEDIA_BASE}/api/files?type=video&include_pending=true")
 no_overlay_videos = json_request(f"{MEDIA_BASE}/api/files?type=video&check_id={SOURCE_ID}-no-overlay")
 video_by_id = {video["id"]: video for video in videos + no_overlay_videos}
-assert set(video_by_id) >= {SOURCE_ID, f"{SOURCE_ID}-no-overlay"}
-assert video_by_id[SOURCE_ID]["title"] == "عنوان راجعه المستخدم"
-assert video_by_id[SOURCE_ID]["media_variant"] == "pipeline-final"
-assert video_by_id[SOURCE_ID]["publication_status"] == "published"
-assert video_by_id[f"{SOURCE_ID}-no-overlay"]["tags"] == ["no-overlay"]
-for video_id in (SOURCE_ID, f"{SOURCE_ID}-no-overlay"):
-    assert video_by_id[video_id]["source_id"] == SOURCE_ID
-    # The legacy-seed service intentionally changes files.duration back to
-    # integer before the app starts. These public final-file responses prove
-    # startup migration restored double precision and preserved the known
-    # fractional render duration through artifact completion and serialization.
-    assert video_by_id[video_id]["duration"] == EXPECTED_FRACTIONAL_DURATION, video_by_id[video_id]
-    served = request(f"{MEDIA_BASE}/stream/{video_id}?type=video").read()
-    assert hashlib.sha256(served).hexdigest() == video_by_id[video_id]["checksum_sha256"]
-    local_video = Path(f"/tmp/{video_id}.mp4")
-    local_video.write_bytes(served)
-    subtitle_probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "s:0", "-show_entries", "stream=codec_name:stream_disposition=default", "-of", "json", str(local_video)],
-        check=True, capture_output=True, text=True,
-    )
-    subtitle_stream = json.loads(subtitle_probe.stdout)["streams"]
-    assert subtitle_stream[0]["codec_name"] == "mov_text"
+assert f"{SOURCE_ID}-no-overlay" in video_by_id, sorted(video_by_id)
+assert SOURCE_ID not in video_by_id, sorted(video_by_id)
+no_overlay = video_by_id[f"{SOURCE_ID}-no-overlay"]
+assert no_overlay["tags"] == []
+assert no_overlay["media_variant"] == "no-overlay"
+assert no_overlay["source_id"] == SOURCE_ID
+# The legacy-seed service intentionally changes files.duration back to
+# integer before the app starts. This public final-file response proves
+# startup migration restored double precision and preserved the known
+# fractional render duration through artifact completion and serialization.
+assert no_overlay["duration"] == EXPECTED_FRACTIONAL_DURATION, no_overlay
+served = request(f"{MEDIA_BASE}/stream/{SOURCE_ID}-no-overlay?type=video").read()
+assert hashlib.sha256(served).hexdigest() == no_overlay["checksum_sha256"]
+local_video = Path(f"/tmp/{SOURCE_ID}-no-overlay.mp4")
+local_video.write_bytes(served)
+probe = subprocess.run(
+    ["ffprobe", "-v", "error", "-show_entries", "format_tags=title:stream=codec_type", "-of", "json", str(local_video)],
+    check=True, capture_output=True, text=True,
+)
+probed = json.loads(probe.stdout)
+assert probed["format"]["tags"]["title"] == "عنوان راجعه المستخدم", probed
+assert "subtitle" not in {stream["codec_type"] for stream in probed["streams"]}, probed
 print("isolated source-processing worker flow passed")

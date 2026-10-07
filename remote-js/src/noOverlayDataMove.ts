@@ -1,0 +1,506 @@
+/**
+ * Pure planning logic for the no-overlay data move (#44, #47).
+ *
+ * The plan reads `files` rows of type `video` and decides:
+ * - which designer revisions move from an overlaid video to its no-overlay video,
+ * - which active designer revision pointers move to the no-overlay video,
+ * - which overlaid video rows are safe to delete, and
+ * - which overlaid video rows stay because a designer revision has no new parent.
+ *
+ * This module does no I/O. The operator script in
+ * `scripts/no_overlay_data_move.ts` reads the rows, prints the plan and applies it
+ * with guarded SQL. Keep this file independent of the routes, because the routes
+ * change in the same release. The shared SQL rules are in `videoSql.ts`, which
+ * has no route side effects.
+ */
+
+import { cardTitleNeedsLegacy } from "./videoSql.ts";
+
+export const LEGACY_DESIGNER_SUFFIX = "-designer";
+export const NO_OVERLAY_SUFFIX = "-no-overlay";
+
+/** Worker temp object kinds that only the removed features made. */
+export const REMOVED_WORKER_TEMP_KINDS = ["subtitle", "overlaid_video"] as const;
+
+export interface VideoRow {
+  project: string;
+  id: string;
+  source_id: string | null;
+  designer_of_id: string | null;
+  active_designer_revision_id: string | null;
+  media_variant: string | null;
+  tags: unknown;
+  title: string | null;
+  review_status: string | null;
+  visibility: string | null;
+  publication_status: string | null;
+  file_size: number | string | null;
+  mime_type: string;
+  created_at: Date | string | null;
+}
+
+export type VideoRole = "overlaid" | "no-overlay" | "designer" | "other";
+
+export interface OverlaidItem {
+  project: string;
+  id: string;
+  source_id: string | null;
+  file_size: number;
+  mime_type: string;
+  /** The no-overlay row that takes over the card, or null when none exists. */
+  companion_id: string | null;
+  companion_trashed: boolean;
+  /** True when more than one no-overlay row could be the companion. */
+  companion_ambiguous: boolean;
+}
+
+export interface DesignerRelink {
+  project: string;
+  id: string;
+  from_target: string;
+  to_target: string;
+  /** The row had no designer_of_id and used the legacy `-designer` ID suffix. */
+  legacy_suffix: boolean;
+}
+
+export interface PointerMove {
+  project: string;
+  overlaid_id: string;
+  no_overlay_id: string;
+  revision_id: string;
+  /** The overlaid row had no explicit pointer; the card used the newest revision. */
+  implicit: boolean;
+  /** The pointer that the no-overlay row has before the move. */
+  previous: string | null;
+}
+
+export interface PointerConflict {
+  project: string;
+  overlaid_id: string;
+  no_overlay_id: string;
+  overlaid_revision_id: string;
+  no_overlay_revision_id: string;
+  kept_revision_id: string;
+}
+
+/** The approved title of the overlaid row goes to the no-overlay row. */
+export interface TitleCopy {
+  project: string;
+  no_overlay_id: string;
+  overlaid_id: string;
+  previous: string | null;
+  title: string;
+}
+
+/** The effective card state of a video row. */
+export interface CardState {
+  visibility: "trash" | "active";
+  publication_status: "pending" | "published";
+  review_status: string | null;
+}
+
+/**
+ * The overlaid row holds the card state, so its state goes to the no-overlay
+ * row in both directions (trash or active, pending or published, review).
+ */
+export interface StateCopy {
+  project: string;
+  no_overlay_id: string;
+  overlaid_id: string;
+  /** Effective state of the no-overlay row before the copy. */
+  before: CardState;
+  /** State that the copy writes. It is the effective state of the overlaid row. */
+  after: CardState;
+  /** The raw columns of the no-overlay row before the copy (for the apply guard). */
+  previous: { visibility: string | null; publication_status: string | null; review_status: string | null };
+  /** The tags of the no-overlay row before the copy. */
+  previous_tags: unknown;
+  /** The tags after the copy. Only `trash` stays a video tag, and it agrees with `after.visibility`. */
+  tags: string[];
+  /**
+   * The raw columns and tags of the overlaid row in the plan. The apply guard
+   * compares them exactly, so that it does not parse legacy tags again.
+   */
+  overlaid_previous: { visibility: string | null; publication_status: string | null; review_status: string | null; tags: unknown };
+}
+
+export interface BlockedOverlaid {
+  project: string;
+  id: string;
+  reason: string;
+  designer_ids: string[];
+}
+
+export interface UnresolvedDesigner {
+  project: string;
+  id: string;
+  reason: string;
+}
+
+export interface DataMovePlan {
+  designer_relinks: DesignerRelink[];
+  pointer_moves: PointerMove[];
+  pointer_conflicts: PointerConflict[];
+  title_copies: TitleCopy[];
+  state_copies: StateCopy[];
+  /** Overlaid rows that apply deletes (blocked rows are not in this list). */
+  overlaid_deletes: OverlaidItem[];
+  blocked_overlaid: BlockedOverlaid[];
+  unresolved_designers: UnresolvedDesigner[];
+}
+
+export function parseTags(raw: unknown): string[] {
+  let value = raw;
+  // Legacy rows can keep a JSON array that is encoded as a JSON string.
+  for (let depth = 0; depth < 2 && typeof value === "string"; depth += 1) {
+    try { value = JSON.parse(value); } catch { return []; }
+  }
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+export function toBytes(value: number | string | null | undefined): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function time(value: Date | string | null): number {
+  if (value === null) return 0;
+  const parsed = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isTrashed(row: VideoRow): boolean {
+  if (row.visibility === "trash") return true;
+  if (row.visibility === "active") return false;
+  return parseTags(row.tags).includes("trash");
+}
+
+function isPending(row: VideoRow): boolean {
+  if (row.publication_status === "pending") return true;
+  if (row.publication_status === "published") return false;
+  return parseTags(row.tags).includes("pending");
+}
+
+/** Effective state of a row, with the same rules as visibilitySql and publicationStatusSql. */
+export function cardState(row: VideoRow): CardState {
+  return {
+    visibility: isTrashed(row) ? "trash" : "active",
+    publication_status: isPending(row) ? "pending" : "published",
+    review_status: row.review_status,
+  };
+}
+
+/** A non-empty trimmed title, or null. */
+function approvedTitle(row: VideoRow): string | null {
+  const title = row.title?.trim() ?? "";
+  return title === "" ? null : title;
+}
+
+/**
+ * Classify one video row. The rules copy the read-side legacy mapping of the
+ * Media Manager, with extra guards: an ID with the `-designer` or
+ * `-no-overlay` suffix is never an overlaid video.
+ */
+export function videoRole(row: VideoRow): VideoRole {
+  const tags = parseTags(row.tags);
+  if (row.designer_of_id || row.media_variant === "designer" || tags.includes("designer")
+    || row.id.endsWith(LEGACY_DESIGNER_SUFFIX) || /-designer-[0-9a-f-]{36}$/i.test(row.id)) {
+    return "designer";
+  }
+  if (row.media_variant === "no-overlay") return "no-overlay";
+  if (row.media_variant === "pipeline-final") {
+    return row.id.endsWith(NO_OVERLAY_SUFFIX) ? "other" : "overlaid";
+  }
+  if (row.media_variant !== null) return "other";
+  if (tags.includes("no-overlay") || row.id.endsWith(NO_OVERLAY_SUFFIX)) return "no-overlay";
+  return "overlaid";
+}
+
+/**
+ * The designer target of a revision: its `designer_of_id`, or the parent ID of a
+ * legacy `<parent>-designer` row. Null when the row gives no target.
+ */
+export function designerTarget(row: VideoRow): { target: string; legacy: boolean } | null {
+  if (row.designer_of_id) return { target: row.designer_of_id, legacy: false };
+  if (row.id.endsWith(LEGACY_DESIGNER_SUFFIX) && row.id.length > LEGACY_DESIGNER_SUFFIX.length) {
+    return { target: row.id.slice(0, -LEGACY_DESIGNER_SUFFIX.length), legacy: true };
+  }
+  return null;
+}
+
+/**
+ * Find the no-overlay row of an overlaid row. Order:
+ * 1. `<source_id>-no-overlay`, 2. `<overlaid id>-no-overlay`,
+ * 3. the only no-overlay row with the same source_id (active rows first).
+ */
+export function resolveCompanion(
+  overlaid: VideoRow,
+  noOverlayByKey: Map<string, VideoRow>,
+  noOverlayBySource: Map<string, VideoRow[]>,
+): { row: VideoRow | null; ambiguous: boolean } {
+  const exactIds = [
+    ...(overlaid.source_id ? [`${overlaid.source_id}${NO_OVERLAY_SUFFIX}`] : []),
+    `${overlaid.id}${NO_OVERLAY_SUFFIX}`,
+  ];
+  for (const id of exactIds) {
+    const row = noOverlayByKey.get(key(overlaid.project, id));
+    if (row) return { row, ambiguous: false };
+  }
+  if (!overlaid.source_id) return { row: null, ambiguous: false };
+  const siblings = noOverlayBySource.get(key(overlaid.project, overlaid.source_id)) ?? [];
+  const active = siblings.filter((row) => !isTrashed(row));
+  if (active.length === 1) return { row: active[0]!, ambiguous: false };
+  if (active.length > 1) return { row: null, ambiguous: true };
+  if (siblings.length === 1) return { row: siblings[0]!, ambiguous: false };
+  return { row: null, ambiguous: siblings.length > 1 };
+}
+
+function key(project: string, id: string): string {
+  return `${project}\u0000${id}`;
+}
+
+/** Build the full plan from the current `files` video rows. */
+export function planNoOverlayDataMove(videos: VideoRow[]): DataMovePlan {
+  const byKey = new Map<string, VideoRow>();
+  const noOverlayByKey = new Map<string, VideoRow>();
+  const noOverlayBySource = new Map<string, VideoRow[]>();
+  const overlaidRows: VideoRow[] = [];
+  const designerRows: VideoRow[] = [];
+  for (const row of videos) {
+    byKey.set(key(row.project, row.id), row);
+    const role = videoRole(row);
+    if (role === "overlaid") overlaidRows.push(row);
+    else if (role === "designer") designerRows.push(row);
+    else if (role === "no-overlay") {
+      noOverlayByKey.set(key(row.project, row.id), row);
+      if (row.source_id) {
+        const list = noOverlayBySource.get(key(row.project, row.source_id)) ?? [];
+        list.push(row);
+        noOverlayBySource.set(key(row.project, row.source_id), list);
+      }
+    }
+  }
+
+  const companions = new Map<string, OverlaidItem>();
+  for (const row of overlaidRows) {
+    const companion = resolveCompanion(row, noOverlayByKey, noOverlayBySource);
+    companions.set(key(row.project, row.id), {
+      project: row.project,
+      id: row.id,
+      source_id: row.source_id,
+      file_size: toBytes(row.file_size),
+      mime_type: row.mime_type,
+      companion_id: companion.row?.id ?? null,
+      companion_trashed: companion.row ? isTrashed(companion.row) : false,
+      companion_ambiguous: companion.ambiguous,
+    });
+  }
+
+  const designer_relinks: DesignerRelink[] = [];
+  const unresolved_designers: UnresolvedDesigner[] = [];
+  const blockers = new Map<string, string[]>();
+  // Designer revisions of each overlaid row, before the move. The card uses
+  // them to find the implicit active designer video.
+  const revisionsOfOverlaid = new Map<string, VideoRow[]>();
+  for (const row of designerRows) {
+    const target = designerTarget(row);
+    if (!target) {
+      unresolved_designers.push({ project: row.project, id: row.id, reason: "no designer target" });
+      continue;
+    }
+    const targetKey = key(row.project, target.target);
+    const overlaid = companions.get(targetKey);
+    if (overlaid) {
+      const list = revisionsOfOverlaid.get(targetKey) ?? [];
+      list.push(row);
+      revisionsOfOverlaid.set(targetKey, list);
+      if (overlaid.companion_id) {
+        designer_relinks.push({ project: row.project, id: row.id, from_target: target.target, to_target: overlaid.companion_id, legacy_suffix: target.legacy });
+      } else {
+        const list2 = blockers.get(targetKey) ?? [];
+        list2.push(row.id);
+        blockers.set(targetKey, list2);
+      }
+      continue;
+    }
+    if (target.legacy && noOverlayByKey.has(targetKey)) {
+      // A legacy row on a no-overlay parent gets an explicit designer target.
+      designer_relinks.push({ project: row.project, id: row.id, from_target: target.target, to_target: target.target, legacy_suffix: true });
+      continue;
+    }
+    if (!byKey.has(targetKey)) {
+      unresolved_designers.push({ project: row.project, id: row.id, reason: "designer target does not exist" });
+    }
+  }
+
+  const pointer_moves: PointerMove[] = [];
+  const pointer_conflicts: PointerConflict[] = [];
+  const blocked_overlaid: BlockedOverlaid[] = [];
+  const overlaid_deletes: OverlaidItem[] = [];
+  // The pointer of each no-overlay row as the plan changes it.
+  const pointers = new Map<string, string | null>();
+  for (const row of overlaidRows) {
+    const rowKey = key(row.project, row.id);
+    const item = companions.get(rowKey)!;
+    const revisions = revisionsOfOverlaid.get(rowKey) ?? [];
+    const blockingDesigners = blockers.get(rowKey) ?? [];
+    if (!item.companion_id) {
+      if (blockingDesigners.length > 0 || row.active_designer_revision_id) {
+        blocked_overlaid.push({
+          project: row.project,
+          id: row.id,
+          reason: item.companion_ambiguous ? "more than one no-overlay video matches" : "no no-overlay video exists",
+          designer_ids: blockingDesigners.length > 0 ? blockingDesigners : [row.active_designer_revision_id!],
+        });
+        continue;
+      }
+      overlaid_deletes.push(item);
+      continue;
+    }
+    overlaid_deletes.push(item);
+
+    let revisionId = row.active_designer_revision_id;
+    let implicit = false;
+    if (!revisionId) {
+      const newest = revisions
+        .filter((revision) => !isTrashed(revision))
+        .sort((a, b) => time(b.created_at) - time(a.created_at) || a.id.localeCompare(b.id))[0];
+      revisionId = newest?.id ?? null;
+      implicit = true;
+    }
+    if (!revisionId) continue;
+    const companionKey = key(row.project, item.companion_id);
+    const current = pointers.has(companionKey)
+      ? pointers.get(companionKey)!
+      : byKey.get(companionKey)?.active_designer_revision_id ?? null;
+    if (current === revisionId) continue;
+    if (current) {
+      // A designer upload after the deploy sets the pointer on the no-overlay
+      // row. Never overwrite a pointer that is already set.
+      pointer_conflicts.push({ project: row.project, overlaid_id: row.id, no_overlay_id: item.companion_id, overlaid_revision_id: revisionId, no_overlay_revision_id: current, kept_revision_id: current });
+      continue;
+    }
+    pointer_moves.push({ project: row.project, overlaid_id: row.id, no_overlay_id: item.companion_id, revision_id: revisionId, implicit, previous: current });
+    pointers.set(companionKey, revisionId);
+  }
+
+  // Title and state: the overlaid row was the card. When more than one
+  // overlaid row has the same no-overlay row, use the same primary row as the
+  // read path (legacyOverlaidOrderSql): not in trash first, then the newest.
+  const primary = new Map<string, VideoRow>();
+  for (const row of overlaidRows) {
+    const companionId = companions.get(key(row.project, row.id))!.companion_id;
+    if (!companionId) continue;
+    const companionKey = key(row.project, companionId);
+    const best = primary.get(companionKey);
+    if (!best || preferOverlaid(row, best) < 0) primary.set(companionKey, row);
+  }
+  const title_copies: TitleCopy[] = [];
+  const state_copies: StateCopy[] = [];
+  for (const [companionKey, overlaid] of primary) {
+    const companion = byKey.get(companionKey)!;
+    // The card title wins. Use the overlaid title only when the card title is
+    // blank or is a title that the old PC pipeline made (cardTitleNeedsLegacy).
+    const title = approvedTitle(overlaid);
+    if (title !== null && title !== companion.title && cardTitleNeedsLegacy(companion.title)) {
+      title_copies.push({ project: companion.project, no_overlay_id: companion.id, overlaid_id: overlaid.id, previous: companion.title, title });
+    }
+    const copy = stateCopy(overlaid, companion);
+    if (copy) state_copies.push(copy);
+  }
+
+  return { designer_relinks, pointer_moves, pointer_conflicts, title_copies, state_copies, overlaid_deletes, blocked_overlaid, unresolved_designers };
+}
+
+/**
+ * The state copy from the overlaid row to its no-overlay row, or null when the
+ * two rows agree. The overlaid row is the truth in both directions.
+ */
+export function stateCopy(overlaid: VideoRow, companion: VideoRow): StateCopy | null {
+  const before = cardState(companion);
+  const source = cardState(overlaid);
+  const after: CardState = {
+    visibility: source.visibility,
+    publication_status: source.publication_status,
+    // Copy the review status only when the overlaid row has one.
+    review_status: source.review_status ?? before.review_status,
+  };
+  const previousTags = parseTags(companion.tags);
+  // Only `trash` stays a video tag. Add it or remove it so that tag-based
+  // reads give the same state as the visibility column.
+  const tags = [...previousTags.filter((tag) => tag !== "trash"), ...(after.visibility === "trash" ? ["trash"] : [])];
+  const tagsAgree = previousTags.includes("trash") === (after.visibility === "trash");
+  if (before.visibility === after.visibility && before.publication_status === after.publication_status
+    && before.review_status === after.review_status && tagsAgree) {
+    return null;
+  }
+  return {
+    project: companion.project, no_overlay_id: companion.id, overlaid_id: overlaid.id, before, after,
+    previous: { visibility: companion.visibility, publication_status: companion.publication_status, review_status: companion.review_status },
+    previous_tags: companion.tags, tags,
+    overlaid_previous: { visibility: overlaid.visibility, publication_status: overlaid.publication_status, review_status: overlaid.review_status, tags: overlaid.tags },
+  };
+}
+
+/**
+ * Sort order of overlaid rows: not in trash first, then the newest, then the
+ * ID. Keep it the same as legacyOverlaidOrderSql in videoSql.ts.
+ */
+function preferOverlaid(a: VideoRow, b: VideoRow): number {
+  return Number(isTrashed(a)) - Number(isTrashed(b)) || time(b.created_at) - time(a.created_at) || a.id.localeCompare(b.id);
+}
+
+/** Prefix of the subtitle remux temp objects (`remux/<project>/<job>.mp4`). */
+export function remuxTempPrefix(project: string | null): string {
+  return project ? `remux/${project}/` : "remux/";
+}
+
+/** Prefix of the worker temp objects (`source-processing/<project>/<job>/<lease>/<kind>`). */
+export function workerTempPrefix(project: string | null): string {
+  return project ? `source-processing/${project}/` : "source-processing/";
+}
+
+export function subtitlePrefix(project: string | null): string {
+  return project ? `subtitle/${project}/` : "subtitle/";
+}
+
+/** True only for a worker temp object of the subtitle or overlaid kind. */
+export function isRemovedWorkerTempKey(objectKey: string): boolean {
+  const match = /^source-processing\/[^/]+\/[^/]+\/[^/]+\/([^/]+)$/.exec(objectKey);
+  return Boolean(match && (REMOVED_WORKER_TEMP_KINDS as readonly string[]).includes(match[1]!));
+}
+
+export function isRemuxTempKey(objectKey: string): boolean {
+  return /^remux\/[^/]+\/[^/]+$/.test(objectKey);
+}
+
+export function isSubtitleKey(objectKey: string): boolean {
+  return /^subtitle\/[^/]+\/[^/]+$/.test(objectKey);
+}
+
+/** The result of the guarded row lock before a delete. */
+export type LockResult = "ok" | "missing" | "refused";
+
+/** The steps of one row delete. The script runs them in one transaction. */
+export interface RowDeleteSteps {
+  /** Lock the row (SELECT ... FOR UPDATE) and check all guards. */
+  lock(): Promise<LockResult>;
+  /** Delete the objects of the row. An object that is missing is not an error. */
+  deleteObjects(): Promise<void>;
+  /** Delete the locked row. Returns false when no row was deleted. */
+  deleteRow(): Promise<boolean>;
+}
+
+/**
+ * Delete one row and its objects in this order: lock and guard, objects, row.
+ * A refused or missing row deletes nothing. When the row delete fails after
+ * the objects are gone, this throws, so that the transaction rolls back and
+ * the next apply finds the row again.
+ */
+export async function deleteRowWithObjects(steps: RowDeleteSteps): Promise<"deleted" | "missing" | "refused"> {
+  const lock = await steps.lock();
+  if (lock !== "ok") return lock;
+  await steps.deleteObjects();
+  if (!(await steps.deleteRow())) throw new Error("The locked row was not deleted");
+  return "deleted";
+}

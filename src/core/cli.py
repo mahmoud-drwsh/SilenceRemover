@@ -25,7 +25,6 @@ from src.core.constants import (
     TARGET_SEARCH_HIGH_DB,
     TARGET_SEARCH_LOW_DB,
     TARGET_SEARCH_MIN_SILENCE_LEN_SEC,
-    TITLE_FONT_DEFAULT,
     VIDEO_EXTENSIONS,
 )
 
@@ -97,14 +96,18 @@ def _positive_float(value: str) -> float:
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments and return namespace."""
     parser = argparse.ArgumentParser(
-        description="Phase-0-to-10 pipeline: 0) Trim Script Generation, 1) Snippet Creation, 2) Transcription, 3) Title Generation, 4) Audio Upload, 5) Title Overlay Generation, 6) Logo Overlay Preparation, 7) Final Video Encode, 8) Video Reconciliation, 9) Video Upload, 10) Tag Promotion"
+        description=(
+            "Pipeline: 0) Trim Script Generation, 1) Snippet Creation, 2) Transcription, "
+            "3) Title Generation, 4) Original Upload, 5) Audio Upload, 8) Final Encode "
+            "(the one no-overlay video), 12) No-Overlay Upload"
+        )
     )
     parser.add_argument("input_dir", type=str, help="Input directory (raw videos)")
     parser.add_argument(
         "--target-length",
         type=_positive_float,
         help=(
-            "Target length in seconds for final output (Phase 7). Uses fixed internal search "
+            "Target length in seconds for final output (Phase 8). Uses fixed internal search "
             f"parameters: threshold {TARGET_SEARCH_LOW_DB}..{TARGET_SEARCH_HIGH_DB} dB, "
             f"min silence {TARGET_SEARCH_MIN_SILENCE_LEN_SEC}s, base padding {TARGET_SEARCH_BASE_PADDING_SEC}s."
         ),
@@ -137,48 +140,11 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--title-font",
-        type=str,
-        default=TITLE_FONT_DEFAULT,
-        help=(
-            "Google Font family name used to render the title overlay band (downloaded on first use). "
-            f"Defaults to {TITLE_FONT_DEFAULT}."
-        ),
-    )
-    parser.add_argument(
         "--encoder",
         type=str,
         choices=["QSV", "VAAPI", "AMF", "X265"],
         default="X265",
         help="Video encoder: VAAPI (Intel container GPU), QSV (Intel QuickSync), AMF (AMD), or X265 (software)"
-    )
-    parser.add_argument(
-        "--enable-title-overlay",
-        action="store_true",
-        help="Enable title overlay in final output.",
-    )
-    parser.add_argument(
-        "--enable-logo-overlay",
-        action="store_true",
-        help="Enable logo overlay in final output (requires logo/logo.png).",
-    )
-    parser.add_argument(
-        "--title-y-fraction",
-        type=float,
-        default=None,
-        help=(
-            "Title overlay Y position as fraction of video height (0.0-1.0). "
-            "Default is 1/6 (0.167). 0.0 = top, 0.5 = middle."
-        ),
-    )
-    parser.add_argument(
-        "--title-height-fraction",
-        type=float,
-        default=None,
-        help=(
-            "Title banner height as fraction of video height (0.0-1.0). "
-            "Default is 1/6 (0.167)."
-        ),
     )
     parser.add_argument(
         "--skip-shorter-than",
@@ -194,7 +160,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "Run only local trim, snippet, transcription, title generation, and a single "
-            "silence-removed encode. Skips subtitles, overlays, companion outputs, and uploads."
+            "silence-removed encode. Skips all uploads."
         ),
     )
     return parser.parse_args()

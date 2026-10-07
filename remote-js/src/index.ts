@@ -17,7 +17,6 @@ import { projectSpaRouter } from "./routes/projectSpa.ts";
 import { streamRouter } from "./routes/stream.ts";
 import { uploadsRouter, cleanupExpiredUploadSessions } from "./routes/uploads.ts";
 import { originalsRouter } from "./routes/originals.ts";
-import { remuxRouter } from "./routes/remux.ts";
 import { snippetAnalysisRouter } from "./routes/snippetAnalysis.ts";
 import { HttpError } from "./schemas.ts";
 import { reconcileSourceProcessing, sourceProcessingRouter } from "./routes/sourceProcessing.ts";
@@ -45,7 +44,6 @@ app.route("/", filesRouter);
 app.route("/", streamRouter);
 app.route("/", uploadsRouter);
 app.route("/", originalsRouter);
-app.route("/", remuxRouter);
 app.route("/", snippetAnalysisRouter);
 app.route("/", projectSpaRouter);
 
