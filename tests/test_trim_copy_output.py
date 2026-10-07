@@ -1,6 +1,11 @@
 """Container-safety regression tests for the final-video copy shortcut."""
 
+import json
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from src.ffmpeg.trim_script_bundle import TrimScriptArtifact
 from src.media import trim
@@ -58,3 +63,32 @@ def test_copy_strategy_keeps_mp4_copy_shortcut(monkeypatch, tmp_path: Path) -> N
     )
 
     assert result.read_bytes() == b"mp4 bytes"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required to make the media fixture")
+def test_copy_strategy_writes_the_metadata_title(monkeypatch, tmp_path: Path) -> None:
+    input_file = tmp_path / "input.mp4"
+    subprocess.run([
+        "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=15",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100", "-t", "1",
+        "-c:v", "mpeg4", "-c:a", "aac", str(input_file),
+    ], check=True, capture_output=True)
+    artifact = _copy_artifact(tmp_path)
+
+    monkeypatch.setattr(trim, "load_trim_script", lambda *_args, **_kwargs: artifact)
+    monkeypatch.setattr(trim, "resolve_prepared_video_overlays", lambda **_kwargs: (None, None, 0, False))
+    monkeypatch.setattr(trim, "run_silence_removed_media_with_script", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("must copy MP4")))
+
+    result = trim.trim_single_video(
+        input_file=input_file, output_dir=tmp_path / "output", noise_threshold=-55, min_duration=0.1,
+        pad_sec=0.1, target_length=None, temp_dir=tmp_path / "temp", trim_script_path=artifact.script_path,
+        metadata_title="العنوان المعتمد",
+    )
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format_tags=title", "-of", "json", str(result)],
+        check=True, capture_output=True, text=True,
+    )
+    assert json.loads(probe.stdout)["format"]["tags"]["title"] == "العنوان المعتمد"
+    assert input_file.is_file()
+    assert not list((tmp_path / "output").glob("*.titled.mp4"))

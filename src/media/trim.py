@@ -59,6 +59,20 @@ def _copy_input_video(
         raise RuntimeError(f"Failed to copy original file from {input_file} to {output_file}") from exc
 
 
+def set_metadata_title(video_path: Path, title: str) -> None:
+    """Set the container title with a stream copy. Do not re-encode video or audio."""
+    replacement = video_path.with_name(f"{video_path.stem}.titled.mp4")
+    cmd = build_ffmpeg_cmd(
+        True, "-v", "error", "-i", str(video_path), "-map", "0", "-c", "copy",
+        "-metadata", f"title={title}", "-movflags", "+faststart", str(replacement),
+    )
+    try:
+        run(cmd, capture_output=True)
+        replacement.replace(video_path)
+    finally:
+        replacement.unlink(missing_ok=True)
+
+
 def _move_processing_to_final(processing_path: Path, final_path: Path) -> None:
     """Atomically rename processing file to final path, with copy fallback.
     
@@ -486,6 +500,9 @@ def trim_single_video(
             basename=basename,
         )
         wait_for_file_release(copied_output_file)
+        if metadata_title:
+            # The copy shortcut does not encode, so it must write the title here.
+            set_metadata_title(copied_output_file, metadata_title)
         return copied_output_file
 
     def _overlay_wrapped_script_path() -> Path:

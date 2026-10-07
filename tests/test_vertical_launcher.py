@@ -13,6 +13,20 @@ def test_vertical_launcher_does_not_pass_removed_media_manager_flag() -> None:
     assert '"--enable-media-manager"' not in launcher.read_text(encoding="utf-8")
 
 
+def test_vertical_launcher_does_not_pass_removed_overlay_flags() -> None:
+    launcher = (
+        Path(__file__).resolve().parents[1]
+        / "pwsh"
+        / "Start-VerticalVideoProcessing.ps1"
+    ).read_text(encoding="utf-8")
+
+    for flag in (
+        "--enable-title-overlay", "--enable-logo-overlay", "--title-font",
+        "--title-y-fraction", "--title-height-fraction",
+    ):
+        assert flag not in launcher
+
+
 def test_horizontal_launcher_uses_transient_analysis_mode_without_uploading_media() -> None:
     horizontal = (
         Path(__file__).resolve().parents[1]
