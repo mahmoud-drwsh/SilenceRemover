@@ -93,10 +93,6 @@ SNIPPET_MAX_DURATION_SEC = 60.0
 
 # --- OpenRouter LLM defaults (transcription + title packages) ---
 OPENROUTER_DEFAULT_MODEL = "google/gemini-3-flash-preview"
-SUBTITLE_TRANSCRIPTION_MODEL = "qwen/qwen3-asr-flash-2026-02-10"
-SUBTITLE_DIR = "subtitles"
-SUBTITLE_SEGMENTS_DIR = "subtitle_segments"
-SUBTITLE_MUX_COMPLETED_DIR = "subtitle_mux_completed"
 
 # --- Shared runtime defaults ---
 
