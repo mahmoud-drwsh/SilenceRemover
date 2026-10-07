@@ -95,24 +95,6 @@ def is_completed(temp_dir: Path, basename: str) -> bool:
     return get_completed_path(temp_dir, basename).exists()
 
 
-def _read_output_filename(path: Path) -> str | None:
-    if not path.exists():
-        return None
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-        for line in reversed(lines):
-            if line.strip():
-                return line.strip()
-        return None
-    except (OSError, UnicodeDecodeError):
-        return None
-
-
-def get_completed_output_filename(temp_dir: Path, basename: str) -> str | None:
-    """Get the output filename stored in completion marker."""
-    return _read_output_filename(get_completed_path(temp_dir, basename))
-
-
 def mark_completed(
     temp_dir: Path, basename: str, output_filename: str | None = None
 ) -> None:

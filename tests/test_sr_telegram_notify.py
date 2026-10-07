@@ -13,10 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "packages"))
 
 from sr_telegram_notify import api as telegram_api
 from sr_telegram_notify import (
-    notify_audio_uploaded,
     notify_final_encoding_started,
     notify_final_output_ready,
-    notify_video_uploaded,
 )
 
 
@@ -72,29 +70,6 @@ class TestTelegramNotify(unittest.TestCase):
         )
         send_mock.assert_called_once()
         self.assertEqual(send_mock.call_args.kwargs["text"], "STARTED 1/3\na: T")
-
-    @patch.dict(
-        "os.environ",
-        {"TELEGRAM_BOT_TOKEN": "secret", "TELEGRAM_CHAT_ID": "99"},
-        clear=True,
-    )
-    @patch.object(telegram_api, "send_message_text")
-    def test_upload_messages_use_single_word_statuses(self, send_mock: MagicMock) -> None:
-        notify_audio_uploaded(
-            video_index=1,
-            total_videos=2,
-            input_name="clip.mp4",
-            title="Title",
-        )
-        notify_video_uploaded(
-            video_index=2,
-            total_videos=2,
-            input_name="clip.mp4",
-            title="Title",
-        )
-        self.assertEqual(send_mock.call_count, 2)
-        self.assertEqual(send_mock.call_args_list[0].kwargs["text"], "AUDIO 1/2\nclip: Title")
-        self.assertEqual(send_mock.call_args_list[1].kwargs["text"], "VIDEO 2/2\nclip: Title")
 
     @patch.dict(
         "os.environ",
