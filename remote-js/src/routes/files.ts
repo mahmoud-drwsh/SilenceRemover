@@ -29,9 +29,6 @@ import { normalizeTitle, sanitizeFileId } from "../sanitize.ts";
 import {
   storageDelete,
   storageDeleteAnyExtension,
-  presignProjectOverlayLogoPut,
-  storageProjectOverlayLogoSha256,
-  storagePutProjectOverlayLogo,
   storagePutBytes,
 } from "../storage.ts";
 import { probeDurationSeconds } from "../ffprobe.ts";
@@ -40,7 +37,6 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { createHash } from "node:crypto";
 import { rehearseOriginalRootedBackfill } from "../originalRootedRehearsal.ts";
 
 export const filesRouter = new Hono();
@@ -50,86 +46,6 @@ filesRouter.get("/projects/:token/:project/api/original-rooted-rehearsal", async
   const { token, project } = c.req.param();
   await verifyMediaToken(token);
   return c.json(await rehearseOriginalRootedBackfill(project));
-});
-
-const MAX_OVERLAY_LOGO_BYTES = 10 * 1024 * 1024;
-const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-
-/**
- * Client migration seam: a project media token may seed its logo once, but
- * cannot replace an existing admin-managed logo.
- */
-filesRouter.put("/projects/:token/:project/api/overlay-logo-if-missing", async (c) => {
-  const { token, project } = c.req.param();
-  await verifyMediaToken(token);
-  const contentType = c.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-  const declaredLength = Number(c.req.header("content-length"));
-  if (contentType !== "image/png") throw new HttpError(415, "Overlay logo must be an image/png file");
-  if (!Number.isSafeInteger(declaredLength) || declaredLength <= 0 || declaredLength > MAX_OVERLAY_LOGO_BYTES) {
-    throw new HttpError(413, "Overlay logo must be no larger than 10 MiB");
-  }
-  const sql = getDb(); const ident = schemaIdent();
-  const existing = (await sql.unsafe<{ project: string }[]>(
-    `SELECT project FROM ${ident}.project_overlay_logos WHERE project=$1`, [project],
-  ))[0];
-  if (existing) return c.json({ ok: true, uploaded: false, reason: "already_configured" });
-  const bytes = new Uint8Array(await c.req.arrayBuffer());
-  if (bytes.byteLength !== declaredLength || bytes.byteLength < PNG_SIGNATURE.byteLength || !PNG_SIGNATURE.every((value, index) => bytes[index] === value)) {
-    throw new HttpError(415, "Overlay logo content is not a PNG file");
-  }
-  const projectExists = (await sql.unsafe<{ project: string }[]>(
-    `SELECT project FROM ${ident}.files WHERE project=$1 LIMIT 1`, [project],
-  ))[0];
-  if (!projectExists) throw new HttpError(404, "Project not found");
-  const checksum = createHash("sha256").update(bytes).digest("hex");
-  await storagePutProjectOverlayLogo(project, bytes);
-  const inserted = await sql.unsafe<{ project: string }[]>(`
-    INSERT INTO ${ident}.project_overlay_logos (project, checksum_sha256, file_size, updated_at)
-    VALUES ($1,$2,$3,now())
-    ON CONFLICT (project) DO NOTHING
-    RETURNING project`, [project, checksum, bytes.byteLength]);
-  if (!inserted[0]) return c.json({ ok: true, uploaded: false, reason: "already_configured" });
-  return c.json({ ok: true, uploaded: true, checksum_sha256: checksum, file_size: bytes.byteLength }, 201);
-});
-
-function parseLogoSeedPayload(body: unknown): { size: number; checksum: string } {
-  const value = body as { size?: unknown; checksum_sha256?: unknown } | null;
-  const size = Number(value?.size);
-  const checksum = String(value?.checksum_sha256 ?? "").toLowerCase();
-  if (!Number.isSafeInteger(size) || size <= 0 || size > MAX_OVERLAY_LOGO_BYTES || !/^[a-f0-9]{64}$/.test(checksum)) {
-    throw new HttpError(400, "Valid PNG size and checksum_sha256 are required");
-  }
-  return { size, checksum };
-}
-
-/** JSON/R2 migration path for clients whose proxy resets binary requests. */
-filesRouter.post("/projects/:token/:project/api/overlay-logo-if-missing/initiate", async (c) => {
-  const { token, project } = c.req.param();
-  await verifyMediaToken(token);
-  const { size, checksum } = parseLogoSeedPayload(await c.req.json().catch(() => null));
-  const sql = getDb(); const ident = schemaIdent();
-  const existing = (await sql.unsafe<{ project: string }[]>(`SELECT project FROM ${ident}.project_overlay_logos WHERE project=$1`, [project]))[0];
-  if (existing) return c.json({ ok: true, already_configured: true });
-  const projectExists = (await sql.unsafe<{ project: string }[]>(`SELECT project FROM ${ident}.files WHERE project=$1 LIMIT 1`, [project]))[0];
-  if (!projectExists) throw new HttpError(404, "Project not found");
-  return c.json({ ok: true, already_configured: false, size, checksum_sha256: checksum, upload_url: await presignProjectOverlayLogoPut(project) });
-});
-
-filesRouter.post("/projects/:token/:project/api/overlay-logo-if-missing/complete", async (c) => {
-  const { token, project } = c.req.param();
-  await verifyMediaToken(token);
-  const { size, checksum } = parseLogoSeedPayload(await c.req.json().catch(() => null));
-  const sql = getDb(); const ident = schemaIdent();
-  const existing = (await sql.unsafe<{ project: string }[]>(`SELECT project FROM ${ident}.project_overlay_logos WHERE project=$1`, [project]))[0];
-  if (existing) return c.json({ ok: true, uploaded: false, reason: "already_configured" });
-  const stored = await storageProjectOverlayLogoSha256(project);
-  if (!stored || stored.size !== size || stored.checksum !== checksum) {
-    throw new HttpError(400, "Uploaded overlay logo verification failed");
-  }
-  const inserted = await sql.unsafe<{ project: string }[]>(`
-    INSERT INTO ${ident}.project_overlay_logos (project, checksum_sha256, file_size, updated_at)
-    VALUES ($1,$2,$3,now()) ON CONFLICT (project) DO NOTHING RETURNING project`, [project, checksum, size]);
-  return c.json({ ok: true, uploaded: Boolean(inserted[0]), reason: inserted[0] ? undefined : "already_configured" });
 });
 
 interface FileRow {
@@ -146,10 +62,8 @@ interface FileRow {
   original_filename: string | null;
   checksum_sha256: string | null;
   derived_title: string | null;
-  no_overlay_id: string | null;
   designer_video_id: string | null;
   active_designer_revision_id: string | null;
-  subtitle_id: string | null;
   designer_of_id: string | null;
   media_variant: string | null;
   review_status: string | null;
@@ -208,10 +122,8 @@ function rowToResponse(row: FileRow): FileResponse {
     original_filename: row.original_filename ?? null,
     checksum_sha256: row.checksum_sha256 ?? null,
     derived_title: row.derived_title ?? null,
-    no_overlay_id: row.no_overlay_id ?? null,
     designer_video_id: row.designer_video_id ?? null,
     active_designer_revision_id: row.active_designer_revision_id ?? null,
-    subtitle_id: row.subtitle_id ?? null,
     designer_of_id: row.designer_of_id ?? null,
     media_variant: mediaVariant,
     review_status: reviewStatus,
@@ -310,9 +222,6 @@ export async function resolveUploadOverwrite(
 
   if (fileType === "audio") {
     throw new HttpError(409, `Audio file with id '${fileId}' already exists`);
-  }
-  if (fileType === "subtitle") {
-    return true;
   }
 
   const oldTitle = normalizeTitle(existing.title);
@@ -562,7 +471,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     throw new HttpError(400, "Invalid view parameter");
   }
 
-  if (typeParam && typeParam !== "audio" && typeParam !== "video" && typeParam !== "original" && typeParam !== "subtitle") {
+  if (typeParam && typeParam !== "audio" && typeParam !== "video" && typeParam !== "original") {
     throw new HttpError(400, "Invalid type parameter");
   }
 
@@ -597,7 +506,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     }
 
     const rows = await sql.unsafe<FileRow[]>(
-      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title, NULL::text AS no_overlay_id, NULL::text AS designer_video_id, NULL::text AS active_designer_revision_id, NULL::text AS subtitle_id, designer_of_id
+      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title, NULL::text AS designer_video_id, NULL::text AS active_designer_revision_id, designer_of_id, media_variant, review_status, visibility, publication_status
        FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = $3`,
       [sanitizedId, project, typeParam],
     );
@@ -641,6 +550,9 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   if (typeParam) {
     params.push(typeParam);
     conditions.push(`type = $${params.length}`);
+  } else {
+    // Old subtitle rows stay in the database until the data move (#44).
+    conditions.push("type IN ('audio', 'video', 'original')");
   }
 
   // The no-overlay video is the canonical card. A designer revision is a
@@ -703,7 +615,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   }
 
   const rowsPromise = sql.unsafe<FileRow[]>(
-    `SELECT source.id, source.project, source.type, ${typeParam === "video" ? canonicalVideoTitleSql(ident, "source") : "source.title"} AS title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, NULL::text AS no_overlay_id, designer.id AS designer_video_id, active_designer.id AS active_designer_revision_id, subtitle.id AS subtitle_id, source.designer_of_id,
+    `SELECT source.id, source.project, source.type, ${typeParam === "video" ? canonicalVideoTitleSql(ident, "source") : "source.title"} AS title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, designer.id AS designer_video_id, active_designer.id AS active_designer_revision_id, source.designer_of_id,
        ${videoVariantSql("source")} AS media_variant,
        COALESCE(source.review_status, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["ready"]'::jsonb THEN 'approved' WHEN source.type='audio' THEN 'todo' ELSE NULL END) AS review_status,
        COALESCE(source.visibility, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END) AS visibility,
@@ -738,15 +650,6 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
        ORDER BY candidate.created_at DESC, candidate.id
        LIMIT 1
      ) AS designer ON TRUE
-     LEFT JOIN LATERAL (
-       SELECT candidate.id
-       FROM ${ident}.files AS candidate
-       WHERE source.type = 'video'
-         AND candidate.project = source.project
-         AND candidate.type = 'subtitle'
-         AND candidate.id = COALESCE(source.source_id, source.id) || '-subtitles'
-       LIMIT 1
-     ) AS subtitle ON TRUE
      LEFT JOIN LATERAL (
        SELECT candidate.id FROM ${ident}.files AS candidate
        WHERE source.type='video' AND candidate.project=source.project AND candidate.type='audio'
@@ -1046,7 +949,7 @@ filesRouter.put("/projects/:token/:project/api/files/:id", async (c) => {
 
   const url = new URL(c.req.url);
   const typeRaw = url.searchParams.get("type");
-  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original" && typeRaw !== "subtitle") {
+  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original") {
     throw new HttpError(400, "Type parameter is required");
   }
   const fileType = typeRaw as FileType;
@@ -1146,7 +1049,7 @@ filesRouter.delete("/projects/:token/:project/api/files/:id", async (c) => {
 
   const url = new URL(c.req.url);
   const typeRaw = url.searchParams.get("type");
-  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original" && typeRaw !== "subtitle") {
+  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original") {
     throw new HttpError(400, "Type parameter is required");
   }
   const fileType = typeRaw as FileType;

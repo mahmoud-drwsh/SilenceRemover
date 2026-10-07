@@ -616,7 +616,6 @@
             const safeId = escapeJs(file.id);  // Escape file ID for JavaScript context
             const safeSourceId = file.source_id ? escapeJs(file.source_id) : '';
             const safeDesignerVideoId = file.designer_video_id ? escapeJs(file.designer_video_id) : '';
-            const safeSubtitleId = file.subtitle_id ? escapeJs(file.subtitle_id) : '';
             const tagsJson = JSON.stringify(file.tags || []).replace(/"/g, '&quot;');
             const canUploadDesigner = file.media_variant === 'no-overlay';
             const canManageVideoTrash = isAdminMode();
@@ -638,15 +637,11 @@
                 const designerVariant = safeDesignerVideoId
                     ? `<a class="variant-action" href="/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.designer_video_id)}?type=${TYPE_VIDEO}" download>✨ <span><strong>Designer Video</strong><span>Active redesign</span></span></a>`
                     : `<div class="variant-action missing">✨ <span><strong>Designer Video</strong><span>Not uploaded</span></span></div>`;
-                const subtitleVariant = safeSubtitleId
-                    ? `<a class="variant-action" href="/projects/${TOKEN}/${PROJECT}/stream/${encodeURIComponent(file.subtitle_id)}?type=subtitle" download>💬 <span><strong>Subtitles</strong><span>Download SRT</span></span></a>`
-                    : `<div class="variant-action missing">💬 <span><strong>Subtitles</strong><span>Unavailable</span></span></div>`;
                 actionsHtml = `
                     <div class="variant-actions">
                         ${originalVariant}
                         <a class="variant-action" href="${videoStreamUrl}" download>✂️ <span><strong>Silence Removed</strong><span>Video for the designer</span></span></a>
                         ${designerVariant}
-                        ${subtitleVariant}
                     </div>
                 `;
             }
