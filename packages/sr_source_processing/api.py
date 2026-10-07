@@ -32,6 +32,9 @@ from sr_trim_plan import TrimPlan, build_trim_plan
 from sr_filter_graph import build_audio_concat_filter_graph
 from sr_source_processing.review_analysis import ReviewAnalysisError, analyze_review_ogg
 from sr_subtitles import generate_srt_from_trim_segments, mux_srt_track
+from src.ffmpeg.core import build_ffmpeg_cmd
+from src.ffmpeg.encoding_resolver import get_encoder_config
+from src.ffmpeg.runner import run
 from src.ffmpeg.trim_script_bundle import write_trim_script_from_plan
 from src.media.trim import prepare_video_overlays, trim_single_video
 
@@ -86,6 +89,10 @@ class WorkerConfig:
 
 
 _SAFE_PATH_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
+# A job directory with this marker waits for title review. While the worker is
+# idle, it encodes the title-independent no-overlay video for such jobs.
+_AWAITING_REVIEW_MARKER = "awaiting-title-review.json"
+_PRERENDER_BASENAME = "no-overlay.prerender"
 
 
 class SourceProcessingWorker:
@@ -197,6 +204,10 @@ class SourceProcessingWorker:
                 self._upload_artifact(job_id, lease_token, "review_audio", review_audio, title, "audio/ogg")
             if not bool(job.get("subtitle_uploaded")):
                 self._upload_artifact(job_id, lease_token, "subtitle", srt_path, title, "application/x-subrip")
+            self._write_checkpoint(job_dir / _AWAITING_REVIEW_MARKER, {
+                "original_filename": original_path.name,
+                "original_checksum_sha256": str(job.get("original_checksum_sha256", "")),
+            })
             self._post(
                 f"/{job_id}/waiting",
                 {"lease_token": lease_token, "reason": "waiting for title review"},
@@ -210,6 +221,7 @@ class SourceProcessingWorker:
         if not segments:
             raise WorkerError("Cannot render final variants without retained speech")
         job_id = str(job["id"])
+        (job_dir / _AWAITING_REVIEW_MARKER).unlink(missing_ok=True)
         srt_text = str(job.get("srt_text") or "")
         if not srt_text.strip():
             raise WorkerError("Cannot render final variants without a checkpointed SRT")
@@ -234,13 +246,18 @@ class SourceProcessingWorker:
             )
         no_overlay = job_dir / "no-overlay.mp4"
         if not bool(job.get("no_overlay_uploaded")):
-            trim_single_video(
-                input_file=original_path, output_dir=job_dir, output_basename="no-overlay",
-                noise_threshold=self.config.noise_threshold, min_duration=self.config.min_duration,
-                pad_sec=self.config.pad_sec, target_length=self.config.target_length,
-                encoder=self.config.encoder, temp_dir=job_dir, metadata_title=approved_title,
-                trim_script_path=trim_script,
-            )
+            prerender_key = self._prerender_key(str(job.get("original_checksum_sha256", "")), segments)
+            if self._take_prerender(job_dir, prerender_key, no_overlay):
+                print(f"SOURCE_PROCESSING_PRERENDER_REUSED {job_id}", flush=True)
+                self._set_metadata_title(no_overlay, approved_title)
+            else:
+                trim_single_video(
+                    input_file=original_path, output_dir=job_dir, output_basename="no-overlay",
+                    noise_threshold=self.config.noise_threshold, min_duration=self.config.min_duration,
+                    pad_sec=self.config.pad_sec, target_length=self.config.target_length,
+                    encoder=self.config.encoder, temp_dir=job_dir, metadata_title=approved_title,
+                    trim_script_path=trim_script,
+                )
             mux_srt_track(no_overlay, srt_path)
             self._upload_artifact(job_id, lease_token, "no_overlay_video", no_overlay, approved_title, "video/mp4")
         final_video = job_dir / "final.mp4"
@@ -256,6 +273,97 @@ class SourceProcessingWorker:
             )
             mux_srt_track(final_video, srt_path)
             self._upload_artifact(job_id, lease_token, "overlaid_video", final_video, approved_title, "video/mp4")
+
+    def prerender_once(self) -> bool:
+        """Encode one no-overlay video for a job that waits for title review.
+
+        The video content does not depend on the title, so idle time is used to
+        encode it before approval. This is local work only: it needs no lease,
+        and the upload still happens under the lease after approval. Return
+        false when there is nothing to encode.
+        """
+        root = self.config.work_dir / self.config.project
+        try:
+            # The oldest review first, because it is the most likely to be approved next.
+            markers = sorted(root.glob(f"*/{_AWAITING_REVIEW_MARKER}"), key=lambda path: path.stat().st_mtime)
+        except OSError:
+            return False
+        for marker in markers:
+            job_dir = marker.parent
+            failed = job_dir / f"{_PRERENDER_BASENAME}.failed"
+            if failed.exists():
+                continue
+            try:
+                info = json.loads(marker.read_text(encoding="utf-8"))
+                plan = json.loads((job_dir / "trim-plan.json").read_text(encoding="utf-8"))
+                segments = [(float(start), float(end)) for start, end in plan["plan"]["segments_to_keep"]]
+                key = self._prerender_key(str(info["original_checksum_sha256"]), segments)
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            if self._prerender_is_valid(job_dir, key):
+                continue
+            started = time.monotonic()
+            print(f"SOURCE_PROCESSING_PRERENDER_START {job_dir.name}", flush=True)
+            try:
+                original_path = job_dir / self._safe_original_name(info)
+                trim_script = write_trim_script_from_plan(
+                    input_file=original_path, temp_dir=job_dir,
+                    target_length=self.config.target_length, noise_threshold=self.config.noise_threshold,
+                    min_duration=self.config.min_duration, pad_sec=self.config.pad_sec,
+                    segments_to_keep=segments,
+                )
+                trim_single_video(
+                    input_file=original_path, output_dir=job_dir, output_basename=_PRERENDER_BASENAME,
+                    noise_threshold=self.config.noise_threshold, min_duration=self.config.min_duration,
+                    pad_sec=self.config.pad_sec, target_length=self.config.target_length,
+                    encoder=self.config.encoder, temp_dir=job_dir, trim_script_path=trim_script,
+                )
+                (job_dir / f"{_PRERENDER_BASENAME}.key").write_text(key, encoding="utf-8")
+                print(f"SOURCE_PROCESSING_PRERENDER_DONE {job_dir.name} in {time.monotonic() - started:.0f}s", flush=True)
+            except Exception as exc:
+                # Best effort only: after approval, the normal encode path still runs.
+                try:
+                    failed.write_text(str(exc)[:2000], encoding="utf-8")
+                except OSError:
+                    pass
+                print(f"SOURCE_PROCESSING_PRERENDER_ERROR {job_dir.name}: {exc}", flush=True)
+            return True
+        return False
+
+    def _prerender_key(self, original_checksum: str, segments: list[tuple[float, float]]) -> str:
+        encoder = get_encoder_config(self.config.encoder)
+        return json.dumps(
+            {"checksum": original_checksum, "segments": segments, "codec": encoder["codec"], "args": encoder["args"]},
+            sort_keys=True, separators=(",", ":"),
+        )
+
+    @staticmethod
+    def _prerender_is_valid(job_dir: Path, key: str) -> bool:
+        video = job_dir / f"{_PRERENDER_BASENAME}.mp4"
+        key_file = job_dir / f"{_PRERENDER_BASENAME}.key"
+        try:
+            return video.is_file() and key_file.read_text(encoding="utf-8") == key
+        except OSError:
+            return False
+
+    def _take_prerender(self, job_dir: Path, key: str, destination: Path) -> bool:
+        """Move a valid pre-approval encode to ``destination``; false when none exists."""
+        if not self._prerender_is_valid(job_dir, key):
+            return False
+        (job_dir / f"{_PRERENDER_BASENAME}.mp4").replace(destination)
+        (job_dir / f"{_PRERENDER_BASENAME}.key").unlink(missing_ok=True)
+        return True
+
+    @staticmethod
+    def _set_metadata_title(video_path: Path, title: str) -> None:
+        """Set the container title without re-encoding video or audio."""
+        replacement = video_path.with_name(f"{video_path.stem}.titled.mp4")
+        cmd = build_ffmpeg_cmd(
+            True, "-v", "error", "-i", str(video_path), "-map", "0", "-c", "copy",
+            "-metadata", f"title={title}", "-movflags", "+faststart", str(replacement),
+        )
+        run(cmd, capture_output=True)
+        replacement.replace(video_path)
 
     def _require_openrouter_key(self) -> str:
         if not self.config.openrouter_api_key:
@@ -494,7 +602,8 @@ def main() -> int:
     with SourceProcessingWorker(WorkerConfig.from_env()) as worker:
         while True:
             try:
-                if not worker.run_once():
+                # New jobs and approvals come first; pre-approval encodes use idle time.
+                if not worker.run_once() and not worker.prerender_once():
                     time.sleep(5)
             except WorkerError as exc:
                 # The error has already been persisted through the lease-fenced

@@ -356,3 +356,96 @@ def test_audio_less_source_waits_without_model_calls(tmp_path: Path) -> None:
     worker._has_audio = lambda _path: False
     assert worker.run_once()
     assert reasons == ["trim-plan-ready; source has no audio"]
+
+
+def test_idle_worker_prerenders_no_overlay_video_and_reuses_it_after_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sr_source_processing.api as worker_api
+
+    payload = b"two-second-media-bytes"
+    checkpoints: dict[str, object] = {}
+    uploads: list[tuple[str, str]] = []
+    claims = [_job(payload)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "objects.example.test":
+            return httpx.Response(200, content=payload)
+        body = json.loads(request.content or b"{}")
+        if request.url.path.endswith("/claim"):
+            return httpx.Response(200, json={"ok": True, "job": claims.pop(0) if claims else None})
+        if request.url.path.endswith("/checkpoints"):
+            checkpoints.update({key: value for key, value in body.items() if key != "lease_token"})
+            return httpx.Response(200, json={"ok": True})
+        if request.url.path.endswith("/artifacts/initiate"):
+            uploads.append((body["kind"], body["title"]))
+            return httpx.Response(200, json={"ok": True, "already_uploaded": True})
+        if request.url.path.endswith(("/artifacts/complete", "/waiting", "/complete")):
+            return httpx.Response(200, json={"ok": True})
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    encodes: list[tuple[str, str | None]] = []
+    titled: list[tuple[str, str]] = []
+
+    def fake_trim(*, output_dir: Path, output_basename: str, metadata_title: str | None = None, **_: object) -> Path:
+        encodes.append((output_basename, metadata_title))
+        output = output_dir / f"{output_basename}.mp4"
+        output.write_bytes(output_basename.encode())
+        return output
+
+    monkeypatch.setattr(worker_api, "trim_single_video", fake_trim)
+    monkeypatch.setattr(worker_api, "write_trim_script_from_plan", lambda **kwargs: kwargs["temp_dir"] / "trim.txt")
+    monkeypatch.setattr(worker_api, "mux_srt_track", lambda _video, _srt: None)
+    monkeypatch.setattr(
+        worker_api.SourceProcessingWorker, "_set_metadata_title",
+        staticmethod(lambda video, title: titled.append((video.name, title))),
+    )
+    worker = _worker(tmp_path, httpx.MockTransport(handler))
+    worker._duration = lambda _path: 2.0
+    job_dir = tmp_path / "project-a" / "job-001"
+
+    # Before approval: review artifacts first, then the idle-time encode.
+    assert worker.run_once() is True
+    assert encodes == []
+    assert (job_dir / "awaiting-title-review.json").is_file()
+    assert worker.run_once() is False
+    assert worker.prerender_once() is True
+    assert encodes == [("no-overlay.prerender", None)]
+    assert worker.prerender_once() is False
+
+    # After approval: only the overlaid video is encoded; the no-overlay video gets its title by remux.
+    approved = {**_job(payload), **checkpoints, "approved_title": "العنوان المعتمد",
+                "review_audio_uploaded": True, "subtitle_uploaded": True}
+    claims.append(approved)
+    assert worker.run_once() is True
+    assert encodes == [("no-overlay.prerender", None), ("final", "العنوان المعتمد")]
+    assert titled == [("no-overlay.mp4", "العنوان المعتمد")]
+    assert ("no_overlay_video", "العنوان المعتمد") in uploads
+    assert not (job_dir / "awaiting-title-review.json").exists()
+    assert worker.prerender_once() is False
+
+
+def test_failed_prerender_falls_back_to_normal_encode_after_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sr_source_processing.api as worker_api
+
+    job_dir = tmp_path / "project-a" / "job-001"
+    job_dir.mkdir(parents=True)
+    (job_dir / "awaiting-title-review.json").write_text(
+        json.dumps({"original_filename": "recording.mp4", "original_checksum_sha256": "abc"}), encoding="utf-8",
+    )
+    (job_dir / "trim-plan.json").write_text(json.dumps({"plan": {"segments_to_keep": [[0.0, 2.0]]}}), encoding="utf-8")
+
+    def broken_trim(**_: object) -> Path:
+        raise RuntimeError("ffmpeg failed")
+
+    monkeypatch.setattr(worker_api, "trim_single_video", broken_trim)
+    monkeypatch.setattr(worker_api, "write_trim_script_from_plan", lambda **kwargs: kwargs["temp_dir"] / "trim.txt")
+    worker = _worker(tmp_path, httpx.MockTransport(lambda _request: httpx.Response(500)))
+
+    assert worker.prerender_once() is True
+    assert (job_dir / "no-overlay.prerender.failed").is_file()
+    # A failed encode is not retried in a loop; the post-approval path encodes normally.
+    assert worker.prerender_once() is False
+    assert worker._take_prerender(job_dir, worker._prerender_key("abc", [(0.0, 2.0)]), job_dir / "no-overlay.mp4") is False
