@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  isLogoKey, isRemovedWorkerTempKey, isRemuxTempKey, planNoOverlayDataMove, videoRole, type VideoRow,
+  isRemovedWorkerTempKey, isRemuxTempKey, planNoOverlayDataMove, videoRole, type VideoRow,
 } from "./noOverlayDataMove.ts";
 
 let clock = 0;
@@ -165,7 +165,5 @@ describe("temp object keys", () => {
     expect(isRemovedWorkerTempKey("source-processing/p/job/lease/no_overlay_video")).toBe(false);
     expect(isRemuxTempKey("remux/p/job.mp4")).toBe(true);
     expect(isRemuxTempKey("video/p/job.mp4")).toBe(false);
-    expect(isLogoKey("project-overlay-logo/my%20project.png", "my project")).toBe(true);
-    expect(isLogoKey("project-overlay-logo/other.png", "my project")).toBe(false);
   });
 });

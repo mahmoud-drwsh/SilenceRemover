@@ -10,7 +10,8 @@
  * This module does no I/O. The operator script in
  * `scripts/no_overlay_data_move.ts` reads the rows, prints the plan and applies it
  * with guarded SQL. Keep this file independent of the routes, because the routes
- * change in the same release.
+ * change in the same release. The shared SQL rules are in `videoSql.ts`, which
+ * has no route side effects.
  */
 
 export const LEGACY_DESIGNER_SUFFIX = "-designer";
@@ -398,15 +399,6 @@ function preferOverlaid(a: VideoRow, b: VideoRow): number {
   return Number(isTrashed(a)) - Number(isTrashed(b)) || time(b.created_at) - time(a.created_at) || a.id.localeCompare(b.id);
 }
 
-/** S3 key of a `files` row. The layout is `<type>/<project>/<id><ext>`. */
-export function fileObjectKey(type: "video" | "subtitle", project: string, id: string, ext: string): string {
-  return `${type}/${project}/${id}${ext}`;
-}
-
-export function logoObjectKey(project: string): string {
-  return `project-overlay-logo/${encodeURIComponent(project)}.png`;
-}
-
 /** Prefix of the subtitle remux temp objects (`remux/<project>/<job>.mp4`). */
 export function remuxTempPrefix(project: string | null): string {
   return project ? `remux/${project}/` : "remux/";
@@ -421,10 +413,6 @@ export function subtitlePrefix(project: string | null): string {
   return project ? `subtitle/${project}/` : "subtitle/";
 }
 
-export function logoPrefix(): string {
-  return "project-overlay-logo/";
-}
-
 /** True only for a worker temp object of the subtitle or overlaid kind. */
 export function isRemovedWorkerTempKey(objectKey: string): boolean {
   const match = /^source-processing\/[^/]+\/[^/]+\/[^/]+\/([^/]+)$/.exec(objectKey);
@@ -437,9 +425,4 @@ export function isRemuxTempKey(objectKey: string): boolean {
 
 export function isSubtitleKey(objectKey: string): boolean {
   return /^subtitle\/[^/]+\/[^/]+$/.test(objectKey);
-}
-
-export function isLogoKey(objectKey: string, project: string | null): boolean {
-  if (!/^project-overlay-logo\/[^/]+\.png$/.test(objectKey)) return false;
-  return project === null || objectKey === logoObjectKey(project);
 }

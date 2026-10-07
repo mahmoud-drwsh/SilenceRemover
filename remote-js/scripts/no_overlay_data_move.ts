@@ -28,11 +28,12 @@ import { loadConfig } from "../src/config.ts";
 import { closeDb, getDb, schemaIdent } from "../src/db.ts";
 import { MIME_TO_EXT, getExtensionForMime } from "../src/mime.ts";
 import {
-  fileObjectKey, isLogoKey, isRemovedWorkerTempKey, isRemuxTempKey, isSubtitleKey, logoObjectKey, logoPrefix,
+  isRemovedWorkerTempKey, isRemuxTempKey, isSubtitleKey,
   parseTags, planNoOverlayDataMove, remuxTempPrefix, subtitlePrefix, toBytes, videoRole, workerTempPrefix,
   type DataMovePlan, type OverlaidItem, type VideoRow,
 } from "../src/noOverlayDataMove.ts";
-import { getS3Client } from "../src/storage.ts";
+import { getS3Client, storageObjectKey } from "../src/storage.ts";
+import { videoVariantSql } from "../src/videoSql.ts";
 
 type Mode = "dry-run" | "apply" | "drop-schema";
 
@@ -52,9 +53,23 @@ const ident = schemaIdent();
 const bucket = loadConfig().s3Bucket;
 const s3 = getS3Client();
 
-/** Effective video variant, as the read side maps legacy rows. */
-const TAGS = (alias: string) => `(CASE WHEN jsonb_typeof(${alias}.tags)='string' THEN (${alias}.tags #>> '{}')::jsonb ELSE ${alias}.tags END)`;
-const VARIANT = (alias: string) => `COALESCE(${alias}.media_variant, CASE WHEN ${alias}.designer_of_id IS NOT NULL OR ${TAGS(alias)} @> '["designer"]'::jsonb THEN 'designer' WHEN ${TAGS(alias)} @> '["no-overlay"]'::jsonb OR ${alias}.id LIKE '%-no-overlay' THEN 'no-overlay' ELSE 'pipeline-final' END)`;
+/*
+ * Object keys of the removed features. The app does not make these objects
+ * any more, so these keys are only in this script. The command needs them only
+ * to delete the legacy objects.
+ */
+const LOGO_PREFIX = "project-overlay-logo/";
+function logoObjectKey(projectName: string): string {
+  return `${LOGO_PREFIX}${encodeURIComponent(projectName)}.png`;
+}
+function isLogoKey(objectKey: string, projectName: string | null): boolean {
+  if (!/^project-overlay-logo\/[^/]+\.png$/.test(objectKey)) return false;
+  return projectName === null || objectKey === logoObjectKey(projectName);
+}
+function subtitleFileKey(projectName: string, id: string, ext: string): string {
+  return `subtitle/${projectName}/${id}${ext}`;
+}
+
 /** A designer revision that still points at the overlaid row `f`. */
 const POINTS_AT_F = `EXISTS (SELECT 1 FROM ${ident}.files d WHERE d.project=f.project AND d.type='video' AND (d.designer_of_id=f.id OR (d.designer_of_id IS NULL AND d.id=f.id || '-designer')))`;
 
@@ -151,7 +166,7 @@ async function inventory(): Promise<Inventory> {
       `SELECT project,file_size FROM ${ident}.project_overlay_logos WHERE ($1::text IS NULL OR project=$1) ORDER BY project`, [project])
     : [];
   const logoKeys = new Set(logos.map((row) => logoObjectKey(row.project)));
-  const logoOrphans = (await listObjects(logoPrefix())).filter((entry) => isLogoKey(entry.key, project) && !logoKeys.has(entry.key));
+  const logoOrphans = (await listObjects(LOGO_PREFIX)).filter((entry) => isLogoKey(entry.key, project) && !logoKeys.has(entry.key));
   const remuxJobs = schema.subtitle_remux_jobs_table
     ? await sql.unsafe<{ id: string; project: string; state: string }[]>(
       `SELECT id,project,state FROM ${ident}.subtitle_remux_jobs WHERE ($1::text IS NULL OR project=$1) ORDER BY project,created_at,id`, [project])
@@ -223,7 +238,7 @@ function formatBytes(bytes: number): string {
 function subtitleObjectKeys(row: SubtitleRow): string[] {
   const exts = new Set([".srt", getExtensionForMime(row.mime_type)]);
   exts.delete(".bin");
-  return [...exts].map((ext) => fileObjectKey("subtitle", row.project, row.id, ext));
+  return [...exts].map((ext) => subtitleFileKey(row.project, row.id, ext));
 }
 
 function overlaidObjectKeys(item: OverlaidItem): string[] {
@@ -231,7 +246,7 @@ function overlaidObjectKeys(item: OverlaidItem): string[] {
   // A wrong legacy MIME gives no known extension. Then try every known one,
   // as the file delete route does. Each key is only this row's own ID.
   const exts = ext === ".bin" ? [...new Set(Object.values(MIME_TO_EXT))] : [ext];
-  return exts.map((value) => fileObjectKey("video", item.project, item.id, value));
+  return exts.map((value) => storageObjectKey("video", item.project, item.id, value));
 }
 
 // ---- apply ----------------------------------------------------------------
@@ -266,14 +281,14 @@ async function relinkAndMovePointers(plan: DataMovePlan): Promise<void> {
             source_id=COALESCE(d.source_id, (SELECT n.source_id FROM ${ident}.files n WHERE n.project=d.project AND n.id=$3 AND n.type='video'))
         WHERE d.project=$1 AND d.id=$2 AND d.type='video'
           AND (d.designer_of_id=$4 OR (d.designer_of_id IS NULL AND d.id=$4 || '-designer'))
-          AND EXISTS (SELECT 1 FROM ${ident}.files n WHERE n.project=d.project AND n.id=$3 AND n.type='video' AND ${VARIANT("n")}='no-overlay')
+          AND EXISTS (SELECT 1 FROM ${ident}.files n WHERE n.project=d.project AND n.id=$3 AND n.type='video' AND ${videoVariantSql("n")}='no-overlay')
         RETURNING d.id`, [row.project, row.id, row.to_target, row.from_target]);
       if (updated.length !== 1) throw new Error(`Designer revision ${row.project}/${row.id} changed during apply. Run apply again.`);
     }
     for (const move of plan.pointer_moves) {
       const updated = await tx.unsafe(`
         UPDATE ${ident}.files n SET active_designer_revision_id=$3
-        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${VARIANT("n")}='no-overlay'
+        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${videoVariantSql("n")}='no-overlay'
           AND n.active_designer_revision_id IS NOT DISTINCT FROM $4
         RETURNING n.id`, [move.project, move.no_overlay_id, move.revision_id, move.previous]);
       if (updated.length !== 1) throw new Error(`Active pointer of ${move.project}/${move.no_overlay_id} changed during apply. Run apply again.`);
@@ -281,7 +296,7 @@ async function relinkAndMovePointers(plan: DataMovePlan): Promise<void> {
     for (const copy of plan.title_copies) {
       const updated = await tx.unsafe(`
         UPDATE ${ident}.files n SET title=$3
-        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${VARIANT("n")}='no-overlay'
+        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${videoVariantSql("n")}='no-overlay'
           AND n.title IS NOT DISTINCT FROM $4
         RETURNING n.id`, [copy.project, copy.no_overlay_id, copy.title, copy.previous]);
       if (updated.length !== 1) throw new Error(`Title of ${copy.project}/${copy.no_overlay_id} changed during apply. Run apply again.`);
@@ -292,7 +307,7 @@ async function relinkAndMovePointers(plan: DataMovePlan): Promise<void> {
         UPDATE ${ident}.files n
         SET visibility=COALESCE($3, n.visibility), publication_status=COALESCE($4, n.publication_status),
             review_status=COALESCE($5, n.review_status), tags=$6::jsonb
-        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${VARIANT("n")}='no-overlay'
+        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${videoVariantSql("n")}='no-overlay'
           AND n.tags = $7::jsonb
         RETURNING n.id`, [copy.project, copy.no_overlay_id, copy.visibility, copy.publication_status, copy.review_status, JSON.stringify(tags), JSON.stringify(copy.previous_tags)]);
       if (updated.length !== 1) throw new Error(`State of ${copy.project}/${copy.no_overlay_id} changed during apply. Run apply again.`);
@@ -327,7 +342,7 @@ async function deleteOverlaid(item: OverlaidItem, refused: string[]): Promise<vo
     WHERE f.project=$1 AND f.id=$2 AND f.type='video'
       AND f.designer_of_id IS NULL AND f.id NOT LIKE '%-designer' AND f.id NOT LIKE '%-no-overlay'
       AND f.id !~* '-designer-[0-9a-f-]{36}$'
-      AND ${VARIANT("f")}='pipeline-final'
+      AND ${videoVariantSql("f")}='pipeline-final'
       AND NOT ${POINTS_AT_F}
     RETURNING f.id`, [item.project, item.id]);
   if (deleted.length === 1) count(item.companion_id ? "overlaid_videos" : "overlaid_videos_without_no_overlay");
@@ -373,7 +388,7 @@ async function runApply(): Promise<number> {
   for (const session of inv.sessions) {
     if (session.upload_id && session.state === "active") {
       const ext = getExtensionForMime(session.mime_type) === ".bin" ? ".srt" : getExtensionForMime(session.mime_type);
-      await s3.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: fileObjectKey("subtitle", session.project, session.file_id, ext), UploadId: session.upload_id })).catch(() => {});
+      await s3.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: subtitleFileKey(session.project, session.file_id, ext), UploadId: session.upload_id })).catch(() => {});
     }
     await sql.unsafe(`DELETE FROM ${ident}.upload_sessions WHERE id=$1 AND type='subtitle'`, [session.id]);
     count("subtitle_upload_sessions");
