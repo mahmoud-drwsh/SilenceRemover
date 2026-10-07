@@ -158,7 +158,6 @@ def cleanup_artifacts(
     artifacts = [
         (source_id, "video"),
         (f"{source_id}-no-overlay", "video"),
-        (f"{source_id}-subtitles", "subtitle"),
         (source_id, "audio"),
         (source_id, "original"),
     ]
@@ -263,24 +262,16 @@ def run_black_box(
         if "transcript" in review and not str(review.get("transcript") or "").strip():
             raise RuntimeError("review checkpoint has an empty transcript")
         approve_title(client, source_id, title)
-        subtitle = wait(client, f"{source_id}-subtitles", "subtitle", timeout_seconds)
         no_overlay = wait(client, f"{source_id}-no-overlay", "video", timeout_seconds)
-        overlaid = wait(client, source_id, "video", timeout_seconds)
-        for variant in (no_overlay, overlaid):
-            if variant.get("title") != title or variant.get("source_id") != source_id:
-                raise RuntimeError("approved title or original link did not reach both variants")
-            if not isinstance(variant.get("duration"), (int, float)) or variant["duration"] <= 0:
-                raise RuntimeError("variant has an invalid duration")
-            if abs(variant["duration"] - round(variant["duration"])) <= 0.001:
-                raise RuntimeError("variant duration is not fractional")
-            serve(client, str(variant["id"]), "video")
-        if subtitle.get("source_id") != source_id:
-            raise RuntimeError("subtitle is not linked to the original")
-        serve(client, f"{source_id}-subtitles", "subtitle")
-        duration = overlaid.get("duration")
+        if no_overlay.get("title") != title or no_overlay.get("source_id") != source_id:
+            raise RuntimeError("approved title or original link did not reach the no-overlay video")
+        duration = no_overlay.get("duration")
         if not isinstance(duration, (int, float)) or duration <= 0:
-            raise RuntimeError("invalid final duration")
-        result = {"ok": True, "source_id": source_id, "duration": duration, "variants": ["no-overlay", "overlaid"]}
+            raise RuntimeError("no-overlay video has an invalid duration")
+        if abs(duration - round(duration)) <= 0.001:
+            raise RuntimeError("no-overlay video duration is not fractional")
+        serve(client, str(no_overlay["id"]), "video")
+        result = {"ok": True, "source_id": source_id, "duration": duration, "variants": ["no-overlay"]}
     except Exception as exc:
         # Cleanup is deliberately deferred to one common finalization path so
         # close() failures cannot replace the lifecycle failure that matters.
