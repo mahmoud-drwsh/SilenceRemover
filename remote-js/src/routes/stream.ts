@@ -15,6 +15,7 @@ import { parseRangeHeader } from "../range.ts";
 import { HttpError, type FileType } from "../schemas.ts";
 import { normalizeTitle, sanitizeFileId, sanitizeFilename } from "../sanitize.ts";
 import { storageGet, storageGetBytes, storageHead } from "../storage.ts";
+import { canonicalVideoTitleSql } from "./files.ts";
 
 /**
  * Maximum body size (bytes) that will be buffered into memory to preserve the
@@ -68,25 +69,16 @@ streamRouter.get("/projects/:token/:project/stream/:id", async (c) => {
   const ident = schemaIdent();
   const rows = await sql.unsafe<StreamRow[]>(
     `SELECT file.type, file.mime_type, file.tags, file.title,
-            COALESCE(designer_target.title, no_overlay_target.title, file.title) AS canonical_download_title
+            -- A designer revision and its no-overlay card download with the
+            -- approved title of that card.
+            CASE WHEN designer_target.id IS NOT NULL THEN ${canonicalVideoTitleSql(ident, "designer_target")}
+                 WHEN file.type = 'video' THEN ${canonicalVideoTitleSql(ident, "file")}
+                 ELSE file.title END AS canonical_download_title
        FROM ${ident}.files AS file
        LEFT JOIN ${ident}.files AS designer_target
          ON designer_target.project = file.project
         AND designer_target.id = file.designer_of_id
         AND designer_target.type = 'video'
-       LEFT JOIN LATERAL (
-         SELECT candidate.title
-           FROM ${ident}.files AS candidate
-          WHERE file.type = 'video'
-            AND file.media_variant = 'no-overlay'
-            AND candidate.project = file.project
-            AND candidate.source_id = file.source_id
-            AND candidate.type = 'video'
-            AND candidate.media_variant = 'pipeline-final'
-            AND candidate.visibility = 'active'
-          ORDER BY candidate.created_at DESC
-          LIMIT 1
-       ) AS no_overlay_target ON true
        WHERE file.id = $1 AND file.project = $2 AND file.type = $3`,
     [decodedId, project, fileType],
   );
