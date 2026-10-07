@@ -30,10 +30,10 @@ import { MIME_TO_EXT, getExtensionForMime } from "../src/mime.ts";
 import {
   isRemovedWorkerTempKey, isRemuxTempKey, isSubtitleKey,
   parseTags, planNoOverlayDataMove, remuxTempPrefix, subtitlePrefix, toBytes, videoRole, workerTempPrefix,
-  type DataMovePlan, type OverlaidItem, type VideoRow,
+  type DataMovePlan, type OverlaidItem, type StateCopy, type VideoRow,
 } from "../src/noOverlayDataMove.ts";
 import { getS3Client, storageObjectKey } from "../src/storage.ts";
-import { videoVariantSql } from "../src/videoSql.ts";
+import { publicationStatusSql, videoVariantSql, visibilitySql } from "../src/videoSql.ts";
 
 type Mode = "dry-run" | "apply" | "drop-schema";
 
@@ -189,7 +189,7 @@ function groups(inv: Inventory): Record<string, Group> {
     active_pointer_moves: group(plan.pointer_moves.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: `revision=${row.revision_id} from=${row.overlaid_id}${row.implicit ? " (implicit newest revision)" : ""}` }))),
     pointer_conflicts: group(plan.pointer_conflicts.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: `overlaid=${row.overlaid_revision_id} no-overlay=${row.no_overlay_revision_id} kept=${row.kept_revision_id}` }))),
     title_copies: group(plan.title_copies.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: `from=${row.overlaid_id} title=${JSON.stringify(row.title)} previous=${JSON.stringify(row.previous)}` }))),
-    state_copies: group(plan.state_copies.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: `from=${row.overlaid_id}${row.visibility ? " visibility=trash" : ""}${row.publication_status ? " publication_status=pending" : ""}${row.review_status ? ` review_status=${row.review_status}` : ""}${row.add_tags.length ? ` add_tags=${row.add_tags.join(",")}` : ""}` }))),
+    state_copies: group(plan.state_copies.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: stateDetail(row) }))),
     overlaid_videos: group(overlaid(plan.overlaid_deletes)),
     overlaid_videos_without_no_overlay: group(overlaid(plan.overlaid_deletes.filter((item) => !item.companion_id))),
     overlaid_videos_with_trashed_no_overlay: group(overlaid(plan.overlaid_deletes.filter((item) => item.companion_trashed))),
@@ -211,6 +211,18 @@ const WORK_GROUPS = [
   "designer_relinks", "active_pointer_moves", "title_copies", "state_copies", "overlaid_videos", "subtitle_files", "subtitle_orphan_objects",
   "project_logos", "logo_orphan_objects", "remux_jobs", "subtitle_upload_sessions", "remux_temp_objects", "worker_temp_objects",
 ];
+
+/** Before and after state of one state copy, for example `visibility=trash->active`. */
+function stateDetail(row: StateCopy): string {
+  const parts = [`from=${row.overlaid_id}`];
+  for (const name of ["visibility", "publication_status", "review_status"] as const) {
+    const before = row.before[name]; const after = row.after[name];
+    parts.push(before === after ? `${name}=${before ?? "none"}` : `${name}=${before ?? "none"}->${after ?? "none"}`);
+  }
+  const previous = parseTags(row.previous_tags);
+  if (JSON.stringify(previous) !== JSON.stringify(row.tags)) parts.push(`tags=${JSON.stringify(previous)}->${JSON.stringify(row.tags)}`);
+  return parts.join(" ");
+}
 
 function printReport(title: string, all: Record<string, Group>, schema: SchemaState): void {
   console.log(`# ${title}`);
@@ -302,14 +314,27 @@ async function relinkAndMovePointers(plan: DataMovePlan): Promise<void> {
       if (updated.length !== 1) throw new Error(`Title of ${copy.project}/${copy.no_overlay_id} changed during apply. Run apply again.`);
     }
     for (const copy of plan.state_copies) {
-      const tags = [...parseTags(copy.previous_tags), ...copy.add_tags];
+      // Guard: the no-overlay row has the same columns and tags as in the plan,
+      // and the overlaid row still has the state that the copy writes. Tag
+      // parameters use $n::text::jsonb, so that the server parses the JSON
+      // text and the client does not encode it a second time. The tag guard
+      // compares the stored value exactly, also a legacy JSON-string value.
       const updated = await tx.unsafe(`
         UPDATE ${ident}.files n
-        SET visibility=COALESCE($3, n.visibility), publication_status=COALESCE($4, n.publication_status),
-            review_status=COALESCE($5, n.review_status), tags=$6::jsonb
+        SET visibility=$3, publication_status=$4, review_status=$5, tags=$6::text::jsonb
         WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${videoVariantSql("n")}='no-overlay'
-          AND n.tags = $7::jsonb
-        RETURNING n.id`, [copy.project, copy.no_overlay_id, copy.visibility, copy.publication_status, copy.review_status, JSON.stringify(tags), JSON.stringify(copy.previous_tags)]);
+          AND n.visibility IS NOT DISTINCT FROM $7 AND n.publication_status IS NOT DISTINCT FROM $8
+          AND n.review_status IS NOT DISTINCT FROM $9
+          AND n.tags = $10::text::jsonb
+          AND EXISTS (SELECT 1 FROM ${ident}.files o
+            WHERE o.project=n.project AND o.id=$11 AND o.type='video' AND ${videoVariantSql("o")}='pipeline-final'
+              AND ${visibilitySql("o")}=$3 AND ${publicationStatusSql("o")}=$4
+              AND ($12::text IS NULL OR o.review_status=$12))
+        RETURNING n.id`, [
+        copy.project, copy.no_overlay_id, copy.after.visibility, copy.after.publication_status, copy.after.review_status,
+        JSON.stringify(copy.tags), copy.previous.visibility, copy.previous.publication_status, copy.previous.review_status,
+        JSON.stringify(copy.previous_tags), copy.overlaid_id, copy.after.review_status === copy.before.review_status ? null : copy.after.review_status,
+      ]);
       if (updated.length !== 1) throw new Error(`State of ${copy.project}/${copy.no_overlay_id} changed during apply. Run apply again.`);
     }
   });

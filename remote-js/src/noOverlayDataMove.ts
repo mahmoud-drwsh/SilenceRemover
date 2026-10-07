@@ -14,6 +14,8 @@
  * has no route side effects.
  */
 
+import { cardTitleNeedsLegacy } from "./videoSql.ts";
+
 export const LEGACY_DESIGNER_SUFFIX = "-designer";
 export const NO_OVERLAY_SUFFIX = "-no-overlay";
 
@@ -90,18 +92,31 @@ export interface TitleCopy {
   title: string;
 }
 
-/** Trash, pending and review state of the overlaid row goes to the no-overlay row. */
+/** The effective card state of a video row. */
+export interface CardState {
+  visibility: "trash" | "active";
+  publication_status: "pending" | "published";
+  review_status: string | null;
+}
+
+/**
+ * The overlaid row holds the card state, so its state goes to the no-overlay
+ * row in both directions (trash or active, pending or published, review).
+ */
 export interface StateCopy {
   project: string;
   no_overlay_id: string;
   overlaid_id: string;
-  visibility: "trash" | null;
-  publication_status: "pending" | null;
-  review_status: string | null;
-  /** Tags to add (only `trash`), so that tag-based reads give the same state. */
-  add_tags: string[];
+  /** Effective state of the no-overlay row before the copy. */
+  before: CardState;
+  /** State that the copy writes. It is the effective state of the overlaid row. */
+  after: CardState;
+  /** The raw columns of the no-overlay row before the copy (for the apply guard). */
+  previous: { visibility: string | null; publication_status: string | null; review_status: string | null };
   /** The tags of the no-overlay row before the copy. */
   previous_tags: unknown;
+  /** The tags after the copy. Only `trash` stays a video tag, and it agrees with `after.visibility`. */
+  tags: string[];
 }
 
 export interface BlockedOverlaid {
@@ -159,6 +174,15 @@ function isPending(row: VideoRow): boolean {
   if (row.publication_status === "pending") return true;
   if (row.publication_status === "published") return false;
   return parseTags(row.tags).includes("pending");
+}
+
+/** Effective state of a row, with the same rules as visibilitySql and publicationStatusSql. */
+export function cardState(row: VideoRow): CardState {
+  return {
+    visibility: isTrashed(row) ? "trash" : "active",
+    publication_status: isPending(row) ? "pending" : "published",
+    review_status: row.review_status,
+  };
 }
 
 /** A non-empty trimmed title, or null. */
@@ -355,10 +379,9 @@ export function planNoOverlayDataMove(videos: VideoRow[]): DataMovePlan {
     pointers.set(companionKey, revisionId);
   }
 
-  // Title and state: the overlaid row was the card, so its approved title and
-  // its trash, pending and review state go to the no-overlay row. When more
-  // than one overlaid row has the same no-overlay row, use the same row as the
-  // read-side title fallback: not in trash first, then the newest.
+  // Title and state: the overlaid row was the card. When more than one
+  // overlaid row has the same no-overlay row, use the same primary row as the
+  // read path (legacyOverlaidOrderSql): not in trash first, then the newest.
   const primary = new Map<string, VideoRow>();
   for (const row of overlaidRows) {
     const companionId = companions.get(key(row.project, row.id))!.companion_id;
@@ -371,30 +394,52 @@ export function planNoOverlayDataMove(videos: VideoRow[]): DataMovePlan {
   const state_copies: StateCopy[] = [];
   for (const [companionKey, overlaid] of primary) {
     const companion = byKey.get(companionKey)!;
+    // The card title wins. Use the overlaid title only when the card title is
+    // blank or is a title that the old PC pipeline made (cardTitleNeedsLegacy).
     const title = approvedTitle(overlaid);
-    if (title !== null && title !== companion.title) {
+    if (title !== null && title !== companion.title && cardTitleNeedsLegacy(companion.title)) {
       title_copies.push({ project: companion.project, no_overlay_id: companion.id, overlaid_id: overlaid.id, previous: companion.title, title });
     }
-    const trash = isTrashed(overlaid) && !isTrashed(companion);
-    const pending = isPending(overlaid) && !isPending(companion);
-    const review = overlaid.review_status !== null && companion.review_status === null ? overlaid.review_status : null;
-    if (trash || pending || review !== null) {
-      const tags = parseTags(companion.tags);
-      // Only `trash` stays a video tag; the tag-state migration moves
-      // `pending` to publication_status and removes the tag.
-      const add_tags = trash && !tags.includes("trash") ? ["trash"] : [];
-      state_copies.push({
-        project: companion.project, no_overlay_id: companion.id, overlaid_id: overlaid.id,
-        visibility: trash ? "trash" : null, publication_status: pending ? "pending" : null, review_status: review,
-        add_tags, previous_tags: companion.tags,
-      });
-    }
+    const copy = stateCopy(overlaid, companion);
+    if (copy) state_copies.push(copy);
   }
 
   return { designer_relinks, pointer_moves, pointer_conflicts, title_copies, state_copies, overlaid_deletes, blocked_overlaid, unresolved_designers };
 }
 
-/** Sort order of overlaid rows: not in trash first, then the newest, then the ID. */
+/**
+ * The state copy from the overlaid row to its no-overlay row, or null when the
+ * two rows agree. The overlaid row is the truth in both directions.
+ */
+export function stateCopy(overlaid: VideoRow, companion: VideoRow): StateCopy | null {
+  const before = cardState(companion);
+  const source = cardState(overlaid);
+  const after: CardState = {
+    visibility: source.visibility,
+    publication_status: source.publication_status,
+    // Copy the review status only when the overlaid row has one.
+    review_status: source.review_status ?? before.review_status,
+  };
+  const previousTags = parseTags(companion.tags);
+  // Only `trash` stays a video tag. Add it or remove it so that tag-based
+  // reads give the same state as the visibility column.
+  const tags = [...previousTags.filter((tag) => tag !== "trash"), ...(after.visibility === "trash" ? ["trash"] : [])];
+  const tagsAgree = previousTags.includes("trash") === (after.visibility === "trash");
+  if (before.visibility === after.visibility && before.publication_status === after.publication_status
+    && before.review_status === after.review_status && tagsAgree) {
+    return null;
+  }
+  return {
+    project: companion.project, no_overlay_id: companion.id, overlaid_id: overlaid.id, before, after,
+    previous: { visibility: companion.visibility, publication_status: companion.publication_status, review_status: companion.review_status },
+    previous_tags: companion.tags, tags,
+  };
+}
+
+/**
+ * Sort order of overlaid rows: not in trash first, then the newest, then the
+ * ID. Keep it the same as legacyOverlaidOrderSql in videoSql.ts.
+ */
 function preferOverlaid(a: VideoRow, b: VideoRow): number {
   return Number(isTrashed(a)) - Number(isTrashed(b)) || time(b.created_at) - time(a.created_at) || a.id.localeCompare(b.id);
 }

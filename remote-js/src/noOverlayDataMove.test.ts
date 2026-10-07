@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  isRemovedWorkerTempKey, isRemuxTempKey, planNoOverlayDataMove, videoRole, type VideoRow,
+  isRemovedWorkerTempKey, isRemuxTempKey, planNoOverlayDataMove, stateCopy, videoRole, type VideoRow,
 } from "./noOverlayDataMove.ts";
 
 let clock = 0;
@@ -101,23 +101,34 @@ describe("no-overlay data move plan", () => {
     expect(plan.pointer_conflicts.map((item) => item.kept_revision_id)).toEqual(["d-old"]);
   });
 
-  test("copies the approved title to the no-overlay row", () => {
+  test("copies the overlaid title only when the card title needs it", () => {
     const plan = planNoOverlayDataMove([
       row({ id: "s", title: "  Approved  " }),
       row({ id: "s-no-overlay", media_variant: "no-overlay", title: "Approved (No Overlay)" }),
+      row({ id: "n", title: "From overlaid" }),
+      row({ id: "n-no-overlay", media_variant: "no-overlay", title: null }),
+      row({ id: "b", title: "From overlaid b" }),
+      row({ id: "b-no-overlay", media_variant: "no-overlay", title: "   " }),
       row({ id: "t", title: "Same" }),
       row({ id: "t-no-overlay", media_variant: "no-overlay", title: "Same" }),
       row({ id: "u", title: " " }),
-      row({ id: "u-no-overlay", media_variant: "no-overlay", title: "Kept" }),
+      row({ id: "u-no-overlay", media_variant: "no-overlay", title: "Kept (No Overlay)" }),
+      // A rename after the deploy writes the card title. The move keeps it.
+      row({ id: "r", title: "Old approved" }),
+      row({ id: "r-no-overlay", media_variant: "no-overlay", title: "Renamed after deploy" }),
     ]);
-    expect(plan.title_copies).toEqual([{ project: "p", no_overlay_id: "s-no-overlay", overlaid_id: "s", previous: "Approved (No Overlay)", title: "Approved" }]);
+    expect(plan.title_copies).toEqual([
+      { project: "p", no_overlay_id: "s-no-overlay", overlaid_id: "s", previous: "Approved (No Overlay)", title: "Approved" },
+      { project: "p", no_overlay_id: "n-no-overlay", overlaid_id: "n", previous: null, title: "From overlaid" },
+      { project: "p", no_overlay_id: "b-no-overlay", overlaid_id: "b", previous: "   ", title: "From overlaid b" },
+    ]);
   });
 
   test("prefers the overlaid row that is not in trash for title and state", () => {
     const plan = planNoOverlayDataMove([
       row({ id: "a", source_id: "src", title: "Active", media_variant: "pipeline-final" }),
       row({ id: "b", source_id: "src", title: "Trashed", media_variant: "pipeline-final", visibility: "trash" }),
-      row({ id: "src-no-overlay", source_id: "src", media_variant: "no-overlay", title: "Old" }),
+      row({ id: "src-no-overlay", source_id: "src", media_variant: "no-overlay", title: "" }),
     ]);
     expect(plan.title_copies.map((item) => [item.overlaid_id, item.title])).toEqual([["a", "Active"]]);
     expect(plan.state_copies).toEqual([]);
@@ -130,10 +141,50 @@ describe("no-overlay data move plan", () => {
       row({ id: "r", media_variant: "pipeline-final", review_status: "approved", publication_status: "published" }),
       row({ id: "r-no-overlay", media_variant: "no-overlay", publication_status: "pending" }),
     ]);
-    expect(plan.state_copies.map(({ previous_tags: _, ...item }) => item)).toEqual([
-      { project: "p", no_overlay_id: "s-no-overlay", overlaid_id: "s", visibility: "trash", publication_status: "pending", review_status: null, add_tags: ["trash"] },
-      { project: "p", no_overlay_id: "r-no-overlay", overlaid_id: "r", visibility: null, publication_status: null, review_status: "approved", add_tags: [] },
+    expect(plan.state_copies.map(({ project: _p, previous_tags: _t, previous: _c, ...item }) => item)).toEqual([
+      {
+        no_overlay_id: "s-no-overlay", overlaid_id: "s",
+        before: { visibility: "active", publication_status: "published", review_status: null },
+        after: { visibility: "trash", publication_status: "pending", review_status: null },
+        tags: ["no-overlay", "trash"],
+      },
+      {
+        no_overlay_id: "r-no-overlay", overlaid_id: "r",
+        before: { visibility: "active", publication_status: "pending", review_status: null },
+        after: { visibility: "active", publication_status: "published", review_status: "approved" },
+        tags: [],
+      },
     ]);
+  });
+
+  test("copies an active overlaid state over a trashed no-overlay row", () => {
+    const plan = planNoOverlayDataMove([
+      row({ id: "s", media_variant: "pipeline-final" }),
+      row({ id: "s-no-overlay", media_variant: "no-overlay", visibility: "trash", tags: ["trash"], review_status: "approved" }),
+    ]);
+    expect(plan.state_copies).toEqual([{
+      project: "p", no_overlay_id: "s-no-overlay", overlaid_id: "s",
+      before: { visibility: "trash", publication_status: "published", review_status: "approved" },
+      after: { visibility: "active", publication_status: "published", review_status: "approved" },
+      previous: { visibility: "trash", publication_status: null, review_status: "approved" },
+      previous_tags: ["trash"], tags: [],
+    }]);
+  });
+
+  test("fixes a trash tag that does not agree with the overlaid state", () => {
+    const plan = planNoOverlayDataMove([
+      row({ id: "s", media_variant: "pipeline-final", visibility: "active" }),
+      row({ id: "s-no-overlay", media_variant: "no-overlay", visibility: "active", tags: ["trash"] }),
+    ]);
+    expect(plan.state_copies.map((item) => item.tags)).toEqual([[]]);
+  });
+
+  test("a state copy is not planned again after it is applied", () => {
+    const overlaid = row({ id: "s", media_variant: "pipeline-final", visibility: "trash", publication_status: "pending", review_status: "approved" });
+    const first = stateCopy(overlaid, row({ id: "s-no-overlay", media_variant: "no-overlay", tags: JSON.stringify(["no-overlay"]) }))!;
+    expect(first.tags).toEqual(["no-overlay", "trash"]);
+    const applied = row({ id: "s-no-overlay", media_variant: "no-overlay", tags: first.tags, ...first.after });
+    expect(stateCopy(overlaid, applied)).toBeNull();
   });
 
   test("keeps the no-overlay pointer when it is newer", () => {
