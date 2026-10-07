@@ -15,7 +15,7 @@ import {
   presignUploadPart, createMultipartUpload, storageGet, uploadMultipartPart,
 } from "../storage.ts";
 import { verifyMediaToken } from "../http.ts";
-import { assertSourceOriginalExists, commitUploadMetadata, parseTagsValue, parseUploadTags, resolveUploadOverwrite } from "./files.ts";
+import { assertSourceOriginalExists, canonicalVideoTitleSql, commitUploadMetadata, parseTagsValue, parseUploadTags, resolveUploadOverwrite, videoVariantSql } from "./files.ts";
 import { enqueueSourceProcessing } from "./sourceProcessing.ts";
 
 export const uploadsRouter = new Hono();
@@ -74,15 +74,20 @@ function parseBody(body: unknown): { id: string; type: FileType; mime: string; s
 
 async function resolveDesignerTarget(project: string, targetId: string): Promise<{ id: string; sourceId: string; title: string }> {
   const sql = getDb(); const ident = schemaIdent();
+  // The no-overlay video is the only designer target (#44). The revision
+  // inherits the approved title of its card, not a variant title.
   const target = (await sql.unsafe<{ id: string; source_id: string | null; title: string | null; tags: unknown; media_variant: string | null; visibility: string | null }[]>(
-    `SELECT id, source_id, title, tags, media_variant, visibility FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = 'video'`,
+    `SELECT designer_target.id, designer_target.source_id, ${canonicalVideoTitleSql(ident, "designer_target")} AS title, designer_target.tags,
+            ${videoVariantSql("designer_target")} AS media_variant, designer_target.visibility
+       FROM ${ident}.files AS designer_target
+      WHERE designer_target.id = $1 AND designer_target.project = $2 AND designer_target.type = 'video'
+        AND designer_target.designer_of_id IS NULL AND designer_target.id NOT LIKE '%-designer'`,
     [targetId, project],
   ))[0];
   const tags = target ? parseTagsValue(target.tags) : [];
-  const variant = target?.media_variant ?? (tags.includes("no-overlay") ? "no-overlay" : tags.includes("designer") ? "designer" : "pipeline-final");
   const visibility = target?.visibility ?? (tags.includes("trash") ? "trash" : "active");
-  if (!target || !target.source_id || variant !== "pipeline-final" || visibility !== "active") {
-    throw new HttpError(400, "designer_of_id must select an available pipeline-final video in this project");
+  if (!target || !target.source_id || target.media_variant !== "no-overlay" || visibility !== "active") {
+    throw new HttpError(400, "designer_of_id must select an available no-overlay video in this project");
   }
   return { id: target.id, sourceId: target.source_id, title: target.title?.trim() || target.id };
 }
@@ -172,8 +177,8 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
       // deterministic legacy `${target.id}-designer` object.
       id: `${target.id}-designer-${randomUUID()}`,
       sourceId: target.sourceId,
-      // A designer revision inherits its approved title from the pipeline
-      // final; its presentation variant is not part of the media title.
+      // A designer revision inherits the approved title of its no-overlay
+      // card; its presentation variant is not part of the media title.
       title: target.title,
       tags: [],
       designerOfId: target.id,

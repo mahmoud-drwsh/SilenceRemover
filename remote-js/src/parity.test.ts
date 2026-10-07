@@ -11,6 +11,10 @@ import { parseRangeHeader } from "./range.ts";
 import {
   addTagListConditions,
   excludedVideoVariantTags,
+  activeDesignerRevisionSql,
+  designerLinkSql,
+  REMOVED_VIDEO_VIEWS,
+  VIDEO_VIEWS,
   mapUploadMetadataInsertError,
   parseContentLengthHeader,
 } from "./routes/files.ts";
@@ -183,16 +187,36 @@ describe("addTagListConditions", () => {
 });
 
 describe("excludedVideoVariantTags", () => {
-  test("every video list keeps one canonical pipeline-final row per source", () => {
-    expect(excludedVideoVariantTags(null)).toEqual(["no-overlay", "designer"]);
+  test("legacy no-overlay rows stay listable as canonical cards", () => {
+    expect(excludedVideoVariantTags(null)).toEqual(["designer"]);
+    expect(excludedVideoVariantTags(null, true)).toEqual(["designer"]);
+  });
+});
+
+describe("video virtual views", () => {
+  test("removed view names fall back to All", () => {
+    expect([...VIDEO_VIEWS]).toEqual(["all", "needs-designer", "designer", "pending", "trash"]);
+    expect([...REMOVED_VIDEO_VIEWS]).toEqual(["pipeline-final", "no-overlay"]);
+  });
+});
+
+describe("legacy designer-link fallback (#44)", () => {
+  test("designer links match the card, the legacy overlaid ID and the -designer suffix", () => {
+    const link = designerLinkSql("s", "source", "candidate");
+    expect(link).toContain("candidate.designer_of_id = source.id");
+    expect(link).toContain("candidate.designer_of_id = legacy_overlaid.id");
+    expect(link).toContain("candidate.id = legacy_overlaid.id || '-designer'");
+    expect(link).toContain("legacy_overlaid.source_id = source.source_id");
   });
 
-  test("Needs Designer excludes designer and no-overlay variants", () => {
-    expect(excludedVideoVariantTags(null, true)).toEqual(["no-overlay", "designer"]);
+  test("the card pointer wins over a legacy overlaid pointer", () => {
+    expect(activeDesignerRevisionSql("s", "source"))
+      .toMatch(/^COALESCE\(source\.active_designer_revision_id, \(\s*SELECT legacy_overlaid\.active_designer_revision_id/);
   });
 
-  test("the dedicated No Overlay view may return its companion rows", () => {
-    expect(excludedVideoVariantTags(["no-overlay"])).toEqual(["designer"]);
+  test("the fallback lives in one marked block", async () => {
+    const filesRoute = await Bun.file(new URL("./routes/files.ts", import.meta.url)).text();
+    expect(filesRoute.split("Legacy designer-link fallback (#44): remove after the data move.").length).toBe(2);
   });
 });
 
@@ -223,6 +247,8 @@ describe("explicit video lifecycle", () => {
     expect(html).toContain("document.getElementById('designer-title').value = targetTitle");
     expect(html).not.toContain("${targetTitle} (Designer)");
     expect(uploads).toContain("title: target.title");
+    expect(uploads).toContain("canonicalVideoTitleSql(ident, \"designer_target\")");
+    expect(uploads).toContain('target.media_variant !== "no-overlay"');
     expect(stream).toContain("canonical_download_title");
   });
 
@@ -353,7 +379,11 @@ describe("frontend Media Manager UI", () => {
     const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
 
     expect(html).toContain('class="file-card video-card variant-card"');
-    expect(html).toContain("const VIDEO_TABS = ['all', 'needs-designer', 'pipeline-final', 'no-overlay', 'designer', 'pending', 'trash'];");
+    expect(html).toContain("const VIDEO_TABS = ['all', 'needs-designer', 'designer', 'pending', 'trash'];");
+    expect(html).toContain("const REMOVED_VIDEO_TABS = ['pipeline-final', 'no-overlay'];");
+    expect(html).toContain("if (section === 'video' && REMOVED_VIDEO_TABS.includes(filter)) filter = 'all';");
+    expect(html).not.toContain("Pipeline Final");
+    expect(html).not.toContain("'no-overlay': '🎬 No Overlay'");
     expect(html).toContain("&view=${encodeURIComponent(currentFilter)}");
     expect(html).not.toContain("'FB'");
     expect(html).not.toContain("'TT'");
@@ -391,23 +421,21 @@ describe("frontend Media Manager UI", () => {
     expect(routes).not.toContain("/originals");
   });
 
-  test("normal video cards present linked no-overlay and designer variants", async () => {
+  test("the no-overlay video is the canonical card with linked designer variants", async () => {
     const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
     const filesRoute = await Bun.file(new URL("./routes/files.ts", import.meta.url)).text();
 
-    expect(html).toContain("'no-overlay': '🎬 No Overlay'");
-    expect(html).toContain("file.no_overlay_id ? escapeJs(file.no_overlay_id)");
-    expect(html).toContain("<strong>Silence Removed</strong>");
+    expect(html).not.toContain("file.no_overlay_id");
+    expect(html).toContain("const canUploadDesigner = file.media_variant === 'no-overlay';");
+    expect(html).toContain("href=\"${videoStreamUrl}\" download>✂️ <span><strong>Silence Removed</strong>");
     expect(html).toContain("file.designer_video_id ? escapeJs(file.designer_video_id)");
     expect(html).toContain("file.subtitle_id ? escapeJs(file.subtitle_id)");
     expect(html).toContain("<strong>Subtitles</strong>");
     expect(html).toContain("function openDesignerUpload(targetId, targetTitle)");
     expect(filesRoute).toContain("excludedVideoVariantTags(tagList, designerMissing)");
     expect(filesRoute).toContain("source.designer_of_id IS NULL");
-    expect(filesRoute).toContain("candidate.source_id = source.source_id");
-    expect(filesRoute).toContain("COALESCE(candidate.media_variant,");
-    expect(filesRoute).toContain("= 'no-overlay'");
-    expect(filesRoute).toContain("AS no_overlay_id");
+    expect(filesRoute).toContain("conditions.push(`${videoVariantSql(\"source\")} = 'no-overlay'`);");
+    expect(filesRoute).toContain("NULL::text AS no_overlay_id");
     expect(filesRoute).toContain("AS designer_video_id");
     expect(filesRoute).toContain("AS subtitle_id");
   });
@@ -453,14 +481,14 @@ describe("frontend Media Manager UI", () => {
     expect(html).toContain("if (type === TYPE_VIDEO && !isAdminMode()) return;");
   });
 
-  test("designer queue filters pipeline finals with no designer upload", async () => {
+  test("designer queue filters no-overlay cards with no designer upload", async () => {
     const html = await Bun.file(new URL("../frontend/index.html", import.meta.url)).text();
     const filesRoute = await Bun.file(new URL("./routes/files.ts", import.meta.url)).text();
 
     expect(html).toContain("'needs-designer': '✨ Needs Designer'");
     expect(html).toContain("&view=${encodeURIComponent(currentFilter)}");
     expect(filesRoute).toContain("view === \"needs-designer\"");
-    expect(filesRoute).toContain('candidate.designer_of_id=source.id');
+    expect(filesRoute).toContain('AND candidate.type=\'video\' AND ${designerLinkSql(ident, "source", "candidate")}');
   });
 
   test("an explicit All URL is not replaced by the designer queue", async () => {

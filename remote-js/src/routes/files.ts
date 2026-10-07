@@ -450,17 +450,90 @@ export function addTagListConditions(args: {
 }
 
 /**
- * Video lists expose one canonical pipeline-final row per original. Linked
- * no-overlay and designer variants are represented on that row as actions,
- * never as duplicate cards.
+ * Video lists expose one canonical no-overlay row per original. Its designer
+ * revisions and its original are actions on that row, never duplicate cards.
+ * The explicit variant predicate selects the card; only designer tags stay
+ * excluded here, because legacy no-overlay rows carry a "no-overlay" tag.
  */
 export function excludedVideoVariantTags(
-  tagList: string[] | null,
+  _tagList: string[] | null,
   _designerMissing = false,
 ): string[] {
-  if (tagList?.includes("no-overlay")) return ["designer"];
-  return ["no-overlay", "designer"];
+  return ["designer"];
 }
+
+/** Virtual video views. Removed view names (#44) fall back to All. */
+export const VIDEO_VIEWS: ReadonlySet<string> = new Set(["all", "needs-designer", "designer", "pending", "trash"]);
+export const REMOVED_VIDEO_VIEWS: ReadonlySet<string> = new Set(["pipeline-final", "no-overlay"]);
+
+export function normalizedTagsSql(alias: string): string {
+  return `(CASE WHEN jsonb_typeof(${alias}.tags) = 'string' THEN (${alias}.tags #>> '{}')::jsonb ELSE ${alias}.tags END)`;
+}
+
+/**
+ * The media variant of a video row. Legacy rows without the explicit column
+ * use the same rules as the video tag-state migration.
+ */
+export function videoVariantSql(alias: string): string {
+  return `COALESCE(${alias}.media_variant, CASE
+    WHEN ${alias}.designer_of_id IS NOT NULL OR ${normalizedTagsSql(alias)} @> '["designer"]'::jsonb THEN 'designer'
+    WHEN ${normalizedTagsSql(alias)} @> '["no-overlay"]'::jsonb OR ${alias}.id LIKE '%-no-overlay' THEN 'no-overlay'
+    ELSE 'pipeline-final' END)`;
+}
+
+/* ========================================================================== */
+/* Legacy designer-link fallback (#44): remove after the data move.           */
+/*                                                                            */
+/* Before #44 the overlaid video (variant pipeline-final, usually ID          */
+/* `<source_id>`) was the canonical card. Old designer revisions point at it  */
+/* (designer_of_id) or use the `<overlaid id>-designer` ID, and its row can   */
+/* hold the active designer revision pointer and the approved title. The data */
+/* move (#47) moves these links to the no-overlay row. After the data move:   */
+/*   - designerLinkSql      -> `${candidate}.designer_of_id = ${card}.id`     */
+/*   - activeDesignerRevisionSql -> `${card}.active_designer_revision_id`     */
+/*   - canonicalVideoTitleSql    -> `${card}.title`                           */
+/* and legacyOverlaidRowsSql goes away.                                       */
+/* ========================================================================== */
+
+/** FROM/WHERE fragment: the legacy overlaid rows of a no-overlay card. */
+function legacyOverlaidRowsSql(ident: string, card: string): string {
+  return `${ident}.files AS legacy_overlaid
+    WHERE legacy_overlaid.project = ${card}.project
+      AND legacy_overlaid.type = 'video'
+      AND legacy_overlaid.id <> ${card}.id
+      AND legacy_overlaid.designer_of_id IS NULL
+      AND legacy_overlaid.id NOT LIKE '%-designer'
+      AND ${videoVariantSql("legacy_overlaid")} = 'pipeline-final'
+      AND (legacy_overlaid.source_id = ${card}.source_id OR legacy_overlaid.id || '-no-overlay' = ${card}.id)`;
+}
+
+/** True when the candidate row is a designer revision of the card. */
+export function designerLinkSql(ident: string, card: string, candidate: string): string {
+  return `(${candidate}.designer_of_id = ${card}.id
+    OR EXISTS (SELECT 1 FROM ${legacyOverlaidRowsSql(ident, card)}
+      AND (${candidate}.designer_of_id = legacy_overlaid.id OR ${candidate}.id = legacy_overlaid.id || '-designer')))`;
+}
+
+/** The active designer revision ID. The card's own pointer wins. */
+export function activeDesignerRevisionSql(ident: string, card: string): string {
+  return `COALESCE(${card}.active_designer_revision_id, (
+    SELECT legacy_overlaid.active_designer_revision_id FROM ${legacyOverlaidRowsSql(ident, card)}
+      AND legacy_overlaid.active_designer_revision_id IS NOT NULL
+    ORDER BY legacy_overlaid.created_at DESC, legacy_overlaid.id LIMIT 1))`;
+}
+
+/**
+ * The approved title of a video row. Old PC no-overlay rows have the title
+ * "<title> (No Overlay)"; their overlaid companion holds the approved title.
+ */
+export function canonicalVideoTitleSql(ident: string, card: string): string {
+  return `COALESCE(CASE WHEN ${videoVariantSql(card)} = 'no-overlay' THEN (
+    SELECT NULLIF(BTRIM(legacy_overlaid.title), '') FROM ${legacyOverlaidRowsSql(ident, card)}
+    ORDER BY CASE WHEN ${normalizedTagsSql("legacy_overlaid")} @> '["trash"]'::jsonb THEN 1 ELSE 0 END,
+      legacy_overlaid.created_at DESC, legacy_overlaid.id LIMIT 1) END, ${card}.title)`;
+}
+
+/* ===================== End of legacy designer-link fallback ================ */
 
 /* -------------------------------------------------------------------------- */
 /* GET /api/files                                                             */
@@ -473,7 +546,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const url = new URL(c.req.url);
   const typeParam = url.searchParams.get("type") as FileType | null;
   const tagsParam = url.searchParams.get("tags") ?? undefined;
-  const view = url.searchParams.get("view") ?? undefined;
+  const requestedView = url.searchParams.get("view") ?? undefined;
   const sort = url.searchParams.get("sort") ?? "asc";
   const limitParam = url.searchParams.get("limit");
   const offsetParam = url.searchParams.get("offset");
@@ -483,8 +556,11 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   const includePending = url.searchParams.get("include_pending") === "true";
   const designerMissing = url.searchParams.get("designer_missing") === "true";
 
-  const validViews = new Set(["all", "needs-designer", "pipeline-final", "no-overlay", "designer", "pending", "trash", "todo", "approved"]);
-  if (view && !validViews.has(view)) throw new HttpError(400, "Invalid view parameter");
+  // A bookmark or an old cached page can still send a removed view name.
+  const view = requestedView && REMOVED_VIDEO_VIEWS.has(requestedView) ? "all" : requestedView;
+  if (view && !VIDEO_VIEWS.has(view) && view !== "todo" && view !== "approved") {
+    throw new HttpError(400, "Invalid view parameter");
+  }
 
   if (typeParam && typeParam !== "audio" && typeParam !== "video" && typeParam !== "original" && typeParam !== "subtitle") {
     throw new HttpError(400, "Invalid type parameter");
@@ -567,19 +643,13 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     conditions.push(`type = $${params.length}`);
   }
 
-  // A designer upload is a linked presentation of a pipeline final, not a
-  // list item in its own right. This relationship is authoritative even for
-  // legacy rows whose tags were incomplete.
+  // The no-overlay video is the canonical card. A designer revision is a
+  // linked presentation of that card, not a list item in its own right.
+  // Legacy designer rows use the `-designer` suffix and no designer_of_id.
   if (typeParam === "video") {
     conditions.push("source.designer_of_id IS NULL");
-    // Legacy designer uploads used the deterministic `-designer` suffix
-    // before designer_of_id existed. Keep them on their parent card without
-    // mutating the historical row; the rehearsed backfill can later persist
-    // a relationship only when its original is proven.
     conditions.push("source.id NOT LIKE '%-designer'");
-    conditions.push(`COALESCE(source.media_variant,
-      CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay'
-           ELSE 'pipeline-final' END) = 'pipeline-final'`);
+    conditions.push(`${videoVariantSql("source")} = 'no-overlay'`);
   }
 
   if (designerMissing) {
@@ -588,8 +658,8 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
       SELECT 1 FROM ${ident}.files AS designer_candidate
       WHERE designer_candidate.project = source.project
         AND designer_candidate.type = 'video'
-        AND (designer_candidate.designer_of_id = source.id OR designer_candidate.id = source.id || '-designer')
-        AND NOT ((CASE WHEN jsonb_typeof(designer_candidate.tags) = 'string' THEN (designer_candidate.tags #>> '{}')::jsonb ELSE designer_candidate.tags END) @> '["trash"]'::jsonb)
+        AND ${designerLinkSql(ident, "source", "designer_candidate")}
+        AND NOT (${normalizedTagsSql("designer_candidate")} @> '["trash"]'::jsonb)
     )`);
   }
 
@@ -601,17 +671,12 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   if (view === "approved") conditions.push(`COALESCE(source.review_status, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END) = 'approved'`);
   if (view === "needs-designer") conditions.push(`NOT EXISTS (
     SELECT 1 FROM ${ident}.files candidate WHERE candidate.project=source.project
-      AND candidate.type='video' AND (candidate.designer_of_id=source.id OR candidate.id=source.id || '-designer')
-      AND COALESCE(candidate.visibility, CASE WHEN (CASE WHEN jsonb_typeof(candidate.tags)='string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END) <> 'trash'
-  )`);
-  if (view === "no-overlay") conditions.push(`EXISTS (
-    SELECT 1 FROM ${ident}.files candidate WHERE candidate.project=source.project
-      AND candidate.type='video' AND candidate.source_id=source.source_id
-      AND COALESCE(candidate.media_variant, CASE WHEN (CASE WHEN jsonb_typeof(candidate.tags)='string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay' ELSE 'pipeline-final' END)='no-overlay'
+      AND candidate.type='video' AND ${designerLinkSql(ident, "source", "candidate")}
+      AND COALESCE(candidate.visibility, CASE WHEN ${normalizedTagsSql("candidate")} @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END) <> 'trash'
   )`);
   if (view === "designer") conditions.push(`EXISTS (
     SELECT 1 FROM ${ident}.files candidate WHERE candidate.project=source.project
-      AND candidate.type='video' AND (candidate.designer_of_id=source.id OR candidate.id=source.id || '-designer')
+      AND candidate.type='video' AND ${designerLinkSql(ident, "source", "candidate")}
   )`);
 
   addTagListConditions({
@@ -638,8 +703,8 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   }
 
   const rowsPromise = sql.unsafe<FileRow[]>(
-    `SELECT source.id, source.project, source.type, source.title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, companion.id AS no_overlay_id, designer.id AS designer_video_id, source.active_designer_revision_id, subtitle.id AS subtitle_id, source.designer_of_id,
-       COALESCE(source.media_variant, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay' ELSE 'pipeline-final' END) AS media_variant,
+    `SELECT source.id, source.project, source.type, ${typeParam === "video" ? canonicalVideoTitleSql(ident, "source") : "source.title"} AS title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, NULL::text AS no_overlay_id, designer.id AS designer_video_id, active_designer.id AS active_designer_revision_id, subtitle.id AS subtitle_id, source.designer_of_id,
+       ${videoVariantSql("source")} AS media_variant,
        COALESCE(source.review_status, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["ready"]'::jsonb THEN 'approved' WHEN source.type='audio' THEN 'todo' ELSE NULL END) AS review_status,
        COALESCE(source.visibility, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END) AS visibility,
        COALESCE(source.publication_status, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["pending"]'::jsonb THEN 'pending' WHEN source.type='video' THEN 'published' ELSE NULL END) AS publication_status,
@@ -660,33 +725,16 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
        LIMIT 1
      ) AS derived ON TRUE
      LEFT JOIN LATERAL (
-       SELECT candidate.id
-       FROM ${ident}.files AS candidate
-       WHERE source.type = 'video'
-         AND COALESCE(source.media_variant,
-           CASE WHEN (CASE WHEN jsonb_typeof(source.tags) = 'string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay'
-                ELSE 'pipeline-final' END) <> 'no-overlay'
-         AND candidate.project = source.project
-         AND candidate.type = 'video'
-         AND (candidate.source_id = source.source_id OR (source.source_id IS NULL AND candidate.id = source.id || '-no-overlay'))
-         AND candidate.id <> source.id
-         AND COALESCE(candidate.media_variant,
-           CASE WHEN (CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["no-overlay"]'::jsonb THEN 'no-overlay'
-                ELSE 'pipeline-final' END) = 'no-overlay'
-         AND COALESCE(candidate.visibility,
-           CASE WHEN (CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb THEN 'trash'
-                ELSE 'active' END) <> 'trash'
-       ORDER BY candidate.created_at DESC, candidate.id
-       LIMIT 1
-     ) AS companion ON TRUE
+       SELECT CASE WHEN source.type = 'video' THEN ${activeDesignerRevisionSql(ident, "source")} END AS id
+     ) AS active_designer ON TRUE
      LEFT JOIN LATERAL (
        SELECT candidate.id
        FROM ${ident}.files AS candidate
        WHERE source.type = 'video'
          AND candidate.project = source.project
          AND candidate.type = 'video'
-        AND (candidate.id = source.active_designer_revision_id OR (source.active_designer_revision_id IS NULL AND (candidate.designer_of_id = source.id OR candidate.id = source.id || '-designer')))
-         AND NOT ((CASE WHEN jsonb_typeof(candidate.tags) = 'string' THEN (candidate.tags #>> '{}')::jsonb ELSE candidate.tags END) @> '["trash"]'::jsonb)
+         AND (candidate.id = active_designer.id OR (active_designer.id IS NULL AND ${designerLinkSql(ident, "source", "candidate")}))
+         AND NOT (${normalizedTagsSql("candidate")} @> '["trash"]'::jsonb)
        ORDER BY candidate.created_at DESC, candidate.id
        LIMIT 1
      ) AS designer ON TRUE
