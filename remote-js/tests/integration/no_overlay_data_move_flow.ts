@@ -143,10 +143,11 @@ for (const seed of [
   { id: "s4", type: "original" },
   { id: "lonely-4", type: "video", source: "s4", variant: "pipeline-final" },
   { id: lonelyDesigner, type: "video", source: "s4", designerOf: "lonely-4", variant: "designer" },
-  // An overlaid video whose no-overlay video is in trash.
+  // An active overlaid video whose no-overlay video is in trash: the overlaid
+  // state is the card state, so the no-overlay video becomes active.
   { id: "s5", type: "original" },
   { id: "s5", type: "video", source: "s5", variant: "pipeline-final" },
-  { id: "s5-no-overlay", type: "video", source: "s5", variant: "no-overlay", visibility: "trash" },
+  { id: "s5-no-overlay", type: "video", source: "s5", variant: "no-overlay", visibility: "trash", tags: JSON.stringify(["trash"]) },
   // An overlaid video in trash and pending: the no-overlay video gets the same state.
   { id: "s6", type: "original" },
   { id: "s6", type: "video", source: "s6", variant: "pipeline-final", visibility: "trash", publication: "pending", tags: JSON.stringify(["trash", "pending"]) },
@@ -182,7 +183,7 @@ equal(await snapshot(), beforeDry, "dry-run makes no database or storage change"
 const g = dry.summary!.groups;
 const counts = Object.fromEntries(Object.entries(g).map(([name, value]: [string, any]) => [name, value.count]));
 equal(counts, {
-  designer_relinks: 4, active_pointer_moves: 2, pointer_conflicts: 1, title_copies: 5, state_copies: 2, overlaid_videos: 6,
+  designer_relinks: 4, active_pointer_moves: 2, pointer_conflicts: 1, title_copies: 1, state_copies: 3, overlaid_videos: 6,
   overlaid_videos_without_no_overlay: 1, overlaid_videos_with_trashed_no_overlay: 1, blocked_overlaid_videos: 1,
   unresolved_designers: 0, subtitle_files: 1, subtitle_orphan_objects: 1, project_logos: 1, logo_orphan_objects: 0,
   remux_jobs: 1, subtitle_upload_sessions: 1, remux_temp_objects: 1, worker_temp_objects: 2,
@@ -191,6 +192,7 @@ equal(g.overlaid_videos.bytes, 1000 + 2000 + 3000 + 100 * 3, "dry-run overlaid b
 for (const id of ["old-3", "final-2-designer", "lonely-4", `remux-${runId}`, `sub-session-${runId}`, `source-processing/${P}/job-1/lease-1/overlaid_video`]) {
   check(dry.stdout.includes(id), `dry-run lists ${id}`);
 }
+check(/s5-no-overlay .*visibility=trash->active.*tags=\["trash"\]->\[\]/.test(dry.stdout), "dry-run shows the state before and after the copy");
 
 // ---- apply needs --confirm ----
 equal(run("apply", `--project=${P}`).code, 2, "apply without --confirm is refused");
@@ -211,12 +213,14 @@ equal((await fileRow(P, "s1-no-overlay"))?.active_designer_revision_id, designer
 equal((await fileRow(P, "final-2-no-overlay"))?.active_designer_revision_id, "final-2-designer", "the legacy card keeps its designer video");
 equal((await fileRow(P, "s7-no-overlay"))?.active_designer_revision_id, designer7b, "a pointer on the no-overlay row is not overwritten");
 equal((await fileRow(P, designer7a))?.designer_of_id, "s7-no-overlay", "the s7 revision moves to the no-overlay video");
-equal((await fileRow(P, "s1-no-overlay"))?.title, "Approved s1", "the approved title goes to the no-overlay video");
+equal((await fileRow(P, "s1-no-overlay"))?.title, "Approved s1", "the approved title replaces a title that ends with (No Overlay)");
+equal((await fileRow(P, "final-2-no-overlay"))?.title, "Title final-2-no-overlay", "a title that the card already has stays");
 const s6 = await fileRow(P, "s6-no-overlay");
 equal([s6?.visibility, s6?.publication_status, s6?.tags], ["trash", "pending", ["trash"]], "trash and pending state go to the no-overlay video");
 const f2 = await fileRow(P, "final-2-no-overlay");
 equal([f2?.publication_status, f2?.tags], ["pending", ["no-overlay"]], "the legacy pending state goes to the no-overlay video");
-equal((await fileRow(P, "s5-no-overlay"))?.visibility, "trash", "a trashed no-overlay video stays in trash");
+const s5 = await fileRow(P, "s5-no-overlay");
+equal([s5?.visibility, s5?.tags], ["active", []], "an active overlaid card makes its trashed no-overlay video active");
 const legacy = await fileRow(P, "final-2-designer");
 equal([legacy?.designer_of_id, legacy?.media_variant, legacy?.source_id], ["final-2-no-overlay", "designer", "s2"], "the legacy -designer row has an explicit target");
 for (const id of ["s1", "final-2", "old-3", "s5", "s6", "s7"]) {
