@@ -26,7 +26,6 @@ def test_copy_strategy_reencodes_mkv_to_a_real_mp4(monkeypatch, tmp_path: Path) 
     encoded: list[Path] = []
 
     monkeypatch.setattr(trim, "load_trim_script", lambda *_args, **_kwargs: artifact)
-    monkeypatch.setattr(trim, "resolve_prepared_video_overlays", lambda **_kwargs: (None, None, 0, False))
     monkeypatch.setattr(trim, "wait_for_file_release", lambda _path: None)
 
     def encode(*, output_file: Path, **_kwargs) -> None:
@@ -53,7 +52,6 @@ def test_copy_strategy_keeps_mp4_copy_shortcut(monkeypatch, tmp_path: Path) -> N
     artifact = _copy_artifact(tmp_path)
 
     monkeypatch.setattr(trim, "load_trim_script", lambda *_args, **_kwargs: artifact)
-    monkeypatch.setattr(trim, "resolve_prepared_video_overlays", lambda **_kwargs: (None, None, 0, False))
     monkeypatch.setattr(trim, "wait_for_file_release", lambda _path: None)
     monkeypatch.setattr(trim, "run_silence_removed_media_with_script", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("must copy MP4")))
 
@@ -76,7 +74,6 @@ def test_copy_strategy_writes_the_metadata_title(monkeypatch, tmp_path: Path) ->
     artifact = _copy_artifact(tmp_path)
 
     monkeypatch.setattr(trim, "load_trim_script", lambda *_args, **_kwargs: artifact)
-    monkeypatch.setattr(trim, "resolve_prepared_video_overlays", lambda **_kwargs: (None, None, 0, False))
     monkeypatch.setattr(trim, "run_silence_removed_media_with_script", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("must copy MP4")))
 
     result = trim.trim_single_video(

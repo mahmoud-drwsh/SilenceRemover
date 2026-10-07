@@ -5,7 +5,6 @@ Secrets (e.g. OPENROUTER_API_KEY) live in src/core/config.py.
 """
 
 from dataclasses import dataclass
-from pathlib import Path
 
 
 # --- Padding / bitrate ---
@@ -185,28 +184,11 @@ AUDIO_FORMATS: frozenset[str] = frozenset(ext.lstrip(".") for ext in AUDIO_EXTEN
 AUDIO_FILE_EXT = ".ogg"
 TEXT_FILE_EXT = ".txt"
 
-# Vertical sixths: overlay starts at top of 2nd sixth; band height is 1/6 of frame (y in [H/6, H/3]).
-TITLE_BANNER_START_FRACTION = 1 / 6
-TITLE_BANNER_HEIGHT_FRACTION = 1 / 6
-TITLE_FONT_DEFAULT = "Noto Naskh Arabic"
-TITLE_MIN_READABLE_FONT_PX = 26
-TITLE_MIN_READABLE_FONT_BANNER_FRACTION = 0.12
-
-# Final MP4 (overlay encode): format tag; value is original input filename (Path.name).
+# Final MP4 format tag; value is original input filename (Path.name).
 # Use the standard `comment` tag so MP4/MOV muxers persist it and ffprobe shows it.
 FINAL_VIDEO_SOURCE_METADATA_KEY = "comment"
 # Older builds wrote this custom key; keep for delete matching on existing files.
 LEGACY_FINAL_VIDEO_SOURCE_METADATA_KEY = "SILENCE_REMOVER_SOURCE"
-
-# Repository root (…/SilenceRemover when running from checkout).
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-# Final encode: optional logo overlay (`logo/` is often gitignored).
-DEFAULT_LOGO_PATH = _REPO_ROOT / "logo" / "logo.png"
-# Target logo display width = video_width * this fraction (uniform scale vs intrinsic PNG width).
-LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO = 1.0
-LOGO_OVERLAY_MARGIN_PX = 0
-# Alpha gain on the logo RGBA stream (`colorchannelmixer=aa=…`) before scale/overlay; typical range 0–1.
-LOGO_OVERLAY_ALPHA = 1.0
 
 __all__ = [
     "TrimDefaults",
@@ -262,16 +244,7 @@ __all__ = [
     "AUDIO_FORMATS",
     "AUDIO_FILE_EXT",
     "TEXT_FILE_EXT",
-    "TITLE_BANNER_START_FRACTION",
-    "TITLE_BANNER_HEIGHT_FRACTION",
-    "TITLE_FONT_DEFAULT",
-    "TITLE_MIN_READABLE_FONT_PX",
-    "TITLE_MIN_READABLE_FONT_BANNER_FRACTION",
     "FINAL_VIDEO_SOURCE_METADATA_KEY",
     "LEGACY_FINAL_VIDEO_SOURCE_METADATA_KEY",
     "EDGE_SILENCE_KEEP_SEC",
-    "DEFAULT_LOGO_PATH",
-    "LOGO_OVERLAY_WIDTH_FRACTION_OF_VIDEO",
-    "LOGO_OVERLAY_MARGIN_PX",
-    "LOGO_OVERLAY_ALPHA",
 ]
