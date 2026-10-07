@@ -117,6 +117,11 @@ export interface StateCopy {
   previous_tags: unknown;
   /** The tags after the copy. Only `trash` stays a video tag, and it agrees with `after.visibility`. */
   tags: string[];
+  /**
+   * The raw columns and tags of the overlaid row in the plan. The apply guard
+   * compares them exactly, so that it does not parse legacy tags again.
+   */
+  overlaid_previous: { visibility: string | null; publication_status: string | null; review_status: string | null; tags: unknown };
 }
 
 export interface BlockedOverlaid {
@@ -433,6 +438,7 @@ export function stateCopy(overlaid: VideoRow, companion: VideoRow): StateCopy | 
     project: companion.project, no_overlay_id: companion.id, overlaid_id: overlaid.id, before, after,
     previous: { visibility: companion.visibility, publication_status: companion.publication_status, review_status: companion.review_status },
     previous_tags: companion.tags, tags,
+    overlaid_previous: { visibility: overlaid.visibility, publication_status: overlaid.publication_status, review_status: overlaid.review_status, tags: overlaid.tags },
   };
 }
 

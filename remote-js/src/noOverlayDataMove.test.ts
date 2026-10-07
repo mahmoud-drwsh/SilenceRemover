@@ -141,7 +141,7 @@ describe("no-overlay data move plan", () => {
       row({ id: "r", media_variant: "pipeline-final", review_status: "approved", publication_status: "published" }),
       row({ id: "r-no-overlay", media_variant: "no-overlay", publication_status: "pending" }),
     ]);
-    expect(plan.state_copies.map(({ project: _p, previous_tags: _t, previous: _c, ...item }) => item)).toEqual([
+    expect(plan.state_copies.map(({ project: _p, previous_tags: _t, previous: _c, overlaid_previous: _o, ...item }) => item)).toEqual([
       {
         no_overlay_id: "s-no-overlay", overlaid_id: "s",
         before: { visibility: "active", publication_status: "published", review_status: null },
@@ -168,6 +168,7 @@ describe("no-overlay data move plan", () => {
       after: { visibility: "active", publication_status: "published", review_status: "approved" },
       previous: { visibility: "trash", publication_status: null, review_status: "approved" },
       previous_tags: ["trash"], tags: [],
+      overlaid_previous: { visibility: null, publication_status: null, review_status: null, tags: [] },
     }]);
   });
 

@@ -47,6 +47,8 @@ function run(...args: string[]): RunResult {
     check(!stdout.includes(secret) && !stderr.includes(secret), `output must not contain credentials or presigned URLs (${secret})`);
   }
   console.log(`-- ${args.join(" ")} -> exit ${output.code}`);
+  // Show the script errors, so that a failed step is easy to diagnose.
+  if (output.code !== 0 && stderr.trim() !== "") console.log(stderr.trim());
   return output;
 }
 

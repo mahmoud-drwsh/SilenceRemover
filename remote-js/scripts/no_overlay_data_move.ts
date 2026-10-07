@@ -34,7 +34,7 @@ import {
   type DataMovePlan, type OverlaidItem, type StateCopy, type VideoRow,
 } from "../src/noOverlayDataMove.ts";
 import { getS3Client, storageObjectKey } from "../src/storage.ts";
-import { publicationStatusSql, videoVariantSql, visibilitySql } from "../src/videoSql.ts";
+import { videoVariantSql } from "../src/videoSql.ts";
 
 type Mode = "dry-run" | "apply" | "drop-schema";
 
@@ -315,11 +315,12 @@ async function relinkAndMovePointers(plan: DataMovePlan): Promise<void> {
       if (updated.length !== 1) throw new Error(`Title of ${copy.project}/${copy.no_overlay_id} changed during apply. Run apply again.`);
     }
     for (const copy of plan.state_copies) {
-      // Guard: the no-overlay row has the same columns and tags as in the plan,
-      // and the overlaid row still has the state that the copy writes. Tag
-      // parameters use $n::text::jsonb, so that the server parses the JSON
-      // text and the client does not encode it a second time. The tag guard
-      // compares the stored value exactly, also a legacy JSON-string value.
+      // Guard: the no-overlay row and the overlaid row have the same raw
+      // columns and tags as in the plan. The guard compares raw values and
+      // does not parse the tags again, so it agrees with the plan also for
+      // legacy tags that are encoded more than once. Tag parameters use
+      // $n::text::jsonb, so that the server parses the JSON text and the
+      // client does not encode it a second time.
       const updated = await tx.unsafe(`
         UPDATE ${ident}.files n
         SET visibility=$3, publication_status=$4, review_status=$5, tags=$6::text::jsonb
@@ -329,12 +330,13 @@ async function relinkAndMovePointers(plan: DataMovePlan): Promise<void> {
           AND n.tags = $10::text::jsonb
           AND EXISTS (SELECT 1 FROM ${ident}.files o
             WHERE o.project=n.project AND o.id=$11 AND o.type='video' AND ${videoVariantSql("o")}='pipeline-final'
-              AND ${visibilitySql("o")}=$3 AND ${publicationStatusSql("o")}=$4
-              AND ($12::text IS NULL OR o.review_status=$12))
+              AND o.visibility IS NOT DISTINCT FROM $12 AND o.publication_status IS NOT DISTINCT FROM $13
+              AND o.review_status IS NOT DISTINCT FROM $14 AND o.tags = $15::text::jsonb)
         RETURNING n.id`, [
         copy.project, copy.no_overlay_id, copy.after.visibility, copy.after.publication_status, copy.after.review_status,
         JSON.stringify(copy.tags), copy.previous.visibility, copy.previous.publication_status, copy.previous.review_status,
-        JSON.stringify(copy.previous_tags), copy.overlaid_id, copy.after.review_status === copy.before.review_status ? null : copy.after.review_status,
+        JSON.stringify(copy.previous_tags), copy.overlaid_id, copy.overlaid_previous.visibility,
+        copy.overlaid_previous.publication_status, copy.overlaid_previous.review_status, JSON.stringify(copy.overlaid_previous.tags),
       ]);
       if (updated.length !== 1) throw new Error(`State of ${copy.project}/${copy.no_overlay_id} changed during apply. Run apply again.`);
     }
