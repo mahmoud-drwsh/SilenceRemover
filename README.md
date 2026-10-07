@@ -56,7 +56,7 @@ TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_or_channel_id
 ```
 
-The message includes pipeline progress (phase 6/8 and video index/total), the input filename, title, and output `.mp4` basename. Text is capped at Telegram's **4096** character limit. Failures are logged to stderr and **do not** fail the encode.
+The message includes the video index/total, the input filename, title, and output `.mp4` basename. Text is capped at Telegram's **4096** character limit. Failures are logged to stderr and **do not** fail the encode.
 
 Optional: `TELEGRAM_API_BASE` overrides the API host (default `https://api.telegram.org`), e.g. for a self-hosted Bot API server. Treat the bot token as a **secret**.
 
@@ -68,22 +68,21 @@ For integration with the external Media Manager service (VPS-based), set the ful
 MEDIA_MANAGER_URL=https://your-server.com/TOKEN/your-project/
 ```
 
-This enables the Media Manager workflow. The pipeline makes one video for each original: the **no-overlay video**. This video has no title banner, no logo, and no subtitles. The steps are:
+The system makes one video for each original: the **no-overlay video**. This video has no title banner, no logo, and no subtitles. The title goes into the video metadata.
 
-1. **Trim Script Generation**: Make reusable final-video and snippet-audio FFmpeg trim scripts from silence detection and the trim policy.
-2. **Snippet Creation**: Make the silence-removed snippet for transcription from the trim script.
-3. **Transcription**: Transcribe the snippet through OpenRouter.
-4. **Title Generation**: Make the title from the transcript.
-5. **Original Upload**: Upload the immutable original source recording.
-6. **Audio Upload**: Upload the review audio with `tags: ["todo"]` for title review.
-7. **Final Encode**: Make the no-overlay video. The encode writes the title into the video metadata. The copy shortcut also writes the metadata title.
-8. **Video Reconciliation**: Remove the server video if its title is different from the local title.
-9. **Video Upload**: Upload the no-overlay video with explicit variant and publication state.
-10. **Tag Promotion**: Publish the no-overlay video when the audio is approved.
+When `MEDIA_MANAGER_URL` is set, the PC pipeline only uploads the immutable originals. The Media Manager queues each verified original, and the server worker (`remote-js/Dockerfile.worker`) makes the review audio and the no-overlay video. The vertical launcher uses this path.
 
-For vertical videos, the vertical launcher uploads the original, and the server worker (`remote-js/Dockerfile.worker`) makes the same no-overlay video after title review. Horizontal videos go through this PC pipeline. Both paths make only the no-overlay video.
+With `--local-title-and-trim-only` (horizontal recordings), the work stays on the PC. The pipeline runs these phases (numbers as in `src/app/pipeline.py`):
 
-Plus **two-way sync**: At startup, fetch edited titles from Media Manager and trigger re-encode if changed.
+- **Phase 0, Trim Script Generation**: Make reusable final-video and snippet-audio FFmpeg trim scripts from silence detection and the trim policy.
+- **Phase 1, Snippet Creation**: Make the silence-removed snippet for transcription from the trim script.
+- **Phase 2, Transcription**: Transcribe the snippet. When `MEDIA_MANAGER_URL` is set, the Media Manager analyzes the snippet transiently and returns the transcript and the title. Otherwise the PC calls OpenRouter.
+- **Phase 3, Title Generation**: Make the title from the transcript.
+- **Phase 8, Final Encode**: Make the no-overlay video. The encode writes the title into the video metadata. The copy shortcut also writes the metadata title.
+
+This mode does no Media Manager upload. Without `MEDIA_MANAGER_URL` and without the local flag, the pipeline also lists Phase 4 (Original Upload), Phase 5 (Audio Upload) and Phase 12 (No-Overlay Upload), but these phases skip with "media manager disabled".
+
+The pipeline does not pull edited titles back from the Media Manager.
 
 ## Usage
 
@@ -135,7 +134,7 @@ FFmpeg responsibilities are now organized in the `src/ffmpeg` package:
 
 ## How It Works
 
-The tool processes videos sequentially through **ten** main phases:
+The tool processes videos sequentially through the phases listed above. The main stages are:
 
 ### 1. Silence Detection & Trimming
 
@@ -208,7 +207,7 @@ output/                    # Sibling to input-directory
 The tool maintains state in files under **`output/temp/`** to avoid reprocessing videos:
 
 - **Per-video markers**: `output/temp/trim_scripts/{script_key}.ffscript`, `output/temp/transcript/{basename}.txt`, `output/temp/title/{basename}.txt`, and `output/temp/completed/{basename}.txt`
-- **Automatic Skip**: Trim script generation is skipped if the expected final/snippet trim scripts already exist; if only the final script exists from an older cache, the snippet script is derived from it without rerunning silence analysis. snippet creation is skipped if the snippet exists; transcription is skipped if the transcript exists with non-whitespace text; title generation is skipped if the title exists; the upload steps are skipped if the server already has the original or the audio; the final encode is skipped if the completed marker exists; reconciliation, video upload, and tag promotion are skipped based on server state. (Whitespace-only or unreadable transcript files are treated as **not** done for transcription.)
+- **Automatic Skip**: Trim script generation is skipped if the expected final/snippet trim scripts already exist; if only the final script exists from an older cache, the snippet script is derived from it without rerunning silence analysis. snippet creation is skipped if the snippet exists; transcription is skipped if the transcript exists with non-whitespace text; title generation is skipped if the title exists; the upload steps are skipped if the server already has the original or the audio; the final encode is skipped if the completed marker exists; the no-overlay upload is skipped if the local MP4 is missing or the server already has the no-overlay video. See `docs/SKIP_CONDITIONS.yaml`. (Whitespace-only or unreadable transcript files are treated as **not** done for transcription.)
 - **Manual Reset**: Delete corresponding files under `output/temp/transcript`, `output/temp/title`, and `output/temp/completed` to reprocess specific videos.
 
 ## Supported Formats
