@@ -150,7 +150,7 @@ class MediaManagerClient:
 
     def _upload_presigned(
         self, *, file_id: str, file_type: str, title: str, path: Path, tags: list,
-        source_id: str | None = None, original_filename: str | None = None,
+        original_filename: str | None = None,
         progress_callback: callable = None,
     ) -> dict:
         """Transfer one file directly to S3 through the shared upload-session API."""
@@ -163,8 +163,6 @@ class MediaManagerClient:
             'id': file_id, 'type': file_type, 'title': title, 'tags': tags,
             'mime_type': mime, 'file_size': size, 'checksum_sha256': self._sha256(path),
         }
-        if source_id:
-            payload['source_id'] = source_id
         if original_filename:
             payload['original_filename'] = original_filename
 
