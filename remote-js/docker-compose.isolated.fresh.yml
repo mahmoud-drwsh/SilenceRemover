@@ -1,0 +1,70 @@
+# Fresh-database override for docker-compose.isolated.yml.
+# It uses no production data: no database dump and no .local-test mount.
+#   - restore makes an empty schema with the app bootstrap and adds the
+#     test auth token rows (tests/integration/fresh_schema.ts).
+#   - fixture makes synthetic media in the "fixtures" volume and stops
+#     (tests/integration/make_fixtures.sh). The flows start after it stops.
+# Use tests/integration/run_isolated_fresh.sh to run the flows.
+x-app-env: &app-env
+  DATABASE_URL: postgresql://media_manager:test-password@postgres:5432/media_manager
+  DB_SCHEMA: media_manager
+  TOKEN_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  S3_ENDPOINT_URL: http://minio:9000
+  S3_BUCKET: media-manager
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  S3_REGION: us-east-1
+
+services:
+  # Fixed image names let all test stacks use the same images. The runner
+  # removes the other images that have the project name.
+  app:
+    image: srfresh-media-manager:local
+
+  restore:
+    image: srfresh-media-manager:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes: !override
+      - ./tests/integration/fresh_schema.ts:/app/tests/integration/fresh_schema.ts:ro
+    environment: *app-env
+    entrypoint: ["bun", "run", "/app/tests/integration/fresh_schema.ts"]
+    command: !reset []
+
+  fixture:
+    image: srfresh-media-manager:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes: !override
+      - fixtures:/fixtures
+      - ./tests/integration/make_fixtures.sh:/make_fixtures.sh:ro
+    entrypoint: ["/bin/sh", "/make_fixtures.sh", "/fixtures"]
+    command: !reset []
+
+  integration:
+    volumes:
+      - fixtures:/fixtures:ro
+    depends_on:
+      fixture:
+        condition: service_completed_successfully
+
+  canonical-card-integration:
+    image: srfresh-worker:local
+    volumes:
+      - fixtures:/fixtures:ro
+    depends_on:
+      fixture:
+        condition: service_completed_successfully
+
+  source-processing-integration:
+    image: srfresh-worker:local
+    volumes:
+      - fixtures:/fixtures:ro
+    depends_on:
+      fixture:
+        condition: service_completed_successfully
+
+volumes:
+  fixtures:
