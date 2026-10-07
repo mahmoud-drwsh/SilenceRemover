@@ -136,6 +136,39 @@ assert completed["ok"]
 probe = json_request(f"{WORKER_BASE}/claim", "POST", {}, {"X-Source-Processing-Token": TOKEN})
 assert probe["job"] and probe["job"].get("original_download_url", "").startswith(("http://", "https://")), probe
 probe_job = probe["job"]
+# The claim has no subtitle flag, no overlaid flag and no SRT text (#44).
+for removed_field in ("subtitle_uploaded", "overlaid_uploaded", "srt_text"):
+    assert removed_field not in probe_job, (removed_field, sorted(probe_job))
+assert "no_overlay_uploaded" in probe_job and "review_audio_uploaded" in probe_job
+
+
+def worker_status(url: str, payload: dict) -> int:
+    try:
+        return request(url, "POST", payload, {"X-Source-Processing-Token": TOKEN}).status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+
+
+# The artifact API accepts only review_audio and no_overlay_video.
+for removed_kind in ("subtitle", "overlaid_video"):
+    assert worker_status(f"{WORKER_BASE}/{probe_job['id']}/artifacts/initiate", {
+        "lease_token": probe_job["lease_token"], "kind": removed_kind,
+        "size": len(source), "checksum_sha256": digest, "title": "x",
+    }) == 400, removed_kind
+# An old worker can still send only srt_text. The server ignores it.
+srt_only = json.load(request(
+    f"{WORKER_BASE}/{probe_job['id']}/checkpoints", "PATCH",
+    {"lease_token": probe_job["lease_token"], "srt_text": "1\n00:00:00,000 --> 00:00:01,000\nx\n"},
+    {"X-Source-Processing-Token": TOKEN},
+))
+assert srt_only == {"ok": True}
+try:
+    request(f"{WORKER_BASE}/{probe_job['id']}/overlay-logo", headers={
+        "X-Source-Processing-Token": TOKEN, "X-Source-Processing-Lease-Token": probe_job["lease_token"],
+    })
+    raise AssertionError("the worker logo route still exists")
+except urllib.error.HTTPError as exc:
+    assert exc.code == 404
 json_request(
     f"{WORKER_BASE}/{probe_job['id']}/fail", "POST",
     {"lease_token": probe_job["lease_token"], "error": "payload preflight"},
@@ -184,7 +217,8 @@ video_by_id = {video["id"]: video for video in videos + no_overlay_videos}
 assert f"{SOURCE_ID}-no-overlay" in video_by_id, sorted(video_by_id)
 assert SOURCE_ID not in video_by_id, sorted(video_by_id)
 no_overlay = video_by_id[f"{SOURCE_ID}-no-overlay"]
-assert no_overlay["tags"] == ["no-overlay"]
+assert no_overlay["tags"] == []
+assert no_overlay["media_variant"] == "no-overlay"
 assert no_overlay["source_id"] == SOURCE_ID
 # The legacy-seed service intentionally changes files.duration back to
 # integer before the app starts. This public final-file response proves
