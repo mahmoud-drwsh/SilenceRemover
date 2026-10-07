@@ -321,8 +321,8 @@ describe("normalizeTitle", () => {
 });
 
 describe("MIME tables", () => {
-  test("ALLOWED_MIME includes subtitle MIME", () => {
-    expect(ALLOWED_MIME.has("application/x-subrip")).toBe(true);
+  test("ALLOWED_MIME does not include the removed subtitle MIME", () => {
+    expect(ALLOWED_MIME.has("application/x-subrip")).toBe(false);
   });
 
   test("getExtensionForMime falls back to .bin", () => {
@@ -429,15 +429,16 @@ describe("frontend Media Manager UI", () => {
     expect(html).toContain("const canUploadDesigner = file.media_variant === 'no-overlay';");
     expect(html).toContain("href=\"${videoStreamUrl}\" download>✂️ <span><strong>Silence Removed</strong>");
     expect(html).toContain("file.designer_video_id ? escapeJs(file.designer_video_id)");
-    expect(html).toContain("file.subtitle_id ? escapeJs(file.subtitle_id)");
-    expect(html).toContain("<strong>Subtitles</strong>");
+    expect(html).not.toContain("subtitle_id");
+    expect(html).not.toContain("<strong>Subtitles</strong>");
+    expect(html).not.toContain("type=subtitle");
     expect(html).toContain("function openDesignerUpload(targetId, targetTitle)");
     expect(filesRoute).toContain("excludedVideoVariantTags(tagList, designerMissing)");
     expect(filesRoute).toContain("source.designer_of_id IS NULL");
     expect(filesRoute).toContain("conditions.push(`${videoVariantSql(\"source\")} = 'no-overlay'`);");
-    expect(filesRoute).toContain("NULL::text AS no_overlay_id");
+    expect(filesRoute).not.toContain("no_overlay_id");
     expect(filesRoute).toContain("AS designer_video_id");
-    expect(filesRoute).toContain("AS subtitle_id");
+    expect(filesRoute).not.toContain("subtitle_id");
   });
 
   test("video card context menu exists for every filter before the footer is rendered", async () => {
@@ -523,5 +524,63 @@ describe("frontend Media Manager UI", () => {
     expect(filesRoute).toContain('"/projects/:token/:project/api/audio/approve-pending"');
     expect(filesRoute).toContain("Explicit confirmation is required");
     expect(filesRoute).toContain("approved_count: rows.length");
+  });
+});
+
+describe("removed overlay, logo, subtitle and remux features (#44)", () => {
+  const read = (path: string) => Bun.file(new URL(path, import.meta.url)).text();
+
+  test("no route serves the remux queue or an overlay logo", async () => {
+    const index = await read("./index.ts");
+    const admin = await read("./routes/admin.ts");
+    const files = await read("./routes/files.ts");
+    const processing = await read("./routes/sourceProcessing.ts");
+    const adminHtml = await read("../frontend/admin.html");
+
+    expect(index).not.toContain("remux");
+    expect(await Bun.file(new URL("./routes/remux.ts", import.meta.url)).exists()).toBe(false);
+    for (const source of [admin, files, processing, adminHtml]) {
+      expect(source).not.toContain("overlay-logo");
+      expect(source).not.toContain("project_overlay_logos");
+    }
+    expect(admin).not.toContain("overlay_logo_configured");
+  });
+
+  test("uploads reject the subtitle type and the pipeline-final variant", async () => {
+    const uploads = await read("./routes/uploads.ts");
+
+    expect(uploads).toContain('if (type !== "audio" && type !== "video" && type !== "original") throw new HttpError(400, "Invalid type");');
+    expect(uploads).toContain('!["no-overlay", "designer"].includes(mediaVariant)');
+    expect(uploads).not.toContain("SUBTITLE_MIME");
+  });
+
+  test("the worker API accepts only review audio and the no-overlay video", async () => {
+    const processing = await read("./routes/sourceProcessing.ts");
+
+    expect(processing).toContain('kind === "review_audio"');
+    expect(processing).toContain('kind === "no_overlay_video"');
+    expect(processing).not.toContain('"overlaid_video"');
+    expect(processing).not.toContain("subtitle_uploaded");
+    expect(processing).not.toContain("overlaid_uploaded");
+    expect(processing).not.toContain("srt_text=");
+  });
+
+  test("startup does not create or re-assert the removed schema", async () => {
+    const db = await read("./db.ts");
+
+    expect(db).not.toContain("CREATE TABLE IF NOT EXISTS ${ident}.subtitle_remux_jobs");
+    expect(db).not.toContain("CREATE TABLE IF NOT EXISTS ${ident}.project_overlay_logos");
+    expect(db).not.toContain("srt_text text");
+    expect(db).not.toContain("ADD CONSTRAINT files_type_check");
+    expect(db).not.toContain("ADD CONSTRAINT upload_sessions_type_check");
+    expect(db).not.toContain("DROP TABLE");
+    expect(db).not.toContain("DROP COLUMN");
+    expect(db).not.toContain("'original', 'subtitle'");
+  });
+
+  test("storage totals do not count the subtitle prefix", async () => {
+    const storage = await read("./storage.ts");
+
+    expect(storage).toContain('for (const fileType of ["audio", "video", "original"] as const)');
   });
 });

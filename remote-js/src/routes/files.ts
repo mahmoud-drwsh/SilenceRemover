@@ -62,10 +62,8 @@ interface FileRow {
   original_filename: string | null;
   checksum_sha256: string | null;
   derived_title: string | null;
-  no_overlay_id: string | null;
   designer_video_id: string | null;
   active_designer_revision_id: string | null;
-  subtitle_id: string | null;
   designer_of_id: string | null;
   media_variant: string | null;
   review_status: string | null;
@@ -124,10 +122,8 @@ function rowToResponse(row: FileRow): FileResponse {
     original_filename: row.original_filename ?? null,
     checksum_sha256: row.checksum_sha256 ?? null,
     derived_title: row.derived_title ?? null,
-    no_overlay_id: row.no_overlay_id ?? null,
     designer_video_id: row.designer_video_id ?? null,
     active_designer_revision_id: row.active_designer_revision_id ?? null,
-    subtitle_id: row.subtitle_id ?? null,
     designer_of_id: row.designer_of_id ?? null,
     media_variant: mediaVariant,
     review_status: reviewStatus,
@@ -226,9 +222,6 @@ export async function resolveUploadOverwrite(
 
   if (fileType === "audio") {
     throw new HttpError(409, `Audio file with id '${fileId}' already exists`);
-  }
-  if (fileType === "subtitle") {
-    return true;
   }
 
   const oldTitle = normalizeTitle(existing.title);
@@ -478,7 +471,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     throw new HttpError(400, "Invalid view parameter");
   }
 
-  if (typeParam && typeParam !== "audio" && typeParam !== "video" && typeParam !== "original" && typeParam !== "subtitle") {
+  if (typeParam && typeParam !== "audio" && typeParam !== "video" && typeParam !== "original") {
     throw new HttpError(400, "Invalid type parameter");
   }
 
@@ -513,7 +506,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
     }
 
     const rows = await sql.unsafe<FileRow[]>(
-      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title, NULL::text AS no_overlay_id, NULL::text AS designer_video_id, NULL::text AS active_designer_revision_id, NULL::text AS subtitle_id, designer_of_id
+      `SELECT id, project, type, title, tags, duration, file_size, mime_type, created_at, source_id, original_filename, checksum_sha256, NULL::text AS derived_title, NULL::text AS designer_video_id, NULL::text AS active_designer_revision_id, designer_of_id
        FROM ${ident}.files WHERE id = $1 AND project = $2 AND type = $3`,
       [sanitizedId, project, typeParam],
     );
@@ -557,6 +550,9 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   if (typeParam) {
     params.push(typeParam);
     conditions.push(`type = $${params.length}`);
+  } else {
+    // Old subtitle rows stay in the database until the data move (#44).
+    conditions.push("type IN ('audio', 'video', 'original')");
   }
 
   // The no-overlay video is the canonical card. A designer revision is a
@@ -619,7 +615,7 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
   }
 
   const rowsPromise = sql.unsafe<FileRow[]>(
-    `SELECT source.id, source.project, source.type, ${typeParam === "video" ? canonicalVideoTitleSql(ident, "source") : "source.title"} AS title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, NULL::text AS no_overlay_id, designer.id AS designer_video_id, active_designer.id AS active_designer_revision_id, subtitle.id AS subtitle_id, source.designer_of_id,
+    `SELECT source.id, source.project, source.type, ${typeParam === "video" ? canonicalVideoTitleSql(ident, "source") : "source.title"} AS title, source.tags, source.duration, source.file_size, source.mime_type, source.created_at, source.source_id, source.original_filename, source.checksum_sha256, derived.title AS derived_title, designer.id AS designer_video_id, active_designer.id AS active_designer_revision_id, source.designer_of_id,
        ${videoVariantSql("source")} AS media_variant,
        COALESCE(source.review_status, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["ready"]'::jsonb THEN 'approved' WHEN source.type='audio' THEN 'todo' ELSE NULL END) AS review_status,
        COALESCE(source.visibility, CASE WHEN (CASE WHEN jsonb_typeof(source.tags)='string' THEN (source.tags #>> '{}')::jsonb ELSE source.tags END) @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END) AS visibility,
@@ -654,15 +650,6 @@ filesRouter.get("/projects/:token/:project/api/files", async (c) => {
        ORDER BY candidate.created_at DESC, candidate.id
        LIMIT 1
      ) AS designer ON TRUE
-     LEFT JOIN LATERAL (
-       SELECT candidate.id
-       FROM ${ident}.files AS candidate
-       WHERE source.type = 'video'
-         AND candidate.project = source.project
-         AND candidate.type = 'subtitle'
-         AND candidate.id = COALESCE(source.source_id, source.id) || '-subtitles'
-       LIMIT 1
-     ) AS subtitle ON TRUE
      LEFT JOIN LATERAL (
        SELECT candidate.id FROM ${ident}.files AS candidate
        WHERE source.type='video' AND candidate.project=source.project AND candidate.type='audio'
@@ -962,7 +949,7 @@ filesRouter.put("/projects/:token/:project/api/files/:id", async (c) => {
 
   const url = new URL(c.req.url);
   const typeRaw = url.searchParams.get("type");
-  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original" && typeRaw !== "subtitle") {
+  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original") {
     throw new HttpError(400, "Type parameter is required");
   }
   const fileType = typeRaw as FileType;
@@ -1062,7 +1049,7 @@ filesRouter.delete("/projects/:token/:project/api/files/:id", async (c) => {
 
   const url = new URL(c.req.url);
   const typeRaw = url.searchParams.get("type");
-  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original" && typeRaw !== "subtitle") {
+  if (typeRaw !== "audio" && typeRaw !== "video" && typeRaw !== "original") {
     throw new HttpError(400, "Type parameter is required");
   }
   const fileType = typeRaw as FileType;

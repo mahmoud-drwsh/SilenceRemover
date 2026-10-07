@@ -52,7 +52,7 @@ export function getS3Client(): S3Client {
 
 /** Build the S3 object key matching the existing storage tree layout. */
 export function storageObjectKey(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -98,7 +98,7 @@ export async function ensureStorageBackendReady(): Promise<void> {
 
 /** Delete a single object from S3. Throws on failure. */
 export async function storageDelete(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -118,7 +118,7 @@ export async function storageDelete(
  * may imply the wrong extension. Returns true if any delete succeeded.
  */
 export async function storageDeleteAnyExtension(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
 ): Promise<boolean> {
@@ -137,7 +137,7 @@ export async function storageDeleteAnyExtension(
 
 /** Upload bytes to S3. Throws on failure. */
 export async function storagePutBytes(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -161,7 +161,7 @@ export interface StorageHead {
 
 /** HeadObject; throws (or returns null) when the object does not exist. */
 export async function storageHead(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -187,7 +187,7 @@ export async function storageHead(
  * encoding, dropping any Content-Length header set by the caller.
  */
 export async function storageGet(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -217,7 +217,7 @@ export async function storageGet(
  * size is within a safe in-memory limit.
  */
 export async function storageGetBytes(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -241,7 +241,7 @@ export async function storageGetBytes(
 
 /** Stream an object's SHA-256 digest without buffering the original in memory. */
 export async function storageSha256(
-  fileType: "audio" | "video" | "original" | "subtitle",
+  fileType: "audio" | "video" | "original",
   project: string,
   fileId: string,
   ext: string,
@@ -403,8 +403,8 @@ export async function presignOriginalDownload(
 }
 
 /**
- * Aggregate exact object-byte totals per project by listing both the
- * `audio/`, `video/`, and `original/` prefixes. Mirrors
+ * Aggregate exact object-byte totals per project by listing the `audio/`,
+ * `video/`, and `original/` prefixes. Old `subtitle/` objects do not count. Mirrors
  * `storage_project_size_totals`.
  */
 export async function storageProjectSizeTotals(): Promise<
@@ -414,7 +414,7 @@ export async function storageProjectSizeTotals(): Promise<
   const client = getS3Client();
   const totals = new Map<string, number>();
 
-  for (const fileType of ["audio", "video", "original", "subtitle"] as const) {
+  for (const fileType of ["audio", "video", "original"] as const) {
     const prefix = `${fileType}/`;
     let continuationToken: string | undefined;
     while (true) {

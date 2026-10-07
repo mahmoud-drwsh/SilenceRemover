@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getDb, schemaIdent } from "../db.ts";
 import { probeDurationSeconds } from "../ffprobe.ts";
-import { ALLOWED_MIME, AUDIO_MIME, VIDEO_MIME, SUBTITLE_MIME, getExtensionForMime, sniffMimeFromFile } from "../mime.ts";
+import { ALLOWED_MIME, AUDIO_MIME, VIDEO_MIME, getExtensionForMime, sniffMimeFromFile } from "../mime.ts";
 import { HttpError, type FileType } from "../schemas.ts";
 import { sanitizeFileId, sanitizeFilename } from "../sanitize.ts";
 import {
@@ -40,20 +40,20 @@ function checksum(value: unknown): string {
   return result;
 }
 
-function parseBody(body: unknown): { id: string; type: FileType; mime: string; size: number; checksum: string; title: string; tags: string[]; sourceId: string | null; filename: string | null; designerOfId: string | null; mediaVariant: "pipeline-final" | "no-overlay" | "designer" | null; visibility: "active" | "trash" | null; publicationStatus: "pending" | "published" | null } {
+function parseBody(body: unknown): { id: string; type: FileType; mime: string; size: number; checksum: string; title: string; tags: string[]; sourceId: string | null; filename: string | null; designerOfId: string | null; mediaVariant: "no-overlay" | "designer" | null; visibility: "active" | "trash" | null; publicationStatus: "pending" | "published" | null } {
   if (!body || typeof body !== "object") throw new HttpError(400, "JSON body is required");
   const data = body as Record<string, unknown>;
   const type = data.type;
-  if (type !== "audio" && type !== "video" && type !== "original" && type !== "subtitle") throw new HttpError(400, "Invalid type");
+  // The subtitle type is removed (#44).
+  if (type !== "audio" && type !== "video" && type !== "original") throw new HttpError(400, "Invalid type");
   const id = sanitizeFileId(String(data.id ?? ""));
   const mime = String(data.mime_type ?? "");
   const size = Number(data.file_size);
-  if (!id || !ALLOWED_MIME.has(mime) || (type === "original" && !VIDEO_MIME.has(mime)) || (type === "subtitle" && !SUBTITLE_MIME.has(mime))) throw new HttpError(400, "Invalid media identity or MIME type");
+  if (!id || !ALLOWED_MIME.has(mime) || (type === "original" && !VIDEO_MIME.has(mime))) throw new HttpError(400, "Invalid media identity or MIME type");
   if (!Number.isSafeInteger(size) || size <= 0) throw new HttpError(400, "file_size must be a positive integer");
   const sourceIdRaw = data.source_id == null ? "" : String(data.source_id);
   const sourceId = sourceIdRaw ? sanitizeFileId(sourceIdRaw) : null;
   if (sourceIdRaw && !sourceId) throw new HttpError(400, "Invalid source_id");
-  if (type === "subtitle" && (!sourceId || id !== `${sourceId}-subtitles`)) throw new HttpError(400, "Subtitles must use the deterministic source ID suffix");
   const filename = type === "original" ? sanitizeFilename(String(data.original_filename ?? "")) : null;
   if (type === "original" && !filename) throw new HttpError(400, "original_filename is required");
   const tagValue = JSON.stringify(data.tags ?? (type === "audio" ? ["todo"] : []));
@@ -64,12 +64,14 @@ function parseBody(body: unknown): { id: string; type: FileType; mime: string; s
   const mediaVariant = data.media_variant == null ? null : String(data.media_variant);
   const visibility = data.visibility == null ? null : String(data.visibility);
   const publicationStatus = data.publication_status == null ? null : String(data.publication_status);
-  if (mediaVariant !== null && !["pipeline-final", "no-overlay", "designer"].includes(mediaVariant)) throw new HttpError(400, "Invalid media_variant");
+  // New uploads cannot use the removed pipeline-final variant (#44). Old rows
+  // can still have it, so the read side keeps the value.
+  if (mediaVariant !== null && !["no-overlay", "designer"].includes(mediaVariant)) throw new HttpError(400, "Invalid media_variant");
   if (visibility !== null && visibility !== "active" && visibility !== "trash") throw new HttpError(400, "Invalid visibility");
   if (publicationStatus !== null && publicationStatus !== "pending" && publicationStatus !== "published") throw new HttpError(400, "Invalid publication_status");
   if (type === "video" && !designerOfId && (!mediaVariant || !visibility || !publicationStatus)) throw new HttpError(400, "Video uploads require explicit media_variant, visibility, and publication_status");
   if (type !== "video" && (mediaVariant !== null || publicationStatus !== null)) throw new HttpError(400, "Video media attributes are only valid for video uploads");
-  return { id, type, mime, size, checksum: checksum(data.checksum_sha256), title: String(data.title ?? ""), tags: parseUploadTags(tagValue, type), sourceId, filename, designerOfId, mediaVariant: mediaVariant as "pipeline-final" | "no-overlay" | "designer" | null, visibility: visibility as "active" | "trash" | null, publicationStatus: publicationStatus as "pending" | "published" | null };
+  return { id, type, mime, size, checksum: checksum(data.checksum_sha256), title: String(data.title ?? ""), tags: parseUploadTags(tagValue, type), sourceId, filename, designerOfId, mediaVariant: mediaVariant as "no-overlay" | "designer" | null, visibility: visibility as "active" | "trash" | null, publicationStatus: publicationStatus as "pending" | "published" | null };
 }
 
 async function resolveDesignerTarget(project: string, targetId: string): Promise<{ id: string; sourceId: string; title: string }> {
@@ -196,14 +198,14 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/initiate", async (c) =
   const committed = (await sql.unsafe<{ checksum_sha256: string | null }[]>(
     `SELECT checksum_sha256 FROM ${ident}.files WHERE project=$1 AND id=$2 AND type=$3`, [project, input.id, input.type],
   ))[0];
-  if ((input.type === "original" || input.type === "subtitle") && committed?.checksum_sha256 === input.checksum) {
+  if (input.type === "original" && committed?.checksum_sha256 === input.checksum) {
     if (input.type === "original") await enqueueSourceProcessing(project, input.id, input.checksum);
     return c.json({ ok: true, id: input.id, type: input.type, already_uploaded: true });
   }
   if (input.type === "original" && committed) {
     throw new HttpError(409, `Original '${input.id}' already exists with different bytes`);
   }
-  const partCount = input.type === "subtitle" || (input.type === "audio" && input.size <= MULTIPART_PART_SIZE) ? 0 : Math.ceil(input.size / MULTIPART_PART_SIZE);
+  const partCount = input.type === "audio" && input.size <= MULTIPART_PART_SIZE ? 0 : Math.ceil(input.size / MULTIPART_PART_SIZE);
   if (partCount > MAX_PARTS) throw new HttpError(413, "Upload exceeds multipart upload part limit");
   const overwritten = input.designerOfId
     ? await hasCommittedVideo(project, input.id)
@@ -282,6 +284,10 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/:sessionId/complete", 
     return c.json({ ok: true, id: session.file_id, type: session.type, already_completed: true });
   }
   if (session.state !== "active" || new Date(session.expires_at).getTime() < Date.now()) throw new HttpError(409, "Upload session is no longer active");
+  // An old session can still have a removed type or variant (#44).
+  if (!["audio", "video", "original"].includes(String(session.type)) || String(session.media_variant) === "pipeline-final") {
+    throw new HttpError(400, "Upload session uses a removed media type or variant");
+  }
   if (session.type === "original") {
     const sql = getDb(); const ident = schemaIdent();
     const committed = (await sql.unsafe<{ checksum_sha256: string | null }[]>(
@@ -305,10 +311,10 @@ uploadsRouter.post("/projects/:token/:project/api/uploads/:sessionId/complete", 
   const tempPath = join(tempDir, `upload${ext}`);
   try {
     await downloadAndVerifyCompletedObject(session, ext, tempPath);
-    const detected = session.type === "subtitle" ? SUBTITLE_MIME.has(session.mime_type) ? session.mime_type : null : await sniffMimeFromFile(tempPath);
-    const allowedDetectedMime = session.type === "audio" ? AUDIO_MIME : session.type === "subtitle" ? SUBTITLE_MIME : VIDEO_MIME;
+    const detected = await sniffMimeFromFile(tempPath);
+    const allowedDetectedMime = session.type === "audio" ? AUDIO_MIME : VIDEO_MIME;
     if (!detected || !allowedDetectedMime.has(detected)) throw new HttpError(400, `Uploaded object MIME type is invalid: expected ${session.type}, got ${detected ?? "unknown"}`);
-    const duration = session.type === "subtitle" ? 0 : await probeDurationSeconds(tempPath);
+    const duration = await probeDurationSeconds(tempPath);
     overwritten = await resolveUploadOverwrite(session.file_id, project, session.type, session.title);
     await commitUploadMetadata({
       fileId: session.file_id, project, fileType: session.type,

@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-export const FileTypeSchema = z.enum(["audio", "video", "original", "subtitle"]);
+export const FileTypeSchema = z.enum(["audio", "video", "original"]);
 export type FileType = z.infer<typeof FileTypeSchema>;
 
 export const FileResponseSchema = z.object({
@@ -23,10 +23,8 @@ export const FileResponseSchema = z.object({
   original_filename: z.string().nullable().optional(),
   checksum_sha256: z.string().nullable().optional(),
   derived_title: z.string().nullable().optional(),
-  no_overlay_id: z.string().nullable().optional(),
   designer_video_id: z.string().nullable().optional(),
   active_designer_revision_id: z.string().nullable().optional(),
-  subtitle_id: z.string().nullable().optional(),
   designer_of_id: z.string().nullable().optional(),
   media_variant: z.enum(["pipeline-final", "no-overlay", "designer"]).nullable().optional(),
   review_status: z.enum(["todo", "approved"]).nullable().optional(),
