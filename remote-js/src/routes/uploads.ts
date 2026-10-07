@@ -15,7 +15,8 @@ import {
   presignUploadPart, createMultipartUpload, storageGet, uploadMultipartPart,
 } from "../storage.ts";
 import { verifyMediaToken } from "../http.ts";
-import { assertSourceOriginalExists, canonicalVideoTitleSql, commitUploadMetadata, parseTagsValue, parseUploadTags, resolveUploadOverwrite, videoVariantSql } from "./files.ts";
+import { assertSourceOriginalExists, canonicalVideoTitleSql, cardStateSql, commitUploadMetadata, legacyOverlaidJoinSql, parseUploadTags, resolveUploadOverwrite, videoVariantSql } from "./files.ts";
+import { visibilitySql } from "../videoSql.ts";
 import { enqueueSourceProcessing } from "./sourceProcessing.ts";
 
 export const uploadsRouter = new Hono();
@@ -78,17 +79,18 @@ async function resolveDesignerTarget(project: string, targetId: string): Promise
   const sql = getDb(); const ident = schemaIdent();
   // The no-overlay video is the only designer target (#44). The revision
   // inherits the approved title of its card, not a variant title.
-  const target = (await sql.unsafe<{ id: string; source_id: string | null; title: string | null; tags: unknown; media_variant: string | null; visibility: string | null }[]>(
-    `SELECT designer_target.id, designer_target.source_id, ${canonicalVideoTitleSql(ident, "designer_target")} AS title, designer_target.tags,
-            ${videoVariantSql("designer_target")} AS media_variant, designer_target.visibility
+  // While a legacy overlaid row exists, it holds the card state.
+  const target = (await sql.unsafe<{ id: string; source_id: string | null; title: string | null; media_variant: string | null; visibility: string }[]>(
+    `SELECT designer_target.id, designer_target.source_id, ${canonicalVideoTitleSql("designer_target", "legacy")} AS title,
+            ${videoVariantSql("designer_target")} AS media_variant,
+            ${cardStateSql("legacy", "visibility", visibilitySql("designer_target"))} AS visibility
        FROM ${ident}.files AS designer_target
+       ${legacyOverlaidJoinSql(ident, "designer_target")}
       WHERE designer_target.id = $1 AND designer_target.project = $2 AND designer_target.type = 'video'
         AND designer_target.designer_of_id IS NULL AND designer_target.id NOT LIKE '%-designer'`,
     [targetId, project],
   ))[0];
-  const tags = target ? parseTagsValue(target.tags) : [];
-  const visibility = target?.visibility ?? (tags.includes("trash") ? "trash" : "active");
-  if (!target || !target.source_id || target.media_variant !== "no-overlay" || visibility !== "active") {
+  if (!target || !target.source_id || target.media_variant !== "no-overlay" || target.visibility !== "active") {
     throw new HttpError(400, "designer_of_id must select an available no-overlay video in this project");
   }
   return { id: target.id, sourceId: target.source_id, title: target.title?.trim() || target.id };

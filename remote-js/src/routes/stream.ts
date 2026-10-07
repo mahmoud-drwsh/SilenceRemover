@@ -15,7 +15,7 @@ import { parseRangeHeader } from "../range.ts";
 import { HttpError, type FileType } from "../schemas.ts";
 import { normalizeTitle, sanitizeFileId, sanitizeFilename } from "../sanitize.ts";
 import { storageGet, storageGetBytes, storageHead } from "../storage.ts";
-import { canonicalVideoTitleSql } from "./files.ts";
+import { canonicalVideoTitleSql, legacyOverlaidJoinSql } from "./files.ts";
 
 /**
  * Maximum body size (bytes) that will be buffered into memory to preserve the
@@ -34,6 +34,7 @@ interface StreamRow {
   tags: unknown;
   title: string | null;
   canonical_download_title: string | null;
+  legacy_visibility: string | null;
 }
 
 function parseTagsValue(value: unknown): string[] {
@@ -71,14 +72,18 @@ streamRouter.get("/projects/:token/:project/stream/:id", async (c) => {
     `SELECT file.type, file.mime_type, file.tags, file.title,
             -- A designer revision and its no-overlay card download with the
             -- approved title of that card.
-            CASE WHEN designer_target.id IS NOT NULL THEN ${canonicalVideoTitleSql(ident, "designer_target")}
-                 WHEN file.type = 'video' THEN ${canonicalVideoTitleSql(ident, "file")}
-                 ELSE file.title END AS canonical_download_title
+            CASE WHEN designer_target.id IS NOT NULL THEN ${canonicalVideoTitleSql("designer_target", "target_legacy")}
+                 WHEN file.type = 'video' THEN ${canonicalVideoTitleSql("file", "file_legacy")}
+                 ELSE file.title END AS canonical_download_title,
+            -- While a legacy overlaid row exists, it holds the card state.
+            file_legacy.visibility AS legacy_visibility
        FROM ${ident}.files AS file
        LEFT JOIN ${ident}.files AS designer_target
          ON designer_target.project = file.project
         AND designer_target.id = file.designer_of_id
         AND designer_target.type = 'video'
+       ${legacyOverlaidJoinSql(ident, "designer_target", "target_legacy")}
+       ${legacyOverlaidJoinSql(ident, "file", "file_legacy")}
        WHERE file.id = $1 AND file.project = $2 AND file.type = $3`,
     [decodedId, project, fileType],
   );
@@ -87,7 +92,8 @@ streamRouter.get("/projects/:token/:project/stream/:id", async (c) => {
     throw new HttpError(404, `File '${decodedId}' not found`);
   }
   const tags = parseTagsValue(row.tags);
-  if (tags.includes("trash")) {
+  const trashed = row.legacy_visibility != null ? row.legacy_visibility === "trash" : tags.includes("trash");
+  if (trashed) {
     throw new HttpError(404, "File is in trash");
   }
 

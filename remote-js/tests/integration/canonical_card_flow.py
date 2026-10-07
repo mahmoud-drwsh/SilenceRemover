@@ -91,16 +91,26 @@ def upload_no_overlay(source_id, title):
 
 
 def seed_video(file_id, title, source_id, *, variant=None, designer_of_id=None,
-               active_pointer=None, created_at="now()"):
+               active_pointer=None, created_at="now()", tags=(), visibility="active",
+               publication_status="published"):
     """Insert a legacy video row with no S3 object."""
     psql(
         "INSERT INTO media_manager.files (id, project, type, title, tags, duration, file_size, "
         "mime_type, created_at, source_id, designer_of_id, active_designer_revision_id, "
         "media_variant, visibility, publication_status) VALUES ("
-        f"{literal(file_id)}, {literal(PROJECT)}, 'video', {literal(title)}, '[]'::jsonb, 2, "
+        f"{literal(file_id)}, {literal(PROJECT)}, 'video', {literal(title)}, "
+        f"{literal(json.dumps(list(tags)))}::jsonb, 2, "
         f"{len(video_bytes)}, 'video/mp4', {created_at}, {literal(source_id)}, "
         f"{literal(designer_of_id)}, {literal(active_pointer)}, {literal(variant)}, "
-        "'active', 'published')"
+        f"{literal(visibility)}, {literal(publication_status)})"
+    )
+
+
+def row_state(file_id):
+    """Return title|visibility|publication_status|tags of a video row."""
+    return psql(
+        "SELECT concat_ws('|', title, visibility, publication_status, tags::text) "
+        f"FROM media_manager.files WHERE id={literal(file_id)} AND type='video'"
     )
 
 
@@ -228,5 +238,92 @@ expect_http_error(400, lambda: request("/api/uploads/initiate", "POST", {
     "id": "ignored-client-id", "type": "video", "mime_type": "video/mp4",
     "file_size": len(video_bytes), "checksum_sha256": digest, "designer_of_id": source_a,
 }))
+
+# Legacy overlaid card state and title (#44 review findings 1, 2 and 7).
+# Case D: the card has its own title; the legacy overlaid title does not win.
+source_d = f"canonical-d-{run_id}"
+card_d = upload_no_overlay(source_d, "Own D")
+seed_video(source_d, "Old D", source_d, variant="pipeline-final")
+
+# Case E: the overlaid card is in trash; its no-overlay companion is active.
+source_e = f"canonical-e-{run_id}"
+card_e = upload_no_overlay(source_e, "Approved E")
+seed_video(source_e, "Approved E", source_e, variant="pipeline-final",
+           tags=["trash"], visibility="trash")
+
+# Case F: the overlaid card is pending.
+source_f = f"canonical-f-{run_id}"
+card_f = upload_no_overlay(source_f, "Approved F")
+seed_video(source_f, "Approved F", source_f, variant="pipeline-final",
+           publication_status="pending")
+
+# Case G: the overlaid card is active; its no-overlay companion is in trash.
+source_g = f"canonical-g-{run_id}"
+card_g = upload_no_overlay(source_g, "Approved G")
+seed_video(source_g, "Approved G", source_g, variant="pipeline-final")
+psql(f"UPDATE media_manager.files SET tags='[\"trash\"]'::jsonb, visibility='trash' "
+     f"WHERE id={literal(card_g)} AND type='video'")
+
+cards = video_list()
+card_ids = {item["id"] for item in cards}
+assert card_for(cards, card_d)["title"] == "Own D"
+assert card_e not in card_ids
+assert card_for(cards, card_f)["publication_status"] == "pending"
+listed_g = card_for(cards, card_g)
+assert listed_g["visibility"] == "active", listed_g
+
+trash_view = {item["id"]: item for item in video_list("&view=trash")}
+assert card_e in trash_view and trash_view[card_e]["visibility"] == "trash"
+assert card_g not in trash_view
+assert card_e in {item["id"] for item in video_list("&include_trash=true")}
+pending_view = {item["id"] for item in video_list("&view=pending")}
+assert card_f in pending_view and card_d not in pending_view
+
+# The count of a paged list uses the same filter as the rows.
+paged = request("/api/files?type=video&limit=100&offset=0")
+assert int(paged.headers["X-Total-Count"]) == len(json.load(paged)) == len(cards)
+
+# The stream follows the card state.
+expect_http_error(404, lambda: download_name(card_e))
+assert download_name(card_g) == "Approved G.mp4"
+
+# A designer upload needs an active card.
+expect_http_error(400, lambda: request("/api/uploads/initiate", "POST", {
+    "id": "ignored-client-id", "type": "video", "mime_type": "video/mp4",
+    "file_size": len(video_bytes), "checksum_sha256": digest, "designer_of_id": card_e,
+}))
+
+# Write-through: trash, restore and title changes on the card also change the
+# legacy overlaid row.
+request(f"/api/files/{card_c}?type=video", "PUT", {"tags": ["trash"]}).read()
+assert row_state(source_c) == 'Approved C|trash|published|["trash"]', row_state(source_c)
+assert card_c in {item["id"] for item in video_list("&view=trash")}
+assert card_c not in {item["id"] for item in video_list()}
+request(f"/api/files/{card_c}?type=video", "PUT", {"tags": []}).read()
+assert row_state(source_c) == "Approved C|active|published|[]", row_state(source_c)
+assert card_c in {item["id"] for item in video_list()}
+
+request(f"/api/files/{card_a}?type=video", "PUT", {"tags": [], "title": "Renamed A"}).read()
+assert row_state(source_a).startswith("Renamed A|active|"), row_state(source_a)
+assert card_for(video_list(), card_a)["title"] == "Renamed A"
+assert download_name(card_a) == "Renamed A.mp4"
+
+# Publish: the card state comes from the overlaid row, and the publish also
+# changes the overlaid row.
+request(f"/api/files/{card_f}/publish", "POST").read()
+assert row_state(source_f) == "Approved F|active|published|[]", row_state(source_f)
+assert card_f not in {item["id"] for item in video_list("&view=pending")}
+expect_http_error(404, lambda: request(f"/api/files/{card_e}/publish", "POST"))
+
+# Restore of a card that is in trash through its overlaid row.
+request(f"/api/files/{card_e}?type=video", "PUT", {"tags": []}).read()
+assert row_state(source_e) == "Approved E|active|published|[]", row_state(source_e)
+assert card_e in {item["id"] for item in video_list()}
+
+# Permanent delete follows the card state too: card G is active through its
+# overlaid row, so the delete is refused.
+expect_http_error(400, lambda: request(f"/api/files/{card_g}?type=video", "DELETE"))
+request(f"/api/files/{card_e}?type=video", "PUT", {"tags": ["trash"]}).read()
+assert json.load(request(f"/api/files/{card_e}?type=video", "DELETE"))["deleted"] is True
 
 print("isolated canonical card flow passed")
