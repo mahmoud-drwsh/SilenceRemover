@@ -278,10 +278,17 @@ class SourceProcessingWorker:
         """Encode one no-overlay video for a job that waits for title review.
 
         The video content does not depend on the title, so idle time is used to
-        encode it before approval. This is local work only: it needs no lease,
-        and the upload still happens under the lease after approval. Return
-        false when there is nothing to encode.
+        encode it before approval. This needs no lease: the upload still
+        happens under the lease after approval. Return false when there is
+        nothing to encode.
         """
+        if self._prerender_local_once():
+            return True
+        # No local job needs an encode. Get the next waiting job from the server,
+        # for example a job that started to wait before a redeploy.
+        return self._seed_prerender_from_server() and self._prerender_local_once()
+
+    def _prerender_local_once(self) -> bool:
         root = self.config.work_dir / self.config.project
         try:
             # The oldest review first, because it is the most likely to be approved next.
@@ -329,6 +336,48 @@ class SourceProcessingWorker:
                 print(f"SOURCE_PROCESSING_PRERENDER_ERROR {job_dir.name}: {exc}", flush=True)
             return True
         return False
+
+    def _seed_prerender_from_server(self) -> bool:
+        """Download the original and plan of one waiting job; false when there is none."""
+        root = self.config.work_dir / self.config.project
+        try:
+            exclude = sorted(
+                path.parent.name for pattern in (f"*/{_PRERENDER_BASENAME}.key", f"*/{_PRERENDER_BASENAME}.failed")
+                for path in root.glob(pattern)
+            ) if root.is_dir() else []
+            job = self._post("/prerender-candidate", {"exclude": exclude}).get("job")
+        except Exception as exc:
+            print(f"SOURCE_PROCESSING_PRERENDER_SEED_ERROR {exc}", flush=True)
+            return False
+        if not isinstance(job, dict):
+            return False
+        try:
+            job_dir = self._job_dir(str(job.get("id", "")))
+            job_dir.mkdir(parents=True, exist_ok=True)
+            checkpoint = self._existing_trim_plan_checkpoint(job)
+            if checkpoint is None:
+                raise WorkerError("Waiting job has no valid trim plan checkpoint")
+            original_path = job_dir / self._safe_original_name(job)
+            checksum = str(job.get("original_checksum_sha256", ""))
+            url = str(job.get("original_download_url", ""))
+            if not url.startswith(("http://", "https://")):
+                raise WorkerError("Waiting job has no original download URL")
+            print(f"SOURCE_PROCESSING_PRERENDER_SEED {job_dir.name}", flush=True)
+            self._download_original(url, original_path)
+            self._verify_checksum(original_path, checksum)
+            self._write_checkpoint(job_dir / "trim-plan.json", checkpoint)
+            self._write_checkpoint(job_dir / _AWAITING_REVIEW_MARKER, {
+                "original_filename": original_path.name, "original_checksum_sha256": checksum,
+            })
+        except Exception as exc:
+            # Mark the job so that the next seed request excludes it.
+            print(f"SOURCE_PROCESSING_PRERENDER_SEED_ERROR {job.get('id')}: {exc}", flush=True)
+            try:
+                (self._job_dir(str(job.get("id", ""))) / f"{_PRERENDER_BASENAME}.failed").write_text(str(exc)[:2000], encoding="utf-8")
+            except Exception:
+                pass
+            return False
+        return True
 
     def _prerender_key(self, original_checksum: str, segments: list[tuple[float, float]]) -> str:
         encoder = get_encoder_config(self.config.encoder)

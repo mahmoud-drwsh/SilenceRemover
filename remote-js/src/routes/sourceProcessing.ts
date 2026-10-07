@@ -219,6 +219,39 @@ sourceProcessingRouter.post("/internal/source-processing/:project/claim", async 
   } });
 });
 
+/**
+ * An idle worker pre-encodes title-independent media for a job that waits for
+ * title review. This needs no lease: the worker uploads nothing until it claims
+ * the job again after approval. `exclude` lists the jobs the worker already has.
+ */
+sourceProcessingRouter.post("/internal/source-processing/:project/prerender-candidate", async (c) => {
+  verifySourceProcessingWorkerToken(c.req.header("X-Source-Processing-Token"));
+  const { project } = c.req.param();
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const exclude = (Array.isArray(body.exclude) ? body.exclude : [])
+    .filter((value): value is string => typeof value === "string").slice(0, 5000);
+  const sql = getDb(); const ident = schemaIdent();
+  const job = (await sql.unsafe<(SourceProcessingJob & OriginalForWorker)[]>(`
+    SELECT j.*, f.mime_type, f.original_filename FROM ${ident}.source_processing j
+    JOIN ${ident}.files f ON f.project=j.project AND f.id=j.source_id
+      AND f.type='original' AND f.checksum_sha256=j.original_checksum_sha256
+    WHERE j.project=$1 AND j.state='waiting' AND j.waiting_reason='waiting for title review'
+      AND j.trim_plan IS NOT NULL
+      AND j.id NOT IN (SELECT jsonb_array_elements_text($2::jsonb))
+    ORDER BY j.updated_at,j.id LIMIT 1`, [project, JSON.stringify(exclude)]))[0];
+  if (!job) return c.json({ ok: true, job: null });
+  const ext = getExtensionForMime(job.mime_type);
+  const filename = job.original_filename ?? `${job.source_id}${ext}`;
+  return c.json({ ok: true, job: {
+    id: job.id,
+    source_id: job.source_id,
+    original_checksum_sha256: job.original_checksum_sha256,
+    trim_plan: jsonObject(job.trim_plan),
+    original_download_url: await presignOriginalDownload(project, job.source_id, ext, filename),
+    original_filename: filename,
+  } });
+});
+
 /** The worker obtains the current project logo through its lease-fenced channel. */
 sourceProcessingRouter.get("/internal/source-processing/:project/:jobId/overlay-logo", async (c) => {
   verifySourceProcessingWorkerToken(c.req.header("X-Source-Processing-Token"));

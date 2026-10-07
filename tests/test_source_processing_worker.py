@@ -449,3 +449,58 @@ def test_failed_prerender_falls_back_to_normal_encode_after_approval(
     # A failed encode is not retried in a loop; the post-approval path encodes normally.
     assert worker.prerender_once() is False
     assert worker._take_prerender(job_dir, worker._prerender_key("abc", [(0.0, 2.0)]), job_dir / "no-overlay.mp4") is False
+
+
+def test_idle_worker_seeds_prerender_from_server_for_jobs_without_local_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sr_source_processing.api as worker_api
+
+    payload = b"two-second-media-bytes"
+    job = _job(payload)
+    checksum = str(job["original_checksum_sha256"])
+    trim_plan = {
+        "version": 1, "source_id": "source-001", "original_checksum_sha256": checksum,
+        "plan": {"segments_to_keep": [[0.0, 2.0]]},
+    }
+    excludes: list[list[str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "objects.example.test":
+            assert "X-Source-Processing-Token" not in request.headers
+            return httpx.Response(200, content=payload)
+        assert request.url.path.endswith("/prerender-candidate")
+        exclude = json.loads(request.content)["exclude"]
+        excludes.append(exclude)
+        if "job-001" in exclude:
+            return httpx.Response(200, json={"ok": True, "job": None})
+        return httpx.Response(200, json={"ok": True, "job": {
+            "id": "job-001", "source_id": "source-001", "original_checksum_sha256": checksum,
+            "trim_plan": trim_plan, "original_download_url": job["original_download_url"],
+            "original_filename": "recording.mp4",
+        }})
+
+    encodes: list[str] = []
+
+    def fake_trim(*, output_dir: Path, output_basename: str, **_: object) -> Path:
+        encodes.append(output_basename)
+        output = output_dir / f"{output_basename}.mp4"
+        output.write_bytes(b"video")
+        return output
+
+    monkeypatch.setattr(worker_api, "trim_single_video", fake_trim)
+    monkeypatch.setattr(worker_api, "write_trim_script_from_plan", lambda **kwargs: kwargs["temp_dir"] / "trim.txt")
+    worker = _worker(tmp_path, httpx.MockTransport(handler))
+    job_dir = tmp_path / "project-a" / "job-001"
+
+    assert worker.prerender_once() is True
+    assert (job_dir / "recording.mp4").read_bytes() == payload
+    assert encodes == ["no-overlay.prerender"]
+    # The finished job is excluded from the next seed request.
+    assert worker.prerender_once() is False
+    assert excludes == [[], ["job-001"]]
+
+
+def test_prerender_seed_tolerates_a_server_without_the_endpoint(tmp_path: Path) -> None:
+    worker = _worker(tmp_path, httpx.MockTransport(lambda _request: httpx.Response(404, json={"ok": False})))
+    assert worker.prerender_once() is False
