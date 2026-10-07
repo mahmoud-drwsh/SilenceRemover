@@ -52,42 +52,19 @@ pipeline:
       - "there is no skip-time check for transcript readiness here; phase execution relies on upstream ordering and the title generator itself"
       - "an empty or whitespace-only existing title file still counts as done for skip purposes"
 
-  phase_4_original_upload:
+  original_upload:
+    runs_when: "MEDIA_MANAGER_URL is set and --local-title-and-trim-only is not set; this is the only phase in that mode"
     skip_conditions:
       - condition: "media manager disabled"
         checked_path_templates: []
         checked_runtime_templates:
-          - "server_cache is None"
+          - "server_cache is None (the server original list did not load)"
       - condition: "original already exists on server"
         checked_path_templates:
           - "server:original/{basename}"
         checked_runtime_templates:
           - "server_cache.has_original(\"{basename}\")"
     robustness: "good; the server-side source ID is the stable key, and every later remote artifact links to it"
-
-  phase_5_audio_upload:
-    skip_conditions:
-      - condition: "media manager disabled"
-        checked_path_templates: []
-        checked_runtime_templates:
-          - "server_cache is None"
-      - condition: "audio marked trash on server"
-        checked_path_templates: []
-        checked_runtime_templates:
-          - "server_cache.is_audio_trash(\"{basename}\")"
-      - condition: "snippet/title missing (run phases 2-3 first)"
-        checked_path_templates:
-          - "temp_dir/snippet/{basename}.ogg"
-          - "temp_dir/title/{basename}.txt"
-        checked_runtime_templates:
-          - "is_snippet_done(temp_dir, basename)"
-          - "is_title_done(temp_dir, basename)"
-      - condition: "audio already exists on server"
-        checked_path_templates:
-          - "server:audio/{basename}"
-        checked_runtime_templates:
-          - "server_cache.get_audio(\"{basename}\") is truthy"
-    robustness: "reasonable, but title readiness is existence-only because it reuses is_title_done()"
 
   phase_8_final_encode:
     skip_conditions:
@@ -124,42 +101,14 @@ pipeline:
       - "Phase 0 may still resolve to a stream-copy path at runtime, so a ready trim script does not guarantee Phase 8 will run FFmpeg; the copy path still writes the title into the container metadata"
       - "Phase 8 makes only the no-overlay video; it adds no overlay graph, no logo, and no subtitle track"
 
-  phase_12_no_overlay_upload:
-    skip_conditions:
-      - condition: "final encode not completed"
-        checked_path_templates:
-          - "temp_dir/completed/{basename}.txt"
-        checked_runtime_templates:
-          - "is_completed(temp_dir, basename) is False"
-      - condition: "no-overlay encode missing"
-        checked_path_templates:
-          - "output_dir/{completed_output_filename}.mp4"
-          - "output_dir/{sanitize_filename(title)}.mp4"
-        checked_runtime_templates:
-          - "get_completed_output_filename(temp_dir, basename), else sanitize_filename(local title)"
-          - "the chosen MP4 path is not a file"
-      - condition: "media manager disabled"
-        checked_path_templates: []
-        checked_runtime_templates:
-          - "server_cache is None"
-      - condition: "no-overlay video already exists on server"
-        checked_path_templates:
-          - "server:video/{basename}-no-overlay"
-        checked_runtime_templates:
-          - "server_cache.get_no_overlay_video(\"{basename}\") is truthy"
-    robustness: "reasonable; the phase checks the local MP4 before upload and uses the server-side video ID as the skip key"
-    concerns:
-      - "the output filename falls back to sanitize_filename(title) when completed.txt is missing, unreadable, or empty"
-
   modes:
     media_manager_upload_only: "when MEDIA_MANAGER_URL is set and --local-title-and-trim-only is not set, the client runs one Original Upload phase (skip: original already exists on server) and stops; the server worker makes the review audio and the no-overlay video"
     horizontal_local_mode: "--local-title-and-trim-only runs phases 0, 1, 2, 3, 8 and does no Media Manager upload"
-    no_media_manager: "without MEDIA_MANAGER_URL, phases 4, 5 and 12 are listed but skip with \"media manager disabled\" because server_cache is None"
+    no_media_manager: "without MEDIA_MANAGER_URL, the pipeline runs phases 0, 1, 2, 3, 8 on the PC and does no Media Manager upload"
 
 summary:
   phases_1_to_2: "content-aware and fairly robust"
   phase_3: "weakest local skip because title readiness is path existence only"
-  phases_4_and_5: "generally solid, with title checks still inheriting existence-only semantics where is_title_done() is used"
+  original_upload: "solid; the server-side source ID is the stable key"
   phase_8: "brittle around completed.txt because completion is trusted without verifying the actual MP4"
-  phase_12: "output-file resolution falls back from completed.txt to sanitize_filename(title)"
   media_manager_rule: "the client builds a server cache only for the Original Upload in media_manager_upload_only mode; other modes have no server cache"
