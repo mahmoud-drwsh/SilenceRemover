@@ -16,8 +16,13 @@ x-app-env: &app-env
   S3_REGION: us-east-1
 
 services:
+  # Fixed image names let all test stacks use the same images. The runner
+  # removes the other images that have the project name.
+  app:
+    image: srfresh-media-manager:local
+
   restore:
-    image: !reset null
+    image: srfresh-media-manager:local
     build:
       context: .
       dockerfile: Dockerfile
@@ -28,7 +33,7 @@ services:
     command: !reset []
 
   fixture:
-    image: !reset null
+    image: srfresh-media-manager:local
     build:
       context: .
       dockerfile: Dockerfile
@@ -46,6 +51,7 @@ services:
         condition: service_completed_successfully
 
   canonical-card-integration:
+    image: srfresh-worker:local
     volumes:
       - fixtures:/fixtures:ro
     depends_on:
@@ -53,6 +59,7 @@ services:
         condition: service_completed_successfully
 
   source-processing-integration:
+    image: srfresh-worker:local
     volumes:
       - fixtures:/fixtures:ro
     depends_on:

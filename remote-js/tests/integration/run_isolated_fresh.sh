@@ -43,6 +43,9 @@ current_project=""
 cleanup() {
   if [ -n "$current_project" ]; then
     docker compose -p "$current_project" "${files[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+    # Remove the images that have the project name (for example the Chainguard
+    # minio-init image). Keep the shared srfresh-*:local images.
+    docker image ls -q --filter "reference=${current_project}-*" | xargs -r docker rmi -f >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
