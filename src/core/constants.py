@@ -165,13 +165,9 @@ SNIPPET_DIR = "snippet"
 TRANSCRIPT_DIR = "transcript"
 TITLE_DIR = "title"
 COMPLETED_DIR = "completed"
-NO_OVERLAY_COMPLETED_DIR = "no_overlay_completed"
-NO_OVERLAY_OUTPUT_DIR = "no_overlay"
 SCRIPTS_DIR = "scripts"
 SILENCE_CACHE_DIR = "silence"
 VIDEO_PROCESSING_DIR = "processing"
-FONTS_DIR = "fonts"
-TITLE_OVERLAYS_DIR = "title_overlays"
 
 # --- File extensions ---
 
@@ -234,8 +230,6 @@ __all__ = [
     "SCRIPTS_DIR",
     "SILENCE_CACHE_DIR",
     "VIDEO_PROCESSING_DIR",
-    "FONTS_DIR",
-    "TITLE_OVERLAYS_DIR",
     "AUDIO_EXTENSIONS",
     "AUDIO_FORMATS",
     "AUDIO_FILE_EXT",

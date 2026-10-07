@@ -22,7 +22,6 @@ from src.ffmpeg.probing import (
     get_available_encoders,
     probe_bitrate_bps,
     probe_duration,
-    probe_ffmpeg_can_decode_image_frame,
     probe_has_audio_stream,
     probe_video_dimensions,
 )
@@ -53,7 +52,6 @@ __all__ = [
     "get_available_encoders",
     "probe_bitrate_bps",
     "probe_duration",
-    "probe_ffmpeg_can_decode_image_frame",
     "probe_has_audio_stream",
     "probe_video_dimensions",
     "ExecutionMode",
