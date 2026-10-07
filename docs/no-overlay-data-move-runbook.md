@@ -69,7 +69,7 @@ Examine these groups before approval:
   no-overlay video. Old PC no-overlay videos have the title `<title> (No Overlay)`.
 - `state_copies`: the overlaid video is in trash, pending or has a review
   state, and the no-overlay video does not. Apply copies this state and the
-  matching `trash` and `pending` tags to the no-overlay video.
+  matching `trash` tag to the no-overlay video.
 - `overlaid_videos_with_trashed_no_overlay`: after the move, these cards are in
   the trash.
 - `unresolved_designers`: designer revisions with no clear target. Apply does

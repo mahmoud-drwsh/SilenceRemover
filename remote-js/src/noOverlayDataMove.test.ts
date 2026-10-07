@@ -131,7 +131,7 @@ describe("no-overlay data move plan", () => {
       row({ id: "r-no-overlay", media_variant: "no-overlay", publication_status: "pending" }),
     ]);
     expect(plan.state_copies.map(({ previous_tags: _, ...item }) => item)).toEqual([
-      { project: "p", no_overlay_id: "s-no-overlay", overlaid_id: "s", visibility: "trash", publication_status: "pending", review_status: null, add_tags: ["trash", "pending"] },
+      { project: "p", no_overlay_id: "s-no-overlay", overlaid_id: "s", visibility: "trash", publication_status: "pending", review_status: null, add_tags: ["trash"] },
       { project: "p", no_overlay_id: "r-no-overlay", overlaid_id: "r", visibility: null, publication_status: null, review_status: "approved", add_tags: [] },
     ]);
   });

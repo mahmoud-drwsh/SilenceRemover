@@ -213,9 +213,9 @@ equal((await fileRow(P, "s7-no-overlay"))?.active_designer_revision_id, designer
 equal((await fileRow(P, designer7a))?.designer_of_id, "s7-no-overlay", "the s7 revision moves to the no-overlay video");
 equal((await fileRow(P, "s1-no-overlay"))?.title, "Approved s1", "the approved title goes to the no-overlay video");
 const s6 = await fileRow(P, "s6-no-overlay");
-equal([s6?.visibility, s6?.publication_status, s6?.tags], ["trash", "pending", ["trash", "pending"]], "trash and pending state go to the no-overlay video");
+equal([s6?.visibility, s6?.publication_status, s6?.tags], ["trash", "pending", ["trash"]], "trash and pending state go to the no-overlay video");
 const f2 = await fileRow(P, "final-2-no-overlay");
-equal([f2?.publication_status, f2?.tags], ["pending", ["no-overlay", "pending"]], "the legacy pending tag goes to the no-overlay video");
+equal([f2?.publication_status, f2?.tags], ["pending", ["no-overlay"]], "the legacy pending state goes to the no-overlay video");
 equal((await fileRow(P, "s5-no-overlay"))?.visibility, "trash", "a trashed no-overlay video stays in trash");
 const legacy = await fileRow(P, "final-2-designer");
 equal([legacy?.designer_of_id, legacy?.media_variant, legacy?.source_id], ["final-2-no-overlay", "designer", "s2"], "the legacy -designer row has an explicit target");

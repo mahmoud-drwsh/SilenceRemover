@@ -97,7 +97,7 @@ export interface StateCopy {
   visibility: "trash" | null;
   publication_status: "pending" | null;
   review_status: string | null;
-  /** Tags to add, so that tag-based reads give the same state. */
+  /** Tags to add (only `trash`), so that tag-based reads give the same state. */
   add_tags: string[];
   /** The tags of the no-overlay row before the copy. */
   previous_tags: unknown;
@@ -379,7 +379,9 @@ export function planNoOverlayDataMove(videos: VideoRow[]): DataMovePlan {
     const review = overlaid.review_status !== null && companion.review_status === null ? overlaid.review_status : null;
     if (trash || pending || review !== null) {
       const tags = parseTags(companion.tags);
-      const add_tags = [...(trash ? ["trash"] : []), ...(pending ? ["pending"] : [])].filter((tag) => !tags.includes(tag));
+      // Only `trash` stays a video tag; the tag-state migration moves
+      // `pending` to publication_status and removes the tag.
+      const add_tags = trash && !tags.includes("trash") ? ["trash"] : [];
       state_copies.push({
         project: companion.project, no_overlay_id: companion.id, overlaid_id: overlaid.id,
         visibility: trash ? "trash" : null, publication_status: pending ? "pending" : null, review_status: review,
