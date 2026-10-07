@@ -139,7 +139,6 @@ services:
       SOURCE_PROCESSING_WORKER_TOKEN: test-worker-token
       SOURCE_PROCESSING_WORK_DIR: /tmp/source-processing-worker
       SOURCE_PROCESSING_HEARTBEAT_INTERVAL_SEC: "0.2"
-      OPENROUTER_API_KEY: fake-provider-key
       PGPASSWORD: test-password
     volumes:
       - ..:/workspace:ro
