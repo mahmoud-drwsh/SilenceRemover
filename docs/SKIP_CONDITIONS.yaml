@@ -68,51 +68,6 @@ pipeline:
           - 'server_cache.get_audio("{basename}") is truthy'
     robustness: "reasonable, but title readiness is existence-only because it reuses is_title_done()"
 
-  phase_5_title_overlay_generation:
-    skip_conditions:
-      - condition: "title overlay disabled"
-        checked_path_templates: []
-        checked_runtime_templates:
-          - "startup.enable_title_overlay is False"
-      - condition: "title missing"
-        checked_path_templates:
-          - "temp_dir/title/{basename}.txt"
-        checked_runtime_templates:
-          - "is_title_done(temp_dir, basename)"
-      - condition: "title empty"
-        checked_path_templates:
-          - "temp_dir/title/{basename}.txt"
-        checked_runtime_templates:
-          - 'get_title_path(...).read_text(...).strip() == ""'
-      - condition: "title overlay already generated for the current title text"
-        checked_path_templates:
-          - "temp_dir/title/{basename}.txt"
-          - "temp_dir/title_overlays/{basename}.{title_hash}.png"
-        checked_runtime_templates:
-          - "get_title_overlay_path(temp_dir, basename, current_title_text).is_file()"
-          - "title_hash is derived from the current trimmed title text, so title changes automatically select a different PNG path"
-    robustness: "good; skip is now a single hashed-PNG existence check tied directly to the current title text"
-
-  phase_6_logo_overlay_preparation:
-    skip_conditions:
-      - condition: "logo overlay disabled"
-        checked_path_templates: []
-        checked_runtime_templates:
-          - "startup.enable_logo_overlay is False"
-      - condition: "logo file missing"
-        checked_path_templates:
-          - "repo_root/logo/logo.png"
-        checked_runtime_templates:
-          - "DEFAULT_LOGO_PATH.is_file() is False"
-      - condition: "logo overlay already prepared"
-        checked_path_templates:
-          - "repo_root/logo/logo.png"
-          - "temp_dir/logo_overlays/logo_{logo_identity}_w{target_width_px}.png"
-        checked_runtime_templates:
-          - "is_logo_overlay_ready(input_file, temp_dir, enable_logo_overlay=True) -> expected cache file exists for the derived target_width_px and current logo file identity"
-          - "logo_identity is derived from logo/logo.png stat (mtime_ns + size), so replacing the logo automatically selects a different cache path"
-    robustness: "fast and simple; readiness is per-video because the cached logo width depends on probed video width, and the filename now also invalidates automatically when the source logo file changes"
-
   phase_7_final_encode:
     skip_conditions:
       - condition: "already completed"
@@ -146,7 +101,7 @@ pipeline:
       - "completed skip does not verify that the referenced MP4 exists in output_dir"
       - "completed skip does not verify that completed.txt contains a non-empty output basename"
       - "Phase 0 may still resolve to a stream-copy path at runtime, so a ready trim script does not guarantee Phase 7 will run FFmpeg"
-      - "when overlays are enabled, Phase 7 wraps the base trim script with a temporary overlay graph instead of regenerating trim planning"
+      - "Phase 7 makes only the no-overlay video; it adds no overlay graph, no logo, and no subtitle track"
 
   phase_8_video_reconciliation:
     skip_conditions:
@@ -167,12 +122,12 @@ pipeline:
       - condition: "video not found on server"
         checked_path_templates: []
         checked_runtime_templates:
-          - 'server_cache.get_video("{basename}") is falsy'
+          - 'server_cache.get_video("{basename}-no-overlay") is falsy'
       - condition: "server title already matches local title"
         checked_path_templates:
           - "temp_dir/title/{basename}.txt"
         checked_runtime_templates:
-          - 'server_cache.get_video("{basename}")["title"].strip() == local title text'
+          - 'server_cache.get_video("{basename}-no-overlay")["title"].strip() == local title text'
     robustness: "reasonable; this phase is only entered when a server-side video exists and differs by title"
 
   phase_9_video_upload:
@@ -198,9 +153,9 @@ pipeline:
           - 'get_title_path(...).read_text(...).strip() == ""'
       - condition: "video already exists on server"
         checked_path_templates:
-          - "server:video/{basename}"
+          - "server:video/{basename}-no-overlay"
         checked_runtime_templates:
-          - 'server_cache.get_video("{basename}") is truthy'
+          - 'server_cache.get_video("{basename}-no-overlay") is truthy'
     robustness: "simpler; upload is now existence-based on the server-side video id, while local completion/title checks still gate the upload path"
     output_filename_resolution:
       preferred_source: "completed.txt"
@@ -230,21 +185,21 @@ pipeline:
       - condition: "video not found on server"
         checked_path_templates: []
         checked_runtime_templates:
-          - 'server_cache.get_video("{basename}") is falsy'
+          - 'server_cache.get_video("{basename}-no-overlay") is falsy'
       - condition: "video not pending"
         checked_path_templates: []
         checked_runtime_templates:
-          - 'server_cache.get_video("{basename}")["publication_status"] is not "pending"'
+          - 'server_cache.get_video("{basename}-no-overlay")["publication_status"] is not "pending"'
       - condition: "already published"
         checked_path_templates: []
         checked_runtime_templates:
-          - 'server_cache.get_video("{basename}")["publication_status"] is "published"'
+          - 'server_cache.get_video("{basename}-no-overlay")["publication_status"] is "published"'
     robustness: "reasonable; this phase only promotes server videos that are explicitly in the pending state"
 
 summary:
   phases_1_to_2: "content-aware and fairly robust"
   phase_3: "weakest local skip because title readiness is path existence only"
-  phases_4_to_6: "generally solid, with title checks still inheriting existence-only semantics where is_title_done() is used"
+  phase_4: "generally solid, with title checks still inheriting existence-only semantics where is_title_done() is used"
   phase_7: "brittle around completed.txt because completion is trusted without verifying the actual MP4"
   phase_9: "brittle around output-file resolution because it still falls back from completed.txt to sanitize_filename(title)"
   media_manager_rule: "server-driven skip decisions are based on cached audio/video metadata refreshed after reconciliation and upload phases"

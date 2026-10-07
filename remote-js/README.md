@@ -78,6 +78,10 @@ bun run generate-admin-token
 
 The output includes a plaintext token and a SQL `INSERT` to apply to the Postgres database.
 
+## No-overlay data move
+
+Legacy production data can still contain overlaid videos, SRT files, a project logo, remux jobs, and subtitle upload sessions. A data-move command in `scripts/` removes them. It runs in this service container with the service's own environment. It has three modes: `dry-run`, `apply`, and `drop-schema`. Always run `dry-run` first and get operator approval. See [`docs/no-overlay-data-move-runbook.md`](../docs/no-overlay-data-move-runbook.md) for the procedure.
+
 ## Layout
 
 ```
@@ -124,7 +128,9 @@ The pipeline client and SPA depend on these stable behaviors:
 - `MAX_FILE_SIZE = 500 * 1024 * 1024` (500 MB upload cap)
 - Audio tag set `{todo, ready, trash}` (strict); `all` is a virtual unfiltered view, not a stored tag
 - Video tag set `{trash}` (strict); all other video organization is expressed by explicit state and virtual views, with legacy tags readable for compatibility.
-- A designer revision inherits the linked pipeline final's approved title. Pipeline-final, no-overlay, and designer-video downloads use that canonical title as their filename; the presentation variant is never appended.
+- Each original has one derived video: the no-overlay video (`<source_id>-no-overlay`, media variant `no-overlay`). It is the canonical video card. A designer revision links to the no-overlay video and inherits its approved title. No-overlay and designer-video downloads use that title as their filename. The variant name is never appended.
+- New uploads accept the media variants `no-overlay` and `designer` only. The service rejects the `pipeline-final` variant and the `subtitle` file type. The service has no remux, logo, or subtitle routes.
+- The video views are All, Needs Designer, Designer Video, Pending, and Trash. A removed view name (Pipeline Final or No Overlay) opens All.
 - Pre-flight `?check_id=...&check_title=...` envelope with `{exists, would_overwrite, existing_title, provided_title}`
 - Token storage: SHA-256 hashes in `media_manager.auth_tokens`; recoverable media token encrypted with `TOKEN_ENCRYPTION_KEY`
 - IP-based admin login rate limit (8 attempts / 15 minutes)
