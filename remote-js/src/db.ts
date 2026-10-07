@@ -48,7 +48,7 @@ export async function ensureDatabaseReady(): Promise<void> {
     CREATE TABLE IF NOT EXISTS ${ident}.files (
       id text NOT NULL,
       project text NOT NULL,
-      type text NOT NULL CHECK (type IN ('audio', 'video', 'original', 'subtitle')),
+      type text NOT NULL CHECK (type IN ('audio', 'video', 'original')),
       title text,
       tags jsonb NOT NULL DEFAULT '[]'::jsonb,
       duration double precision NOT NULL DEFAULT 0,
@@ -67,8 +67,9 @@ export async function ensureDatabaseReady(): Promise<void> {
       PRIMARY KEY (id, project, type)
     )
   `);
-  await sql.unsafe(`ALTER TABLE ${ident}.files DROP CONSTRAINT IF EXISTS files_type_check`);
-  await sql.unsafe(`ALTER TABLE ${ident}.files ADD CONSTRAINT files_type_check CHECK (type IN ('audio', 'video', 'original', 'subtitle'))`);
+  // Startup does not change files_type_check on an existing database. Old
+  // rows can still have the removed 'subtitle' type until the data move
+  // (#44) runs; its drop-schema mode replaces the constraint.
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS source_id text`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ALTER COLUMN duration TYPE double precision USING duration::double precision`);
   await sql.unsafe(`ALTER TABLE ${ident}.files ADD COLUMN IF NOT EXISTS original_filename text`);
@@ -95,7 +96,7 @@ export async function ensureDatabaseReady(): Promise<void> {
       id text PRIMARY KEY,
       project text NOT NULL,
       file_id text NOT NULL,
-      type text NOT NULL CHECK (type IN ('audio', 'video', 'original', 'subtitle')),
+      type text NOT NULL CHECK (type IN ('audio', 'video', 'original')),
       mime_type text NOT NULL,
       file_size bigint NOT NULL,
       checksum_sha256 text NOT NULL,
@@ -119,31 +120,8 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD COLUMN IF NOT EXISTS review_status text`);
   await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD COLUMN IF NOT EXISTS visibility text`);
   await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD COLUMN IF NOT EXISTS publication_status text`);
-  await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions DROP CONSTRAINT IF EXISTS upload_sessions_type_check`);
-  await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD CONSTRAINT upload_sessions_type_check CHECK (type IN ('audio', 'video', 'original', 'subtitle'))`);
+  // Startup does not change upload_sessions_type_check (see files above).
   await sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS upload_sessions_active_identity_idx ON ${ident}.upload_sessions (project, file_id, type, checksum_sha256) WHERE state = 'active'`);
-  await sql.unsafe(`
-    CREATE TABLE IF NOT EXISTS ${ident}.subtitle_remux_jobs (
-      id text PRIMARY KEY,
-      project text NOT NULL,
-      video_id text NOT NULL,
-      source_id text NOT NULL,
-      subtitle_id text NOT NULL,
-      input_checksum_sha256 text NOT NULL,
-      subtitle_checksum_sha256 text NOT NULL,
-      state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'claimed', 'completed', 'failed', 'stale')),
-      attempts integer NOT NULL DEFAULT 0,
-      lease_token text,
-      lease_until timestamptz,
-      output_checksum_sha256 text,
-      output_file_size bigint,
-      last_error text,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now(),
-      UNIQUE (project, video_id, input_checksum_sha256, subtitle_checksum_sha256)
-    )
-  `);
-  await sql.unsafe(`CREATE INDEX IF NOT EXISTS subtitle_remux_jobs_claim_idx ON ${ident}.subtitle_remux_jobs (project, state, created_at)`);
   await sql.unsafe(`
     CREATE TABLE IF NOT EXISTS ${ident}.source_processing (
       id text PRIMARY KEY,
@@ -158,7 +136,6 @@ export async function ensureDatabaseReady(): Promise<void> {
       trim_plan jsonb,
       review_transcript text,
       generated_title text,
-      srt_text text,
       waiting_reason text,
       last_error text,
       created_at timestamptz NOT NULL DEFAULT now(),
@@ -170,14 +147,9 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`ALTER TABLE ${ident}.source_processing DROP CONSTRAINT IF EXISTS source_processing_state_check`);
   await sql.unsafe(`ALTER TABLE ${ident}.source_processing ADD CONSTRAINT source_processing_state_check CHECK (state IN ('pending', 'claimed', 'waiting', 'completed', 'failed', 'stale'))`);
   await sql.unsafe(`CREATE INDEX IF NOT EXISTS source_processing_claim_idx ON ${ident}.source_processing (project, state, created_at)`);
-  await sql.unsafe(`
-    CREATE TABLE IF NOT EXISTS ${ident}.project_overlay_logos (
-      project text PRIMARY KEY,
-      checksum_sha256 text NOT NULL,
-      file_size bigint NOT NULL,
-      updated_at timestamptz NOT NULL DEFAULT now()
-    )
-  `);
+  // Startup does not create or drop the removed subtitle_remux_jobs and
+  // project_overlay_logos tables or the source_processing.srt_text column.
+  // The data move (#44) drops them after the deploy.
   await sql.unsafe(`
     CREATE TABLE IF NOT EXISTS ${ident}.original_uploads (
       upload_id text PRIMARY KEY,
@@ -216,9 +188,7 @@ export async function ensureDatabaseReady(): Promise<void> {
   await sql.unsafe(`SELECT 1 FROM ${ident}.auth_tokens LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.admin_audit_log LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.upload_sessions LIMIT 1`);
-  await sql.unsafe(`SELECT 1 FROM ${ident}.subtitle_remux_jobs LIMIT 1`);
   await sql.unsafe(`SELECT 1 FROM ${ident}.source_processing LIMIT 1`);
-  await sql.unsafe(`SELECT 1 FROM ${ident}.project_overlay_logos LIMIT 1`);
 }
 
 /**
