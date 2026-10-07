@@ -24,15 +24,17 @@
  * the removed schema.
  */
 import { AbortMultipartUploadCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import type { TransactionSql } from "postgres";
 import { loadConfig } from "../src/config.ts";
 import { closeDb, getDb, schemaIdent } from "../src/db.ts";
 import { MIME_TO_EXT, getExtensionForMime } from "../src/mime.ts";
 import {
-  fileObjectKey, isLogoKey, isRemovedWorkerTempKey, isRemuxTempKey, isSubtitleKey, logoObjectKey, logoPrefix,
-  parseTags, planNoOverlayDataMove, remuxTempPrefix, subtitlePrefix, toBytes, videoRole, workerTempPrefix,
-  type DataMovePlan, type OverlaidItem, type VideoRow,
+  isRemovedWorkerTempKey, isRemuxTempKey, isSubtitleKey,
+  parseTags, planNoOverlayDataMove, remuxTempPrefix, subtitlePrefix, toBytes, deleteRowWithObjects, workerTempPrefix,
+  type DataMovePlan, type OverlaidItem, type StateCopy, type VideoRow,
 } from "../src/noOverlayDataMove.ts";
-import { getS3Client } from "../src/storage.ts";
+import { getS3Client, storageObjectKey } from "../src/storage.ts";
+import { publicationStatusSql, videoVariantSql, visibilitySql } from "../src/videoSql.ts";
 
 type Mode = "dry-run" | "apply" | "drop-schema";
 
@@ -52,9 +54,23 @@ const ident = schemaIdent();
 const bucket = loadConfig().s3Bucket;
 const s3 = getS3Client();
 
-/** Effective video variant, as the read side maps legacy rows. */
-const TAGS = (alias: string) => `(CASE WHEN jsonb_typeof(${alias}.tags)='string' THEN (${alias}.tags #>> '{}')::jsonb ELSE ${alias}.tags END)`;
-const VARIANT = (alias: string) => `COALESCE(${alias}.media_variant, CASE WHEN ${alias}.designer_of_id IS NOT NULL OR ${TAGS(alias)} @> '["designer"]'::jsonb THEN 'designer' WHEN ${TAGS(alias)} @> '["no-overlay"]'::jsonb OR ${alias}.id LIKE '%-no-overlay' THEN 'no-overlay' ELSE 'pipeline-final' END)`;
+/*
+ * Object keys of the removed features. The app does not make these objects
+ * any more, so these keys are only in this script. The command needs them only
+ * to delete the legacy objects.
+ */
+const LOGO_PREFIX = "project-overlay-logo/";
+function logoObjectKey(projectName: string): string {
+  return `${LOGO_PREFIX}${encodeURIComponent(projectName)}.png`;
+}
+function isLogoKey(objectKey: string, projectName: string | null): boolean {
+  if (!/^project-overlay-logo\/[^/]+\.png$/.test(objectKey)) return false;
+  return projectName === null || objectKey === logoObjectKey(projectName);
+}
+function subtitleFileKey(projectName: string, id: string, ext: string): string {
+  return `subtitle/${projectName}/${id}${ext}`;
+}
+
 /** A designer revision that still points at the overlaid row `f`. */
 const POINTS_AT_F = `EXISTS (SELECT 1 FROM ${ident}.files d WHERE d.project=f.project AND d.type='video' AND (d.designer_of_id=f.id OR (d.designer_of_id IS NULL AND d.id=f.id || '-designer')))`;
 
@@ -151,7 +167,7 @@ async function inventory(): Promise<Inventory> {
       `SELECT project,file_size FROM ${ident}.project_overlay_logos WHERE ($1::text IS NULL OR project=$1) ORDER BY project`, [project])
     : [];
   const logoKeys = new Set(logos.map((row) => logoObjectKey(row.project)));
-  const logoOrphans = (await listObjects(logoPrefix())).filter((entry) => isLogoKey(entry.key, project) && !logoKeys.has(entry.key));
+  const logoOrphans = (await listObjects(LOGO_PREFIX)).filter((entry) => isLogoKey(entry.key, project) && !logoKeys.has(entry.key));
   const remuxJobs = schema.subtitle_remux_jobs_table
     ? await sql.unsafe<{ id: string; project: string; state: string }[]>(
       `SELECT id,project,state FROM ${ident}.subtitle_remux_jobs WHERE ($1::text IS NULL OR project=$1) ORDER BY project,created_at,id`, [project])
@@ -174,7 +190,7 @@ function groups(inv: Inventory): Record<string, Group> {
     active_pointer_moves: group(plan.pointer_moves.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: `revision=${row.revision_id} from=${row.overlaid_id}${row.implicit ? " (implicit newest revision)" : ""}` }))),
     pointer_conflicts: group(plan.pointer_conflicts.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: `overlaid=${row.overlaid_revision_id} no-overlay=${row.no_overlay_revision_id} kept=${row.kept_revision_id}` }))),
     title_copies: group(plan.title_copies.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: `from=${row.overlaid_id} title=${JSON.stringify(row.title)} previous=${JSON.stringify(row.previous)}` }))),
-    state_copies: group(plan.state_copies.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: `from=${row.overlaid_id}${row.visibility ? " visibility=trash" : ""}${row.publication_status ? " publication_status=pending" : ""}${row.review_status ? ` review_status=${row.review_status}` : ""}${row.add_tags.length ? ` add_tags=${row.add_tags.join(",")}` : ""}` }))),
+    state_copies: group(plan.state_copies.map((row) => ({ project: row.project, id: row.no_overlay_id, bytes: 0, detail: stateDetail(row) }))),
     overlaid_videos: group(overlaid(plan.overlaid_deletes)),
     overlaid_videos_without_no_overlay: group(overlaid(plan.overlaid_deletes.filter((item) => !item.companion_id))),
     overlaid_videos_with_trashed_no_overlay: group(overlaid(plan.overlaid_deletes.filter((item) => item.companion_trashed))),
@@ -196,6 +212,18 @@ const WORK_GROUPS = [
   "designer_relinks", "active_pointer_moves", "title_copies", "state_copies", "overlaid_videos", "subtitle_files", "subtitle_orphan_objects",
   "project_logos", "logo_orphan_objects", "remux_jobs", "subtitle_upload_sessions", "remux_temp_objects", "worker_temp_objects",
 ];
+
+/** Before and after state of one state copy, for example `visibility=trash->active`. */
+function stateDetail(row: StateCopy): string {
+  const parts = [`from=${row.overlaid_id}`];
+  for (const name of ["visibility", "publication_status", "review_status"] as const) {
+    const before = row.before[name]; const after = row.after[name];
+    parts.push(before === after ? `${name}=${before ?? "none"}` : `${name}=${before ?? "none"}->${after ?? "none"}`);
+  }
+  const previous = parseTags(row.previous_tags);
+  if (JSON.stringify(previous) !== JSON.stringify(row.tags)) parts.push(`tags=${JSON.stringify(previous)}->${JSON.stringify(row.tags)}`);
+  return parts.join(" ");
+}
 
 function printReport(title: string, all: Record<string, Group>, schema: SchemaState): void {
   console.log(`# ${title}`);
@@ -223,7 +251,7 @@ function formatBytes(bytes: number): string {
 function subtitleObjectKeys(row: SubtitleRow): string[] {
   const exts = new Set([".srt", getExtensionForMime(row.mime_type)]);
   exts.delete(".bin");
-  return [...exts].map((ext) => fileObjectKey("subtitle", row.project, row.id, ext));
+  return [...exts].map((ext) => subtitleFileKey(row.project, row.id, ext));
 }
 
 function overlaidObjectKeys(item: OverlaidItem): string[] {
@@ -231,7 +259,7 @@ function overlaidObjectKeys(item: OverlaidItem): string[] {
   // A wrong legacy MIME gives no known extension. Then try every known one,
   // as the file delete route does. Each key is only this row's own ID.
   const exts = ext === ".bin" ? [...new Set(Object.values(MIME_TO_EXT))] : [ext];
-  return exts.map((value) => fileObjectKey("video", item.project, item.id, value));
+  return exts.map((value) => storageObjectKey("video", item.project, item.id, value));
 }
 
 // ---- apply ----------------------------------------------------------------
@@ -266,14 +294,14 @@ async function relinkAndMovePointers(plan: DataMovePlan): Promise<void> {
             source_id=COALESCE(d.source_id, (SELECT n.source_id FROM ${ident}.files n WHERE n.project=d.project AND n.id=$3 AND n.type='video'))
         WHERE d.project=$1 AND d.id=$2 AND d.type='video'
           AND (d.designer_of_id=$4 OR (d.designer_of_id IS NULL AND d.id=$4 || '-designer'))
-          AND EXISTS (SELECT 1 FROM ${ident}.files n WHERE n.project=d.project AND n.id=$3 AND n.type='video' AND ${VARIANT("n")}='no-overlay')
+          AND EXISTS (SELECT 1 FROM ${ident}.files n WHERE n.project=d.project AND n.id=$3 AND n.type='video' AND ${videoVariantSql("n")}='no-overlay')
         RETURNING d.id`, [row.project, row.id, row.to_target, row.from_target]);
       if (updated.length !== 1) throw new Error(`Designer revision ${row.project}/${row.id} changed during apply. Run apply again.`);
     }
     for (const move of plan.pointer_moves) {
       const updated = await tx.unsafe(`
         UPDATE ${ident}.files n SET active_designer_revision_id=$3
-        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${VARIANT("n")}='no-overlay'
+        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${videoVariantSql("n")}='no-overlay'
           AND n.active_designer_revision_id IS NOT DISTINCT FROM $4
         RETURNING n.id`, [move.project, move.no_overlay_id, move.revision_id, move.previous]);
       if (updated.length !== 1) throw new Error(`Active pointer of ${move.project}/${move.no_overlay_id} changed during apply. Run apply again.`);
@@ -281,20 +309,33 @@ async function relinkAndMovePointers(plan: DataMovePlan): Promise<void> {
     for (const copy of plan.title_copies) {
       const updated = await tx.unsafe(`
         UPDATE ${ident}.files n SET title=$3
-        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${VARIANT("n")}='no-overlay'
+        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${videoVariantSql("n")}='no-overlay'
           AND n.title IS NOT DISTINCT FROM $4
         RETURNING n.id`, [copy.project, copy.no_overlay_id, copy.title, copy.previous]);
       if (updated.length !== 1) throw new Error(`Title of ${copy.project}/${copy.no_overlay_id} changed during apply. Run apply again.`);
     }
     for (const copy of plan.state_copies) {
-      const tags = [...parseTags(copy.previous_tags), ...copy.add_tags];
+      // Guard: the no-overlay row has the same columns and tags as in the plan,
+      // and the overlaid row still has the state that the copy writes. Tag
+      // parameters use $n::text::jsonb, so that the server parses the JSON
+      // text and the client does not encode it a second time. The tag guard
+      // compares the stored value exactly, also a legacy JSON-string value.
       const updated = await tx.unsafe(`
         UPDATE ${ident}.files n
-        SET visibility=COALESCE($3, n.visibility), publication_status=COALESCE($4, n.publication_status),
-            review_status=COALESCE($5, n.review_status), tags=$6::jsonb
-        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${VARIANT("n")}='no-overlay'
-          AND n.tags = $7::jsonb
-        RETURNING n.id`, [copy.project, copy.no_overlay_id, copy.visibility, copy.publication_status, copy.review_status, JSON.stringify(tags), JSON.stringify(copy.previous_tags)]);
+        SET visibility=$3, publication_status=$4, review_status=$5, tags=$6::text::jsonb
+        WHERE n.project=$1 AND n.id=$2 AND n.type='video' AND ${videoVariantSql("n")}='no-overlay'
+          AND n.visibility IS NOT DISTINCT FROM $7 AND n.publication_status IS NOT DISTINCT FROM $8
+          AND n.review_status IS NOT DISTINCT FROM $9
+          AND n.tags = $10::text::jsonb
+          AND EXISTS (SELECT 1 FROM ${ident}.files o
+            WHERE o.project=n.project AND o.id=$11 AND o.type='video' AND ${videoVariantSql("o")}='pipeline-final'
+              AND ${visibilitySql("o")}=$3 AND ${publicationStatusSql("o")}=$4
+              AND ($12::text IS NULL OR o.review_status=$12))
+        RETURNING n.id`, [
+        copy.project, copy.no_overlay_id, copy.after.visibility, copy.after.publication_status, copy.after.review_status,
+        JSON.stringify(copy.tags), copy.previous.visibility, copy.previous.publication_status, copy.previous.review_status,
+        JSON.stringify(copy.previous_tags), copy.overlaid_id, copy.after.review_status === copy.before.review_status ? null : copy.after.review_status,
+      ]);
       if (updated.length !== 1) throw new Error(`State of ${copy.project}/${copy.no_overlay_id} changed during apply. Run apply again.`);
     }
   });
@@ -309,29 +350,77 @@ function moveWork(plan: DataMovePlan): number {
   return plan.designer_relinks.length + plan.pointer_moves.length + plan.title_copies.length + plan.state_copies.length;
 }
 
-async function deleteOverlaid(item: OverlaidItem, refused: string[]): Promise<void> {
-  const rows = await sql.unsafe<(VideoRow & { blocked: boolean })[]>(`
-    SELECT f.project,f.id,f.source_id,f.designer_of_id,f.active_designer_revision_id,f.media_variant,f.tags,f.title,f.review_status,f.visibility,f.publication_status,f.file_size,f.mime_type,f.created_at,
-           ${POINTS_AT_F} AS blocked
-    FROM ${ident}.files f WHERE f.project=$1 AND f.id=$2 AND f.type='video'`, [item.project, item.id]);
-  const row = rows[0];
-  if (!row) return;
-  if (videoRole(row) !== "overlaid") throw new Error(`Refusing to delete ${item.project}/${item.id}: it is not an overlaid video`);
-  if (row.blocked) {
-    refused.push(`${item.project}/${item.id}`);
-    return;
-  }
-  for (const objectKey of overlaidObjectKeys(item)) await deleteObject(objectKey);
-  const deleted = await sql.unsafe(`
-    DELETE FROM ${ident}.files f
-    WHERE f.project=$1 AND f.id=$2 AND f.type='video'
+/**
+ * Guards for the delete of the overlaid row `f`. It is a pipeline-final video
+ * that is not a designer or no-overlay row, and no designer revision points
+ * at it. When the plan found a companion ($3), that no-overlay row must still
+ * exist. When the plan found none, the row must have no active pointer.
+ */
+const OVERLAID_DELETE_GUARDS = `
+      f.type='video'
       AND f.designer_of_id IS NULL AND f.id NOT LIKE '%-designer' AND f.id NOT LIKE '%-no-overlay'
       AND f.id !~* '-designer-[0-9a-f-]{36}$'
-      AND ${VARIANT("f")}='pipeline-final'
+      AND ${videoVariantSql("f")}='pipeline-final'
       AND NOT ${POINTS_AT_F}
-    RETURNING f.id`, [item.project, item.id]);
-  if (deleted.length === 1) count(item.companion_id ? "overlaid_videos" : "overlaid_videos_without_no_overlay");
-  else refused.push(`${item.project}/${item.id}`);
+      AND (CASE WHEN $3::text IS NULL THEN f.active_designer_revision_id IS NULL
+        ELSE EXISTS (SELECT 1 FROM ${ident}.files n WHERE n.project=f.project AND n.id=$3 AND n.type='video' AND ${videoVariantSql("n")}='no-overlay') END)`;
+
+type Tx = TransactionSql;
+
+/**
+ * Delete one row and its objects in one transaction: lock the row with all
+ * guards, delete the objects, delete the row, commit. A refused row keeps its
+ * objects. The step count changes only after the commit, so --stop-after
+ * never rolls back a row whose objects are gone.
+ */
+async function guardedDelete(
+  name: string, label: string, refused: string[], objectKeys: string[],
+  lock: (tx: Tx) => Promise<Array<{ allowed: boolean }>>, remove: (tx: Tx) => Promise<unknown[]>,
+): Promise<void> {
+  const result = await sql.begin((tx) => deleteRowWithObjects({
+    lock: async () => {
+      const rows = await lock(tx);
+      if (rows.length === 0) return "missing";
+      return rows[0]!.allowed ? "ok" : "refused";
+    },
+    deleteObjects: async () => { for (const objectKey of objectKeys) await deleteObject(objectKey); },
+    deleteRow: async () => (await remove(tx)).length === 1,
+  }));
+  if (result === "refused") refused.push(label);
+  if (result === "deleted") count(name);
+}
+
+async function deleteOverlaid(item: OverlaidItem, refused: string[]): Promise<void> {
+  const params = [item.project, item.id, item.companion_id];
+  await guardedDelete(
+    item.companion_id ? "overlaid_videos" : "overlaid_videos_without_no_overlay", `${item.project}/${item.id}`, refused, overlaidObjectKeys(item),
+    (tx) => tx.unsafe<Array<{ allowed: boolean }>>(`
+      SELECT (${OVERLAID_DELETE_GUARDS}) AS allowed
+      FROM ${ident}.files f WHERE f.project=$1 AND f.id=$2 AND f.type='video'
+      FOR UPDATE OF f`, params),
+    (tx) => tx.unsafe(`
+      DELETE FROM ${ident}.files f
+      WHERE f.project=$1 AND f.id=$2 AND ${OVERLAID_DELETE_GUARDS}
+      RETURNING f.id`, params),
+  );
+}
+
+async function deleteSubtitle(row: SubtitleRow, refused: string[]): Promise<void> {
+  await guardedDelete(
+    "subtitle_files", `${row.project}/${row.id}`, refused, subtitleObjectKeys(row),
+    (tx) => tx.unsafe<Array<{ allowed: boolean }>>(
+      `SELECT true AS allowed FROM ${ident}.files WHERE project=$1 AND id=$2 AND type='subtitle' FOR UPDATE`, [row.project, row.id]),
+    (tx) => tx.unsafe(`DELETE FROM ${ident}.files WHERE project=$1 AND id=$2 AND type='subtitle' RETURNING id`, [row.project, row.id]),
+  );
+}
+
+async function deleteLogo(projectName: string, refused: string[]): Promise<void> {
+  await guardedDelete(
+    "project_logos", `logo ${projectName}`, refused, [logoObjectKey(projectName)],
+    (tx) => tx.unsafe<Array<{ allowed: boolean }>>(
+      `SELECT true AS allowed FROM ${ident}.project_overlay_logos WHERE project=$1 FOR UPDATE`, [projectName]),
+    (tx) => tx.unsafe(`DELETE FROM ${ident}.project_overlay_logos WHERE project=$1 RETURNING project`, [projectName]),
+  );
 }
 
 async function runApply(): Promise<number> {
@@ -349,22 +438,15 @@ async function runApply(): Promise<number> {
     throw new Error("Designer links, pointers, titles or state are still left to move. No row was deleted. Run apply again.");
   }
 
-  // Step 3: overlaid videos. Delete the object first, then the row, so a retry finds the row again.
+  // Step 3: overlaid videos. Each row is locked and guarded in a transaction
+  // before its objects are deleted. A refused row keeps its objects.
   const refused: string[] = [];
   for (const item of inv.plan.overlaid_deletes) await deleteOverlaid(item, refused);
 
   // Step 4: SRTs, logos, remux jobs, subtitle sessions and temp objects.
-  for (const row of inv.subtitles) {
-    for (const objectKey of subtitleObjectKeys(row)) await deleteObject(objectKey);
-    await sql.unsafe(`DELETE FROM ${ident}.files WHERE project=$1 AND id=$2 AND type='subtitle'`, [row.project, row.id]);
-    count("subtitle_files");
-  }
+  for (const row of inv.subtitles) await deleteSubtitle(row, refused);
   for (const entry of inv.subtitleOrphans) { await deleteObject(entry.key); count("subtitle_orphan_objects"); }
-  for (const row of inv.logos) {
-    await deleteObject(logoObjectKey(row.project));
-    await sql.unsafe(`DELETE FROM ${ident}.project_overlay_logos WHERE project=$1`, [row.project]);
-    count("project_logos");
-  }
+  for (const row of inv.logos) await deleteLogo(row.project, refused);
   for (const entry of inv.logoOrphans) { await deleteObject(entry.key); count("logo_orphan_objects"); }
   if (inv.schema.subtitle_remux_jobs_table && inv.remuxJobs.length > 0) {
     const deleted = await sql.unsafe(`DELETE FROM ${ident}.subtitle_remux_jobs WHERE ($1::text IS NULL OR project=$1) RETURNING id`, [project]);
@@ -373,7 +455,7 @@ async function runApply(): Promise<number> {
   for (const session of inv.sessions) {
     if (session.upload_id && session.state === "active") {
       const ext = getExtensionForMime(session.mime_type) === ".bin" ? ".srt" : getExtensionForMime(session.mime_type);
-      await s3.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: fileObjectKey("subtitle", session.project, session.file_id, ext), UploadId: session.upload_id })).catch(() => {});
+      await s3.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: subtitleFileKey(session.project, session.file_id, ext), UploadId: session.upload_id })).catch(() => {});
     }
     await sql.unsafe(`DELETE FROM ${ident}.upload_sessions WHERE id=$1 AND type='subtitle'`, [session.id]);
     count("subtitle_upload_sessions");
@@ -387,7 +469,7 @@ async function runApply(): Promise<number> {
   const blocked = after.plan.blocked_overlaid.length + refused.length;
   console.log(`SUMMARY ${JSON.stringify({ mode: "apply", project: project ?? "all-projects", done, refused, after: summary(afterGroups), schema: after.schema })}`);
   if (blocked > 0) {
-    console.error(`Apply left ${after.plan.blocked_overlaid.length} blocked overlaid videos. A designer revision still points at each one. See blocked_overlaid_videos.`);
+    console.error(`Apply left ${after.plan.blocked_overlaid.length} blocked overlaid videos (see blocked_overlaid_videos) and refused ${refused.length} deletes because a guard failed (see refused). The refused rows keep their objects.`);
     return 3;
   }
   return 0;
