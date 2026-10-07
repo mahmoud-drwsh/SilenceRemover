@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -129,7 +130,9 @@ def get_encoder_config(encoder_name: str) -> dict:
     else:
         return {
             "codec": "libx265",
-            "args": ["-crf", "24", "-preset", "slow"],
+            # x265 cannot detect NUMA nodes in containers and then runs without a
+            # thread pool (2 threads only). A fixed pool size uses all CPUs.
+            "args": ["-crf", "24", "-preset", "slow", "-x265-params", f"pools={os.cpu_count() or 1}"],
             "hwaccel": False,
         }
 
