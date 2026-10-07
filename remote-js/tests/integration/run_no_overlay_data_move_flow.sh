@@ -15,11 +15,6 @@ if [ -n "${NO_OVERLAY_TEST_COMPOSE_OVERRIDE:-}" ]; then
   compose+=(-f "$NO_OVERLAY_TEST_COMPOSE_OVERRIDE")
 fi
 
-if ! compgen -G "../.local-test/backups/*.dump" >/dev/null; then
-  echo "A database dump is required in ../.local-test/backups/ (relative to remote-js/)."
-  exit 1
-fi
-
 cleanup() { "${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 

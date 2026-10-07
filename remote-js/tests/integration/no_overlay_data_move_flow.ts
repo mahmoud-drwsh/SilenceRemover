@@ -4,6 +4,10 @@
  * Run it with tests/integration/run_no_overlay_data_move_flow.sh. The runner
  * copies this file into the app container and runs it there, so the test uses
  * the same environment as the command.
+ *
+ * The test seeds all of its rows and objects. It also makes the legacy schema
+ * (remux job table, logo table, SRT column, 'subtitle' type) when the startup
+ * bootstrap does not make it, so it does not need a database dump.
  */
 import { GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
 import { randomUUID } from "node:crypto";
@@ -77,14 +81,14 @@ async function snapshot(): Promise<string> {
   return JSON.stringify({ files, sessions, remux, logos, processing, objects: await listAll() });
 }
 
-type Seed = { id: string; type: string; mime?: string; size?: number; source?: string | null; designerOf?: string | null; pointer?: string | null; variant?: string | null; tags?: string; visibility?: string | null; minute?: number };
+type Seed = { id: string; type: string; title?: string; publication?: string | null; mime?: string; size?: number; source?: string | null; designerOf?: string | null; pointer?: string | null; variant?: string | null; tags?: string; visibility?: string | null; minute?: number };
 async function seedFile(project: string, seed: Seed): Promise<void> {
   const mime = seed.mime ?? (seed.type === "audio" ? "audio/ogg" : seed.type === "subtitle" ? "application/x-subrip" : "video/mp4");
   const ext = mime === "audio/ogg" ? ".ogg" : mime === "application/x-subrip" ? ".srt" : ".mp4";
   await sql.unsafe(`
-    INSERT INTO ${ident}.files (id,project,type,title,tags,file_size,mime_type,source_id,designer_of_id,active_designer_revision_id,media_variant,visibility,created_at)
-    VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12, timestamptz '2026-01-01' + make_interval(mins => $13))`,
-  [seed.id, project, seed.type, `Title ${seed.id}`, seed.tags ?? "[]", seed.size ?? 100, mime, seed.source ?? null, seed.designerOf ?? null, seed.pointer ?? null, seed.variant ?? null, seed.visibility ?? null, seed.minute ?? 0]);
+    INSERT INTO ${ident}.files (id,project,type,title,tags,file_size,mime_type,source_id,designer_of_id,active_designer_revision_id,media_variant,visibility,created_at,publication_status)
+    VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12, timestamptz '2026-01-01' + make_interval(mins => $13),$14)`,
+  [seed.id, project, seed.type, seed.title ?? `Title ${seed.id}`, seed.tags ?? "[]", seed.size ?? 100, mime, seed.source ?? null, seed.designerOf ?? null, seed.pointer ?? null, seed.variant ?? null, seed.visibility ?? null, seed.minute ?? 0, seed.publication ?? null]);
   await put(`${seed.type}/${project}/${seed.id}${ext}`, "x".repeat(seed.size ?? 100));
 }
 
@@ -92,19 +96,39 @@ async function fileRow(project: string, id: string, type = "video"): Promise<Rec
   return (await sql.unsafe(`SELECT * FROM ${ident}.files WHERE project=$1 AND id=$2 AND type=$3`, [project, id, type]))[0];
 }
 
+async function seedLegacySchema(): Promise<void> {
+  await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS ${ident}.subtitle_remux_jobs (
+      id text PRIMARY KEY, project text NOT NULL, video_id text NOT NULL, source_id text NOT NULL, subtitle_id text NOT NULL,
+      input_checksum_sha256 text NOT NULL, subtitle_checksum_sha256 text NOT NULL, state text NOT NULL DEFAULT 'pending',
+      attempts integer NOT NULL DEFAULT 0, lease_token text, lease_until timestamptz, output_checksum_sha256 text,
+      output_file_size bigint, last_error text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now())`);
+  await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS ${ident}.project_overlay_logos (
+      project text PRIMARY KEY, checksum_sha256 text NOT NULL, file_size bigint NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())`);
+  await sql.unsafe(`ALTER TABLE ${ident}.source_processing ADD COLUMN IF NOT EXISTS srt_text text`);
+  await sql.unsafe(`ALTER TABLE ${ident}.files DROP CONSTRAINT IF EXISTS files_type_check`);
+  await sql.unsafe(`ALTER TABLE ${ident}.files ADD CONSTRAINT files_type_check CHECK (type IN ('audio', 'video', 'original', 'subtitle'))`);
+  await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions DROP CONSTRAINT IF EXISTS upload_sessions_type_check`);
+  await sql.unsafe(`ALTER TABLE ${ident}.upload_sessions ADD CONSTRAINT upload_sessions_type_check CHECK (type IN ('audio', 'video', 'original', 'subtitle'))`);
+}
+
 await waitForApp();
+await seedLegacySchema();
 const runId = randomUUID().slice(0, 8);
 const P = `datamove-${runId}`;
 const Q = `datamove-other-${runId}`;
 const designerA = `s1-designer-${randomUUID()}`;
 const designerB = `s1-designer-${randomUUID()}`;
 const lonelyDesigner = `lonely-4-designer-${randomUUID()}`;
+const designer7a = `s7-designer-${randomUUID()}`;
+const designer7b = `s7-no-overlay-designer-${randomUUID()}`;
 
 // ---- seed legacy rows and objects ----
 for (const seed of [
   { id: "s1", type: "original" }, { id: "s1", type: "audio" },
-  { id: "s1", type: "video", source: "s1", variant: "pipeline-final", pointer: designerA, size: 1000 },
-  { id: "s1-no-overlay", type: "video", source: "s1", variant: "no-overlay", size: 900 },
+  { id: "s1", type: "video", source: "s1", variant: "pipeline-final", pointer: designerA, size: 1000, title: "Approved s1" },
+  { id: "s1-no-overlay", type: "video", source: "s1", variant: "no-overlay", size: 900, title: "Approved s1 (No Overlay)" },
   { id: designerA, type: "video", source: "s1", designerOf: "s1", variant: "designer", minute: 1 },
   { id: designerB, type: "video", source: "s1", designerOf: "s1", variant: "designer", minute: 2 },
   { id: "s1-subtitles", type: "subtitle", size: 50 },
@@ -123,6 +147,16 @@ for (const seed of [
   { id: "s5", type: "original" },
   { id: "s5", type: "video", source: "s5", variant: "pipeline-final" },
   { id: "s5-no-overlay", type: "video", source: "s5", variant: "no-overlay", visibility: "trash" },
+  // An overlaid video in trash and pending: the no-overlay video gets the same state.
+  { id: "s6", type: "original" },
+  { id: "s6", type: "video", source: "s6", variant: "pipeline-final", visibility: "trash", publication: "pending", tags: JSON.stringify(["trash", "pending"]) },
+  { id: "s6-no-overlay", type: "video", source: "s6", variant: "no-overlay", visibility: "active", publication: "published" },
+  // The no-overlay video already has an active designer revision: it stays.
+  { id: "s7", type: "original" },
+  { id: "s7", type: "video", source: "s7", variant: "pipeline-final", pointer: designer7a },
+  { id: "s7-no-overlay", type: "video", source: "s7", variant: "no-overlay", pointer: designer7b },
+  { id: designer7a, type: "video", source: "s7", designerOf: "s7", variant: "designer", minute: 5 },
+  { id: designer7b, type: "video", source: "s7", designerOf: "s7-no-overlay", variant: "designer", minute: 4 },
 ] as Seed[]) await seedFile(P, seed);
 for (const seed of [
   { id: "q1", type: "original" },
@@ -148,12 +182,12 @@ equal(await snapshot(), beforeDry, "dry-run makes no database or storage change"
 const g = dry.summary!.groups;
 const counts = Object.fromEntries(Object.entries(g).map(([name, value]: [string, any]) => [name, value.count]));
 equal(counts, {
-  designer_relinks: 3, active_pointer_moves: 2, pointer_conflicts: 0, overlaid_videos: 4,
+  designer_relinks: 4, active_pointer_moves: 2, pointer_conflicts: 1, title_copies: 5, state_copies: 2, overlaid_videos: 6,
   overlaid_videos_without_no_overlay: 1, overlaid_videos_with_trashed_no_overlay: 1, blocked_overlaid_videos: 1,
   unresolved_designers: 0, subtitle_files: 1, subtitle_orphan_objects: 1, project_logos: 1, logo_orphan_objects: 0,
   remux_jobs: 1, subtitle_upload_sessions: 1, remux_temp_objects: 1, worker_temp_objects: 2,
 }, "dry-run group counts");
-equal(g.overlaid_videos.bytes, 1000 + 2000 + 3000 + 100, "dry-run overlaid bytes");
+equal(g.overlaid_videos.bytes, 1000 + 2000 + 3000 + 100 * 3, "dry-run overlaid bytes");
 for (const id of ["old-3", "final-2-designer", "lonely-4", `remux-${runId}`, `sub-session-${runId}`, `source-processing/${P}/job-1/lease-1/overlaid_video`]) {
   check(dry.stdout.includes(id), `dry-run lists ${id}`);
 }
@@ -175,9 +209,17 @@ const applied = run("apply", "--confirm", `--project=${P}`);
 equal(applied.code, 3, "apply finishes and reports the blocked row");
 equal((await fileRow(P, "s1-no-overlay"))?.active_designer_revision_id, designerA, "the same active designer video stays on the s1 card");
 equal((await fileRow(P, "final-2-no-overlay"))?.active_designer_revision_id, "final-2-designer", "the legacy card keeps its designer video");
+equal((await fileRow(P, "s7-no-overlay"))?.active_designer_revision_id, designer7b, "a pointer on the no-overlay row is not overwritten");
+equal((await fileRow(P, designer7a))?.designer_of_id, "s7-no-overlay", "the s7 revision moves to the no-overlay video");
+equal((await fileRow(P, "s1-no-overlay"))?.title, "Approved s1", "the approved title goes to the no-overlay video");
+const s6 = await fileRow(P, "s6-no-overlay");
+equal([s6?.visibility, s6?.publication_status, s6?.tags], ["trash", "pending", ["trash", "pending"]], "trash and pending state go to the no-overlay video");
+const f2 = await fileRow(P, "final-2-no-overlay");
+equal([f2?.publication_status, f2?.tags], ["pending", ["no-overlay", "pending"]], "the legacy pending tag goes to the no-overlay video");
+equal((await fileRow(P, "s5-no-overlay"))?.visibility, "trash", "a trashed no-overlay video stays in trash");
 const legacy = await fileRow(P, "final-2-designer");
 equal([legacy?.designer_of_id, legacy?.media_variant, legacy?.source_id], ["final-2-no-overlay", "designer", "s2"], "the legacy -designer row has an explicit target");
-for (const id of ["s1", "final-2", "old-3", "s5"]) {
+for (const id of ["s1", "final-2", "old-3", "s5", "s6", "s7"]) {
   check(!(await fileRow(P, id)), `overlaid row ${id} is deleted`);
   check(!(await exists(`video/${P}/${id}.mp4`)), `overlaid object ${id} is deleted`);
 }
@@ -186,6 +228,7 @@ check(await exists(`video/${P}/lonely-4.mp4`), "a blocked overlaid object stays"
 const kept: Array<[string, string, string]> = [
   ["s1", "original", ".mp4"], ["s2", "original", ".mp4"], ["s4", "original", ".mp4"], ["s5", "original", ".mp4"], ["s1", "audio", ".ogg"],
   ["s1-no-overlay", "video", ".mp4"], ["final-2-no-overlay", "video", ".mp4"], ["s5-no-overlay", "video", ".mp4"],
+  ["s6-no-overlay", "video", ".mp4"], ["s7-no-overlay", "video", ".mp4"], [designer7a, "video", ".mp4"], [designer7b, "video", ".mp4"],
   [designerA, "video", ".mp4"], [designerB, "video", ".mp4"], ["final-2-designer", "video", ".mp4"], [lonelyDesigner, "video", ".mp4"],
 ];
 for (const [id, type, ext] of kept) {
@@ -220,7 +263,6 @@ check(all.code === 0 || all.code === 3, `apply on all projects finishes (exit ${
 console.log(`   all projects: ${JSON.stringify(all.summary?.done)} refused=${all.summary?.refused?.length}`);
 check(!(await fileRow(Q, "q1")), "the other project's overlaid row is deleted");
 check(await fileRow(Q, "q1-no-overlay"), "the other project's no-overlay row stays");
-check(await fileRow("test-project", "legacy-source-001", "original"), "the seeded legacy original stays");
 for (const mode of ["first", "second"]) {
   const dropped = run("drop-schema", "--confirm");
   equal(dropped.code, 0, `drop-schema (${mode}) exit code: ${dropped.stderr}`);
