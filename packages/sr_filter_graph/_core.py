@@ -15,4 +15,3 @@ def _segment_audio_duration_sec(segment_start: float, segment_end: float) -> flo
         Duration in seconds, minimum 1 microsecond
     """
     return max(1e-6, float(segment_end) - float(segment_start))
-
