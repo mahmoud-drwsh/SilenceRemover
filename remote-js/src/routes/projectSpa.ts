@@ -82,5 +82,9 @@ projectSpaRouter.get("/projects/:token/:project/", async (c) => {
 projectSpaRouter.get("/projects/:token/:project/*", async (c) => {
   const { token } = c.req.param();
   await verifyMediaToken(token);
+  // An unknown API path, for example a removed route, is not a SPA page.
+  if (new URL(c.req.url).pathname.split("/")[4] === "api") {
+    throw new HttpError(404, "Not Found");
+  }
   return serveFile(INDEX_HTML);
 });
