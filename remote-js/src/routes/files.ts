@@ -29,9 +29,6 @@ import { normalizeTitle, sanitizeFileId } from "../sanitize.ts";
 import {
   storageDelete,
   storageDeleteAnyExtension,
-  presignProjectOverlayLogoPut,
-  storageProjectOverlayLogoSha256,
-  storagePutProjectOverlayLogo,
   storagePutBytes,
 } from "../storage.ts";
 import { probeDurationSeconds } from "../ffprobe.ts";
@@ -40,7 +37,6 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { createHash } from "node:crypto";
 import { rehearseOriginalRootedBackfill } from "../originalRootedRehearsal.ts";
 
 export const filesRouter = new Hono();
@@ -50,86 +46,6 @@ filesRouter.get("/projects/:token/:project/api/original-rooted-rehearsal", async
   const { token, project } = c.req.param();
   await verifyMediaToken(token);
   return c.json(await rehearseOriginalRootedBackfill(project));
-});
-
-const MAX_OVERLAY_LOGO_BYTES = 10 * 1024 * 1024;
-const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-
-/**
- * Client migration seam: a project media token may seed its logo once, but
- * cannot replace an existing admin-managed logo.
- */
-filesRouter.put("/projects/:token/:project/api/overlay-logo-if-missing", async (c) => {
-  const { token, project } = c.req.param();
-  await verifyMediaToken(token);
-  const contentType = c.req.header("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-  const declaredLength = Number(c.req.header("content-length"));
-  if (contentType !== "image/png") throw new HttpError(415, "Overlay logo must be an image/png file");
-  if (!Number.isSafeInteger(declaredLength) || declaredLength <= 0 || declaredLength > MAX_OVERLAY_LOGO_BYTES) {
-    throw new HttpError(413, "Overlay logo must be no larger than 10 MiB");
-  }
-  const sql = getDb(); const ident = schemaIdent();
-  const existing = (await sql.unsafe<{ project: string }[]>(
-    `SELECT project FROM ${ident}.project_overlay_logos WHERE project=$1`, [project],
-  ))[0];
-  if (existing) return c.json({ ok: true, uploaded: false, reason: "already_configured" });
-  const bytes = new Uint8Array(await c.req.arrayBuffer());
-  if (bytes.byteLength !== declaredLength || bytes.byteLength < PNG_SIGNATURE.byteLength || !PNG_SIGNATURE.every((value, index) => bytes[index] === value)) {
-    throw new HttpError(415, "Overlay logo content is not a PNG file");
-  }
-  const projectExists = (await sql.unsafe<{ project: string }[]>(
-    `SELECT project FROM ${ident}.files WHERE project=$1 LIMIT 1`, [project],
-  ))[0];
-  if (!projectExists) throw new HttpError(404, "Project not found");
-  const checksum = createHash("sha256").update(bytes).digest("hex");
-  await storagePutProjectOverlayLogo(project, bytes);
-  const inserted = await sql.unsafe<{ project: string }[]>(`
-    INSERT INTO ${ident}.project_overlay_logos (project, checksum_sha256, file_size, updated_at)
-    VALUES ($1,$2,$3,now())
-    ON CONFLICT (project) DO NOTHING
-    RETURNING project`, [project, checksum, bytes.byteLength]);
-  if (!inserted[0]) return c.json({ ok: true, uploaded: false, reason: "already_configured" });
-  return c.json({ ok: true, uploaded: true, checksum_sha256: checksum, file_size: bytes.byteLength }, 201);
-});
-
-function parseLogoSeedPayload(body: unknown): { size: number; checksum: string } {
-  const value = body as { size?: unknown; checksum_sha256?: unknown } | null;
-  const size = Number(value?.size);
-  const checksum = String(value?.checksum_sha256 ?? "").toLowerCase();
-  if (!Number.isSafeInteger(size) || size <= 0 || size > MAX_OVERLAY_LOGO_BYTES || !/^[a-f0-9]{64}$/.test(checksum)) {
-    throw new HttpError(400, "Valid PNG size and checksum_sha256 are required");
-  }
-  return { size, checksum };
-}
-
-/** JSON/R2 migration path for clients whose proxy resets binary requests. */
-filesRouter.post("/projects/:token/:project/api/overlay-logo-if-missing/initiate", async (c) => {
-  const { token, project } = c.req.param();
-  await verifyMediaToken(token);
-  const { size, checksum } = parseLogoSeedPayload(await c.req.json().catch(() => null));
-  const sql = getDb(); const ident = schemaIdent();
-  const existing = (await sql.unsafe<{ project: string }[]>(`SELECT project FROM ${ident}.project_overlay_logos WHERE project=$1`, [project]))[0];
-  if (existing) return c.json({ ok: true, already_configured: true });
-  const projectExists = (await sql.unsafe<{ project: string }[]>(`SELECT project FROM ${ident}.files WHERE project=$1 LIMIT 1`, [project]))[0];
-  if (!projectExists) throw new HttpError(404, "Project not found");
-  return c.json({ ok: true, already_configured: false, size, checksum_sha256: checksum, upload_url: await presignProjectOverlayLogoPut(project) });
-});
-
-filesRouter.post("/projects/:token/:project/api/overlay-logo-if-missing/complete", async (c) => {
-  const { token, project } = c.req.param();
-  await verifyMediaToken(token);
-  const { size, checksum } = parseLogoSeedPayload(await c.req.json().catch(() => null));
-  const sql = getDb(); const ident = schemaIdent();
-  const existing = (await sql.unsafe<{ project: string }[]>(`SELECT project FROM ${ident}.project_overlay_logos WHERE project=$1`, [project]))[0];
-  if (existing) return c.json({ ok: true, uploaded: false, reason: "already_configured" });
-  const stored = await storageProjectOverlayLogoSha256(project);
-  if (!stored || stored.size !== size || stored.checksum !== checksum) {
-    throw new HttpError(400, "Uploaded overlay logo verification failed");
-  }
-  const inserted = await sql.unsafe<{ project: string }[]>(`
-    INSERT INTO ${ident}.project_overlay_logos (project, checksum_sha256, file_size, updated_at)
-    VALUES ($1,$2,$3,now()) ON CONFLICT (project) DO NOTHING RETURNING project`, [project, checksum, size]);
-  return c.json({ ok: true, uploaded: Boolean(inserted[0]), reason: inserted[0] ? undefined : "already_configured" });
 });
 
 interface FileRow {

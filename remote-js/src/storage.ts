@@ -60,67 +60,6 @@ export function storageObjectKey(
   return `${fileType}/${project}/${fileId}${ext}`;
 }
 
-/** One replaceable PNG used by the server worker for this project's overlays. */
-export function projectOverlayLogoObjectKey(project: string): string {
-  return `project-overlay-logo/${encodeURIComponent(project)}.png`;
-}
-
-export async function storagePutProjectOverlayLogo(project: string, body: Uint8Array): Promise<void> {
-  const config = loadConfig();
-  await getS3Client().send(new PutObjectCommand({
-    Bucket: config.s3Bucket,
-    Key: projectOverlayLogoObjectKey(project),
-    Body: body,
-    ContentType: "image/png",
-  }));
-}
-
-export async function presignProjectOverlayLogoPut(project: string): Promise<string> {
-  const config = loadConfig();
-  return getSignedUrl(getS3Client(), new PutObjectCommand({
-    Bucket: config.s3Bucket,
-    Key: projectOverlayLogoObjectKey(project),
-    ContentType: "image/png",
-  }), { expiresIn: PRESIGNED_URL_TTL_SEC });
-}
-
-export async function storageProjectOverlayLogoSha256(project: string): Promise<{ size: number; checksum: string } | null> {
-  const body = await storageGetProjectOverlayLogo(project);
-  if (!body) return null;
-  const reader = body.getReader(); const hash = createHash("sha256"); let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength; hash.update(value);
-    }
-  } finally { reader.releaseLock(); }
-  return { size, checksum: hash.digest("hex") };
-}
-
-export async function storageGetProjectOverlayLogo(project: string): Promise<ReadableStream<Uint8Array> | null> {
-  const config = loadConfig();
-  try {
-    const result = await getS3Client().send(new GetObjectCommand({
-      Bucket: config.s3Bucket,
-      Key: projectOverlayLogoObjectKey(project),
-    }));
-    const body = result.Body;
-    if (!body || typeof (body as { transformToWebStream?: () => unknown }).transformToWebStream !== "function") {
-      throw new Error("S3 GetObject returned no body");
-    }
-    return (body as { transformToWebStream: () => ReadableStream<Uint8Array> }).transformToWebStream();
-  } catch (error) {
-    const name = error instanceof Error ? error.name : "";
-    if (name === "NotFound" || name === "NoSuchKey") return null;
-    throw error;
-  }
-}
-
-export function remuxTemporaryObjectKey(project: string, jobId: string): string {
-  return `remux/${project}/${jobId}.mp4`;
-}
-
 function sourceArtifactTemporaryObjectKey(project: string, jobId: string, leaseToken: string, kind: string): string {
   return `source-processing/${project}/${jobId}/${leaseToken}/${kind}`;
 }
@@ -149,66 +88,6 @@ export async function promoteSourceArtifact(project: string, jobId: string, leas
 
 export async function deleteSourceArtifactTemporary(project: string, jobId: string, leaseToken: string, kind: string): Promise<void> {
   const config = loadConfig(); await getS3Client().send(new DeleteObjectCommand({ Bucket: config.s3Bucket, Key: sourceArtifactTemporaryObjectKey(project, jobId, leaseToken, kind) }));
-}
-
-export async function presignTemporaryRemuxPut(project: string, jobId: string): Promise<string> {
-  const config = loadConfig();
-  return getSignedUrl(getS3Client(), new PutObjectCommand({
-    Bucket: config.s3Bucket,
-    Key: remuxTemporaryObjectKey(project, jobId),
-    ContentType: "video/mp4",
-  }), { expiresIn: PRESIGNED_URL_TTL_SEC });
-}
-
-export async function temporaryRemuxHead(project: string, jobId: string): Promise<StorageHead | null> {
-  const config = loadConfig();
-  try {
-    const result = await getS3Client().send(new HeadObjectCommand({
-      Bucket: config.s3Bucket, Key: remuxTemporaryObjectKey(project, jobId),
-    }));
-    return { size: Number(result.ContentLength ?? 0) };
-  } catch {
-    return null;
-  }
-}
-
-export async function temporaryRemuxSha256(project: string, jobId: string): Promise<string> {
-  const config = loadConfig();
-  const result = await getS3Client().send(new GetObjectCommand({
-    Bucket: config.s3Bucket, Key: remuxTemporaryObjectKey(project, jobId),
-  }));
-  const body = result.Body;
-  if (!body || typeof (body as { transformToWebStream?: () => unknown }).transformToWebStream !== "function") {
-    throw new Error("S3 GetObject returned no body");
-  }
-  const reader = (body as { transformToWebStream: () => ReadableStream<Uint8Array> }).transformToWebStream().getReader();
-  const hash = createHash("sha256");
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      hash.update(value);
-    }
-  } finally { reader.releaseLock(); }
-  return hash.digest("hex");
-}
-
-export async function promoteTemporaryRemux(project: string, jobId: string, videoId: string, ext: string): Promise<void> {
-  const config = loadConfig();
-  await getS3Client().send(new CopyObjectCommand({
-    Bucket: config.s3Bucket,
-    CopySource: `${config.s3Bucket}/${remuxTemporaryObjectKey(project, jobId)}`,
-    Key: storageObjectKey("video", project, videoId, ext),
-    ContentType: "video/mp4",
-    MetadataDirective: "REPLACE",
-  }));
-}
-
-export async function deleteTemporaryRemux(project: string, jobId: string): Promise<void> {
-  const config = loadConfig();
-  await getS3Client().send(new DeleteObjectCommand({
-    Bucket: config.s3Bucket, Key: remuxTemporaryObjectKey(project, jobId),
-  }));
 }
 
 /** HeadBucket smoke check used at startup. */
