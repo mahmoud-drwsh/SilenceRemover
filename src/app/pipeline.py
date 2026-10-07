@@ -21,7 +21,6 @@ from src.core.constants import (
 )
 from src.core.paths import (
     get_completed_path,
-    get_completed_output_filename,
     get_snippet_path,
     get_title_path,
     get_transcript_path,
@@ -36,10 +35,8 @@ from src.startup import StartupContext, build_startup_context
 
 from sr_snippet import create_silence_removed_snippet
 from sr_telegram_notify import (
-    notify_audio_uploaded,
     notify_final_encoding_started,
     notify_final_output_ready,
-    notify_video_uploaded,
 )
 from sr_title import generate_title_from_transcript
 from sr_transcription import transcribe_and_save
@@ -400,97 +397,11 @@ def run_remote_transcription_and_title_phase(
 
 @dataclass(frozen=True)
 class ServerDataCache:
-    """Unified server data fetched once at pipeline start."""
-    audio_files: dict[str, dict]
-    video_files: dict[str, dict]
+    """Server originals fetched once at pipeline start."""
     original_files: dict[str, dict]
-    audio_trash_ids: frozenset[str]
-    video_trash_ids: frozenset[str]
-    ready_audio_ids: frozenset[str]
-    
-    @property
-    def audio_count(self) -> int:
-        return len(self.audio_files)
-    
-    @property
-    def video_count(self) -> int:
-        return len(self.video_files)
-    
-    def get_audio(self, file_id: str) -> dict | None:
-        return self.audio_files.get(file_id)
-    
-    def get_video(self, file_id: str) -> dict | None:
-        return self.video_files.get(file_id)
-
-    def get_no_overlay_video(self, source_id: str) -> dict | None:
-        return self.video_files.get(no_overlay_video_id(source_id))
 
     def has_original(self, file_id: str) -> bool:
         return file_id in self.original_files
-    
-    def is_audio_trash(self, file_id: str) -> bool:
-        return file_id in self.audio_trash_ids
-    
-    def is_video_trash(self, file_id: str) -> bool:
-        return file_id in self.video_trash_ids
-    
-    def is_audio_ready(self, file_id: str) -> bool:
-        return file_id in self.ready_audio_ids
-
-
-_server_data_cache: ServerDataCache | None = None
-NO_OVERLAY_VIDEO_SUFFIX = "-no-overlay"
-
-
-def no_overlay_video_id(source_id: str) -> str:
-    """Return the stable Media Manager ID for the clean derived video."""
-    return f"{source_id}{NO_OVERLAY_VIDEO_SUFFIX}"
-
-
-def run_audio_upload_phase(
-    video_path: Path,
-    temp_dir: Path,
-    video_index: int,
-    total_videos: int,
-    server_cache: ServerDataCache | None,
-) -> bool | None:
-    basename = video_path.stem
-    file_id = basename
-    title_path = get_title_path(temp_dir, basename)
-    snippet_path = get_snippet_path(temp_dir, basename)
-    
-    def _perform() -> None:
-        fresh_title = title_path.read_text(encoding='utf-8').strip()
-        client = MediaManagerClient(os.getenv('MEDIA_MANAGER_URL'))
-        try:
-            result = client.upload_audio(
-                file_id, fresh_title, snippet_path, 
-                tags=['todo'],
-                progress_callback=_build_upload_progress_callback(
-                    label="Audio Upload",
-                    video_path=video_path,
-                    video_index=video_index,
-                    total_videos=total_videos,
-                ),
-                source_id=video_path.stem,
-            )
-            if result:
-                notify_audio_uploaded(
-                    video_index=video_index,
-                    total_videos=total_videos,
-                    input_name=video_path.name,
-                    title=fresh_title,
-                )
-        finally:
-            client.close()
-    
-    return _run_phase_step(
-        video_path=video_path,
-        work_fn=_perform,
-        video_index=video_index,
-        total_videos=total_videos,
-        label="Audio Upload",
-    )
 
 
 def run_original_upload_phase(
@@ -631,122 +542,20 @@ def run_trim_script_generation_phase(
 
 
 def _rebuild_server_cache(media_manager_url: str) -> ServerDataCache | None:
-    """Rebuild server cache from API. Used between phases to get fresh server state."""
+    """Fetch the server originals once. Return None when the server is not available."""
     try:
         client = MediaManagerClient(media_manager_url)
         try:
-            all_audio = client.get_audio_files(include_trash=True)
-            all_videos = client.get_video_files(
-                include_trash=True,
-                include_pending=True,
-            )
-            all_originals = client.get_original_files()
-
-            audio_files = {}
-            audio_trash = set()
-            ready_audio = set()
-
-            for audio in all_audio:
-                aid = audio.get('id')
-                if aid:
-                    audio_files[aid] = audio
-                    tags = audio.get('tags', [])
-                    if isinstance(tags, list):
-                        if 'trash' in tags:
-                            audio_trash.add(aid)
-                        if 'ready' in tags:
-                            ready_audio.add(aid)
-
-            video_files = {}
-            video_trash = set()
-
-            for video in all_videos:
-                vid = video.get('id')
-                if vid:
-                    video_files[vid] = video
-                    tags = video.get('tags', [])
-                    if isinstance(tags, list) and 'trash' in tags:
-                        video_trash.add(vid)
-
             original_files = {
                 original_id: original
-                for original in all_originals
+                for original in client.get_original_files()
                 if (original_id := original.get('id'))
             }
-
-            return ServerDataCache(
-                audio_files=audio_files,
-                video_files=video_files,
-                original_files=original_files,
-                audio_trash_ids=frozenset(audio_trash),
-                video_trash_ids=frozenset(video_trash),
-                ready_audio_ids=frozenset(ready_audio),
-            )
+            return ServerDataCache(original_files=original_files)
         finally:
             client.close()
     except Exception:
         return None
-
-
-def run_no_overlay_video_upload_phase(
-    video_path: Path,
-    output_dir: Path,
-    temp_dir: Path,
-    video_index: int,
-    total_videos: int,
-) -> bool | None:
-    """Upload the one encoded no-overlay video with its title and original link."""
-    basename = video_path.stem
-    title_text = get_title_path(temp_dir, basename).read_text(encoding="utf-8").strip()
-    output_basename = get_completed_output_filename(temp_dir, basename) or sanitize_filename(title_text)
-    output_path = output_dir / f"{output_basename}.mp4"
-
-    def _perform() -> None:
-        client = MediaManagerClient(os.getenv("MEDIA_MANAGER_URL"))
-        try:
-            result = client.upload_video(
-                no_overlay_video_id(basename),
-                title_text,
-                output_path,
-                tags=[],
-                progress_callback=_build_upload_progress_callback(
-                    label="No-Overlay Upload",
-                    video_path=video_path,
-                    video_index=video_index,
-                    total_videos=total_videos,
-                ),
-                skip_if_exists_with_title=True,
-                source_id=basename,
-                media_variant='no-overlay',
-                visibility='active',
-                publication_status='published',
-            )
-            if isinstance(result, dict) and not result.get("success", False):
-                raise RuntimeError(f"No-overlay video upload failed: {result.get('error') or 'unknown error'}")
-            uploaded = (
-                bool(result)
-                if isinstance(result, bool)
-                else bool(result.get("uploaded"))
-                if isinstance(result, dict)
-                else False
-            )
-            if uploaded:
-                notify_video_uploaded(
-                    video_index=video_index,
-                    total_videos=total_videos,
-                    input_name=video_path.name,
-                    title=title_text,
-                )
-        finally:
-            client.close()
-
-    return _run_phase_step(
-        video_path=video_path,
-        work_fn=_perform,
-        video_index=video_index,
-        total_videos=total_videos,
-        label="No-Overlay Upload",
-    )
 
 
 def run(args: argparse.Namespace | None = None) -> StartupContext:
@@ -776,17 +585,11 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         _run_phase(videos=videos, phase=upload_phase)
         return startup
 
-    # Horizontal processing consumes the service only for the transient LLM
-    # request. It must not enter any of the Media Manager file/upload phases.
+    # Without the Media Manager upload path, all phases are local. A horizontal
+    # run with a configured Media Manager uses the service only for the
+    # transient title request. The PC uploads no derived artifact.
     remote_title_service_enabled = media_manager_enabled and local_title_and_trim_only
-    media_manager_enabled = False
 
-    # Fetch all server data once for legacy client-owned upload phases.
-    server_cache = None
-    if media_manager_enabled:
-        server_cache = _rebuild_server_cache(os.getenv('MEDIA_MANAGER_URL') or '')
-
-    videos = startup.videos
     if not videos:
         return startup
 
@@ -795,27 +598,6 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
         if not title_path.exists():
             return ""
         return title_path.read_text(encoding="utf-8").strip()
-
-    def _audio_meta(video_file: Path) -> dict:
-        if server_cache is None:
-            return {}
-        audio = server_cache.get_audio(video_file.stem)
-        return audio if isinstance(audio, dict) else {}
-
-    def _no_overlay_video_meta(video_file: Path) -> dict:
-        if server_cache is None:
-            return {}
-        video = server_cache.get_no_overlay_video(video_file.stem)
-        return video if isinstance(video, dict) else {}
-
-    def _no_overlay_output_path(video_file: Path) -> Path | None:
-        output_basename = get_completed_output_filename(temp_dir, video_file.stem)
-        if output_basename is None:
-            title_text = _title_text(video_file)
-            if not title_text:
-                return None
-            output_basename = sanitize_filename(title_text)
-        return startup.output_dir / f"{output_basename}.mp4"
 
     def _trim_script_path(video_file: Path) -> Path:
         return get_trim_script_path(
@@ -954,57 +736,6 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 str(get_title_path(temp_dir, video_file.stem)),
             ],
         ),
-        _PipelinePhase(
-            4,
-            "Original Upload",
-            lambda video_file, vi, vn: run_original_upload_phase(
-                video_path=video_file,
-                video_index=vi,
-                total_videos=vn,
-            ),
-            skip_reason=lambda video_file: original_upload_skip_reason(
-                video_file, server_cache
-            ),
-            checked_paths=lambda video_file: [f"server:original/{video_file.stem}"],
-        ),
-        # Phase 5 - Audio Upload. It follows original delivery so every remote
-        # derived artifact has a source_id.
-        _PipelinePhase(
-            5,
-            "Audio Upload",
-            lambda video_file, vi, vn: run_audio_upload_phase(
-                video_path=video_file,
-                temp_dir=temp_dir,
-                video_index=vi,
-                total_videos=vn,
-                server_cache=server_cache,
-            ),
-            skip_reason=lambda video_file: (
-                "media manager disabled"
-                if server_cache is None
-                else (
-                    "audio marked trash on server"
-                    if server_cache.is_audio_trash(video_file.stem)
-                    else (
-                        "snippet/title missing (run phases 2-3 first)"
-                        if not (
-                            is_title_done(temp_dir, video_file.stem)
-                            and is_snippet_done(temp_dir, video_file.stem)
-                        )
-                        else (
-                            "audio already exists on server"
-                            if _audio_meta(video_file)
-                            else None
-                        )
-                    )
-                )
-            ),
-            checked_paths=lambda video_file: [
-                str(get_snippet_path(temp_dir, video_file.stem)),
-                str(get_title_path(temp_dir, video_file.stem)),
-                f"server:audio/{video_file.stem}",
-            ],
-        ),
         # Phase 8 - Final Encode: the one encode. It makes the no-overlay video.
         _PipelinePhase(
             8,
@@ -1057,51 +788,9 @@ def run(args: argparse.Namespace | None = None) -> StartupContext:
                 str(_snippet_trim_script_path(video_file)),
             ],
         ),
-        # Phase 12 - No-overlay video upload
-        _PipelinePhase(
-            12,
-            "No-Overlay Upload",
-            lambda video_file, vi, vn: run_no_overlay_video_upload_phase(
-                video_path=video_file,
-                output_dir=startup.output_dir,
-                temp_dir=temp_dir,
-                video_index=vi,
-                total_videos=vn,
-            ),
-            skip_reason=lambda video_file: (
-                "final encode not completed"
-                if not is_completed(temp_dir, video_file.stem)
-                else "no-overlay encode missing"
-                if (output_path := _no_overlay_output_path(video_file)) is None or not output_path.is_file()
-                else (
-                    "media manager disabled"
-                    if server_cache is None
-                    else (
-                        "no-overlay video already exists on server"
-                        if _no_overlay_video_meta(video_file)
-                        else None
-                    )
-                )
-            ),
-            checked_paths=lambda video_file: [
-                str(_no_overlay_output_path(video_file) or (startup.output_dir / f"{video_file.stem}.mp4")),
-                f"server:video/{no_overlay_video_id(video_file.stem)}",
-            ],
-        ),
     )
-
-    # Horizontal recordings stay local by design. They still need a transcript
-    # to generate a title, and they produce the one no-overlay output with no
-    # Media Manager operations.
-    if local_title_and_trim_only:
-        local_phase_indexes = {0, 1, 2, 3, 8}
-        phases = tuple(phase for phase in phases if phase.index in local_phase_indexes)
 
     for phase in phases:
         _run_phase(videos=videos, phase=phase)
-        # Rebuild the cache after the video upload so that later phases see
-        # fresh server state.
-        if media_manager_enabled and phase.index == 12:
-            server_cache = _rebuild_server_cache(os.getenv('MEDIA_MANAGER_URL') or '')
 
     return startup

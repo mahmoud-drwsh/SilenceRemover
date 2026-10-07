@@ -80,7 +80,7 @@ With `--local-title-and-trim-only` (horizontal recordings), the work stays on th
 - **Phase 3, Title Generation**: Make the title from the transcript.
 - **Phase 8, Final Encode**: Make the no-overlay video. The encode writes the title into the video metadata. The copy shortcut also writes the metadata title.
 
-This mode does no Media Manager upload. Without `MEDIA_MANAGER_URL` and without the local flag, the pipeline also lists Phase 4 (Original Upload), Phase 5 (Audio Upload) and Phase 12 (No-Overlay Upload), but these phases skip with "media manager disabled".
+This mode does no Media Manager upload. Without `MEDIA_MANAGER_URL`, the pipeline runs the same phases. The PC pipeline never uploads the review audio or the no-overlay video.
 
 The pipeline does not pull edited titles back from the Media Manager.
 
@@ -207,7 +207,7 @@ output/                    # Sibling to input-directory
 The tool maintains state in files under **`output/temp/`** to avoid reprocessing videos:
 
 - **Per-video markers**: `output/temp/trim_scripts/{script_key}.ffscript`, `output/temp/transcript/{basename}.txt`, `output/temp/title/{basename}.txt`, and `output/temp/completed/{basename}.txt`
-- **Automatic Skip**: Trim script generation is skipped if the expected final/snippet trim scripts already exist; if only the final script exists from an older cache, the snippet script is derived from it without rerunning silence analysis. snippet creation is skipped if the snippet exists; transcription is skipped if the transcript exists with non-whitespace text; title generation is skipped if the title exists; the upload steps are skipped if the server already has the original or the audio; the final encode is skipped if the completed marker exists; the no-overlay upload is skipped if the local MP4 is missing or the server already has the no-overlay video. See `docs/SKIP_CONDITIONS.yaml`. (Whitespace-only or unreadable transcript files are treated as **not** done for transcription.)
+- **Automatic Skip**: Trim script generation is skipped if the expected final/snippet trim scripts already exist; if only the final script exists from an older cache, the snippet script is derived from it without rerunning silence analysis. snippet creation is skipped if the snippet exists; transcription is skipped if the transcript exists with non-whitespace text; title generation is skipped if the title exists; the final encode is skipped if the completed marker exists; the original upload is skipped if the server already has the original. See `docs/SKIP_CONDITIONS.yaml`. (Whitespace-only or unreadable transcript files are treated as **not** done for transcription.)
 - **Manual Reset**: Delete corresponding files under `output/temp/transcript`, `output/temp/title`, and `output/temp/completed` to reprocess specific videos.
 
 ## Supported Formats
@@ -241,7 +241,7 @@ The main code lives under `src/` and `packages/`:
 - `packages/sr_filename/`: filename sanitization utilities (import as `sr_filename`).
 - `packages/sr_ffmpeg_cmd_builder/`: FFmpeg/FFprobe command builders (import as `sr_ffmpeg_cmd_builder`).
 - `packages/sr_filter_graph/`: FFmpeg trim and concat filter graph construction (import as `sr_filter_graph`).
-- `packages/sr_media_manager/`: Media Manager API client for the pipeline workflow (originals, review audio, and no-overlay video uploads) (import as `sr_media_manager`). Replaces old `sr_mp3_manager`.
+- `packages/sr_media_manager/`: Media Manager API client for the PC pipeline (import as `sr_media_manager`). It uploads originals and sends the review snippet for transient title analysis.
 - `packages/sr_progress_formatter/`: FFmpeg progress output formatting (import as `sr_progress_formatter`).
 - `packages/sr_silence_detection/`: silence detection and interval processing (import as `sr_silence_detection`).
 - `packages/sr_threshold_selection/`: threshold selection algorithms (import as `sr_threshold_selection`).
