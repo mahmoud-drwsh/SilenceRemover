@@ -38,6 +38,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
 import { rehearseOriginalRootedBackfill } from "../originalRootedRehearsal.ts";
+import { normalizedTagsSql, videoVariantSql } from "../videoSql.ts";
 
 export const filesRouter = new Hono();
 
@@ -375,20 +376,7 @@ export function excludedVideoVariantTags(
 export const VIDEO_VIEWS: ReadonlySet<string> = new Set(["all", "needs-designer", "designer", "pending", "trash"]);
 export const REMOVED_VIDEO_VIEWS: ReadonlySet<string> = new Set(["pipeline-final", "no-overlay"]);
 
-export function normalizedTagsSql(alias: string): string {
-  return `(CASE WHEN jsonb_typeof(${alias}.tags) = 'string' THEN (${alias}.tags #>> '{}')::jsonb ELSE ${alias}.tags END)`;
-}
-
-/**
- * The media variant of a video row. Legacy rows without the explicit column
- * use the same rules as the video tag-state migration.
- */
-export function videoVariantSql(alias: string): string {
-  return `COALESCE(${alias}.media_variant, CASE
-    WHEN ${alias}.designer_of_id IS NOT NULL OR ${normalizedTagsSql(alias)} @> '["designer"]'::jsonb THEN 'designer'
-    WHEN ${normalizedTagsSql(alias)} @> '["no-overlay"]'::jsonb OR ${alias}.id LIKE '%-no-overlay' THEN 'no-overlay'
-    ELSE 'pipeline-final' END)`;
-}
+export { normalizedTagsSql, videoVariantSql };
 
 /* ========================================================================== */
 /* Legacy designer-link fallback (#44): remove after the data move.           */
