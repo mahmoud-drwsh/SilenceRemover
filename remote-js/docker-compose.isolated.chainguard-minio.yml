@@ -1,0 +1,26 @@
+# Optional override for docker-compose.isolated.yml.
+# Use it when the minio/minio and minio/mc images are not available from
+# Docker Hub. It runs the Chainguard MinIO image and makes the bucket with the
+# app image, because the Chainguard client image has no shell.
+#   docker compose -f docker-compose.isolated.yml -f docker-compose.isolated.chainguard-minio.yml ...
+services:
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    command: ["server", "/tmp/minio-data", "--console-address", ":9001"]
+
+  minio-init:
+    image: !reset null
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: ["/bin/sh"]
+    command:
+      - -ec
+      - |
+        cat > /app/make-bucket.ts <<'TS'
+        import { CreateBucketCommand, S3Client } from "@aws-sdk/client-s3";
+        const client = new S3Client({ endpoint: "http://minio:9000", region: "us-east-1", forcePathStyle: true, credentials: { accessKeyId: "minioadmin", secretAccessKey: "minioadmin" } });
+        try { await client.send(new CreateBucketCommand({ Bucket: "media-manager" })); }
+        catch (error) { if (!["BucketAlreadyOwnedByYou", "BucketAlreadyExists"].includes((error as Error).name)) throw error; }
+        TS
+        until bun run /app/make-bucket.ts; do sleep 1; done
