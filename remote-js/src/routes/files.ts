@@ -945,22 +945,24 @@ filesRouter.put("/projects/:token/:project/api/files/:id", async (c) => {
     tags = ["todo"];
   }
 
+  // The tags are JSON text. A `$1::jsonb` parameter makes postgres.js encode
+  // the text again, so the row gets a JSON string and the CASE tests fail.
   await sql.begin(async (tx) => {
     if (title !== undefined) {
       await tx.unsafe(
         `UPDATE ${ident}.files
-           SET tags = $1::jsonb, title = $2,
-               visibility = CASE WHEN $1::jsonb @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END,
-               review_status = CASE WHEN $5 = 'audio' THEN CASE WHEN $1::jsonb @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END ELSE review_status END
+           SET tags = $1::text::jsonb, title = $2,
+               visibility = CASE WHEN $1::text::jsonb @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END,
+               review_status = CASE WHEN $5 = 'audio' THEN CASE WHEN $1::text::jsonb @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END ELSE review_status END
            WHERE id = $3 AND project = $4 AND type = $5`,
         [JSON.stringify(tags), title, id, project, rowType],
       );
     } else {
       await tx.unsafe(
         `UPDATE ${ident}.files
-           SET tags = $1::jsonb,
-               visibility = CASE WHEN $1::jsonb @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END,
-               review_status = CASE WHEN $4 = 'audio' THEN CASE WHEN $1::jsonb @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END ELSE review_status END
+           SET tags = $1::text::jsonb,
+               visibility = CASE WHEN $1::text::jsonb @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END,
+               review_status = CASE WHEN $4 = 'audio' THEN CASE WHEN $1::text::jsonb @> '["ready"]'::jsonb THEN 'approved' ELSE 'todo' END ELSE review_status END
            WHERE id = $2 AND project = $3 AND type = $4`,
         [JSON.stringify(tags), id, project, rowType],
       );
