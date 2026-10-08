@@ -188,7 +188,7 @@ function isPending(row: VideoRow): boolean {
   return parseTags(row.tags).includes("pending");
 }
 
-/** Effective state of a row, with the same rules as visibilitySql and publicationStatusSql. */
+/** Effective state of a row: each column, else its legacy tag (`trash`, `pending`). */
 export function cardState(row: VideoRow): CardState {
   return {
     visibility: isTrashed(row) ? "trash" : "active",

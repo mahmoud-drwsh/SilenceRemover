@@ -25,8 +25,3 @@ export function videoVariantSql(alias: string): string {
 export function visibilitySql(alias: string): string {
   return `COALESCE(${alias}.visibility, CASE WHEN ${normalizedTagsSql(alias)} @> '["trash"]'::jsonb THEN 'trash' ELSE 'active' END)`;
 }
-
-/** Effective publication status of a video row: the column, else the `pending` tag. */
-export function publicationStatusSql(alias: string): string {
-  return `COALESCE(${alias}.publication_status, CASE WHEN ${normalizedTagsSql(alias)} @> '["pending"]'::jsonb THEN 'pending' ELSE 'published' END)`;
-}
