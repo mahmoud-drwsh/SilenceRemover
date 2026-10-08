@@ -6,8 +6,9 @@
 # internal network, publishes no host ports, and is removed with "down -v".
 #
 # Usage: tests/integration/run_isolated_fresh.sh [flow ...]
-#   flow: originals | canonical-card | source-processing | data-move
-#   No flow runs all four flows.
+#   flow: originals | canonical-card | source-processing | data-move | views-perf
+#   No flow runs the first four flows. views-perf times the video views of a
+#   large project (#51); run it by name.
 # Set ISOLATED_MINIO=dockerhub to use the minio/minio images of the base file
 # instead of the Chainguard MinIO override.
 set -uo pipefail
@@ -57,6 +58,8 @@ run_flow() {
   case "$flow" in
     originals) "${compose[@]}" run --rm --no-deps integration ;;
     canonical-card) "${compose[@]}" run --rm --no-deps canonical-card-integration ;;
+    views-perf) "${compose[@]}" run --rm --no-deps -e VIEWS_PERF_MAX_MS="${VIEWS_PERF_MAX_MS:-300}" \
+      canonical-card-integration python /tests/video_views_perf.py ;;
     source-processing) "${compose[@]}" run --rm --no-deps source-processing-integration ;;
     data-move)
       "${compose[@]}" exec -T app mkdir -p /app/tests/integration &&
