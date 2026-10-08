@@ -271,6 +271,8 @@ expect_http_error(400, lambda: request("/api/uploads/initiate", "POST", {
 source_e = f"canonical-e-{run_id}"
 card_e = upload_no_overlay(source_e, "Approved E")
 request(f"/api/files/{card_e}?type=video", "PUT", {"tags": ["trash"]}).read()
+# The PUT stores the tags as a JSON array and sets the visibility column.
+assert row_state(card_e) == 'Approved E|trash|published|["trash"]', row_state(card_e)
 
 # Case F: the card is pending.
 source_f = f"canonical-f-{run_id}"
@@ -284,7 +286,7 @@ assert card_e not in card_ids
 assert card_for(cards, card_f)["publication_status"] == "pending"
 
 trash_view = {item["id"]: item for item in video_list("&view=trash")}
-assert card_e in trash_view and trash_view[card_e]["visibility"] == "trash"
+assert card_e in trash_view and trash_view[card_e]["visibility"] == "trash", (card_e, trash_view, row_state(card_e))
 assert card_c not in trash_view
 assert card_e in {item["id"] for item in video_list("&include_trash=true")}
 pending_view = {item["id"] for item in video_list("&view=pending")}
