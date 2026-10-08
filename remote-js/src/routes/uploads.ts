@@ -15,7 +15,7 @@ import {
   presignUploadPart, createMultipartUpload, storageGet, uploadMultipartPart,
 } from "../storage.ts";
 import { verifyMediaToken } from "../http.ts";
-import { assertSourceOriginalExists, canonicalVideoTitleSql, cardStateSql, commitUploadMetadata, legacyOverlaidJoinSql, parseUploadTags, resolveUploadOverwrite, videoVariantSql } from "./files.ts";
+import { assertSourceOriginalExists, commitUploadMetadata, parseUploadTags, resolveUploadOverwrite, videoVariantSql } from "./files.ts";
 import { visibilitySql } from "../videoSql.ts";
 import { enqueueSourceProcessing } from "./sourceProcessing.ts";
 
@@ -79,13 +79,11 @@ async function resolveDesignerTarget(project: string, targetId: string): Promise
   const sql = getDb(); const ident = schemaIdent();
   // The no-overlay video is the only designer target (#44). The revision
   // inherits the approved title of its card, not a variant title.
-  // While a legacy overlaid row exists, it holds the card state.
   const target = (await sql.unsafe<{ id: string; source_id: string | null; title: string | null; media_variant: string | null; visibility: string }[]>(
-    `SELECT designer_target.id, designer_target.source_id, ${canonicalVideoTitleSql("designer_target", "legacy")} AS title,
+    `SELECT designer_target.id, designer_target.source_id, designer_target.title,
             ${videoVariantSql("designer_target")} AS media_variant,
-            ${cardStateSql("legacy", "visibility", visibilitySql("designer_target"))} AS visibility
+            ${visibilitySql("designer_target")} AS visibility
        FROM ${ident}.files AS designer_target
-       ${legacyOverlaidJoinSql(ident, "designer_target")}
       WHERE designer_target.id = $1 AND designer_target.project = $2 AND designer_target.type = 'video'
         AND designer_target.designer_of_id IS NULL AND designer_target.id NOT LIKE '%-designer'`,
     [targetId, project],

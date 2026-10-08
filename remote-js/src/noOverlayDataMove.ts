@@ -10,11 +10,18 @@
  * This module does no I/O. The operator script in
  * `scripts/no_overlay_data_move.ts` reads the rows, prints the plan and applies it
  * with guarded SQL. Keep this file independent of the routes, because the routes
- * change in the same release. The shared SQL rules are in `videoSql.ts`, which
- * has no route side effects.
+ * change in the same release. The routes no longer read legacy overlaid rows
+ * (#51), so the legacy title rule lives only here.
  */
 
-import { cardTitleNeedsLegacy } from "./videoSql.ts";
+/** Title suffix of the no-overlay rows that the old PC pipeline made. */
+export const LEGACY_NO_OVERLAY_TITLE_SUFFIX = " (No Overlay)";
+
+/** True when the card title must give way to the legacy overlaid title. */
+export function cardTitleNeedsLegacy(title: string | null | undefined): boolean {
+  const trimmed = title?.trim() ?? "";
+  return trimmed === "" || trimmed.endsWith(LEGACY_NO_OVERLAY_TITLE_SUFFIX);
+}
 
 export const LEGACY_DESIGNER_SUFFIX = "-designer";
 export const NO_OVERLAY_SUFFIX = "-no-overlay";
@@ -181,7 +188,7 @@ function isPending(row: VideoRow): boolean {
   return parseTags(row.tags).includes("pending");
 }
 
-/** Effective state of a row, with the same rules as visibilitySql and publicationStatusSql. */
+/** Effective state of a row: each column, else its legacy tag (`trash`, `pending`). */
 export function cardState(row: VideoRow): CardState {
   return {
     visibility: isTrashed(row) ? "trash" : "active",
@@ -385,8 +392,8 @@ export function planNoOverlayDataMove(videos: VideoRow[]): DataMovePlan {
   }
 
   // Title and state: the overlaid row was the card. When more than one
-  // overlaid row has the same no-overlay row, use the same primary row as the
-  // read path (legacyOverlaidOrderSql): not in trash first, then the newest.
+  // overlaid row has the same no-overlay row, use the primary row that the
+  // old read path used: not in trash first, then the newest.
   const primary = new Map<string, VideoRow>();
   for (const row of overlaidRows) {
     const companionId = companions.get(key(row.project, row.id))!.companion_id;
@@ -444,7 +451,7 @@ export function stateCopy(overlaid: VideoRow, companion: VideoRow): StateCopy | 
 
 /**
  * Sort order of overlaid rows: not in trash first, then the newest, then the
- * ID. Keep it the same as legacyOverlaidOrderSql in videoSql.ts.
+ * ID. The old read path used the same order.
  */
 function preferOverlaid(a: VideoRow, b: VideoRow): number {
   return Number(isTrashed(a)) - Number(isTrashed(b)) || time(b.created_at) - time(a.created_at) || a.id.localeCompare(b.id);

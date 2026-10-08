@@ -11,20 +11,13 @@ import { parseRangeHeader } from "./range.ts";
 import {
   addTagListConditions,
   excludedVideoVariantTags,
-  activeDesignerRevisionSql,
-  canonicalVideoTitleSql,
-  cardStateSql,
-  cardTrashConditionSql,
-  designerLinkSql,
-  legacyOverlaidJoinSql,
-  writeThroughLegacyOverlaid,
   REMOVED_VIDEO_VIEWS,
   VIDEO_VIEWS,
   mapUploadMetadataInsertError,
   parseContentLengthHeader,
 } from "./routes/files.ts";
 import { normalizeTitle, sanitizeFileId, sanitizeFilename } from "./sanitize.ts";
-import { cardTitleNeedsLegacy, cardTitleNeedsLegacySql, legacyOverlaidMatchSql } from "./videoSql.ts";
+import { cardTitleNeedsLegacy } from "./noOverlayDataMove.ts";
 import { AUDIO_TAGS, VIDEO_TAGS, HttpError, validateVideoTags } from "./schemas.ts";
 import {
   ALLOWED_MIME,
@@ -206,94 +199,33 @@ describe("video virtual views", () => {
   });
 });
 
-describe("legacy designer-link fallback (#44)", () => {
-  test("designer links match the card and each legacy overlaid row, by ID probes", () => {
-    const link = designerLinkSql("s", "source", "candidate");
-    expect(link).toContain("candidate.designer_of_id = source.id");
-    expect(link).toContain("legacy_link.id = candidate.designer_of_id");
-    expect(link).toContain("legacy_link.id = left(candidate.id, -length('-designer'))");
-    expect(link).toContain("legacy_link.source_id = source.source_id");
+describe("designer links after the #44 data move (#51)", () => {
+  test("the routes have no legacy overlaid fallback", async () => {
+    const filesRoute = await Bun.file(new URL("./routes/files.ts", import.meta.url)).text();
+    const stream = await Bun.file(new URL("./routes/stream.ts", import.meta.url)).text();
+    const uploads = await Bun.file(new URL("./routes/uploads.ts", import.meta.url)).text();
+    const videoSql = await Bun.file(new URL("./videoSql.ts", import.meta.url)).text();
+    for (const text of [filesRoute, stream, uploads, videoSql]) {
+      expect(text).not.toMatch(/legacyOverlaid|designerLinkSql|activeDesignerRevisionSql|canonicalVideoTitleSql|cardStateSql|cardTrashConditionSql|writeThroughLegacyOverlaid|legacy_visibility/);
+    }
+    expect(filesRoute).not.toContain("Legacy designer-link fallback");
   });
 
-  test("one lateral finds the primary legacy overlaid row", () => {
-    const join = legacyOverlaidJoinSql("s", "source");
-    expect(join).toMatch(/^LEFT JOIN LATERAL \(/);
-    expect(join).toContain("FROM s.files AS legacy_row");
-    expect(join).toContain("legacy_row.id = left(source.id, -length('-no-overlay'))");
-    expect(join).toContain("LIMIT 1");
-    expect(join).toMatch(/\) AS legacy ON TRUE$/);
-    // No column of the lateral has the name project, type or tags, so the
-    // unqualified columns of addTagListConditions stay unambiguous.
-    const columns = join.slice(join.indexOf("SELECT"), join.indexOf("FROM s.files"));
-    expect(columns).not.toMatch(/AS (project|type|tags)\b|legacy_row\.\*/);
+  test("each designer-link check is an index-friendly equality on the card ID", async () => {
+    const filesRoute = await Bun.file(new URL("./routes/files.ts", import.meta.url)).text();
+    expect(filesRoute).toContain("AND designer_candidate.designer_of_id = source.id");
+    expect(filesRoute.split("AND candidate.designer_of_id=source.id AND candidate.type='video'").length).toBe(3);
+    expect(filesRoute).toContain("AND candidate.designer_of_id = source.id");
+    expect(filesRoute).toContain("AND candidate.id = active_designer.id");
+    expect(filesRoute).toContain("THEN source.active_designer_revision_id END AS id");
+    expect(filesRoute).toContain("FROM ${ident}.files AS source WHERE ${whereClause}");
   });
 
-  test("the card pointer wins over the legacy overlaid pointer", () => {
-    expect(activeDesignerRevisionSql("source", "legacy"))
-      .toBe("COALESCE(source.active_designer_revision_id, legacy.active_designer_revision_id)");
-  });
-
-  test("the card title wins unless it is blank or has the old suffix", () => {
-    const title = canonicalVideoTitleSql("source", "legacy");
-    expect(title).toContain(cardTitleNeedsLegacySql("source"));
-    expect(title).toContain("COALESCE(BTRIM(legacy.title), '') <> ''");
-    expect(title).toMatch(/ELSE source\.title END\)$/);
+  test("the data move keeps the legacy title rule", () => {
     expect(cardTitleNeedsLegacy(null)).toBe(true);
     expect(cardTitleNeedsLegacy("  ")).toBe(true);
     expect(cardTitleNeedsLegacy("Approved (No Overlay)")).toBe(true);
     expect(cardTitleNeedsLegacy("Renamed")).toBe(false);
-  });
-
-  test("the legacy overlaid row holds the card state while it exists", () => {
-    expect(cardStateSql("legacy", "visibility", "X"))
-      .toBe("(CASE WHEN legacy.id IS NOT NULL THEN legacy.visibility ELSE X END)");
-    const conditions = ["project = $1"];
-    const params: (string | number | boolean | null | string[])[] = ["temp"];
-    addTagListConditions({
-      conditions, params, tagList: null, includeTrash: false, includePending: false,
-      trashCondition: cardTrashConditionSql("legacy"),
-    });
-    expect(conditions.at(-1)).toBe(
-      "NOT ((CASE WHEN legacy.id IS NOT NULL THEN legacy.visibility = 'trash' ELSE CASE WHEN jsonb_typeof(tags) = 'string' THEN (tags #>> '{}')::jsonb ELSE tags END @> CAST($2 AS jsonb) END))",
-    );
-  });
-
-  test("list, count, views, publish, PUT, DELETE, stream and designer target use the lateral", async () => {
-    const filesRoute = await Bun.file(new URL("./routes/files.ts", import.meta.url)).text();
-    const stream = await Bun.file(new URL("./routes/stream.ts", import.meta.url)).text();
-    const uploads = await Bun.file(new URL("./routes/uploads.ts", import.meta.url)).text();
-    expect(filesRoute).toContain("FROM ${ident}.files AS source ${legacyJoin} WHERE ${whereClause}");
-    expect(filesRoute).toContain("FROM ${ident}.files AS source\n     ${legacyJoin}");
-    expect(filesRoute).toContain("if (view === \"trash\") conditions.push(`${visibilityExpr} = 'trash'`)");
-    expect(filesRoute).toContain("if (view === \"pending\") conditions.push(`${publicationExpr} = 'pending'`)");
-    expect(filesRoute).toContain("trashCondition: cardTrashConditionSql(\"legacy\")");
-    expect(filesRoute).toContain("writeThroughLegacyOverlaid(tx, ident, project, id, { publicationStatus: \"published\" })");
-    expect(filesRoute).toContain("trash: tags.includes(\"trash\")");
-    expect(filesRoute).toContain("legacyOverlaidJoinSql(ident, \"file\")");
-    expect(stream).toContain("legacyOverlaidJoinSql(ident, \"file\", \"file_legacy\")");
-    expect(uploads).toContain("cardStateSql(\"legacy\", \"visibility\", visibilitySql(\"designer_target\"))");
-  });
-
-  test("write-through changes the legacy overlaid rows in the same transaction", async () => {
-    const statements: { query: string; params: unknown[] }[] = [];
-    const tx = { unsafe: async (query: string, params: unknown[]) => { statements.push({ query, params }); return [{ id: "s" }]; } };
-    const changed = await writeThroughLegacyOverlaid(tx as never, "s", "p", "s-no-overlay", { trash: true, publicationStatus: "published", title: "New" });
-    expect(changed).toBe(1);
-    const { query, params } = statements[0]!;
-    expect(query).toContain("UPDATE s.files AS legacy");
-    expect(query).toContain("- 'trash') || CASE WHEN $3::boolean THEN '[\"trash\"]'::jsonb ELSE '[]'::jsonb END");
-    expect(query).toContain("visibility = CASE WHEN $3::boolean THEN 'trash' ELSE 'active' END");
-    expect(query).toContain("publication_status = $4");
-    expect(query).toContain("title = $5");
-    expect(query).toContain(legacyOverlaidMatchSql("card", "legacy"));
-    expect(params).toEqual(["s-no-overlay", "p", true, "published", "New"]);
-    expect(await writeThroughLegacyOverlaid(tx as never, "s", "p", "s-no-overlay", {})).toBe(0);
-    expect(statements.length).toBe(1);
-  });
-
-  test("the fallback lives in one marked block", async () => {
-    const filesRoute = await Bun.file(new URL("./routes/files.ts", import.meta.url)).text();
-    expect(filesRoute.split("Legacy designer-link fallback (#44): remove after the data move.").length).toBe(2);
   });
 });
 
@@ -324,7 +256,7 @@ describe("explicit video lifecycle", () => {
     expect(html).toContain("document.getElementById('designer-title').value = targetTitle");
     expect(html).not.toContain("${targetTitle} (Designer)");
     expect(uploads).toContain("title: target.title");
-    expect(uploads).toContain("canonicalVideoTitleSql(\"designer_target\", \"legacy\")");
+    expect(uploads).toContain("designer_target.title,");
     expect(uploads).toContain('target.media_variant !== "no-overlay"');
     expect(stream).toContain("canonical_download_title");
   });
@@ -566,7 +498,7 @@ describe("frontend Media Manager UI", () => {
     expect(html).toContain("'needs-designer': '✨ Needs Designer'");
     expect(html).toContain("&view=${encodeURIComponent(currentFilter)}");
     expect(filesRoute).toContain("view === \"needs-designer\"");
-    expect(filesRoute).toContain('AND candidate.type=\'video\' AND ${designerLinkSql(ident, "source", "candidate")}');
+    expect(filesRoute).toContain("AND candidate.designer_of_id=source.id AND candidate.type='video'");
   });
 
   test("an explicit All URL is not replaced by the designer queue", async () => {

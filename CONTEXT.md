@@ -17,7 +17,7 @@
 - **Canonical video card**: The single list entry for an original's no-overlay video. The designer video and the original are linked actions on the same card. They are never independent list entries.
 - **Review audio**: The audio file used to review and approve a generated title. It is derived media linked directly to the original, not to a video.
 - **Silence-removed video**: A derived video produced by removing detected silence according to the pipeline's trim policy. The no-overlay video is the only silence-removed video that the pipeline makes.
-- **Legacy designer link**: A designer revision that points at an old overlaid video ID (`<source_id>`) or uses the old `-designer` ID suffix. A temporary fallback shows these revisions on the correct card. The data move (see `docs/no-overlay-data-move-runbook.md`) moves these links to the no-overlay ID. After the data move, the fallback can be removed.
+- **Legacy designer link**: A designer revision that points at an old overlaid video ID (`<source_id>`) or uses the old `-designer` ID suffix. The data move (see `docs/no-overlay-data-move-runbook.md`) moved these links to the no-overlay ID. The read and write paths do not use legacy links (#51). A designer revision shows on a card only when its `designer_of_id` is the no-overlay ID.
 - **Retired output**: The overlaid video, the title banner, the project logo, the subtitle SRT, the selectable subtitle track, and the remux job are removed. Only legacy rows and the data move use these terms.
 
 ## Pipeline state
