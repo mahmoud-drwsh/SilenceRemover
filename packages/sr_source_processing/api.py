@@ -84,6 +84,9 @@ _SAFE_PATH_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 # idle, it encodes the title-independent no-overlay video for such jobs.
 _AWAITING_REVIEW_MARKER = "awaiting-title-review.json"
 _PRERENDER_BASENAME = "no-overlay.prerender"
+# Change this when the encode command changes in a way that the encoder args do not show.
+# Version 2: constant frame rate and the hvc1 tag (browser-playable HEVC).
+_PRERENDER_FORMAT = 2
 
 
 class SourceProcessingWorker:
@@ -331,7 +334,8 @@ class SourceProcessingWorker:
     def _prerender_key(self, original_checksum: str, segments: list[tuple[float, float]]) -> str:
         encoder = get_encoder_config(self.config.encoder)
         return json.dumps(
-            {"checksum": original_checksum, "segments": segments, "codec": encoder["codec"], "args": encoder["args"]},
+            {"checksum": original_checksum, "segments": segments, "codec": encoder["codec"], "args": encoder["args"],
+             "format": _PRERENDER_FORMAT},
             sort_keys=True, separators=(",", ":"),
         )
 

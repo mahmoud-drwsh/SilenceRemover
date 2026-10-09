@@ -95,6 +95,7 @@ def build_final_trim_command(
     use_qsv_hardware_path: bool = False,
     use_vaapi_hardware_path: bool = False,
     metadata_title: str | None = None,
+    frame_rate: str | None = None,
 ) -> list[str]:
     """Build final video trim + encode command.
 
@@ -102,6 +103,11 @@ def build_final_trim_command(
     filter graph can use ``[1:a]`` for silent-audio segment lengths.
 
     ``video_map_pad`` names the video filter output pad (default ``outv``).
+
+    ``frame_rate`` is the source frame rate (for example ``30/1``). The concat
+    filter drops the frame rate, and FFmpeg 7 then gives the encoder a 1 MHz time
+    base. x265 then writes level 6.x, which many hardware decoders refuse.
+    HEVC output gets the ``hvc1`` tag, because Safari does not play ``hev1``.
     """
     config = get_encoder_config(encoder)
     codec = config["codec"]
@@ -114,6 +120,11 @@ def build_final_trim_command(
     cmd.extend(["-map", f"[{video_map_pad}]", "-map", "[outa]"])
     cmd.extend(["-c:v", codec])
     cmd.extend(codec_args)
+    if frame_rate is not None:
+        cmd.extend(["-fps_mode", "cfr", "-r", frame_rate])
+    if "hevc" in codec or codec == "libx265":
+        cmd.extend(["-tag:v", "hvc1"])
+    cmd.extend(["-movflags", "+faststart"])
     cmd.extend(["-c:a", "aac", "-b:a", AUDIO_BITRATE, "-progress", "pipe:1", "-nostats", "-loglevel", "error"])
     if metadata_title is not None:
         cmd.extend(["-metadata", f"title={metadata_title}"])
