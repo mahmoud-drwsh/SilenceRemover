@@ -14,6 +14,7 @@ from src.ffmpeg.silence_removed_runner import (
 )
 from src.ffmpeg.filter_graph import write_filter_graph_script
 from src.ffmpeg.trim_script_bundle import load_trim_script
+from src.ffmpeg.probing import probe_video_codec_and_frame_rate
 from src.ffmpeg.runner import run
 from src.core.paths import get_processing_video_path
 
@@ -42,8 +43,11 @@ def _copy_input_video(
 def set_metadata_title(video_path: Path, title: str) -> None:
     """Set the container title with a stream copy. Do not re-encode video or audio."""
     replacement = video_path.with_name(f"{video_path.stem}.titled.mp4")
+    codec, _rate = probe_video_codec_and_frame_rate(video_path)
+    # Safari plays HEVC in MP4 only with the hvc1 tag.
+    tag = ["-tag:v", "hvc1"] if codec == "hevc" else []
     cmd = build_ffmpeg_cmd(
-        True, "-v", "error", "-i", str(video_path), "-map", "0", "-c", "copy",
+        True, "-v", "error", "-i", str(video_path), "-map", "0", "-c", "copy", *tag,
         "-metadata", f"title={title}", "-movflags", "+faststart", str(replacement),
     )
     try:
@@ -134,6 +138,8 @@ def trim_single_video(
             set_metadata_title(copied_output_file, metadata_title)
         return copied_output_file
 
+    _source_codec, source_frame_rate = probe_video_codec_and_frame_rate(input_file)
+
     def _run_final_encode(*, use_hw_path: bool) -> Path:
         processing_output = get_processing_video_path(temp_dir_resolved, basename)
         processing_output.parent.mkdir(parents=True, exist_ok=True)
@@ -152,6 +158,7 @@ def trim_single_video(
                 use_qsv_hardware_path=use_hw_path,
                 use_vaapi_hardware_path=use_vaapi_hardware_path,
                 metadata_title=metadata_title,
+                frame_rate=source_frame_rate,
             )
 
         run_silence_removed_media_with_script(

@@ -81,6 +81,28 @@ def probe_video_dimensions(input_file: Path) -> tuple[int, int]:
     return width, height
 
 
+def probe_video_codec_and_frame_rate(input_file: Path) -> tuple[str | None, str | None]:
+    """Return (codec_name, r_frame_rate) of the first video stream, or None for unknown values."""
+    result = run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,r_frame_rate",
+         "-of", "json", str(input_file)],
+        capture_output=True, check=False,
+    )
+    if result.returncode != 0:
+        return None, None
+    try:
+        stream = (json.loads(result.stdout).get("streams") or [{}])[0]
+    except (ValueError, IndexError):
+        return None, None
+    codec = stream.get("codec_name") or None
+    rate = stream.get("r_frame_rate") or None
+    if rate is not None:
+        num, _, den = rate.partition("/")
+        if not (num.isdigit() and den.isdigit() and int(num) > 0 and int(den) > 0):
+            rate = None
+    return codec, rate
+
+
 def can_run_encoder(codec: str, codec_args: Sequence[str] = ()) -> bool:
     """Check whether the given codec can run in a minimal encode test."""
     import subprocess
