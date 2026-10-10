@@ -122,8 +122,42 @@ test("the total deadline stops retries before the caller gives up", async () => 
   const started = Date.now();
   await expect(analyzeReviewOgg(new Uint8Array([1]), {
     apiKey: "k", baseUrl: PROVIDER_BASE_URL, transcriptionModel: "a", transcriptionFallbackModel: "b", titleModel: "t",
-    timeoutMs: 60_000, maxAttempts: 3, deadlineMs: 1_500,
+    timeoutMs: 60_000, maxAttempts: 3, deadlineMs: 3_000,
   }, fakeFetch)).rejects.toThrow(ReviewAnalysisError);
-  expect(Date.now() - started).toBeLessThan(3_000);
+  // Transcription gets half of a short deadline; the rest is kept for the title.
+  expect(Date.now() - started).toBeLessThan(2_500);
   expect(calls).toBe(1);
+});
+
+test("the transcription endpoint text is kept even when it is short", async () => {
+  const fakeFetch: ReviewAnalysisFetcher = async (input) => (
+    String(input).endsWith("/audio/transcriptions") ? new Response(JSON.stringify({ text: "نشيد" })) : titleResponse()
+  );
+  await expect(analyzeReviewOgg(oggWithDuration(100), {
+    apiKey: "k", baseUrl: PROVIDER_BASE_URL, transcriptionModel: "stt", titleModel: "title",
+  }, fakeFetch)).resolves.toEqual({ transcript: "نشيد", title: arabicGolden.title });
+});
+
+test("a null provider body uses the fallback model", async () => {
+  const fakeFetch: ReviewAnalysisFetcher = async (input, init) => {
+    if (String(input).endsWith("/audio/transcriptions")) return new Response(JSON.stringify({ text: arabicGolden.transcript }));
+    return JSON.parse(String(init?.body)).model === "main" ? new Response("null") : titleResponse();
+  };
+  await expect(analyzeReviewOgg(new Uint8Array([1]), {
+    apiKey: "k", baseUrl: PROVIDER_BASE_URL, transcriptionModel: "stt", titleModel: "main", titleFallbackModel: "backup",
+  }, fakeFetch)).resolves.toEqual(arabicGolden);
+});
+
+test("diacritics do not count toward the chat transcript length", async () => {
+  // 35 characters per second with full tashkeel is 20 without it.
+  const vocalized = "بِسْمِ ".repeat(300);
+  const fakeFetch: ReviewAnalysisFetcher = async (input, init) => {
+    const body = JSON.parse(String(init?.body));
+    if (Array.isArray(body.messages[0].content)) return new Response(JSON.stringify({ choices: [{ message: { content: vocalized } }] }));
+    return titleResponse();
+  };
+  const result = await analyzeReviewOgg(oggWithDuration(60), {
+    apiKey: "k", baseUrl: PROVIDER_BASE_URL, transcriptionModel: "chat:audio", titleModel: "title",
+  }, fakeFetch);
+  expect(result.transcript).toBe(vocalized.trim());
 });

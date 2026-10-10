@@ -44,6 +44,8 @@ const MIN_CHARS_PER_SECOND = 3;
 const MAX_CHARS_PER_SECOND = 30;
 const MIN_CHECKED_SECONDS = 15;
 const MIN_ARABIC_LETTER_SHARE = 0.7;
+// The title step keeps this part of the deadline, so a slow transcription cannot use all of it.
+const TITLE_RESERVE_MS = 25_000;
 
 interface ProviderPolicy {
   fetcher: ReviewAnalysisFetcher;
@@ -117,15 +119,16 @@ export function oggDurationSeconds(audio: Uint8Array): number | null {
   return null;
 }
 
-/** Reject text that a chat model wrote instead of a transcript. */
-function checkedTranscript(text: string, durationSeconds: number | null): string {
-  const letters = text.replace(/[\s\p{P}\p{N}]/gu, "");
-  const arabicLetters = letters.match(/[؀-ۿ]/g)?.length ?? 0;
+/** Reject text that a chat model wrote instead of a transcript. Diacritics are not counted. */
+function checkedChatTranscript(text: string, durationSeconds: number | null): string {
+  const bare = text.replace(/\p{Mn}/gu, "");
+  const letters = bare.replace(/[\s\p{P}\p{N}\p{S}]/gu, "");
+  const arabicLetters = letters.match(/\p{Script=Arabic}/gu)?.length ?? 0;
   if (letters.length > 0 && arabicLetters / letters.length < MIN_ARABIC_LETTER_SHARE) {
     throw new ReviewAnalysisError("Provider returned a transcript that is not Arabic");
   }
   if (durationSeconds !== null && durationSeconds >= MIN_CHECKED_SECONDS) {
-    const charsPerSecond = text.length / durationSeconds;
+    const charsPerSecond = bare.length / durationSeconds;
     if (charsPerSecond < MIN_CHARS_PER_SECOND || charsPerSecond > MAX_CHARS_PER_SECOND) {
       throw new ReviewAnalysisError("Provider returned a transcript with an unexpected length");
     }
@@ -135,7 +138,8 @@ function checkedTranscript(text: string, durationSeconds: number | null): string
 
 async function transcribe(policy: ProviderPolicy, model: string, base64Audio: string, durationSeconds: number | null): Promise<string> {
   let text: unknown;
-  if (model.startsWith(CHAT_MODEL_PREFIX)) {
+  const chatModel = model.startsWith(CHAT_MODEL_PREFIX);
+  if (chatModel) {
     const completion = await providerJson(policy, "/chat/completions", {
       model: model.slice(CHAT_MODEL_PREFIX.length),
       messages: [{ role: "user", content: [
@@ -143,17 +147,18 @@ async function transcribe(policy: ProviderPolicy, model: string, base64Audio: st
         { type: "input_audio", input_audio: { data: base64Audio, format: "ogg" } },
       ] }],
       max_tokens: 8192, temperature: 0, stream: false,
-    }) as { choices?: Array<{ message?: { content?: unknown } }> };
-    text = completion.choices?.[0]?.message?.content;
+    }) as { choices?: Array<{ message?: { content?: unknown } }> } | null;
+    text = completion?.choices?.[0]?.message?.content;
   } else {
     const transcription = await providerJson(policy, "/audio/transcriptions", {
       model, input_audio: { data: base64Audio, format: "ogg" }, language: "ar", temperature: 0,
-    }) as { text?: unknown };
-    text = transcription.text;
+    }) as { text?: unknown } | null;
+    text = transcription?.text;
   }
   const transcript = requiredText(text, "transcript");
   if (transcript.length > 200_000) throw new ReviewAnalysisError("Provider returned an oversized transcript");
-  return checkedTranscript(transcript, durationSeconds);
+  // Only a chat model can summarize or reply; keep the transcription endpoint's text as it is.
+  return chatModel ? checkedChatTranscript(transcript, durationSeconds) : transcript;
 }
 
 async function generateTitle(policy: ProviderPolicy, model: string, transcript: string): Promise<string> {
@@ -161,8 +166,8 @@ async function generateTitle(policy: ProviderPolicy, model: string, transcript: 
     model,
     messages: [{ role: "user", content: TITLE_PROMPT + transcript }],
     max_tokens: 256, temperature: 0, stream: false,
-  }) as { choices?: Array<{ message?: { content?: unknown } }> };
-  const title = requiredText(completion.choices?.[0]?.message?.content, "title");
+  }) as { choices?: Array<{ message?: { content?: unknown } }> } | null;
+  const title = requiredText(completion?.choices?.[0]?.message?.content, "title");
   if (title.includes("\n") || title.length > 1_000) throw new ReviewAnalysisError("Provider returned an invalid title");
   return title;
 }
@@ -185,9 +190,10 @@ export async function analyzeReviewOgg(
   const policy: ProviderPolicy = { fetcher, config, timeoutMs, maxAttempts, deadline: Date.now() + deadlineMs };
   const base64Audio = Buffer.from(audio).toString("base64");
   const durationSeconds = oggDurationSeconds(audio);
+  const transcriptionPolicy = { ...policy, deadline: policy.deadline - Math.min(TITLE_RESERVE_MS, deadlineMs / 2) };
   const transcript = await firstValid(
     [config.transcriptionModel, config.transcriptionFallbackModel],
-    (model) => transcribe(policy, model, base64Audio, durationSeconds),
+    (model) => transcribe(transcriptionPolicy, model, base64Audio, durationSeconds),
   );
   const title = await firstValid(
     [config.titleModel, config.titleFallbackModel],
