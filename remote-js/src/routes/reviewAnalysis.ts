@@ -3,7 +3,7 @@
 import { Hono, type Context } from "hono";
 import { loadConfig } from "../config.ts";
 import { verifyMediaToken } from "../http.ts";
-import { analyzeReviewOgg, type ReviewAnalysis } from "../reviewAnalysis.ts";
+import { analyzeReviewOgg, ReviewAnalysisError, type ReviewAnalysis } from "../reviewAnalysis.ts";
 import { HttpError } from "../schemas.ts";
 import { verifySourceProcessingWorkerToken } from "./sourceProcessing.ts";
 
@@ -85,7 +85,7 @@ export function createReviewAnalysisRouter(overrides?: Partial<AdapterDependenci
       return c.json({ ok: true, ...result });
     } catch (error) {
       if (error instanceof HttpError) return c.json({ detail: error.message }, error.status as 400, error.headers);
-      console.error("[review-analysis] provider failed");
+      console.error(`[review-analysis] provider failed: ${error instanceof ReviewAnalysisError ? error.message : "unexpected error"}`);
       return c.json({ detail: "Server-side snippet analysis failed" }, 502);
     }
   }

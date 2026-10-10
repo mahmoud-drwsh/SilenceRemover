@@ -83,11 +83,14 @@ async function providerJson(policy: ProviderPolicy, path: string, payload: objec
         }
       }
       if (!TRANSIENT_STATUS.has(response.status) || attempt === policy.maxAttempts) {
-        throw new ReviewAnalysisError("Review-analysis provider request failed");
+        throw new ReviewAnalysisError(`Review-analysis provider request failed (HTTP ${response.status})`);
       }
     } catch (error) {
       if (error instanceof ReviewAnalysisError) throw error;
-      if (attempt === policy.maxAttempts) throw new ReviewAnalysisError("Review-analysis provider request failed");
+      if (attempt === policy.maxAttempts) {
+        const reason = error instanceof Error && error.name === "TimeoutError" ? "timeout" : "network error";
+        throw new ReviewAnalysisError(`Review-analysis provider request failed (${reason})`);
+      }
     }
   }
   throw new ReviewAnalysisError("Review-analysis provider request failed");
@@ -102,6 +105,8 @@ async function firstValid<T>(models: Array<string | undefined>, run: (model: str
       return await run(model);
     } catch (error) {
       if (!(error instanceof ReviewAnalysisError)) throw error;
+      // The message holds only our own text and the HTTP status, never provider bodies or keys.
+      console.warn(`[review-analysis] model=${JSON.stringify(model)} failed: ${error.message}`);
       lastError = error;
     }
   }
