@@ -58,7 +58,10 @@ export interface AppConfig {
   openRouterApiKey?: string;
   openRouterBaseUrl?: string;
   openRouterTranscriptionModel: string;
+  openRouterTranscriptionFallbackModel?: string;
   openRouterTitleModel: string;
+  openRouterTitleFallbackModel?: string;
+  reviewAnalysisDeadlineMs: number;
   reviewAnalysisTimeoutMs: number;
   reviewAnalysisMaxAttempts: number;
   reviewAnalysisPublicRateLimitWindowSec: number;
@@ -98,8 +101,11 @@ export function loadConfig(): AppConfig {
     sourceProcessingProfile: readEnv("SOURCE_PROCESSING_PROFILE") ?? "v1",
     openRouterApiKey: readEnv("OPENROUTER_API_KEY"),
     openRouterBaseUrl: readEnv("OPENROUTER_BASE_URL"),
-    openRouterTranscriptionModel: readEnv("OPENROUTER_TRANSCRIPTION_MODEL") ?? "qwen/qwen3-asr-flash-2026-02-10",
-    openRouterTitleModel: readEnv("OPENROUTER_TITLE_MODEL") ?? "google/gemini-3-flash-preview",
+    openRouterTranscriptionModel: readEnv("OPENROUTER_TRANSCRIPTION_MODEL") ?? "chat:google/gemini-3.5-flash-lite",
+    openRouterTranscriptionFallbackModel: readEnv("OPENROUTER_TRANSCRIPTION_FALLBACK_MODEL") ?? "elevenlabs/scribe-v2",
+    openRouterTitleModel: readEnv("OPENROUTER_TITLE_MODEL") ?? "google/gemma-4-31b-it",
+    openRouterTitleFallbackModel: readEnv("OPENROUTER_TITLE_FALLBACK_MODEL") ?? "google/gemini-3.8-flash",
+    reviewAnalysisDeadlineMs: readPositiveInteger("REVIEW_ANALYSIS_DEADLINE_MS", 110_000),
     reviewAnalysisTimeoutMs: readPositiveInteger("REVIEW_ANALYSIS_TIMEOUT_MS", 20_000),
     reviewAnalysisMaxAttempts: readPositiveInteger("REVIEW_ANALYSIS_MAX_ATTEMPTS", 3),
     reviewAnalysisPublicRateLimitWindowSec: readPositiveInteger("REVIEW_ANALYSIS_PUBLIC_RATE_LIMIT_WINDOW_SEC", 60),

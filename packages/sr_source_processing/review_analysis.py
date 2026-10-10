@@ -7,6 +7,10 @@ from pathlib import Path
 import httpx
 
 
+# Media Manager tries a main and a fallback model within 110 s, so wait longer.
+REVIEW_ANALYSIS_TIMEOUT_SEC = 150.0
+
+
 class ReviewAnalysisError(RuntimeError):
     """The authenticated Media Manager review-analysis contract failed."""
 
@@ -21,6 +25,7 @@ def analyze_review_ogg(
                 endpoint,
                 headers={"X-Source-Processing-Token": worker_token},
                 files={"snippet": ("review.ogg", stream, "audio/ogg")},
+                timeout=REVIEW_ANALYSIS_TIMEOUT_SEC,
             )
         response.raise_for_status()
         payload = response.json()
