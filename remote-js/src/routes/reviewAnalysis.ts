@@ -46,8 +46,10 @@ function configuredDependencies(): AdapterDependencies {
       if (!config.openRouterApiKey || !config.openRouterBaseUrl) throw new HttpError(503, "Server-side snippet analysis is not configured");
       return analyzeReviewOgg(audio, {
         apiKey: config.openRouterApiKey, baseUrl: config.openRouterBaseUrl,
-        transcriptionModel: config.openRouterTranscriptionModel, titleModel: config.openRouterTitleModel,
+        transcriptionModel: config.openRouterTranscriptionModel, transcriptionFallbackModel: config.openRouterTranscriptionFallbackModel,
+        titleModel: config.openRouterTitleModel, titleFallbackModel: config.openRouterTitleFallbackModel,
         timeoutMs: config.reviewAnalysisTimeoutMs, maxAttempts: config.reviewAnalysisMaxAttempts,
+        deadlineMs: config.reviewAnalysisDeadlineMs,
       });
     },
     publicRateLimitMax: config.reviewAnalysisPublicRateLimitMax,
