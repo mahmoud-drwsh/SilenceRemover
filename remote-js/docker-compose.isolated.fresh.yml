@@ -19,10 +19,10 @@ services:
   # Fixed image names let all test stacks use the same images. The runner
   # removes the other images that have the project name.
   app:
-    image: srfresh-media-manager:local
+    image: srfresh-media-manager:${SRFRESH_TAG:-local}
 
   restore:
-    image: srfresh-media-manager:local
+    image: srfresh-media-manager:${SRFRESH_TAG:-local}
     build:
       context: .
       dockerfile: Dockerfile
@@ -33,7 +33,7 @@ services:
     command: !reset []
 
   fixture:
-    image: srfresh-media-manager:local
+    image: srfresh-media-manager:${SRFRESH_TAG:-local}
     build:
       context: .
       dockerfile: Dockerfile
@@ -51,7 +51,7 @@ services:
         condition: service_completed_successfully
 
   canonical-card-integration:
-    image: srfresh-worker:local
+    image: srfresh-worker:${SRFRESH_TAG:-local}
     volumes:
       - fixtures:/fixtures:ro
     depends_on:
@@ -59,7 +59,7 @@ services:
         condition: service_completed_successfully
 
   source-processing-integration:
-    image: srfresh-worker:local
+    image: srfresh-worker:${SRFRESH_TAG:-local}
     volumes:
       - fixtures:/fixtures:ro
     depends_on:

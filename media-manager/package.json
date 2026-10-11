@@ -1,0 +1,30 @@
+{
+  "name": "media-manager-next",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Media Manager service for SilenceRemover, rebuilt as one Next.js app (spec #55).",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 8080",
+    "build": "next build",
+    "start": "node server.ts",
+    "typecheck": "tsc --noEmit",
+    "seed:test-db": "node scripts/fresh-schema.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1141.0",
+    "@aws-sdk/s3-request-presigner": "3.1141.0",
+    "@smithy/node-http-handler": "4.12.1",
+    "file-type": "22.0.1",
+    "next": "16.3.6",
+    "postgres": "3.4.9",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.0",
+    "@types/react": "19.3.0",
+    "typescript": "5.9.3"
+  }
+}
