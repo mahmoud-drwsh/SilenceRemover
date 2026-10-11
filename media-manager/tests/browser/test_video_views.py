@@ -50,7 +50,12 @@ class TokenGateTest(BrowserTestCase):
         response = self.page.goto(project_url(project, "/videos", token="wrong-token"))
         self.assertEqual(response.status, 401)
         self.assertIn("text/html", response.headers["content-type"])
-        expect(self.page.locator("[data-slot=alert]")).to_contain_text("Invalid link")
+        alert = self.page.locator("[data-slot=alert]")
+        expect(alert).to_contain_text("Invalid link")
+        # The error page uses the root layout and the app stylesheet
+        # (rounded-lg = 10 px), not an unstyled fallback page.
+        expect(self.page.locator("html")).to_have_attribute("lang", "en")
+        expect(alert).to_have_css("border-top-left-radius", "10px")
 
         status, _, body = api(project, "/files?type=video", token="wrong-token")
         self.assertEqual(status, 401)
