@@ -4,8 +4,6 @@ The Media Manager service for SilenceRemover. It is one [Next.js](https://nextjs
 
 The pipeline client in [`packages/sr_media_manager/`](../packages/sr_media_manager) and the server worker use this service. The API contract (routes, methods, bodies, status codes, headers, and auth) does not change between releases.
 
-> This README tells about the service after the move into `remote-js/` (ticket #64 of spec #55). All paths in it are relative to the service folder.
-
 ## Stack
 
 - **Runtime**: Node.js 24. Node runs the `.ts` files directly (type stripping), so `server.ts` and `scripts/*.ts` use only erasable TypeScript.
@@ -28,6 +26,8 @@ node --env-file=.env server.ts     # production server on http://localhost:8080
 `server.ts` makes and updates the database schema, re-queues the interrupted originals, checks the bucket, and removes the expired upload sessions. Then it starts to listen. It does not read `.env` itself; give the variables with `--env-file` or with the shell.
 
 For UI work with hot reload, use `bun run dev` (`next dev` on port 8080). It does not run the startup steps, so start `server.ts` one time first (or apply [`scripts/setup_postgres.sql`](scripts/setup_postgres.sql)) to make the schema.
+
+To run the service and the server worker together on one host, use [`docker-compose.yml`](docker-compose.yml) with a `.env` file in this folder (see [`scripts/vps/run-compose-media-manager.sh`](../scripts/vps/run-compose-media-manager.sh)).
 
 Pages:
 
@@ -126,9 +126,9 @@ When you change the startup schema in `src/server/db.ts`, change this file too. 
 
 The Dokploy application is named `frontend`. It builds from GitHub, branch `main`, with the build path `remote-js` and the default `Dockerfile`. **Auto deploy is on: each push to `main` builds and deploys the service.** The server worker application also deploys on each push to `main` (it builds `remote-js/Dockerfile.worker` from the repository root).
 
-The image listens on port `8080`. Dokploy and Traefik terminate TLS in front of it. The image has a `HEALTHCHECK` on `/healthz`.
+The image listens on port `8080`. Dokploy and Traefik terminate TLS in front of it. The image has a `HEALTHCHECK` on `/healthz`. Do not publish port 8080. Only Traefik must reach it, because the client-IP rule trusts X-Forwarded-For from internal peers.
 
-1. Run `bun run typecheck` and `bun run build` from `remote-js/`, and `git diff --check`. Run the two test seams.
+1. Run `bun run typecheck`, `bun run test`, and `bun run build` from `remote-js/`, and `git diff --check`. Run the two test seams.
 2. Write down the image that runs now, so that you can roll back (see [Rollback](#rollback)).
 3. Confirm that production has zero non-expired active upload sessions. Wait if an upload is in progress:
 
@@ -175,6 +175,8 @@ git push origin main
 **Method 3: Dokploy rollback (optional).** Dokploy can keep each deployed image in a registry and roll back to it from the deployment list. This needs a rollback registry in the `frontend` settings. It is off now. If you turn it on before a deploy, you can roll back from the Dokploy UI.
 
 After a rollback, check that production has zero non-expired active upload sessions before you deploy again.
+
+**The first deploy of this app (spec #55).** This app replaces the previous Bun/Hono service. For this deploy, the rollback target is commit `2f1eb5b` (the last Bun/Hono deploy). Dokploy rollback (method 3) is off, so tag the running image as `<appName>:rollback-2f1eb5b` before the merge into `main`, and use method 1 or method 2. The two services use the same database schema and the same environment variables, so a rollback needs no database or environment step.
 
 ## Layout
 

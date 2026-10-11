@@ -1,6 +1,6 @@
 """Copy shadcn/ui components from saved registry JSON files into components/ui/.
 
-Usage (from media-manager/):
+Usage (from remote-js/):
   curl -sf -o <dir>/button.json https://ui.shadcn.com/r/styles/new-york-v4/button.json
   python3 -I scripts/shadcn-copy.py <dir>/button.json [...]
 

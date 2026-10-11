@@ -15,8 +15,8 @@ call `trim_single_video` with the same input and trim plan. See
 
 After a direct presigned upload, Media Manager downloads the full object into
 its temp directory, computes SHA-256, sniffs MIME, and calls `ffprobe` before
-committing metadata. See [uploads.ts](../remote-js/src/routes/uploads.ts) and
-[storage.ts](../remote-js/src/storage.ts). So completion latency includes a
+committing metadata. See [uploads.ts](../remote-js/src/server/uploads.ts) and
+[storage.ts](../remote-js/src/server/storage.ts). So completion latency includes a
 second full object read plus service disk I/O.
 
 ## Ranked opportunities

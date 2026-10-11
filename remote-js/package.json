@@ -1,8 +1,8 @@
 {
-  "name": "media-manager-next",
+  "name": "media-manager",
   "version": "0.1.0",
   "private": true,
-  "description": "Media Manager service for SilenceRemover, rebuilt as one Next.js app (spec #55).",
+  "description": "Media Manager service for SilenceRemover: one Next.js app.",
   "type": "module",
   "scripts": {
     "dev": "next dev -p 8080",
