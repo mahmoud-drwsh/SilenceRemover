@@ -1,6 +1,6 @@
 /**
  * File-row helpers for the upload routes (#60). These are the same helpers
- * as in remote-js/src/routes/files.ts, with the same export names, so that
+ * as in the old Bun service file routes/files.ts, with the same export names, so that
  * the file routes (#57, #59) can use them too.
  */
 

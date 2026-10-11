@@ -1,7 +1,7 @@
 /**
  * File update, delete, publish, and bulk audio approval (#59).
  *
- * Same behavior as remote-js/src/routes/files.ts (PUT and DELETE
+ * Same behavior as the old Bun service file routes/files.ts (PUT and DELETE
  * /api/files/:id, POST /api/files/:id/publish, POST /api/audio/approve-pending).
  * The route handler checks the media token before it calls these functions.
  */

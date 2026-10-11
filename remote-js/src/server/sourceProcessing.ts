@@ -1,7 +1,7 @@
 /**
  * Source-processing data helpers. #62 adds the worker routes and uses this
  * module. The startup re-queue and the upload enqueue (#60) are the same as
- * in remote-js/src/routes/sourceProcessing.ts.
+ * in the old Bun service file routes/sourceProcessing.ts.
  */
 
 import { randomUUID } from "node:crypto";
@@ -81,7 +81,7 @@ function jsonObject(value: unknown): unknown {
  * `SELECT *` can still return the old `srt_text` column until the data move
  * drops it. The response never includes it. A trim plan stored as JSON text
  * is returned as an object. Same as serializeJob in
- * remote-js/src/routes/sourceProcessing.ts; #62 can use it too.
+ * the old Bun service file routes/sourceProcessing.ts; #62 can use it too.
  */
 export function serializeSourceProcessingJob(row: SourceProcessingJob): SourceProcessingJob {
   const { srt_text: _removed, ...job } = row as SourceProcessingJob & { srt_text?: unknown };

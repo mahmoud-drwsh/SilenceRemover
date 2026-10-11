@@ -1,5 +1,5 @@
 /**
- * Global security headers. The values are the same as remote-js/src/security.ts.
+ * Global security headers. The values are the same as the old Bun service file security.ts.
  *
  * next.config.ts applies them to all paths through `headers()`. Next.js sets
  * config headers before the route handler runs, and a header that the handler

@@ -1,7 +1,7 @@
 /**
  * Shared HTTP helpers for the Next.js route handlers.
  *
- * - All errors are `{detail}` JSON, as in remote-js/src/index.ts.
+ * - All errors are `{detail}` JSON, as in the old Bun service file index.ts.
  * - `route()` wraps a handler: an HttpError becomes its status, its headers,
  *   and `{detail: message}`. Any other error is logged with "[ERROR]" and
  *   becomes 500 `{detail: "Internal server error"}`.

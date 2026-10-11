@@ -1,6 +1,6 @@
 /**
  * Worker routes of the durable source-processing queue (spec #55, ticket #62).
- * Same contract as remote-js/src/routes/sourceProcessing.ts: the same SQL,
+ * Same contract as the old Bun service file routes/sourceProcessing.ts: the same SQL,
  * status codes, error texts, and response shapes. Each function serves one
  * route; the route files in app/internal/source-processing/ only read the
  * path parameters and call it.

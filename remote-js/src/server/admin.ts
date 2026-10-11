@@ -1,7 +1,7 @@
 /**
  * Admin routes under /admin/:token/* (#63). Same behavior as
- * remote-js/src/routes/admin.ts and the two admin routes in
- * remote-js/src/routes/sourceProcessing.ts.
+ * the old Bun service file routes/admin.ts and the two admin routes in
+ * the old Bun service file routes/sourceProcessing.ts.
  *
  * Every admin route checks the admin token first (verifyAdminToken), so each
  * route can answer 429 (rate limit for the client IP) or 401.

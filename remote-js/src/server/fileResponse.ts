@@ -1,6 +1,6 @@
 /**
  * The FileResponse shape of the file API (read side). Ported without change
- * from remote-js/src/routes/files.ts: the row type and the row-to-response
+ * from the old Bun service file routes/files.ts: the row type and the row-to-response
  * mapping. The tag parsing and the legacy tag-to-attribute bridge are in
  * fileMetadata.ts (#60).
  */

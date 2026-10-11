@@ -2,7 +2,7 @@
  * Startup and shutdown steps of the Media Manager service.
  *
  * server.ts calls runStartup() before it opens the HTTP port. The steps and
- * their order are the same as in remote-js/src/index.ts:
+ * their order are the same as in the old Bun service file index.ts:
  *   1. load the configuration (throws on a missing required variable),
  *   2. make sure that the Postgres schema is ready,
  *   3. re-queue interrupted originals (before step 5, because the re-queue

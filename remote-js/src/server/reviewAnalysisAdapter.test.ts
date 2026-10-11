@@ -1,5 +1,5 @@
 // Run: node --test src/server/reviewAnalysisAdapter.test.ts
-// Port of remote-js/src/routes/reviewAnalysis.test.ts, with more rate-limit
+// Port of the old Bun service file routes/reviewAnalysis.test.ts, with more rate-limit
 // and error cases.
 import assert from "node:assert/strict";
 import { test } from "node:test";

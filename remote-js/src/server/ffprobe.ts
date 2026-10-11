@@ -1,6 +1,6 @@
 /**
  * Duration probing via ffprobe (Node.js child_process). Same behavior as
- * remote-js/src/ffprobe.ts: returns whole seconds, or 0 when ffprobe is
+ * the old Bun service file ffprobe.ts: returns whole seconds, or 0 when ffprobe is
  * missing, fails, or runs longer than 10 s.
  */
 

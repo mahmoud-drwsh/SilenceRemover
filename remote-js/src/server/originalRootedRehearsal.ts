@@ -1,4 +1,4 @@
-// Unchanged copy of remote-js/src/originalRootedRehearsal.ts (#58). The report
+// Unchanged copy of the old Bun service file originalRootedRehearsal.ts (#58). The report
 // shape and the plan_sha256 input (key order of "planned") must not change.
 
 import { createHash } from "node:crypto";

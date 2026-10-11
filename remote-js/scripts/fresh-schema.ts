@@ -1,7 +1,7 @@
 /**
  * Make a fresh test database for the isolated Compose stack (test use only).
  *
- * The same script as remote-js/tests/integration/fresh_schema.ts, for the
+ * The same script as the old Bun test seed of the isolated stack, for the
  * Next.js image: `node scripts/fresh-schema.ts`. It makes the schema with the
  * app's own startup bootstrap and adds the auth token rows that the flows
  * use. It uses no production data.

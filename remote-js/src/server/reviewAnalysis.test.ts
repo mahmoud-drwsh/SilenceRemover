@@ -1,5 +1,5 @@
 // Run: node --test src/server/reviewAnalysis.test.ts
-// Port of remote-js/src/reviewAnalysis.test.ts and snippetAnalysis.test.ts.
+// Port of the old Bun service file reviewAnalysis.test.ts and snippetAnalysis.test.ts.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -172,7 +172,7 @@ test("diacritics do not count toward the chat transcript length", async () => {
   assert.equal(result.transcript, vocalized.trim());
 });
 
-// From remote-js/src/snippetAnalysis.test.ts (the old compatibility names).
+// From the old Bun service file snippetAnalysis.test.ts (the old compatibility names).
 
 test("analyzeReviewOgg uses dedicated transcription then title APIs", async () => {
   const requests: Array<{ url: string; body: Record<string, unknown>; authorization: string | null }> = [];

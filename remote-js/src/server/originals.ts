@@ -1,5 +1,5 @@
 /**
- * Read-only original routes, ported from remote-js/src/routes/originals.ts
+ * Read-only original routes, ported from the old Bun service file routes/originals.ts
  * with the same SQL, checks, and response shapes. Uploads use the shared
  * upload-session API.
  *

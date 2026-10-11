@@ -1,7 +1,7 @@
 /**
  * GET /projects/:token/:project/stream/:id?type=audio|video|original
  *
- * Range-aware S3 streaming, ported from remote-js/src/routes/stream.ts with
+ * Range-aware S3 streaming, ported from the old Bun service file routes/stream.ts with
  * the same checks, SQL, and headers:
  *
  * - `type` is necessary (400). The ID is URL-decoded one more time (QUIRK:

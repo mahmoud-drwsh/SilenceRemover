@@ -1,6 +1,6 @@
 /**
  * Canonical transient Arabic review-snippet transcription and title analysis.
- * Unchanged copy of remote-js/src/reviewAnalysis.ts (spec #55, ticket #62).
+ * Unchanged copy of the old Bun service file reviewAnalysis.ts (spec #55, ticket #62).
  */
 
 export interface ReviewAnalysisConfig {

@@ -1,6 +1,6 @@
 /**
  * S3-compatible object storage wrappers. Ported without behavior changes from
- * remote-js/src/storage.ts. The code uses only the AWS SDK and node:crypto,
+ * the old Bun service file storage.ts. The code uses only the AWS SDK and node:crypto,
  * so it runs on the Node.js runtime.
  */
 

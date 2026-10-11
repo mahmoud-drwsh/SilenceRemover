@@ -1,6 +1,6 @@
 /**
  * Upload sessions for pipeline media (#60). The behavior is the same as in
- * remote-js/src/routes/uploads.ts. The route handlers in
+ * the old Bun service file routes/uploads.ts. The route handlers in
  * app/projects/[token]/[project]/api/uploads/ check the media token and call
  * these functions.
  *
@@ -392,7 +392,7 @@ async function readBoundedBody(body: ReadableStream<Uint8Array> | null, limit: n
  * PUT /projects/:token/:project/api/uploads/:sessionId/parts/:partNumber
  * (token already checked). The browser cannot PUT to S3 (CSP connect-src
  * 'self'), so the app sends each designer part to S3. Same checks, order,
- * and texts as remote-js/src/routes/uploads.ts. Returns the S3 ETag (with
+ * and texts as the old Bun service file routes/uploads.ts. Returns the S3 ETag (with
  * its quotes).
  */
 export async function uploadDesignerPart(

@@ -1,7 +1,7 @@
 /**
  * GET /projects/:token/:project/api/files (the file list).
  *
- * Ported without change from remote-js/src/routes/files.ts: the same query
+ * Ported without change from the old Bun service file routes/files.ts: the same query
  * parameters, the same order of checks, the same SQL (the lateral joins and
  * the count query use the same WHERE clause), and the same paging headers
  * (`X-Has-More`, and `X-Total-Count` only at offset 0).

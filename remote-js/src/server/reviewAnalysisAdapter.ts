@@ -1,7 +1,7 @@
 /**
  * Project and worker adapters over the canonical review-analysis module
  * (spec #55, ticket #62). Same contract as
- * remote-js/src/routes/reviewAnalysis.ts:
+ * the old Bun service file routes/reviewAnalysis.ts:
  *
  * - POST /projects/:token/:project/api/snippet-analysis (media token). A
  *   rate limit applies to each project and token: 12 starts in 60 s and 2

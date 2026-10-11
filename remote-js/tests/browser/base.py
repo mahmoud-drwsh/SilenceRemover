@@ -3,8 +3,7 @@
 The tests run in the isolated Docker Compose stack against the app service
 (MM_BASE_URL, default http://app:8080). Run them with:
 
-  MM_APP=next SRFRESH_TAG=<tag> flock ~/.claude/jobs/fbb14f0c/tmp/docker.lock \
-    remote-js/tests/integration/run_isolated_fresh.sh browser
+  SRFRESH_TAG=<tag> remote-js/tests/integration/run_isolated_fresh.sh browser
 
 Add a test: make a file test_<area>.py in this folder with a class that
 extends BrowserTestCase. Each test gets a new browser context and page
