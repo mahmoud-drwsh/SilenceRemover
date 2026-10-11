@@ -181,6 +181,8 @@ function decryptSecret(payload: string, key: Buffer): string {
 
 interface RateLimitState {
   attempts: Map<string, number[]>;
+  /** The time (seconds) of the last prune of expired keys. */
+  lastPrune?: number;
 }
 
 // The service runs as one instance, so the counters stay in memory. They are
@@ -196,6 +198,28 @@ function nowSeconds(): number {
 
 function rateLimitKey(peerIp: string, label: string): string {
   return `${peerIp}:${label.trim().toLowerCase()}`;
+}
+
+/** Prune the expired keys at most once in this time (seconds). */
+const RATE_LIMIT_PRUNE_INTERVAL_SEC = 60;
+
+/**
+ * Remove each key that has no attempt at or after `cutoff`. The stamps of a
+ * key are in time order, so the last stamp is the newest. Without this, the
+ * map keeps one key for each client IP that ever failed a login.
+ */
+export function pruneExpiredAttempts(attempts: Map<string, number[]>, cutoff: number): void {
+  for (const [key, stamps] of attempts) {
+    const newest = stamps[stamps.length - 1];
+    if (newest === undefined || newest < cutoff) attempts.delete(key);
+  }
+}
+
+function pruneRateLimitState(now: number, cutoff: number): void {
+  const last = rateLimitState.lastPrune;
+  if (last !== undefined && now - last < RATE_LIMIT_PRUNE_INTERVAL_SEC) return;
+  rateLimitState.lastPrune = now;
+  pruneExpiredAttempts(rateLimitState.attempts, cutoff);
 }
 
 export interface RateLimitTooMany {
@@ -214,6 +238,7 @@ export function checkLoginRateLimit(
   const key = rateLimitKey(peerIp, label);
   const now = nowSeconds();
   const cutoff = now - config.loginRateLimitWindowSec;
+  pruneRateLimitState(now, cutoff);
   const recent = (rateLimitState.attempts.get(key) ?? []).filter(
     (stamp) => stamp >= cutoff,
   );
@@ -227,7 +252,9 @@ export function checkLoginRateLimit(
     return { retryAfterSeconds: retryAfter };
   }
 
-  rateLimitState.attempts.set(key, recent);
+  // Keep only the attempts in the window. Do not store an empty entry.
+  if (recent.length === 0) rateLimitState.attempts.delete(key);
+  else rateLimitState.attempts.set(key, recent);
   return null;
 }
 

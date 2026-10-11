@@ -5,8 +5,16 @@ services:
       dockerfile: Dockerfile
     image: media-manager:latest
     restart: unless-stopped
+    # Publish the port on the loopback address only. src/server/clientIp.ts
+    # trusts X-Forwarded-For from a peer with an internal address. A port on
+    # all host addresses lets a client connect through the Docker gateway
+    # (an internal peer) and set its own client IP. Put a reverse proxy in
+    # front of this port. The worker uses the Compose network, not this port.
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
+    # server.ts waits up to SHUTDOWN_GRACE_MS (25 s) for the requests in
+    # progress after SIGTERM. Give it more time than that before SIGKILL.
+    stop_grace_period: 30s
     environment:
       DATABASE_URL: ${DATABASE_URL}
       DB_SCHEMA: ${DB_SCHEMA:-media_manager}

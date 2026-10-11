@@ -89,3 +89,8 @@ export function showsNavigation(section: Section, admin: boolean): boolean {
 export function apiBase(token: string, project: string): string {
   return `/projects/${encodeURIComponent(token)}/${encodeURIComponent(project)}/api`;
 }
+
+/** Path of the stream route for a file (also the download link). */
+export function streamUrl(token: string, project: string, id: string, type: "audio" | "video"): string {
+  return `/projects/${encodeURIComponent(token)}/${encodeURIComponent(project)}/stream/${encodeURIComponent(id)}?type=${type}`;
+}

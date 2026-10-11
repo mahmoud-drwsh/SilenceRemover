@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { errorText, updateFile } from "@/src/client/fileApi";
+import { streamUrl } from "@/src/client/projectUrl";
 import { formatDuration, formatMeta, formatSize } from "@/src/client/format";
 import type { FileResponse } from "@/src/client/useFileList";
 import { ConfirmAction } from "./confirm-action";
@@ -38,10 +39,6 @@ type SaveState = { kind: "idle" | "typing" | "saving" | "saved" | "error" | "not
 
 const IDLE: SaveState = { kind: "idle", text: "" };
 
-function streamUrl(token: string, project: string, id: string): string {
-  return `/projects/${encodeURIComponent(token)}/${encodeURIComponent(project)}/stream/${encodeURIComponent(id)}?type=audio`;
-}
-
 /** Pause the other players on the page, so that only one item plays. */
 function pauseOthers(event: SyntheticEvent<HTMLAudioElement>) {
   for (const player of document.querySelectorAll("audio, video")) {
@@ -58,33 +55,63 @@ export function AudioCard({ file, titleId, view, admin, token, project, apiBase,
   const [busy, setBusy] = useState(false);
   const timer = useRef<number | null>(null);
   const clearTimer = useRef<number | null>(null);
+  // The value of the autosave that waits for its timer, or null.
+  const pending = useRef<{ value: string; id: number } | null>(null);
+  // All PUT requests of this card go through this chain, one after the
+  // other. Thus an approval cannot be undone by an autosave that ends late.
+  const chain = useRef<Promise<unknown>>(Promise.resolve());
+  const mounted = useRef(true);
   // Each edit gets a new number. A save result for an older edit does not
   // change the status.
   const edit = useRef(0);
   const tags = file.tags.length > 0 ? file.tags : ["todo"];
+  // The latest values, for the unmount cleanup.
+  const latest = useRef({ apiBase, id: file.id, tags });
+  latest.current = { apiBase, id: file.id, tags };
 
-  useEffect(() => () => {
-    if (timer.current) window.clearTimeout(timer.current);
-    if (clearTimer.current) window.clearTimeout(clearTimer.current);
+  /** Send a PUT after the PUT requests that this card sent before. */
+  const put = (body: { tags: string[]; title?: string | null }) => {
+    const { apiBase: base, id } = latest.current;
+    const request = chain.current.catch(() => undefined).then(() => updateFile(base, id, "audio", body));
+    chain.current = request;
+    return request;
+  };
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (clearTimer.current) window.clearTimeout(clearTimer.current);
+      // The list can unmount the card (a reload or a tab change) before the
+      // autosave timer ends. Send the waiting save now. Do not drop it.
+      if (timer.current) window.clearTimeout(timer.current);
+      timer.current = null;
+      const waiting = pending.current;
+      pending.current = null;
+      if (waiting) put({ tags: latest.current.tags, title: waiting.value }).catch(() => undefined);
+    };
   }, []);
 
   const cancelAutosave = () => {
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = null;
+    pending.current = null;
   };
 
   const autosave = async (value: string, id: number) => {
+    timer.current = null;
+    pending.current = null;
     setSave({ kind: "saving", text: "Saving..." });
     try {
-      await updateFile(apiBase, file.id, "audio", { tags, title: value });
-      if (id !== edit.current) return;
+      await put({ tags, title: value });
+      if (!mounted.current || id !== edit.current) return;
       setSave({ kind: "saved", text: "✓ Saved" });
       if (clearTimer.current) window.clearTimeout(clearTimer.current);
       clearTimer.current = window.setTimeout(() => {
         if (id === edit.current) setSave(IDLE);
       }, SAVED_CLEAR_MS);
     } catch (err) {
-      if (id === edit.current) setSave({ kind: "error", text: `✗ Error: ${errorText(err)}` });
+      if (mounted.current && id === edit.current) setSave({ kind: "error", text: `✗ Error: ${errorText(err)}` });
     }
   };
 
@@ -93,7 +120,23 @@ export function AudioCard({ file, titleId, view, admin, token, project, apiBase,
     const id = ++edit.current;
     setSave({ kind: "typing", text: "Typing..." });
     cancelAutosave();
+    pending.current = { value, id };
     timer.current = window.setTimeout(() => void autosave(value, id), AUTOSAVE_DELAY_MS);
+  };
+
+  /** A review PUT (approve, reopen or discard). It waits for the earlier PUT requests. */
+  const send = async (body: { tags: string[]; title?: string | null }) => {
+    cancelAutosave();
+    edit.current++;
+    setBusy(true);
+    try {
+      await put(body);
+      onChanged();
+    } catch (err) {
+      if (mounted.current) setSave({ kind: "error", text: `✗ Error: ${errorText(err)}` });
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
   };
 
   const review = async (nextTags: string[]) => {
@@ -102,32 +145,10 @@ export function AudioCard({ file, titleId, view, admin, token, project, apiBase,
       setSave({ kind: "notice", text: "Enter a title before approval." });
       return;
     }
-    cancelAutosave();
-    edit.current++;
-    setBusy(true);
-    try {
-      await updateFile(apiBase, file.id, "audio", { tags: nextTags, title: value });
-      onChanged();
-    } catch (err) {
-      setSave({ kind: "error", text: `✗ Error: ${errorText(err)}` });
-    } finally {
-      setBusy(false);
-    }
+    await send({ tags: nextTags, title: value });
   };
 
-  const discard = async () => {
-    cancelAutosave();
-    edit.current++;
-    setBusy(true);
-    try {
-      await updateFile(apiBase, file.id, "audio", { tags: ["trash"] });
-      onChanged();
-    } catch (err) {
-      setSave({ kind: "error", text: `✗ Error: ${errorText(err)}` });
-    } finally {
-      setBusy(false);
-    }
-  };
+  const discard = () => send({ tags: ["trash"] });
 
   return (
     <Card role="article" aria-labelledby={titleId} data-id={file.id}>
@@ -151,7 +172,7 @@ export function AudioCard({ file, titleId, view, admin, token, project, apiBase,
           className="w-full"
           onPlay={pauseOthers}
         >
-          <source src={streamUrl(token, project, file.id)} type={file.mime_type} />
+          <source src={streamUrl(token, project, file.id, "audio")} type={file.mime_type} />
         </audio>
         <Textarea
           dir="auto"

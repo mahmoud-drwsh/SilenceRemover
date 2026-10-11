@@ -10,11 +10,12 @@
 
 import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { isVideoProvider, MediaPlayer, MediaProvider } from "@vidstack/react";
 import { DefaultVideoLayout, defaultLayoutIcons } from "@vidstack/react/player/layouts/default";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { streamUrl } from "@/src/client/projectUrl";
 
 type Props = { token: string; project: string; fileId: string; title: string };
 
@@ -28,7 +29,16 @@ function closePlayer() {
 
 export function VideoPlayer({ token, project, fileId, title }: Props) {
   const [failed, setFailed] = useState(false);
-  const src = `/projects/${encodeURIComponent(token)}/${encodeURIComponent(project)}/stream/${encodeURIComponent(fileId)}?type=video`;
+  // Give the source to the player only after hydration. On the server,
+  // Vidstack renders the source as a <source> child, and the browser starts
+  // to load it before hydration. After hydration, Vidstack loads the same
+  // source again (abort, emptied, and a new load). Thus the duration was
+  // NaN for a short time after the first "loadedmetadata", and the stream
+  // was requested two times. With the source only on the client, the
+  // browser loads it one time.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+  const src = streamUrl(token, project, fileId, "video");
   const message = !fileId ? "Missing video id." : failed ? "Unable to play this video." : null;
 
   return (
@@ -48,7 +58,7 @@ export function VideoPlayer({ token, project, fileId, title }: Props) {
           // real type from the response.
           <MediaPlayer
             title={title}
-            src={{ src, type: "video/mp4" }}
+            src={hydrated ? { src, type: "video/mp4" } : undefined}
             preload="metadata"
             playsInline
             onError={() => setFailed(true)}

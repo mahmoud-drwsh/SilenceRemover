@@ -218,6 +218,36 @@ class DesignerUploadTest(BrowserTestCase):
         expect(dialog).to_be_hidden(timeout=60000)
         self.assertIsNotNone(card_state(project, card_id)["designer_video_id"])
 
+    def test_dialog_stays_open_while_the_upload_runs(self):
+        project = new_project("designer")
+        card_id = seed_upload_card(project, "no-close", "No close title")
+        card = self.open_card(project, card_id)
+        held: list[Route] = []
+        self.page.route("**/parts/*", lambda route: held.append(route))
+
+        card.get_by_role("button", name="Upload designer video").click()
+        self.choose_file(2048)
+        dialog = self.page.get_by_role("dialog")
+        dialog.get_by_role("button", name="Upload and link").click()
+        expect(dialog.get_by_role("button", name="Cancel")).to_be_disabled()
+        expect(dialog.get_by_role("button", name="Close")).to_have_count(0)
+        # Escape and a click outside the dialog do not close it.
+        self.page.keyboard.press("Escape")
+        self.page.mouse.click(5, 5)
+        expect(dialog).to_be_visible()
+        deadline = 50
+        while not held and deadline:
+            self.page.wait_for_timeout(100)
+            deadline -= 1
+        self.assertEqual(len(held), 1)
+
+        # The error of the running upload shows in the same dialog.
+        held[0].fulfill(status=500, body="{}")
+        expect(dialog.locator("[data-slot=alert]")).to_contain_text("Upload part 1 failed")
+        expect(dialog.get_by_role("button", name="Cancel")).to_be_enabled()
+        dialog.get_by_role("button", name="Cancel").click()
+        expect(dialog).to_be_hidden()
+
     def test_already_uploaded_stops_early(self):
         project = new_project("designer")
         card_id = seed_upload_card(project, "already", "Already title")

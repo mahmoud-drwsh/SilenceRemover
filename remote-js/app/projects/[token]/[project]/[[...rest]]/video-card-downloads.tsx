@@ -16,7 +16,7 @@ import { useState, type ReactNode } from "react";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CardContent, CardFooter } from "@/components/ui/card";
-import { apiBase } from "@/src/client/projectUrl";
+import { apiBase, streamUrl } from "@/src/client/projectUrl";
 import type { FileResponse } from "@/src/client/useFileList";
 
 type Props = {
@@ -27,10 +27,6 @@ type Props = {
 
 function projectBase(token: string, project: string): string {
   return `/projects/${encodeURIComponent(token)}/${encodeURIComponent(project)}`;
-}
-
-function streamUrl(token: string, project: string, id: string): string {
-  return `${projectBase(token, project)}/stream/${encodeURIComponent(id)}?type=video`;
 }
 
 /** Path of the player page for a video. */
@@ -88,13 +84,13 @@ export function VideoCardDownloads({ file, title, token, project, children }: Pr
             </Button>
           )}
           <Button variant="outline" className="h-auto justify-start py-2" asChild>
-            <a href={streamUrl(token, project, file.id)} download>
+            <a href={streamUrl(token, project, file.id, "video")} download>
               <Label name="Silence Removed" note="Video for the designer" />
             </a>
           </Button>
           {designerId ? (
             <Button variant="outline" className="h-auto justify-start py-2" asChild>
-              <a href={streamUrl(token, project, designerId)} download>
+              <a href={streamUrl(token, project, designerId, "video")} download>
                 <Label name="Designer Video" note="Active redesign" />
               </a>
             </Button>
