@@ -81,7 +81,9 @@ export async function sourceArtifactTemporarySha256(project: string, jobId: stri
   const config = loadConfig(); const result = await getS3Client().send(new GetObjectCommand({ Bucket: config.s3Bucket, Key: sourceArtifactTemporaryObjectKey(project, jobId, leaseToken, kind) }));
   const body = result.Body; if (!body || typeof (body as { transformToWebStream?: () => unknown }).transformToWebStream !== "function") throw new Error("S3 GetObject returned no body");
   const reader = (body as { transformToWebStream: () => ReadableStream<Uint8Array> }).transformToWebStream().getReader(); const hash = createHash("sha256");
-  try { while (true) { const { done, value } = await reader.read(); if (done) break; hash.update(value); } } finally { reader.releaseLock(); }
+  try { while (true) { const { done, value } = await reader.read(); if (done) break; hash.update(value); } }
+  catch (error) { await reader.cancel().catch(() => {}); throw error; } // Close the S3 body (pool socket).
+  finally { reader.releaseLock(); }
   return hash.digest("hex");
 }
 

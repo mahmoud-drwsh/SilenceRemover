@@ -95,6 +95,86 @@ export async function verifyMediaToken(token: string): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Node HTTP server rules (used by server.ts). They copy the old Bun.serve
+// behavior.
+
+/**
+ * Timeouts of the Node HTTP server.
+ *
+ * - keepAliveTimeout = 0: Node never closes an idle keep-alive connection.
+ *   The old Bun server had `idleTimeout: 0`. Traefik keeps idle upstream
+ *   connections for 90 s. With the Node default (5 s), Node can close a
+ *   connection at the same time as Traefik sends a request on it, and
+ *   Traefik then answers 502. With 0, Node also sends no "Keep-Alive"
+ *   header (the old service sent none).
+ * - requestTimeout = 0 and timeout = 0: long uploads and long streams do
+ *   not get cut.
+ * - headersTimeout stays at the Node default (60 s). It applies only while
+ *   Node receives the headers of a request, not to an idle connection.
+ *   Node requires headersTimeout > keepAliveTimeout only when both are
+ *   more than 0.
+ */
+export function configureServerTimeouts(server: import("node:http").Server): void {
+  server.keepAliveTimeout = 0;
+  server.requestTimeout = 0;
+  server.timeout = 0;
+}
+
+/** The old Bun.serve default `maxRequestBodySize`: 128 MiB. */
+export const MAX_REQUEST_BODY_BYTES = 128 * 1024 * 1024;
+
+// The exact responses of Bun 1.3 (the old image, verified) for a body above
+// the limit: only these lines, no body (no Date, no Content-Length). Then
+// the connection closes.
+const BODY_TOO_LARGE_BY_LENGTH = "HTTP/1.1 413 Request Entity Too Large\r\nConnection: close\r\n\r\n";
+const BODY_TOO_LARGE_WHILE_READING = "HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\n\r\n";
+
+/**
+ * Apply the request body limit to one request before a route sees it. It
+ * applies to every route, as in Bun (also to the streamed designer part
+ * route).
+ *
+ * - Content-Length above the limit: send the Bun 413 and close the
+ *   connection. The body is not read. Returns true: the caller must not
+ *   handle the request.
+ * - Other bodies (for example chunked): count the bytes when Node receives
+ *   them. When the count goes above the limit, stop: send the Bun 413, close
+ *   the connection, and make the body stream fail. Returns false.
+ */
+export function enforceRequestBodyLimit(
+  req: import("node:http").IncomingMessage,
+  limit: number = MAX_REQUEST_BODY_BYTES,
+): boolean {
+  const socket = req.socket;
+  const declared = req.headers["content-length"];
+  if (declared !== undefined && Number(declared) > limit) {
+    socket.end(BODY_TOO_LARGE_BY_LENGTH, () => socket.destroy());
+    return true;
+  }
+  let received = 0;
+  let stopped = false;
+  const push = req.push;
+  // The Node HTTP parser gives each body chunk to the request stream with
+  // push(). Count the bytes there; the route reads the body as usual.
+  req.push = function (this: import("node:http").IncomingMessage, chunk: unknown, encoding?: BufferEncoding): boolean {
+    if (stopped) return false;
+    if (chunk !== null && chunk !== undefined) {
+      received += (chunk as { length: number }).length;
+      if (received > limit) {
+        stopped = true;
+        socket.end(BODY_TOO_LARGE_WHILE_READING, () => {
+          req.destroy(new Error("Request body exceeded maxRequestBodySize"));
+          socket.destroy();
+        });
+        return false;
+      }
+    }
+    return push.call(this, chunk, encoding);
+  };
+  return false;
+}
+
 /** Rate-limit label and 429 text of the admin-token check. */
 export const ADMIN_TOKEN_RATE_LIMIT_LABEL = "admin-token";
 export const ADMIN_TOO_MANY_ATTEMPTS = "Too many admin login attempts. Try again later.";

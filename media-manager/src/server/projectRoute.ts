@@ -39,3 +39,14 @@ export function projectRoute<P extends ProjectParams>(
     }
   };
 }
+
+/**
+ * GET and HEAD of a project API route that serves only other methods: the
+ * old page catch-all checked the media token first (401 for a bad token),
+ * then answered the JSON 404. This is also true for a path with a trailing
+ * slash.
+ */
+export const projectApiNotFound = projectRoute(async (_request, { token }) => {
+  await verifyMediaToken(token);
+  return notFound();
+});

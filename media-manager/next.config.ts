@@ -10,6 +10,10 @@ const nextConfig: NextConfig = {
   // The old router is strict about trailing slashes and never redirects.
   skipTrailingSlashRedirect: true,
   poweredByHeader: false,
+  // The old service did not compress responses. With compression, Next.js
+  // adds "Vary: Accept-Encoding" and removes the Content-Length of JSON
+  // bodies of 1 KiB or more. Traefik can compress if that becomes necessary.
+  compress: false,
   // No image optimizer route (it is not used, and this removes the
   // image-optimization attack surface).
   images: { unoptimized: true },

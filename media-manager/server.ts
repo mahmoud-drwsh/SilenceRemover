@@ -12,11 +12,12 @@
  *   3. Open the HTTP server on 0.0.0.0:PORT.
  *
  * Timeouts: the old Bun server used `idleTimeout: 0` (no idle timeout).
- * Node's defaults would stop a request body that takes longer than 300 s
- * (`requestTimeout`). We set `requestTimeout = 0`, so that long uploads and
- * long streams do not get cut. `server.timeout` (socket idle) is 0 by default.
- * `headersTimeout` stays at 60 s; it applies only to receiving the request
- * headers, not to the body or to the response.
+ * configureServerTimeouts() (src/server/http.ts) gives the same behavior:
+ * no keep-alive idle timeout, no request timeout, no socket timeout.
+ *
+ * Body limit: the old Bun server refused a request body above 128 MiB
+ * (`maxRequestBodySize`) before a route saw it. enforceRequestBodyLimit()
+ * (src/server/http.ts) does the same for each request, first.
  */
 
 import { readFileSync } from "node:fs";
@@ -28,7 +29,9 @@ import { SECURITY_HEADERS } from "./src/server/security.ts";
 import { CLIENT_IP_HEADER, resolveClientIp } from "./src/server/clientIp.ts";
 import { classifyAdminRequest } from "./src/server/adminPaths.ts";
 import { checkLoginRateLimit } from "./src/server/auth.ts";
-import { ADMIN_TOKEN_RATE_LIMIT_LABEL, ADMIN_TOO_MANY_ATTEMPTS } from "./src/server/http.ts";
+import {
+  ADMIN_TOKEN_RATE_LIMIT_LABEL, ADMIN_TOO_MANY_ATTEMPTS, configureServerTimeouts, enforceRequestBodyLimit,
+} from "./src/server/http.ts";
 
 const dir = import.meta.dirname;
 
@@ -56,6 +59,8 @@ function loadStandaloneConfig(): Record<string, unknown> | undefined {
  */
 const ROUTER_VARY = new Set(["rsc", "next-router-state-tree", "next-router-prefetch", "next-router-segment-prefetch", "next-url"]);
 
+const NEXT_PAGE_CACHE_CONTROL = "private, no-cache, no-store, max-age=0, must-revalidate";
+
 function adjustHeaders(req: http.IncomingMessage, res: http.ServerResponse): void {
   const writeHead = res.writeHead;
   res.writeHead = function (this: http.ServerResponse, ...args: unknown[]) {
@@ -67,6 +72,14 @@ function adjustHeaders(req: http.IncomingMessage, res: http.ServerResponse): voi
     if (req.method === "HEAD" && !this.hasHeader("accept-ranges")) this.setHeader("content-length", "0");
     const raw = this.getHeader("vary");
     const type = String(this.getHeader("content-type") ?? "");
+    // Next.js adds this Cache-Control to each dynamic HTML page. The old
+    // service sent the project and admin HTML pages with no Cache-Control
+    // (verified with the old image), so remove it. Route handlers get no
+    // Cache-Control from Next.js. RSC payloads and /_next/static assets have
+    // no old equivalent and keep their headers.
+    if (/^text\/html/.test(type) && this.getHeader("cache-control") === NEXT_PAGE_CACHE_CONTROL) {
+      this.removeHeader("cache-control");
+    }
     if (raw !== undefined && !/^text\/(html|x-component)/.test(type)) {
       const values = (Array.isArray(raw) ? raw.join(",") : String(raw))
         .split(",").map((v) => v.trim()).filter(Boolean);
@@ -164,6 +177,7 @@ async function main(): Promise<void> {
   const handle = app.getRequestHandler();
 
   const server = http.createServer((req, res) => {
+    if (enforceRequestBodyLimit(req)) return;
     if (isImageOptimizerPath(req.url) || isPageMethodNotAllowed(req.method, req.url)) {
       return sendNotFound(req, res);
     }
@@ -183,8 +197,7 @@ async function main(): Promise<void> {
       }
     });
   });
-  server.requestTimeout = 0;
-  server.timeout = 0;
+  configureServerTimeouts(server);
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
