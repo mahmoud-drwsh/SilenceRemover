@@ -128,7 +128,8 @@ export async function streamFile(request: Request, project: string, idRaw: strin
   }
 
   // Large body: pipe the S3 stream. When the client goes away, Next.js
-  // cancels this stream, which closes the S3 connection.
+  // should cancel this stream and so close the S3 connection (not verified
+  // by a test; the old Bun service had the same behavior).
   const stream = await storageGet(row.type, project, decodedId, ext, byteRange);
   return new Response(stream, { status, headers });
 }
