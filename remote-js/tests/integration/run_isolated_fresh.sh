@@ -7,12 +7,15 @@
 #
 # Usage: tests/integration/run_isolated_fresh.sh [flow ...]
 #   flow: originals | canonical-card | source-processing | client-contract |
-#         data-move | views-perf
+#         data-move | views-perf | browser
 #   No flow runs originals, canonical-card, source-processing, and
 #   client-contract (and data-move with the current service). views-perf
 #   times the video views of a large project (#51); run it by name.
 #   client-contract runs the real Python pipeline client
 #   (packages/sr_media_manager) against the app (spec #55).
+#   browser runs the Playwright tests in ../media-manager/tests/browser (only
+#   with MM_APP=next); run it by name. Set BROWSER_TESTS to run only some
+#   tests (unittest names).
 # Set ISOLATED_MINIO=dockerhub to use the minio/minio images of the base file
 # instead of the Chainguard MinIO override.
 # Set MM_APP=next to run the flows against the new Next.js app
@@ -43,7 +46,7 @@ mm_app="${MM_APP:-remote-js}"
 case "$mm_app" in
   remote-js) ;;
   next)
-    files+=(-f docker-compose.isolated.next.yml)
+    files+=(-f docker-compose.isolated.next.yml -f docker-compose.isolated.browser.yml)
     if [ "${ISOLATED_MINIO:-chainguard}" != "dockerhub" ]; then
       files+=(-f docker-compose.isolated.next.chainguard-minio.yml)
     fi
@@ -87,6 +90,12 @@ run_flow() {
       canonical-card-integration python /tests/video_views_perf.py ;;
     source-processing) "${compose[@]}" run --rm --no-deps source-processing-integration ;;
     client-contract) "${compose[@]}" run --rm --no-deps client-contract-integration ;;
+    browser)
+      if [ "$mm_app" != "next" ]; then echo "the browser flow needs MM_APP=next" >&2; return 2; fi
+      # BROWSER_TESTS selects tests, for example "test_video_views.PagingTest".
+      local tests=()
+      [ -n "${BROWSER_TESTS:-}" ] && tests=(python -m unittest -v ${BROWSER_TESTS})
+      "${compose[@]}" run --rm --no-deps --build browser-integration "${tests[@]}" ;;
     data-move)
       if [ "$mm_app" != "remote-js" ]; then echo "the data-move flow needs MM_APP=remote-js" >&2; return 2; fi
       "${compose[@]}" exec -T app mkdir -p /app/tests/integration &&

@@ -17,6 +17,9 @@ const nextConfig: NextConfig = {
   // them. server.ts loads them too, so the process uses one copy.
   serverExternalPackages: ["postgres", "file-type"],
   typescript: { tsconfigPath: "tsconfig.json" },
+  // unauthorized() and app/unauthorized.tsx: a page with a bad media token
+  // gets an HTML error page with status 401 (the API keeps the JSON 401).
+  experimental: { authInterrupts: true },
   async headers() {
     return [
       {
