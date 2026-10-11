@@ -95,22 +95,38 @@ export async function verifyMediaToken(token: string): Promise<void> {
   }
 }
 
+/** Rate-limit label and 429 text of the admin-token check. */
+export const ADMIN_TOKEN_RATE_LIMIT_LABEL = "admin-token";
+export const ADMIN_TOO_MANY_ATTEMPTS = "Too many admin login attempts. Try again later.";
+
 /**
- * Verify an admin URL token and rate-limit invalid attempts by client IP.
- * The caller gives the client IP (#63 decides the source; see the spec).
+ * Check an admin URL token for a client IP (see src/server/clientIp.ts).
+ * The rate limit comes first (no database read for a blocked client). A bad
+ * token records a failure; a good token clears the counter.
+ */
+export async function checkAdminToken(
+  clientIp: string,
+  adminToken: string,
+): Promise<"ok" | "invalid" | { retryAfterSeconds: number }> {
+  const limited = checkLoginRateLimit(clientIp, ADMIN_TOKEN_RATE_LIMIT_LABEL);
+  if (limited) return limited;
+  if (await verifyStoredToken("admin", adminToken)) {
+    clearLoginRateLimit(clientIp, ADMIN_TOKEN_RATE_LIMIT_LABEL);
+    return "ok";
+  }
+  recordFailedLogin(clientIp, ADMIN_TOKEN_RATE_LIMIT_LABEL);
+  return "invalid";
+}
+
+/**
+ * Verify an admin URL token and rate-limit invalid attempts by client IP:
+ * 429 with Retry-After, or 401 `Invalid admin token`.
  */
 export async function verifyAdminToken(clientIp: string, adminToken: string): Promise<void> {
-  const limited = checkLoginRateLimit(clientIp, "admin-token");
-  if (limited) {
-    throw new HttpError(429, "Too many admin login attempts. Try again later.", {
-      "Retry-After": String(limited.retryAfterSeconds),
-    });
-  }
-  const ok = await verifyStoredToken("admin", adminToken);
-  if (ok) {
-    clearLoginRateLimit(clientIp, "admin-token");
-    return;
-  }
-  recordFailedLogin(clientIp, "admin-token");
-  throw new HttpError(401, "Invalid admin token");
+  const result = await checkAdminToken(clientIp, adminToken);
+  if (result === "ok") return;
+  if (result === "invalid") throw new HttpError(401, "Invalid admin token");
+  throw new HttpError(429, ADMIN_TOO_MANY_ATTEMPTS, {
+    "Retry-After": String(result.retryAfterSeconds),
+  });
 }
