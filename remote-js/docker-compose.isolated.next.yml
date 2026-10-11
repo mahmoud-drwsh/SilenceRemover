@@ -33,8 +33,7 @@ services:
 
   # The client contract steps that need routes of later tickets. A pending
   # step can fail. Remove a name when its ticket adds the route:
-  # update_tags and delete_file (#59),
-  # analyze_ogg_snippet (#62).
+  # update_tags and delete_file (#59).
   client-contract-integration:
     environment:
-      CONTRACT_PENDING_STEPS: update_tags,delete_file,analyze_ogg_snippet
+      CONTRACT_PENDING_STEPS: update_tags,delete_file

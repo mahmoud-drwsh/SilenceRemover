@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "node server.ts",
     "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\"",
     "seed:test-db": "node scripts/fresh-schema.ts"
   },
   "dependencies": {
