@@ -25,6 +25,7 @@ import path from "node:path";
 import next from "next";
 import { releaseResources, runStartup } from "./src/server/startup.ts";
 import { SECURITY_HEADERS } from "./src/server/security.ts";
+import { CLIENT_IP_HEADER, resolveClientIp } from "./src/server/clientIp.ts";
 
 const dir = import.meta.dirname;
 
@@ -127,6 +128,9 @@ async function main(): Promise<void> {
     if (isImageOptimizerPath(req.url) || isPageMethodNotAllowed(req.method, req.url)) {
       return sendNotFound(req, res);
     }
+    // Route handlers have no socket address. Give them the client IP in an
+    // internal header, and replace any copy that the client sent (#63).
+    req.headers[CLIENT_IP_HEADER] = resolveClientIp(req.socket.remoteAddress, req.headers["x-forwarded-for"]);
     adjustHeaders(req, res);
     handle(req, res).catch((error: unknown) => {
       console.error("[server error]", error);
