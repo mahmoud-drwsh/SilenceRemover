@@ -81,6 +81,23 @@ function isImageOptimizerPath(url: string | undefined): boolean {
   return pathname === "/_next/image" || pathname.startsWith("/_next/image/");
 }
 
+/**
+ * Next.js renders a page for any method (a POST can also start a server
+ * action). The old service served the project pages for GET only, and the
+ * app uses no server actions. So a request with another method to a path
+ * under /projects/<token>/<project>/ that is not under ".../api" gets the
+ * JSON 404 here, before Next.js sees it. The API routes have their own
+ * method handling. (#63 adds the same rule for the admin pages, without the
+ * removed "/admin/<token>/files" routes, which have their own handler.)
+ */
+function isPageMethodNotAllowed(method: string | undefined, url: string | undefined): boolean {
+  if (method === "GET" || method === "HEAD") return false;
+  const pathname = (url ?? "").split("?", 1)[0] ?? "";
+  const parts = pathname.split("/");
+  // ["", "projects", token, project, ...rest]
+  return parts[1] === "projects" && parts.length >= 4 && parts[4] !== "api";
+}
+
 function sendNotFound(req: http.IncomingMessage, res: http.ServerResponse): void {
   const body = req.method === "HEAD" ? "" : JSON.stringify({ detail: "Not Found" });
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
@@ -107,7 +124,9 @@ async function main(): Promise<void> {
   const handle = app.getRequestHandler();
 
   const server = http.createServer((req, res) => {
-    if (isImageOptimizerPath(req.url)) return sendNotFound(req, res);
+    if (isImageOptimizerPath(req.url) || isPageMethodNotAllowed(req.method, req.url)) {
+      return sendNotFound(req, res);
+    }
     adjustHeaders(req, res);
     handle(req, res).catch((error: unknown) => {
       console.error("[server error]", error);
