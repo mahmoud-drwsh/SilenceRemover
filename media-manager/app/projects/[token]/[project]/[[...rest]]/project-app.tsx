@@ -51,6 +51,8 @@ export function ProjectApp({ token, project }: { token: string; project: string 
   const [place, setPlace] = useState<Place | null>(null);
   const [hash, setHash] = useState("");
   const [sortChoice, setSortChoice] = useState<"asc" | "desc" | null>(null);
+  // Screen-reader live region for finished card actions (the old #app-status).
+  const [announcement, setAnnouncement] = useState("");
 
   useEffect(() => {
     const onPop = () => setPlace(readPlace());
@@ -113,6 +115,7 @@ export function ProjectApp({ token, project }: { token: string; project: string 
       admin={admin}
       token={token}
       project={project}
+      announce={setAnnouncement}
     />
   ) : (
     <div role="status" className="text-muted-foreground">Loading…</div>
@@ -157,6 +160,7 @@ export function ProjectApp({ token, project }: { token: string; project: string 
       ) : (
         <main>{content}</main>
       )}
+      <div id="app-status" role="status" aria-live="polite" className="sr-only">{announcement}</div>
     </div>
   );
 }

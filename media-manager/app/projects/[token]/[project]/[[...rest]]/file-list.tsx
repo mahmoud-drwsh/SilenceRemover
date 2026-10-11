@@ -21,9 +21,11 @@ type Props = {
   admin: boolean;
   token: string;
   project: string;
+  /** Announce a finished card action (screen readers). */
+  announce: (text: string) => void;
 };
 
-export function FileList({ list, section, view, admin, token, project }: Props) {
+export function FileList({ list, section, view, admin, token, project, announce }: Props) {
   const moreButton = useRef<HTMLButtonElement>(null);
   const { loadMore, loadingMore, loadMoreError, hasMore, status, reload } = list;
   const base = apiBase(token, project);
@@ -105,6 +107,10 @@ export function FileList({ list, section, view, admin, token, project }: Props) 
               project={project}
               apiBase={base}
               onChanged={onChanged}
+              onUploaded={(text) => {
+                announce(text);
+                void reload();
+              }}
             />
           ),
         )}

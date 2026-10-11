@@ -213,7 +213,15 @@ class BrowserTestCase(unittest.TestCase):
         cls.playwright = sync_playwright().start()
         address = socket.gethostbyname(_app_host.hostname or "app")
         cls.browser = cls.playwright.chromium.launch(
-            args=[f"--host-resolver-rules=MAP {BROWSER_HOST} {address}"],
+            # The full Chromium (new headless mode). The headless shell
+            # ignores the secure-origin flag below.
+            channel="chromium",
+            args=[
+                f"--host-resolver-rules=MAP {BROWSER_HOST} {address}",
+                # crypto.subtle (SHA-256 of a designer upload) needs a secure
+                # context. Production uses HTTPS; the test stack uses HTTP.
+                f"--unsafely-treat-insecure-origin-as-secure={BROWSER_APP}",
+            ],
         )
 
     @classmethod

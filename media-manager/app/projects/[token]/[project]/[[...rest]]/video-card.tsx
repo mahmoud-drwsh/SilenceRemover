@@ -10,6 +10,7 @@ import { formatDuration, formatMeta, formatSize } from "@/src/client/format";
 import type { FileResponse } from "@/src/client/useFileList";
 import { VideoTrashActions } from "./trash-actions";
 import { VideoCardDownloads } from "./video-card-downloads";
+import { DesignerUpload } from "./designer-upload";
 
 type Props = {
   file: FileResponse;
@@ -20,9 +21,11 @@ type Props = {
   project: string;
   apiBase: string;
   onChanged: () => void;
+  /** Announce a finished designer upload and reload the list. */
+  onUploaded: (announcement: string) => void;
 };
 
-export function VideoCard({ file, titleId, view, admin, token, project, apiBase, onChanged }: Props) {
+export function VideoCard({ file, titleId, view, admin, token, project, apiBase, onChanged, onUploaded }: Props) {
   const title = file.title || file.id;
   return (
     <Card role="article" aria-labelledby={titleId} data-id={file.id}>
@@ -35,8 +38,20 @@ export function VideoCard({ file, titleId, view, admin, token, project, apiBase,
           {formatMeta([formatDuration(file.duration), formatSize(file.file_size), file.id])}
         </CardDescription>
       </CardHeader>
-      {view !== "trash" ? <VideoCardDownloads file={file} title={title} token={token} project={project} /> : null}
-      {admin ? (
+      {view !== "trash" ? (
+        <VideoCardDownloads file={file} title={title} token={token} project={project}>
+          {file.media_variant === "no-overlay" ? (
+            <DesignerUpload
+              apiBase={apiBase}
+              targetId={file.id}
+              title={title}
+              hasDesignerVideo={Boolean(file.designer_video_id)}
+              onDone={onUploaded}
+            />
+          ) : null}
+          <VideoTrashActions file={file} admin={admin} view={view} apiBase={apiBase} onChanged={onChanged} />
+        </VideoCardDownloads>
+      ) : admin ? (
         <CardFooter>
           <VideoTrashActions file={file} admin={admin} view={view} apiBase={apiBase} onChanged={onChanged} />
         </CardFooter>
