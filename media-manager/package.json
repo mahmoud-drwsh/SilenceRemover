@@ -10,7 +10,9 @@
     "start": "node server.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"src/**/*.test.ts\"",
-    "seed:test-db": "node scripts/fresh-schema.ts"
+    "seed:test-db": "node scripts/fresh-schema.ts",
+    "generate-admin-token": "node scripts/generate_admin_token.ts",
+    "provision:dokploy-postgres": "node scripts/provision_dokploy_postgres.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1141.0",
