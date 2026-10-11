@@ -26,6 +26,9 @@ import next from "next";
 import { releaseResources, runStartup } from "./src/server/startup.ts";
 import { SECURITY_HEADERS } from "./src/server/security.ts";
 import { CLIENT_IP_HEADER, resolveClientIp } from "./src/server/clientIp.ts";
+import { classifyAdminRequest } from "./src/server/adminPaths.ts";
+import { checkLoginRateLimit } from "./src/server/auth.ts";
+import { ADMIN_TOKEN_RATE_LIMIT_LABEL, ADMIN_TOO_MANY_ATTEMPTS } from "./src/server/http.ts";
 
 const dir = import.meta.dirname;
 
@@ -88,8 +91,8 @@ function isImageOptimizerPath(url: string | undefined): boolean {
  * app uses no server actions. So a request with another method to a path
  * under /projects/<token>/<project>/ that is not under ".../api" gets the
  * JSON 404 here, before Next.js sees it. The API routes have their own
- * method handling. (#63 adds the same rule for the admin pages, without the
- * removed "/admin/<token>/files" routes, which have their own handler.)
+ * method handling. The admin paths have the same rule in
+ * src/server/adminPaths.ts (#63).
  */
 function isPageMethodNotAllowed(method: string | undefined, url: string | undefined): boolean {
   if (method === "GET" || method === "HEAD") return false;
@@ -100,10 +103,42 @@ function isPageMethodNotAllowed(method: string | undefined, url: string | undefi
 }
 
 function sendNotFound(req: http.IncomingMessage, res: http.ServerResponse): void {
-  const body = req.method === "HEAD" ? "" : JSON.stringify({ detail: "Not Found" });
+  sendDetail(req, res, 404, "Not Found");
+}
+
+function sendDetail(
+  req: http.IncomingMessage, res: http.ServerResponse, status: number, message: string,
+  headers: Record<string, string> = {},
+): void {
+  const body = req.method === "HEAD" ? "" : JSON.stringify({ detail: message });
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
-  res.writeHead(404, { "content-type": "application/json", "content-length": Buffer.byteLength(body) });
+  res.writeHead(status, { ...headers, "content-type": "application/json", "content-length": Buffer.byteLength(body) });
   res.end(body);
+}
+
+/**
+ * Admin paths (#63, see src/server/adminPaths.ts). Returns true when this
+ * function sent the response.
+ *
+ * A page path first gets the admin-token rate limit: a blocked client gets
+ * the JSON 429 with Retry-After, as from the old service. A page cannot set
+ * that status, so the check is here. The page itself checks the token, and
+ * records a failure or clears the counter.
+ */
+function handleAdminPath(req: http.IncomingMessage, res: http.ServerResponse, clientIp: string): boolean {
+  const action = classifyAdminRequest(req.method, req.url);
+  if (action.kind === "pass") return false;
+  if (action.kind === "notFound") {
+    sendNotFound(req, res);
+    return true;
+  }
+  const limited = checkLoginRateLimit(clientIp, ADMIN_TOKEN_RATE_LIMIT_LABEL);
+  if (limited) {
+    sendDetail(req, res, 429, ADMIN_TOO_MANY_ATTEMPTS, { "retry-after": String(limited.retryAfterSeconds) });
+    return true;
+  }
+  if (action.url) req.url = action.url;
+  return false;
 }
 
 async function main(): Promise<void> {
@@ -130,7 +165,9 @@ async function main(): Promise<void> {
     }
     // Route handlers have no socket address. Give them the client IP in an
     // internal header, and replace any copy that the client sent (#63).
-    req.headers[CLIENT_IP_HEADER] = resolveClientIp(req.socket.remoteAddress, req.headers["x-forwarded-for"]);
+    const clientIp = resolveClientIp(req.socket.remoteAddress, req.headers["x-forwarded-for"]);
+    req.headers[CLIENT_IP_HEADER] = clientIp;
+    if (handleAdminPath(req, res, clientIp)) return;
     adjustHeaders(req, res);
     handle(req, res).catch((error: unknown) => {
       console.error("[server error]", error);

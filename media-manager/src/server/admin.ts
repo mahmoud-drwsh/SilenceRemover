@@ -6,13 +6,9 @@
  * Every admin route checks the admin token first (verifyAdminToken), so each
  * route can answer 429 (rate limit for the client IP) or 401.
  *
- * Router behavior of the old Hono service that the route files keep:
- * - `GET /admin/:token/*` was a catch-all that served the admin page after
- *   the token check. Thus a GET (and a HEAD) to an unknown admin path, to an
- *   admin API path with a trailing slash, or to a POST-only admin API path
- *   gets the admin page, not a 404.
- * - Other methods on an unknown path, or with a trailing slash, get the JSON
- *   404 `Not Found` with no token check.
+ * The old catch-all behavior (a GET of a non-route admin path gets the admin
+ * page; other methods get the JSON 404) is in src/server/adminPaths.ts,
+ * which server.ts applies before Next.js routes the request.
  */
 
 import { writeAdminAuditEvent, type AuditEventRequest } from "./audit.ts";
@@ -42,59 +38,23 @@ function auditRequest(request: Request): AuditEventRequest {
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Admin page                                                                 */
-/* -------------------------------------------------------------------------- */
-
-// Phase 1 placeholder. The dashboard UI (phase 2 of #63) replaces it.
-const ADMIN_PAGE_HTML = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Media Manager Admin</title>
-</head>
-<body>
-<h1>Media Manager Admin</h1>
-<p>The admin dashboard is not available yet.</p>
-</body>
-</html>
-`;
-
-/** The admin page, after the token check. */
-export async function adminPage(request: Request, token: string): Promise<Response> {
-  await requireAdmin(request, token);
-  return new Response(ADMIN_PAGE_HTML, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Content-Length": String(Buffer.byteLength(ADMIN_PAGE_HTML)),
-    },
-  });
-}
-
 type AdminHandler<P extends Record<string, unknown>> = (
   request: Request,
   params: { token: string } & P,
 ) => Response | Promise<Response>;
 
 /**
- * Wrap an admin API handler: error mapping as `route()`, plus the old
- * trailing-slash behavior (GET and HEAD -> admin page, other methods -> 404).
+ * Wrap an admin API handler: the error mapping and the strict trailing-slash
+ * rule of `route()`. (server.ts already sends a GET with a trailing slash to
+ * the admin page and answers other methods with the JSON 404.)
  */
 export function adminRoute<P extends Record<string, unknown> = Record<string, never>>(
   handler: AdminHandler<P>,
 ): (request: Request, context: AdminContext<P>) => Promise<Response> {
   return async (request, context) => {
+    if (hasTrailingSlash(request)) return notFound();
     try {
-      const params = await context.params;
-      if (hasTrailingSlash(request)) {
-        if (request.method === "GET" || request.method === "HEAD") {
-          return await adminPage(request, params.token);
-        }
-        return notFound();
-      }
-      return await handler(request, params);
+      return await handler(request, await context.params);
     } catch (err) {
       return errorResponse(err);
     }
@@ -102,24 +62,9 @@ export function adminRoute<P extends Record<string, unknown> = Record<string, ne
 }
 
 /**
- * GET handler that always serves the admin page after the token check. Use
- * it for the GET of POST-only admin paths and for the admin catch-all.
- */
-export async function adminPageRoute(
-  request: Request,
-  context: { params: Promise<{ token: string }> },
-): Promise<Response> {
-  try {
-    const { token } = await context.params;
-    return await adminPage(request, token);
-  } catch (err) {
-    return errorResponse(err);
-  }
-}
-
-/**
  * Handler for the removed Admin File Browser (`/admin/:token/files` and
- * `/admin/:token/files/*`, all methods): token check, then 404.
+ * `/admin/:token/files/*`, all methods, also with a trailing slash): token
+ * check, then 404.
  */
 export async function removedFileBrowserRoute(
   request: Request,
