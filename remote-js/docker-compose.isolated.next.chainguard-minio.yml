@@ -1,0 +1,20 @@
+# Chainguard MinIO with the Next.js app (MM_APP=next). Apply it after
+# docker-compose.isolated.chainguard-minio.yml and docker-compose.isolated.next.yml.
+# It makes the bucket with the new image (scripts/make-bucket.ts) in place of
+# the Bun script in the old image.
+services:
+  minio-init:
+    image: srfresh-media-manager-next:${SRFRESH_TAG:-local}
+    build:
+      context: ../media-manager
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://unused@postgres:5432/unused
+      TOKEN_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_BUCKET: media-manager
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_REGION: us-east-1
+    entrypoint: ["/bin/sh"]
+    command: ["-ec", "until node /app/scripts/make-bucket.ts; do sleep 1; done"]

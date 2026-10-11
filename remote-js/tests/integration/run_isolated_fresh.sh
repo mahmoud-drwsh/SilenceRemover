@@ -11,6 +11,12 @@
 #   large project (#51); run it by name.
 # Set ISOLATED_MINIO=dockerhub to use the minio/minio images of the base file
 # instead of the Chainguard MinIO override.
+# Set MM_APP=next to run the flows against the new Next.js app
+# (../media-manager, spec #55) in place of the current service. The default
+# (MM_APP=remote-js) runs the current service. The data-move flow is only for
+# the current service.
+# Set SRFRESH_TAG to a unique value (for example the worktree name) so that
+# parallel runs do not replace the srfresh-* images of each other.
 set -uo pipefail
 
 remote_js="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -29,6 +35,18 @@ if [ "${ISOLATED_MINIO:-chainguard}" != "dockerhub" ]; then
   files+=(-f docker-compose.isolated.chainguard-minio.yml)
 fi
 files+=(-f docker-compose.isolated.fresh.yml)
+mm_app="${MM_APP:-remote-js}"
+case "$mm_app" in
+  remote-js) ;;
+  next)
+    files+=(-f docker-compose.isolated.next.yml)
+    if [ "${ISOLATED_MINIO:-chainguard}" != "dockerhub" ]; then
+      files+=(-f docker-compose.isolated.next.chainguard-minio.yml)
+    fi
+    ;;
+  *) echo "error: MM_APP must be remote-js or next (got: $mm_app)." >&2; exit 2 ;;
+esac
+echo "=== app: $mm_app, image tag: ${SRFRESH_TAG:-local}"
 
 # Make sure that the merged configuration has no .local-test mount and no
 # published port.
@@ -38,14 +56,17 @@ if docker compose -p fresh-check "${files[@]}" config | grep -nE 'local-test|pub
 fi
 
 flows=("$@")
-[ ${#flows[@]} -eq 0 ] && flows=(originals canonical-card source-processing data-move)
+if [ ${#flows[@]} -eq 0 ]; then
+  flows=(originals canonical-card source-processing)
+  [ "$mm_app" = "remote-js" ] && flows+=(data-move)
+fi
 
 current_project=""
 cleanup() {
   if [ -n "$current_project" ]; then
     docker compose -p "$current_project" "${files[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
     # Remove the images that have the project name (for example the Chainguard
-    # minio-init image). Keep the shared srfresh-*:local images.
+    # minio-init image). Keep the shared srfresh-*:${SRFRESH_TAG} images.
     docker image ls -q --filter "reference=${current_project}-*" | xargs -r docker rmi -f >/dev/null 2>&1 || true
   fi
 }
@@ -62,6 +83,7 @@ run_flow() {
       canonical-card-integration python /tests/video_views_perf.py ;;
     source-processing) "${compose[@]}" run --rm --no-deps source-processing-integration ;;
     data-move)
+      if [ "$mm_app" != "remote-js" ]; then echo "the data-move flow needs MM_APP=remote-js" >&2; return 2; fi
       "${compose[@]}" exec -T app mkdir -p /app/tests/integration &&
         "${compose[@]}" cp tests/integration/no_overlay_data_move_flow.ts app:/app/tests/integration/no_overlay_data_move_flow.ts &&
         "${compose[@]}" exec -T app bun run tests/integration/no_overlay_data_move_flow.ts ;;
