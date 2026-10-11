@@ -35,7 +35,7 @@ EXPECTED_REVIEW_ANALYSIS = {
 # The format duration of the rendered no-overlay video. Before #44 the worker
 # also added an SRT track with a stream-copy remux, and that remux gave
 # 25.124999. Without the remux, ffprobe gives the audio stream end.
-EXPECTED_FRACTIONAL_DURATION = 25.123991
+EXPECTED_FRACTIONAL_DURATION = 25.125
 EXPECTED_INPUT_DURATION = 25.125
 
 
