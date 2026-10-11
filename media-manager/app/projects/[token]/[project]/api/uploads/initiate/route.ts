@@ -1,4 +1,5 @@
-import { json, notFound, notFoundRoute, route, verifyMediaToken } from "../../../../../../../src/server/http.ts";
+import { json, notFoundRoute, route, verifyMediaToken } from "../../../../../../../src/server/http.ts";
+import { projectApiNotFound } from "../../../../../../../src/server/projectRoute.ts";
 import { initiateUpload } from "../../../../../../../src/server/uploads.ts";
 
 export const dynamic = "force-dynamic";
@@ -13,12 +14,9 @@ export const POST = route(async (request: Request, context: Context) => {
   return json(await initiateUpload(token, project, body));
 });
 
-// GET and HEAD: the old project page catch-all checks the token first and
-// then answers 404 for an "api" path.
-const apiNotFound = route(async (_request: Request, context: { params: Promise<{ token: string }> }) => {
-  await verifyMediaToken((await context.params).token);
-  return notFound();
-});
+// GET and HEAD: token check first, then the JSON 404 (also with a
+// trailing slash), as the old project page catch-all did.
+const apiNotFound = projectApiNotFound;
 
 export {
   apiNotFound as GET,

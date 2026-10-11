@@ -181,6 +181,10 @@ async function downloadAndVerifyCompletedObject(session: UploadSession, ext: str
             hash.update(value);
             await handle.write(value);
           }
+        } catch (error) {
+          // Close the S3 body, so that it does not hold a pool socket.
+          await reader.cancel().catch(() => {});
+          throw error;
         } finally { reader.releaseLock(); }
       } finally { await handle.close(); }
       if (bytes !== Number(session.file_size)) {

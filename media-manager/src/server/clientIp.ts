@@ -20,6 +20,13 @@
  * are not trusted. If there is no usable entry, the socket peer is the
  * client IP, as in the old service.
  *
+ * Deployment assumption: port 8080 is reachable only from Traefik. Do not
+ * publish it on the host, and do not let other containers reach it. The
+ * trust test is "the peer is internal", not "the peer is Traefik". A client
+ * that connects directly from an internal address (for example through a
+ * published Docker port, peer 172.17.0.1) controls the rightmost entry and
+ * can avoid the rate limit or fill the bucket of another IP.
+ *
  * server.ts calls `resolveClientIp()` with the socket address and puts the
  * result in the CLIENT_IP_HEADER request header. It first removes a copy of
  * that header that the client sent. Route handlers read the header with
