@@ -214,7 +214,10 @@ class VideoPlayerTest(BrowserTestCase):
         self.assertEqual([text for text in self.console if CSP_TEXT in text], [])
 
     def wait_for_metadata(self, page) -> None:
-        page.wait_for_function("() => { const v = document.querySelector('video'); return v && v.readyState >= 1; }")
+        page.wait_for_function(
+            "() => { const v = document.querySelector('video');"
+            " return v && v.readyState >= 1 && Number.isFinite(v.duration); }"
+        )
         duration = page.evaluate("() => document.querySelector('video').duration")
         self.assertAlmostEqual(duration, 10, delta=0.5)
 
