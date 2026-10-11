@@ -6,10 +6,10 @@
  *
  * - initiateUpload: one presigned PUT (small audio) or a presigned multipart
  *   upload (8 MiB parts, 15 min URLs). A designer session (designer_of_id)
- *   gets relative same-origin part URLs. The designer part route
- *   (PUT .../uploads/:sessionId/parts/:partNumber) is #61; it can use
- *   sessionById, isSessionActive, partCountForSize, and MULTIPART_PART_SIZE
- *   from here.
+ *   gets relative same-origin part URLs.
+ * - uploadDesignerPart: the designer proxy part route
+ *   (PUT .../uploads/:sessionId/parts/:partNumber, #61). It streams the
+ *   request body and keeps at most one part (8 MiB) in memory.
  * - completeUpload: verify size and SHA-256 (with retries), sniff the MIME
  *   type, probe the duration, commit the metadata, and queue originals for
  *   source processing.
@@ -32,7 +32,7 @@ import { sanitizeFileId, sanitizeFilename } from "./sanitize.ts";
 import { enqueueSourceProcessing } from "./sourceProcessing.ts";
 import {
   MULTIPART_PART_SIZE, abortMultipartUpload, completeMultipartUpload, createMultipartUpload,
-  presignPutObject, presignUploadPart, storageGet,
+  presignPutObject, presignUploadPart, storageGet, uploadMultipartPart,
 } from "./storage.ts";
 import { videoVariantSql, visibilitySql } from "./videoSql.ts";
 
@@ -360,6 +360,55 @@ export async function completeUpload(project: string, sessionId: string, readBod
     await sql.unsafe(`UPDATE ${ident}.upload_sessions SET state='completed' WHERE id=$1`, [session.id]);
   } finally { await rm(tempDir, { recursive: true, force: true }); }
   return { ok: true, id: session.file_id, type: session.type, overwritten };
+}
+
+/**
+ * Read a request body stream. Keep the bytes up to `limit` and count (but do
+ * not keep) the bytes after it. Thus the memory use stays at one part, and
+ * the caller can still compare the full body size with the part size. The
+ * function reads the full body, as the old service did, before it answers.
+ */
+async function readBoundedBody(body: ReadableStream<Uint8Array> | null, limit: number): Promise<{ bytes: Uint8Array; total: number }> {
+  const bytes = new Uint8Array(limit);
+  let total = 0;
+  if (!body) return { bytes: bytes.subarray(0, 0), total };
+  const reader = body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (total < limit) bytes.set(value.subarray(0, limit - total), total);
+      total += value.byteLength;
+    }
+  } finally { reader.releaseLock(); }
+  return { bytes: bytes.subarray(0, Math.min(total, limit)), total };
+}
+
+/**
+ * PUT /projects/:token/:project/api/uploads/:sessionId/parts/:partNumber
+ * (token already checked). The browser cannot PUT to S3 (CSP connect-src
+ * 'self'), so the app sends each designer part to S3. Same checks, order,
+ * and texts as remote-js/src/routes/uploads.ts. Returns the S3 ETag (with
+ * its quotes).
+ */
+export async function uploadDesignerPart(
+  project: string, sessionId: string, partNumberRaw: string, body: ReadableStream<Uint8Array> | null,
+): Promise<string> {
+  const session = await sessionById(project, sessionId);
+  const partNumber = Number(partNumberRaw);
+  const partCount = session ? partCountForSize(Number(session.file_size)) : 0;
+  if (!session || !session.designer_of_id || !session.upload_id) throw new HttpError(404, "Designer upload session not found");
+  if (!isSessionActive(session)) throw new HttpError(409, "Upload session is no longer active");
+  if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > partCount) throw new HttpError(400, "Invalid upload part number");
+  const expectedSize = partNumber < partCount
+    ? MULTIPART_PART_SIZE
+    : Number(session.file_size) - MULTIPART_PART_SIZE * (partCount - 1);
+  const { bytes, total } = await readBoundedBody(body, expectedSize);
+  if (total !== expectedSize) throw new HttpError(400, `Upload part must contain exactly ${expectedSize} bytes`);
+  return uploadMultipartPart(
+    session.type, project, session.file_id, getExtensionForMime(session.mime_type),
+    session.upload_id, partNumber, bytes,
+  );
 }
 
 /** POST /projects/:token/:project/api/uploads/:sessionId/abort (token already checked). */

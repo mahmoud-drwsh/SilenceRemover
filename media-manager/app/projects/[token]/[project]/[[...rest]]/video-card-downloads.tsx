@@ -12,14 +12,18 @@
 //     Close button of the player can close the tab.
 // The trash view shows none of these (#59 adds the trash actions there).
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CardContent, CardFooter } from "@/components/ui/card";
 import { apiBase } from "@/src/client/projectUrl";
 import type { FileResponse } from "@/src/client/useFileList";
 
-type Props = { file: FileResponse; title: string; token: string; project: string };
+type Props = {
+  file: FileResponse; title: string; token: string; project: string;
+  /** More card actions in the same footer, after "Play video" (as in the old app). */
+  children?: ReactNode;
+};
 
 function projectBase(token: string, project: string): string {
   return `/projects/${encodeURIComponent(token)}/${encodeURIComponent(project)}`;
@@ -43,7 +47,7 @@ function Label({ name, note }: { name: string; note: string }) {
   );
 }
 
-export function VideoCardDownloads({ file, title, token, project }: Props) {
+export function VideoCardDownloads({ file, title, token, project, children }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const sourceId = file.source_id;
@@ -106,8 +110,9 @@ export function VideoCardDownloads({ file, title, token, project }: Props) {
           </Alert>
         ) : null}
       </CardContent>
-      <CardFooter>
+      <CardFooter className="flex flex-wrap gap-2">
         <Button onClick={play}>Play video</Button>
+        {children}
       </CardFooter>
     </>
   );
