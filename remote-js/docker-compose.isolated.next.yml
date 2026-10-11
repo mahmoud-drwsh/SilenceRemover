@@ -30,3 +30,11 @@ services:
       context: ../media-manager
       dockerfile: Dockerfile
     user: "0"
+
+  # The client contract steps that need routes of later tickets. A pending
+  # step can fail. Remove a name when its ticket adds the route:
+  # get_original_files (#57), update_tags and delete_file (#59),
+  # analyze_ogg_snippet (#62).
+  client-contract-integration:
+    environment:
+      CONTRACT_PENDING_STEPS: get_original_files,update_tags,delete_file,analyze_ogg_snippet

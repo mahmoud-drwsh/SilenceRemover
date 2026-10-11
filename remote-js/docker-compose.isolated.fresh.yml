@@ -66,5 +66,13 @@ services:
       fixture:
         condition: service_completed_successfully
 
+  client-contract-integration:
+    image: srfresh-worker:${SRFRESH_TAG:-local}
+    volumes:
+      - fixtures:/fixtures:ro
+    depends_on:
+      fixture:
+        condition: service_completed_successfully
+
 volumes:
   fixtures:

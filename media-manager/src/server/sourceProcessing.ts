@@ -1,10 +1,11 @@
 /**
  * Source-processing data helpers. #62 adds the worker routes and uses this
- * module. The startup re-queue is the same as in
- * remote-js/src/routes/sourceProcessing.ts.
+ * module. The startup re-queue and the upload enqueue (#60) are the same as
+ * in remote-js/src/routes/sourceProcessing.ts.
  */
 
-import { loadConfig } from "./config.ts";
+import { randomUUID } from "node:crypto";
+import { isSourceProcessingEnabled, loadConfig } from "./config.ts";
 import { getDb, schemaIdent } from "./db.ts";
 
 /**
@@ -27,4 +28,23 @@ export async function reconcileSourceProcessing(): Promise<number> {
       RETURNING 1
     ) SELECT count(*)::text count FROM queued`, [profile]);
   return Number(rows[0]?.count ?? 0);
+}
+
+/**
+ * Queue source processing for one committed original. The insert does
+ * nothing when the job for this checksum and profile exists. Returns true
+ * when a new job was added.
+ */
+export async function enqueueSourceProcessing(
+  project: string, sourceId: string, originalChecksumSha256: string,
+): Promise<boolean> {
+  if (!isSourceProcessingEnabled(project)) return false;
+  const sql = getDb(); const ident = schemaIdent(); const profile = loadConfig().sourceProcessingProfile;
+  const rows = await sql.unsafe<{ id: string }[]>(`
+    INSERT INTO ${ident}.source_processing
+      (id,project,source_id,original_checksum_sha256,processing_profile)
+    VALUES ($1,$2,$3,$4,$5)
+    ON CONFLICT (project,source_id,original_checksum_sha256,processing_profile) DO NOTHING
+    RETURNING id`, [randomUUID(), project, sourceId, originalChecksumSha256, profile]);
+  return Boolean(rows[0]);
 }
