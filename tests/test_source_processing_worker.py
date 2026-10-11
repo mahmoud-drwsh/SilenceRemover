@@ -332,6 +332,8 @@ def test_changed_original_fails_before_checkpoint_or_waiting(tmp_path: Path) -> 
         worker.run_once()
     assert any(path.endswith("/fail") for path in paths)
     assert all(not path.endswith("/checkpoints") and not path.endswith("/waiting") for path in paths)
+    # A failed job keeps no local files: a retry downloads the original again.
+    assert not (tmp_path / "project-a" / "job-001").exists()
 
 
 def test_audio_less_source_waits_without_model_calls(tmp_path: Path) -> None:
@@ -561,6 +563,8 @@ def test_approved_job_without_prerender_encodes_and_uploads_one_titled_no_overla
     assert uploads == [("no_overlay_video", "العنوان المعتمد")]
     assert paths[-1].endswith("/job-001/complete")
     assert not any("logo" in path for path in paths)
+    # A completed job keeps no local files.
+    assert not job_dir.exists()
 
 
 def test_worker_config_needs_no_openrouter_key_or_overlay_settings(
@@ -583,3 +587,20 @@ def test_worker_config_needs_no_openrouter_key_or_overlay_settings(
     assert not any(field in vars(config) for field in (
         "openrouter_api_key", "enable_title_overlay", "enable_logo_overlay", "title_font",
     ))
+
+
+def test_startup_prune_keeps_only_jobs_that_wait_for_title_review(tmp_path: Path) -> None:
+    worker = _worker(tmp_path, httpx.MockTransport(lambda request: httpx.Response(404)))
+    assert worker.prune_job_dirs() == 0
+    root = tmp_path / "project-a"
+    waiting = root / "job-waiting"
+    waiting.mkdir(parents=True)
+    (waiting / "awaiting-title-review.json").write_text("{}", encoding="utf-8")
+    (waiting / "no-overlay.prerender.mp4").write_bytes(b"video")
+    leftover = root / "job-killed"
+    leftover.mkdir()
+    (leftover / "recording.mp4").write_bytes(b"original")
+
+    assert worker.prune_job_dirs() == 1
+    assert (waiting / "no-overlay.prerender.mp4").exists()
+    assert not leftover.exists()

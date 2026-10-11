@@ -129,6 +129,8 @@ The Dokploy application is named `frontend`. It builds from GitHub, branch `main
 
 The image listens on port `8080`. Dokploy and Traefik terminate TLS in front of it. The image has a `HEALTHCHECK` on `/healthz`. Do not publish port 8080. Only Traefik must reach it, because the client-IP rule trusts X-Forwarded-For from internal peers.
 
+**Worker work directory.** The server worker keeps the files of each job in `SOURCE_PROCESSING_WORK_DIR` (`/work`). Mount a named volume at `/work` in the Dokploy worker application (`docker-compose.yml` does this with `source-processing-work`). Without a volume, the files stay in the container layer. Swarm keeps up to 5 old worker containers, and each one keeps its files, so the host disk fills. A full disk makes uploads fail with `ENOSPC`. The worker deletes the files of a job after the job completes or fails. At startup, it also deletes each job directory that does not wait for title review.
+
 **Graceful stop.** On SIGTERM (a deploy or a restart), the server stops accepting connections, closes the idle connections, and waits up to `SHUTDOWN_GRACE_MS` (25 s) for the requests in progress. Then it closes the database pool and stops. Docker Swarm (Dokploy runs the app as a Swarm service) sends SIGKILL 10 s after SIGTERM by default. Set the stop grace period of the `frontend` service to 30 s (Docker: `--stop-grace-period 30s`; `docker-compose.yml` sets `stop_grace_period: 30s`), if Dokploy lets you set it. With the 10 s default, SIGKILL cuts a request that takes more than 10 s, as before.
 
 1. Run `bun run typecheck`, `bun run test`, and `bun run build` from `remote-js/`, and `git diff --check`. Run the two test seams.

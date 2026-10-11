@@ -14,6 +14,7 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -129,6 +130,8 @@ class SourceProcessingWorker:
         except Exception as exc:
             # Best effort only: an expired/stolen lease must not mask the root cause.
             self._fail(job, str(exc))
+            # A retry downloads the original again, so the files are not needed.
+            self._remove_job_dir(str(job.get("id", "")))
             if isinstance(exc, WorkerError):
                 raise
             raise WorkerError(str(exc)) from exc
@@ -162,6 +165,7 @@ class SourceProcessingWorker:
                     job, original_path, job_dir, lease_token, segments, approved_title,
                 )
                 self._post(f"/{job_id}/complete", {"lease_token": lease_token})
+                self._remove_job_dir(job_id)
                 return
             if not segments:
                 self._post(f"/{job_id}/waiting", {"lease_token": lease_token, "reason": "trim-plan-ready; no retained speech"})
@@ -491,6 +495,31 @@ class SourceProcessingWorker:
         except Exception:
             pass
 
+    def _remove_job_dir(self, job_id: str) -> None:
+        """Delete the local files of a job. Best effort: never raise."""
+        try:
+            shutil.rmtree(self._job_dir(job_id), ignore_errors=True)
+        except WorkerError:
+            pass
+
+    def prune_job_dirs(self) -> int:
+        """Delete the job directories that do not wait for title review.
+
+        Call this once at startup, before the worker claims a job. Such a
+        directory is left from a job that stopped before it finished (for
+        example, a killed container). A new claim downloads the original
+        again. Return the number of deleted directories.
+        """
+        root = self.config.work_dir / self.config.project
+        if not root.is_dir():
+            return 0
+        removed = 0
+        for job_dir in root.iterdir():
+            if job_dir.is_dir() and not (job_dir / _AWAITING_REVIEW_MARKER).exists():
+                shutil.rmtree(job_dir, ignore_errors=True)
+                removed += 1
+        return removed
+
     @staticmethod
     def _job_fields(job: Mapping[str, Any]) -> tuple[str, str, str]:
         job_id = str(job.get("id", ""))
@@ -569,6 +598,7 @@ class SourceProcessingWorker:
 def main() -> int:
     """Run the durable worker continuously; idle polling does not restart Docker."""
     with SourceProcessingWorker(WorkerConfig.from_env()) as worker:
+        print(f"SOURCE_PROCESSING_PRUNED_JOB_DIRS {worker.prune_job_dirs()}", flush=True)
         while True:
             try:
                 # New jobs and approvals come first; pre-approval encodes use idle time.
