@@ -9,7 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Section } from "@/src/client/projectUrl";
+import { apiBase, type Section } from "@/src/client/projectUrl";
 import type { useFileList } from "@/src/client/useFileList";
 import { AudioCard } from "./audio-card";
 import { VideoCard } from "./video-card";
@@ -25,7 +25,9 @@ type Props = {
 
 export function FileList({ list, section, view, admin, token, project }: Props) {
   const moreButton = useRef<HTMLButtonElement>(null);
-  const { loadMore, loadingMore, loadMoreError, hasMore, status } = list;
+  const { loadMore, loadingMore, loadMoreError, hasMore, status, reload } = list;
+  const base = apiBase(token, project);
+  const onChanged = () => void reload();
 
   useEffect(() => {
     const button = moreButton.current;
@@ -81,7 +83,17 @@ export function FileList({ list, section, view, admin, token, project }: Props) 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {list.files.map((file, index) =>
           file.type === "audio" ? (
-            <AudioCard key={file.id} file={file} titleId={`file-title-${index}`} />
+            <AudioCard
+              key={file.id}
+              file={file}
+              titleId={`file-title-${index}`}
+              view={view}
+              admin={admin}
+              token={token}
+              project={project}
+              apiBase={base}
+              onChanged={onChanged}
+            />
           ) : (
             <VideoCard
               key={file.id}
@@ -91,6 +103,8 @@ export function FileList({ list, section, view, admin, token, project }: Props) 
               admin={admin}
               token={token}
               project={project}
+              apiBase={base}
+              onChanged={onChanged}
             />
           ),
         )}

@@ -9,6 +9,8 @@ packages that this app uses (see the UI section in the foundation notes):
   - "cn" (the registry helper package) -> "@/lib/utils" (clsx + tailwind-merge).
   - "radix-ui" (the package that holds all primitives) -> the one
     "@radix-ui/react-<name>" package for each primitive.
+  - "@/registry/new-york-v4/ui/<name>" (a registry dependency) ->
+    "@/components/ui/<name>".
 The script prints the npm dependencies of each item. Do the supply-chain
 check for each new package before you install it, and read each copied file
 before you commit it. The script does not change the component code.
@@ -28,6 +30,7 @@ def kebab(name: str) -> str:
 
 def rewrite(source: str) -> str:
     source = source.replace('from "cn"', 'from "@/lib/utils"')
+    source = source.replace('from "@/registry/new-york-v4/ui/', 'from "@/components/ui/')
 
     def radix(match: re.Match) -> str:
         lines = []
