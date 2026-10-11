@@ -6,9 +6,13 @@
 # internal network, publishes no host ports, and is removed with "down -v".
 #
 # Usage: tests/integration/run_isolated_fresh.sh [flow ...]
-#   flow: originals | canonical-card | source-processing | data-move | views-perf
-#   No flow runs the first four flows. views-perf times the video views of a
-#   large project (#51); run it by name.
+#   flow: originals | canonical-card | source-processing | client-contract |
+#         data-move | views-perf
+#   No flow runs originals, canonical-card, source-processing, and
+#   client-contract (and data-move with the current service). views-perf
+#   times the video views of a large project (#51); run it by name.
+#   client-contract runs the real Python pipeline client
+#   (packages/sr_media_manager) against the app (spec #55).
 # Set ISOLATED_MINIO=dockerhub to use the minio/minio images of the base file
 # instead of the Chainguard MinIO override.
 # Set MM_APP=next to run the flows against the new Next.js app
@@ -57,7 +61,7 @@ fi
 
 flows=("$@")
 if [ ${#flows[@]} -eq 0 ]; then
-  flows=(originals canonical-card source-processing)
+  flows=(originals canonical-card source-processing client-contract)
   [ "$mm_app" = "remote-js" ] && flows+=(data-move)
 fi
 
@@ -82,6 +86,7 @@ run_flow() {
     views-perf) "${compose[@]}" run --rm --no-deps -e VIEWS_PERF_MAX_MS="${VIEWS_PERF_MAX_MS:-300}" \
       canonical-card-integration python /tests/video_views_perf.py ;;
     source-processing) "${compose[@]}" run --rm --no-deps source-processing-integration ;;
+    client-contract) "${compose[@]}" run --rm --no-deps client-contract-integration ;;
     data-move)
       if [ "$mm_app" != "remote-js" ]; then echo "the data-move flow needs MM_APP=remote-js" >&2; return 2; fi
       "${compose[@]}" exec -T app mkdir -p /app/tests/integration &&
