@@ -147,7 +147,7 @@ export function ProjectApp({ token, project }: { token: string; project: string 
       {place && navigation ? (
         <Tabs value={place.view} onValueChange={selectView}>
           <nav aria-label="Views">
-            <TabsList className="h-auto w-full flex-wrap justify-start">
+            <TabsList className="w-full flex-wrap justify-start group-data-[orientation=horizontal]/tabs:h-auto">
               {visibleTabs(place.section, admin).map((view) => (
                 <TabsTrigger key={view} value={view} className="flex-none">
                   {VIEW_LABELS[view]}
