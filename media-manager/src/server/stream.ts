@@ -16,9 +16,9 @@
  * - A body of 256 MiB or less is read into memory first (as before). A
  *   larger body streams from S3 to the client and is never held in memory.
  *   Node.js keeps the Content-Length header in both cases.
- * - HEAD gives the same status and headers with no body, and does not read
- *   the object (server.ts sets `Content-Length: 0` on HEAD responses, as the
- *   old server did).
+ * - HEAD gives the same status and headers (also Content-Length) with no
+ *   body, and does not read the object. server.ts keeps this Content-Length
+ *   because the response has Accept-Ranges (the old server did the same).
  */
 
 import { getDb, schemaIdent } from "./db.ts";

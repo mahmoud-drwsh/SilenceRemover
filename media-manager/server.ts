@@ -45,7 +45,8 @@ function loadStandaloneConfig(): Record<string, unknown> | undefined {
 /**
  * Header changes just before the status line is written:
  *
- * HEAD: `Content-Length: 0`, as the old service sent.
+ * HEAD: `Content-Length: 0`, as the old service sent (not for a stream
+ * response, which keeps its length).
  *
  * Vary: Next.js adds `Vary: rsc, next-router-state-tree, ...` to each app-route
  * response. The header is necessary only for pages (an HTML document and its
@@ -60,7 +61,10 @@ function adjustHeaders(req: http.IncomingMessage, res: http.ServerResponse): voi
   res.writeHead = function (this: http.ServerResponse, ...args: unknown[]) {
     // The old Bun/Hono server sent "Content-Length: 0" on each HEAD
     // response. Next.js sends the length of the GET body. Keep the old value.
-    if (req.method === "HEAD") this.setHeader("content-length", "0");
+    // Exception: a stream response (it has Accept-Ranges). The old stream
+    // route set Content-Length itself, so its HEAD response kept the GET
+    // length (verified against the old service, #58).
+    if (req.method === "HEAD" && !this.hasHeader("accept-ranges")) this.setHeader("content-length", "0");
     const raw = this.getHeader("vary");
     const type = String(this.getHeader("content-type") ?? "");
     if (raw !== undefined && !/^text\/(html|x-component)/.test(type)) {

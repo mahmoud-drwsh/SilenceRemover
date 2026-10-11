@@ -127,10 +127,15 @@ class StreamRouteTest(BrowserTestCase):
         status, _, body = stream(project, card, headers={"Range": f"bytes={len(CLIP) + 10}-"})
         self.assertEqual((status, body), (200, CLIP))
 
-        # HEAD: the GET headers, with Content-Length 0 (the old service value).
+        # HEAD: the GET headers (also Content-Length, as the old service), no body.
         status, headers, body = stream(project, card, method="HEAD", headers={"Range": "bytes=0-99"})
         self.assertEqual((status, headers["Content-Range"], headers["Content-Length"], body),
-                         (206, f"bytes 0-99/{len(CLIP)}", "0", b""))
+                         (206, f"bytes 0-99/{len(CLIP)}", "100", b""))
+        status, headers, body = stream(project, card, method="HEAD")
+        self.assertEqual((status, headers["Content-Length"], body), (200, str(len(CLIP)), b""))
+        # A HEAD error response keeps Content-Length 0 (the old service value).
+        status, headers, _ = stream(project, "no-such", method="HEAD")
+        self.assertEqual((status, headers["Content-Length"]), (404, "0"))
 
         status, _, body = stream(project, card, file_type="subtitle")
         self.assertEqual((status, json.loads(body)), (400, {"detail": "Type parameter is required"}))
