@@ -72,30 +72,30 @@ export function VideoCardDownloads({ file, title, token, project, children }: Pr
   return (
     <>
       <CardContent className="flex flex-col gap-2">
-        <div role="group" aria-label={`Downloads for ${title}`} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div role="group" aria-label={`Downloads for ${title}`} className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-2">
           {sourceId ? (
-            <Button variant="outline" className="h-auto justify-start py-2" disabled={busy}
+            <Button variant="outline" className="h-auto min-w-0 justify-start whitespace-normal py-2 text-left" disabled={busy}
               onClick={() => void downloadOriginal(sourceId)}>
               <Label name="Original" note="Raw source" />
             </Button>
           ) : (
-            <Button variant="outline" className="h-auto justify-start py-2" disabled>
+            <Button variant="outline" className="h-auto min-w-0 justify-start whitespace-normal py-2 text-left" disabled>
               <Label name="Original" note="Unavailable" />
             </Button>
           )}
-          <Button variant="outline" className="h-auto justify-start py-2" asChild>
+          <Button variant="outline" className="h-auto min-w-0 justify-start whitespace-normal py-2 text-left" asChild>
             <a href={streamUrl(token, project, file.id, "video")} download>
               <Label name="Silence Removed" note="Video for the designer" />
             </a>
           </Button>
           {designerId ? (
-            <Button variant="outline" className="h-auto justify-start py-2" asChild>
+            <Button variant="outline" className="h-auto min-w-0 justify-start whitespace-normal py-2 text-left" asChild>
               <a href={streamUrl(token, project, designerId, "video")} download>
                 <Label name="Designer Video" note="Active redesign" />
               </a>
             </Button>
           ) : (
-            <Button variant="outline" className="h-auto justify-start py-2" disabled>
+            <Button variant="outline" className="h-auto min-w-0 justify-start whitespace-normal py-2 text-left" disabled>
               <Label name="Designer Video" note="Not uploaded" />
             </Button>
           )}
