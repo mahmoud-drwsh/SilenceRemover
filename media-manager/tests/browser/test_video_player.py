@@ -135,7 +135,9 @@ class StreamRouteTest(BrowserTestCase):
         status, _, body = stream(project, card, file_type="subtitle")
         self.assertEqual((status, json.loads(body)), (400, {"detail": "Type parameter is required"}))
 
-        self.assertEqual(api(project, f"/files/{card}?type=video", "PUT", {"tags": ["trash"]})[0], 200)
+        # Trash the card with SQL (the update route belongs to #59).
+        psql(f"UPDATE {SCHEMA}.files SET tags='[\"trash\"]'::jsonb, visibility='trash' "
+             f"WHERE id={literal(card)} AND project={literal(project)} AND type='video'")
         status, _, body = stream(project, card)
         self.assertEqual((status, json.loads(body)), (404, {"detail": "File is in trash"}))
 
@@ -292,6 +294,15 @@ class VideoPlayerTest(BrowserTestCase):
         # A card row with no S3 object: the stream route gives 404.
         card = seed_card(project, "broken-no-overlay", "Broken card")
         self.page.goto(project_url(project, player_path(card, "Broken card")))
+        expect(self.page.locator("[data-slot=alert]")).to_have_text("Unable to play this video.")
+
+    def test_undecodable_video_message(self):
+        project = new_project("garbage")
+        card = upload_card(project, "src-g", "Garbage")
+        # The stream answers with bytes that are not a video.
+        self.page.route("**/stream/**", lambda route: route.fulfill(
+            status=200, body=b"not a video" * 100, content_type="video/webm"))
+        self.page.goto(project_url(project, player_path(card, "Garbage")))
         expect(self.page.locator("[data-slot=alert]")).to_have_text("Unable to play this video.")
 
     def test_bad_token_gives_error_page(self):

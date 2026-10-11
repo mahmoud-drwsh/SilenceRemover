@@ -11,7 +11,7 @@
 import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
 import { useState } from "react";
-import { MediaPlayer, MediaProvider } from "@vidstack/react";
+import { isVideoProvider, MediaPlayer, MediaProvider } from "@vidstack/react";
 import { DefaultVideoLayout, defaultLayoutIcons } from "@vidstack/react/player/layouts/default";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,15 @@ export function VideoPlayer({ token, project, fileId, title }: Props) {
             preload="metadata"
             playsInline
             onError={() => setFailed(true)}
+            // Vidstack gives the stream URL to a <source> child. A load
+            // error (for example a 404) fires on that <source>, not on the
+            // <video>, and the "error" event does not bubble. A capture
+            // listener on the <video> gets it.
+            onProviderSetup={(provider) => {
+              if (isVideoProvider(provider)) {
+                provider.video.addEventListener("error", () => setFailed(true), true);
+              }
+            }}
           >
             <MediaProvider />
             <DefaultVideoLayout icons={defaultLayoutIcons} />
