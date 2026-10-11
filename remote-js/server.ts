@@ -30,7 +30,8 @@ import { CLIENT_IP_HEADER, resolveClientIp } from "./src/server/clientIp.ts";
 import { classifyAdminRequest } from "./src/server/adminPaths.ts";
 import { checkLoginRateLimit } from "./src/server/auth.ts";
 import {
-  ADMIN_TOKEN_RATE_LIMIT_LABEL, ADMIN_TOO_MANY_ATTEMPTS, configureServerTimeouts, enforceRequestBodyLimit,
+  ADMIN_TOKEN_RATE_LIMIT_LABEL, ADMIN_TOO_MANY_ATTEMPTS, configureServerTimeouts, drainServer, enforceRequestBodyLimit,
+  shutdownGraceMs,
 } from "./src/server/http.ts";
 
 const dir = import.meta.dirname;
@@ -209,11 +210,12 @@ async function main(): Promise<void> {
   const shutdown = async (signal: NodeJS.Signals) => {
     if (stopping) return;
     stopping = true;
-    console.log(`[shutdown] ${signal} received; closing server`);
-    // Stop accepting new connections. Requests in progress can continue
-    // until the process exits, as with Bun's server.stop().
-    server.close();
-    server.closeIdleConnections();
+    const graceMs = shutdownGraceMs(process.env.SHUTDOWN_GRACE_MS);
+    console.log(`[shutdown] ${signal} received; closing server (grace ${graceMs} ms)`);
+    // Stop accepting new connections, and let the requests in progress
+    // finish (up to the grace time). Then close the database pool.
+    const drained = await drainServer(server, graceMs);
+    if (!drained) console.log("[shutdown] grace time ended; open requests were closed");
     await releaseResources();
     process.exit(0);
   };

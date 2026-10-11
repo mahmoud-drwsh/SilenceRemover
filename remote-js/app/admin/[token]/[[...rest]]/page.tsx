@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { unauthorized } from "next/navigation";
-import { CLIENT_IP_HEADER } from "../../../../src/server/clientIp.ts";
+import { clientIpFromHeaders } from "../../../../src/server/clientIp.ts";
 import { checkAdminToken } from "../../../../src/server/http.ts";
 import { AdminDashboard } from "./admin-dashboard";
 
@@ -20,7 +20,7 @@ type Params = { token: string; rest?: string[] };
 
 export default async function AdminPage({ params }: { params: Promise<Params> }) {
   const { token } = await params;
-  const clientIp = (await headers()).get(CLIENT_IP_HEADER)?.trim() || "unknown";
+  const clientIp = clientIpFromHeaders(await headers());
   if ((await checkAdminToken(clientIp, token)) !== "ok") unauthorized();
   return <AdminDashboard initialToken={token} />;
 }

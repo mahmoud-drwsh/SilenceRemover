@@ -80,6 +80,7 @@ The service uses the same variables as the previous service. [`.env.example`](.e
 | `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | yes | | S3-compatible object store. |
 | `S3_BUCKET`, `S3_REGION` | no | `media-manager`, `eu2` | Bucket name and region. |
 | `PORT` | no | `8080` | HTTP port. |
+| `SHUTDOWN_GRACE_MS` | no | `25000` | On SIGTERM or SIGINT, the time that the server waits for the requests in progress before it closes them. |
 | `SOURCE_PROCESSING_WORKER_TOKEN` | for the worker | | Token of the server worker for the `/internal/source-processing/` routes. Set it in production; without it, the worker routes refuse each request. |
 | `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` | for analysis | | Review and snippet analysis provider (`.env.example` has `https://openrouter.ai/api/v1`). Without both, analysis returns 503. |
 | `OPENROUTER_TRANSCRIPTION_MODEL`, `OPENROUTER_TRANSCRIPTION_FALLBACK_MODEL`, `OPENROUTER_TITLE_MODEL`, `OPENROUTER_TITLE_FALLBACK_MODEL` | no | see `.env.example` | Models. A `chat:` prefix sends the audio to a chat model. |
@@ -127,6 +128,8 @@ When you change the startup schema in `src/server/db.ts`, change this file too. 
 The Dokploy application is named `frontend`. It builds from GitHub, branch `main`, with the build path `remote-js` and the default `Dockerfile`. **Auto deploy is on: each push to `main` builds and deploys the service.** The server worker application also deploys on each push to `main` (it builds `remote-js/Dockerfile.worker` from the repository root).
 
 The image listens on port `8080`. Dokploy and Traefik terminate TLS in front of it. The image has a `HEALTHCHECK` on `/healthz`. Do not publish port 8080. Only Traefik must reach it, because the client-IP rule trusts X-Forwarded-For from internal peers.
+
+**Graceful stop.** On SIGTERM (a deploy or a restart), the server stops accepting connections, closes the idle connections, and waits up to `SHUTDOWN_GRACE_MS` (25 s) for the requests in progress. Then it closes the database pool and stops. Docker Swarm (Dokploy runs the app as a Swarm service) sends SIGKILL 10 s after SIGTERM by default. Set the stop grace period of the `frontend` service to 30 s (Docker: `--stop-grace-period 30s`; `docker-compose.yml` sets `stop_grace_period: 30s`), if Dokploy lets you set it. With the 10 s default, SIGKILL cuts a request that takes more than 10 s, as before.
 
 1. Run `bun run typecheck`, `bun run test`, and `bun run build` from `remote-js/`, and `git diff --check`. Run the two test seams.
 2. Write down the image that runs now, so that you can roll back (see [Rollback](#rollback)).

@@ -6,7 +6,10 @@ import http from "node:http";
 import net from "node:net";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { configureServerTimeouts, enforceRequestBodyLimit, MAX_REQUEST_BODY_BYTES } from "./http.ts";
+import {
+  configureServerTimeouts, DEFAULT_SHUTDOWN_GRACE_MS, drainServer, enforceRequestBodyLimit, MAX_REQUEST_BODY_BYTES,
+  shutdownGraceMs,
+} from "./http.ts";
 
 type Started = { server: http.Server; port: number };
 
@@ -137,4 +140,63 @@ test("chunked body under the limit is not changed", async () => {
     await waitFor(() => client.text().includes('{"received":500}'));
     client.socket.destroy();
   } finally { server.close(); }
+});
+
+// Graceful stop (server.ts uses drainServer on SIGTERM and SIGINT).
+async function startSlow(delayMs: number): Promise<Started> {
+  const server = http.createServer((req, res) => {
+    const wait = req.url === "/slow" ? delayMs : 0;
+    setTimeout(() => {
+      res.writeHead(200, { "content-type": "text/plain", "content-length": 2 });
+      res.end("ok");
+    }, wait);
+  });
+  configureServerTimeouts(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  return { server, port: (server.address() as net.AddressInfo).port };
+}
+
+test("shutdown grace: default 25 s, SHUTDOWN_GRACE_MS overrides it", () => {
+  assert.equal(DEFAULT_SHUTDOWN_GRACE_MS, 25_000);
+  assert.equal(shutdownGraceMs(undefined), 25_000);
+  assert.equal(shutdownGraceMs(""), 25_000);
+  assert.equal(shutdownGraceMs("abc"), 25_000);
+  assert.equal(shutdownGraceMs("-1"), 25_000);
+  assert.equal(shutdownGraceMs("5000"), 5000);
+});
+
+test("drain: a slow request in flight at the stop completes; an idle keep-alive connection closes", { timeout: 15_000 }, async () => {
+  const { server, port } = await startSlow(1500);
+  const idle = await connect(port);
+  idle.socket.write("GET /fast HTTP/1.1\r\nHost: a\r\n\r\n");
+  await waitFor(() => idle.text().endsWith("ok"));
+  const busy = await connect(port);
+  busy.socket.write("GET /slow HTTP/1.1\r\nHost: a\r\n\r\n");
+  await sleep(200);
+  const started = Date.now();
+  const drained = drainServer(server, 10_000);
+  // The idle connection closes at once, and a new connection is refused.
+  await idle.closed;
+  await assert.rejects(new Promise((resolve, reject) => {
+    const socket = net.connect(port, "127.0.0.1", () => { socket.destroy(); resolve(null); });
+    socket.on("error", reject);
+  }));
+  assert.equal(await drained, true);
+  assert.match(busy.text(), /^HTTP\/1\.1 200 OK/);
+  assert.ok(busy.text().endsWith("ok"));
+  assert.ok(Date.now() - started >= 1000, "the drain did not wait for the slow request");
+  await busy.closed;
+});
+
+test("drain: a request slower than the grace time is cut at the grace time", { timeout: 15_000 }, async () => {
+  const { server, port } = await startSlow(10_000);
+  const busy = await connect(port);
+  busy.socket.write("GET /slow HTTP/1.1\r\nHost: a\r\n\r\n");
+  await sleep(200);
+  const started = Date.now();
+  assert.equal(await drainServer(server, 500), false);
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed >= 450 && elapsed < 3000, `elapsed ${elapsed} ms`);
+  await busy.closed;
+  assert.equal(busy.text(), "");
 });

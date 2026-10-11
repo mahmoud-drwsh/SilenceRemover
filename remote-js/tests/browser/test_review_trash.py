@@ -85,6 +85,51 @@ class AutosaveTest(ReviewTestCase):
         self.assertEqual(len(puts), 1)
         self.assertEqual(file_row(project, audio, "audio")["title"], "abc")
 
+    def test_waiting_autosave_is_sent_when_the_card_unmounts(self):
+        project = new_project("review")
+        audio = seed_audio(project, "clip-unmount", "Old title")
+        self.page.goto(project_url(project, "/audio"))
+        self.title_field(audio).fill("Typed before tab change")
+        expect(self.status(audio)).to_have_text("Typing...")
+        # A tab change before the 1000 ms autosave timer ends unmounts the
+        # card. The card sends the waiting save and does not drop it.
+        self.page.get_by_role("tab", name="Approved").click()
+        expect(self.heading()).to_have_text("Approved (0)")
+        deadline = time.monotonic() + 5
+        while file_row(project, audio, "audio")["title"] != "Typed before tab change":
+            self.assertLess(time.monotonic(), deadline, "the waiting autosave was not sent")
+            time.sleep(0.1)
+
+    def test_approval_waits_for_the_running_autosave(self):
+        project = new_project("review")
+        audio = seed_audio(project, "clip-order", "Old title")
+        held: list[Route] = []
+        bodies: list[dict] = []
+
+        def hold_first(route: Route) -> None:
+            bodies.append(route.request.post_data_json)
+            if len(bodies) == 1:
+                held.append(route)
+            else:
+                route.continue_()
+
+        self.page.route(FILES_URL, hold_first)
+        self.page.goto(project_url(project, "/audio"))
+        self.title_field(audio).fill("Draft title")
+        expect(self.status(audio)).to_have_text("Saving...", timeout=5000)
+        self.card(audio).get_by_role("button", name="Approve title").click()
+        # The approval PUT waits until the autosave PUT ends.
+        self.page.wait_for_timeout(500)
+        self.assertEqual(len(bodies), 1)
+        held[0].continue_()
+        expect(self.heading()).to_have_text("TODO (0)")
+        self.assertEqual(bodies, [
+            {"tags": ["todo"], "title": "Draft title"},
+            {"tags": ["ready"], "title": "Draft title"},
+        ])
+        row = file_row(project, audio, "audio")
+        self.assertEqual((row["tags"], row["review_status"], row["title"]), (["ready"], "approved", "Draft title"))
+
     def test_autosave_in_trash_keeps_the_trash_tag(self):
         project = new_project("review")
         audio = seed_audio(project, "clip-trash-edit", "x", tags=["trash"], visibility="trash")

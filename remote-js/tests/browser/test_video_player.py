@@ -12,7 +12,7 @@ import re
 import urllib.error
 import urllib.request
 
-from playwright.sync_api import expect
+from playwright.sync_api import Error as PlaywrightError, expect
 
 from base import (
     APP,
@@ -219,11 +219,12 @@ class VideoPlayerTest(BrowserTestCase):
         self.assertEqual([text for text in self.console if CSP_TEXT in text], [])
 
     def wait_for_metadata(self, page) -> None:
-        page.wait_for_function(
+        # Read the duration in the same evaluation as the ready check. A
+        # second evaluation can see a new load of the media (duration NaN).
+        duration = page.wait_for_function(
             "() => { const v = document.querySelector('video');"
-            " return v && v.readyState >= 1 && Number.isFinite(v.duration); }"
-        )
-        duration = page.evaluate("() => document.querySelector('video').duration")
+            " return v && v.readyState >= 1 && Number.isFinite(v.duration) ? v.duration : false; }"
+        ).json_value()
         self.assertAlmostEqual(duration, 10, delta=0.5)
 
     def test_play_opens_player_in_new_tab_and_close_closes_it(self):
@@ -243,7 +244,14 @@ class VideoPlayerTest(BrowserTestCase):
         self.assertTrue(self.page.url.endswith("/videos"))
 
         with player.expect_event("close"):
-            player.get_by_role("button", name="Close").click()
+            try:
+                player.get_by_role("button", name="Close").click()
+            except PlaywrightError as error:
+                # The click closed the tab before Playwright got the result
+                # of the click (TargetClosedError). The "close" event is the
+                # check.
+                if "closed" not in str(error):
+                    raise
         self.assertTrue(player.is_closed())
 
     def test_play_uses_same_tab_when_popup_is_blocked(self):
@@ -261,6 +269,12 @@ class VideoPlayerTest(BrowserTestCase):
         card = upload_card(project, "src-r", "Seek me")
         responses = []
         self.page.on("response", lambda r: responses.append(r) if "/stream/" in r.url else None)
+        # Count the loads of the stream. A load before hydration and a
+        # second load by the player made the duration NaN for a short time.
+        self.page.add_init_script(
+            "window.__loads = 0; document.addEventListener('loadstart', (e) => {"
+            " if (e.target.currentSrc) window.__loads += 1; }, true);"
+        )
         self.page.goto(project_url(project, player_path(card, "Seek me")))
         self.wait_for_metadata(self.page)
 
@@ -274,6 +288,7 @@ class VideoPlayerTest(BrowserTestCase):
             " return v.currentTime > 5 && !v.seeking && v.readyState >= 2; }"
         )
         self.assertFalse(self.page.evaluate("() => document.querySelector('video').error !== null"))
+        self.assertEqual(self.page.evaluate("() => window.__loads"), 1)
         self.assertTrue(responses)
         for response in responses:
             self.assertEqual(response.status, 206)

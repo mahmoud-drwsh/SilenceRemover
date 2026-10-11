@@ -32,6 +32,10 @@ export function DesignerUpload({ apiBase, targetId, title, hasDesignerVideo, onD
   const [error, setError] = useState<string | null>(null);
 
   const openChange = (next: boolean) => {
+    // While an upload runs, the dialog stays open (Escape, a click outside,
+    // Cancel, and the close button do nothing). Thus the progress and an
+    // error stay visible.
+    if (!next && running) return;
     if (next) {
       setFile(null);
       setProgress(null);
@@ -64,7 +68,11 @@ export function DesignerUpload({ apiBase, targetId, title, hasDesignerVideo, onD
       <DialogTrigger asChild>
         <Button variant="secondary">{hasDesignerVideo ? "Upload new revision" : "Upload designer video"}</Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent
+        showCloseButton={!running}
+        onEscapeKeyDown={(event) => { if (running) event.preventDefault(); }}
+        onInteractOutside={(event) => { if (running) event.preventDefault(); }}
+      >
         <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-4">
           <DialogHeader>
             <DialogTitle>Upload designer video</DialogTitle>
@@ -104,7 +112,7 @@ export function DesignerUpload({ apiBase, targetId, title, hasDesignerVideo, onD
           ) : null}
           <DialogFooter>
             <DialogClose asChild>
-              <Button type="button" variant="outline">Cancel</Button>
+              <Button type="button" variant="outline" disabled={running}>Cancel</Button>
             </DialogClose>
             <Button type="submit" disabled={running}>Upload and link</Button>
           </DialogFooter>

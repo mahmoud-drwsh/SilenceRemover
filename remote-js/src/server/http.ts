@@ -121,6 +121,55 @@ export function configureServerTimeouts(server: import("node:http").Server): voi
   server.timeout = 0;
 }
 
+/**
+ * The default time (ms) that a stop waits for the requests in progress.
+ * Docker and Docker Swarm send SIGKILL 10 s after SIGTERM, unless the stop
+ * grace period of the container or service is longer. docker-compose.yml
+ * sets 30 s. Set the same (or more) for the Dokploy service. If the platform
+ * keeps 10 s, SIGKILL stops the drain at 10 s.
+ */
+export const DEFAULT_SHUTDOWN_GRACE_MS = 25_000;
+
+/** SHUTDOWN_GRACE_MS from the environment, or the default. */
+export function shutdownGraceMs(value: string | undefined): number {
+  const parsed = Number(value);
+  return value !== undefined && value.trim() !== "" && Number.isFinite(parsed) && parsed >= 0
+    ? parsed
+    : DEFAULT_SHUTDOWN_GRACE_MS;
+}
+
+/**
+ * Stop the server and wait for the requests in progress (graceful stop).
+ *
+ * 1. Stop accepting new connections (`server.close()`).
+ * 2. Close the idle keep-alive connections now, and again each 250 ms. The
+ *    server has no keep-alive idle timeout (configureServerTimeouts), so a
+ *    connection that becomes idle after its last response does not close
+ *    by itself.
+ * 3. When all connections are closed, the promise resolves with true. When
+ *    `graceMs` ends first, close all the connections that stay (requests in
+ *    progress are cut) and resolve with false.
+ */
+export function drainServer(server: import("node:http").Server, graceMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (drained: boolean) => {
+      if (done) return;
+      done = true;
+      clearInterval(sweep);
+      clearTimeout(deadline);
+      resolve(drained);
+    };
+    server.close(() => finish(true));
+    server.closeIdleConnections();
+    const sweep = setInterval(() => server.closeIdleConnections(), 250);
+    const deadline = setTimeout(() => {
+      server.closeAllConnections();
+      finish(false);
+    }, graceMs);
+  });
+}
+
 /** The old Bun.serve default `maxRequestBodySize`: 128 MiB. */
 export const MAX_REQUEST_BODY_BYTES = 128 * 1024 * 1024;
 

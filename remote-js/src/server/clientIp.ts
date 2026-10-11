@@ -107,7 +107,15 @@ export function resolveClientIp(
   return peer || "unknown";
 }
 
+/**
+ * The client IP that server.ts resolved, from the request headers. A page
+ * gives the headers of `headers()` from next/headers.
+ */
+export function clientIpFromHeaders(headers: Pick<Headers, "get">): string {
+  return headers.get(CLIENT_IP_HEADER)?.trim() || "unknown";
+}
+
 /** The client IP that server.ts resolved for this request. */
 export function requestClientIp(request: Request): string {
-  return request.headers.get(CLIENT_IP_HEADER)?.trim() || "unknown";
+  return clientIpFromHeaders(request.headers);
 }
