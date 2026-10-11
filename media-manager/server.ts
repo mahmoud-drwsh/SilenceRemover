@@ -39,7 +39,11 @@ function loadStandaloneConfig(): Record<string, unknown> | undefined {
 }
 
 /**
- * Next.js adds `Vary: rsc, next-router-state-tree, ...` to each app-route
+ * Header changes just before the status line is written:
+ *
+ * HEAD: `Content-Length: 0`, as the old service sent.
+ *
+ * Vary: Next.js adds `Vary: rsc, next-router-state-tree, ...` to each app-route
  * response. The header is necessary only for pages (an HTML document and its
  * RSC payload use the same URL). The old API responses had no Vary header,
  * so remove it when the response is not HTML and not an RSC payload. A Vary
@@ -47,9 +51,12 @@ function loadStandaloneConfig(): Record<string, unknown> | undefined {
  */
 const ROUTER_VARY = new Set(["rsc", "next-router-state-tree", "next-router-prefetch", "next-router-segment-prefetch", "next-url"]);
 
-function removeRouterVary(res: http.ServerResponse): void {
+function adjustHeaders(req: http.IncomingMessage, res: http.ServerResponse): void {
   const writeHead = res.writeHead;
   res.writeHead = function (this: http.ServerResponse, ...args: unknown[]) {
+    // The old Bun/Hono server sent "Content-Length: 0" on each HEAD
+    // response. Next.js sends the length of the GET body. Keep the old value.
+    if (req.method === "HEAD") this.setHeader("content-length", "0");
     const raw = this.getHeader("vary");
     const type = String(this.getHeader("content-type") ?? "");
     if (raw !== undefined && !/^text\/(html|x-component)/.test(type)) {
@@ -74,8 +81,8 @@ function isImageOptimizerPath(url: string | undefined): boolean {
   return pathname === "/_next/image" || pathname.startsWith("/_next/image/");
 }
 
-function sendNotFound(res: http.ServerResponse): void {
-  const body = JSON.stringify({ detail: "Not Found" });
+function sendNotFound(req: http.IncomingMessage, res: http.ServerResponse): void {
+  const body = req.method === "HEAD" ? "" : JSON.stringify({ detail: "Not Found" });
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
   res.writeHead(404, { "content-type": "application/json", "content-length": Buffer.byteLength(body) });
   res.end(body);
@@ -100,8 +107,8 @@ async function main(): Promise<void> {
   const handle = app.getRequestHandler();
 
   const server = http.createServer((req, res) => {
-    if (isImageOptimizerPath(req.url)) return sendNotFound(res);
-    removeRouterVary(res);
+    if (isImageOptimizerPath(req.url)) return sendNotFound(req, res);
+    adjustHeaders(req, res);
     handle(req, res).catch((error: unknown) => {
       console.error("[server error]", error);
       if (!res.headersSent) {
