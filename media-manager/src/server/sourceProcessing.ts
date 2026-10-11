@@ -48,3 +48,42 @@ export async function enqueueSourceProcessing(
     RETURNING id`, [randomUUID(), project, sourceId, originalChecksumSha256, profile]);
   return Boolean(rows[0]);
 }
+
+/** One `source_processing` row, as the routes return it. */
+export interface SourceProcessingJob {
+  id: string;
+  project: string;
+  source_id: string;
+  original_checksum_sha256: string;
+  processing_profile: string;
+  state: string;
+  attempts: number;
+  lease_token: string | null;
+  lease_until: string | Date | null;
+  trim_plan: unknown;
+  review_transcript: string | null;
+  generated_title: string | null;
+  waiting_reason: string | null;
+  last_error: string | null;
+}
+
+function jsonObject(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : value;
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * `SELECT *` can still return the old `srt_text` column until the data move
+ * drops it. The response never includes it. A trim plan stored as JSON text
+ * is returned as an object. Same as serializeJob in
+ * remote-js/src/routes/sourceProcessing.ts; #62 can use it too.
+ */
+export function serializeSourceProcessingJob(row: SourceProcessingJob): SourceProcessingJob {
+  const { srt_text: _removed, ...job } = row as SourceProcessingJob & { srt_text?: unknown };
+  return { ...job, trim_plan: jsonObject(job.trim_plan) };
+}
