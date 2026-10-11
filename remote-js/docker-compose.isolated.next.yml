@@ -30,10 +30,3 @@ services:
       context: ../media-manager
       dockerfile: Dockerfile
     user: "0"
-
-  # The client contract steps that need routes of later tickets. A pending
-  # step can fail. Remove a name when its ticket adds the route:
-  # update_tags and delete_file (#59).
-  client-contract-integration:
-    environment:
-      CONTRACT_PENDING_STEPS: update_tags,delete_file

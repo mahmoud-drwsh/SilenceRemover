@@ -5,9 +5,10 @@
 // Later tickets add to this card: downloads and "Play video" (#58), trash,
 // restore, and delete (#59), and the designer upload (#61).
 
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDuration, formatMeta, formatSize } from "@/src/client/format";
 import type { FileResponse } from "@/src/client/useFileList";
+import { VideoTrashActions } from "./trash-actions";
 import { VideoCardDownloads } from "./video-card-downloads";
 
 type Props = {
@@ -17,9 +18,11 @@ type Props = {
   admin: boolean;
   token: string;
   project: string;
+  apiBase: string;
+  onChanged: () => void;
 };
 
-export function VideoCard({ file, titleId, view, token, project }: Props) {
+export function VideoCard({ file, titleId, view, admin, token, project, apiBase, onChanged }: Props) {
   const title = file.title || file.id;
   return (
     <Card role="article" aria-labelledby={titleId} data-id={file.id}>
@@ -33,6 +36,11 @@ export function VideoCard({ file, titleId, view, token, project }: Props) {
         </CardDescription>
       </CardHeader>
       {view !== "trash" ? <VideoCardDownloads file={file} title={title} token={token} project={project} /> : null}
+      {admin ? (
+        <CardFooter>
+          <VideoTrashActions file={file} admin={admin} view={view} apiBase={apiBase} onChanged={onChanged} />
+        </CardFooter>
+      ) : null}
     </Card>
   );
 }

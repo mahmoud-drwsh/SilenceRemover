@@ -14,7 +14,10 @@ the public HTTP API (`api()`), or with SQL (`psql()`, `seed_card()`) for
 rows that the API does not make.
 """
 
+import hashlib
+import io
 import json
+import math
 import os
 import socket
 import subprocess
@@ -24,6 +27,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import wave
 
 from playwright.sync_api import Browser, Page, Playwright, sync_playwright
 
@@ -129,6 +133,71 @@ def seed_many_cards(project: str, count: int, prefix: str = "card") -> list[str]
         f"FROM generate_series(1, {count}) AS i"
     )
     return [f"{prefix}-{i:05d}-no-overlay" for i in range(1, count + 1)]
+
+
+def seed_audio(project: str, audio_id: str, title: str | None, *, tags=("todo",),
+               review_status: str = "todo", visibility: str = "active") -> str:
+    """Insert a review audio row (no S3 object)."""
+    psql(
+        f"INSERT INTO {SCHEMA}.files (id, project, type, title, tags, duration, file_size, mime_type, "
+        "created_at, source_id, review_status, visibility) VALUES ("
+        f"{literal(audio_id)}, {literal(project)}, 'audio', {literal(title)}, "
+        f"{literal(json.dumps(list(tags)))}::jsonb, 12, 192000, 'audio/wav', now(), "
+        f"{literal(audio_id)}, {literal(review_status)}, {literal(visibility)})"
+    )
+    return audio_id
+
+
+def file_row(project: str, file_id: str, file_type: str) -> dict | None:
+    """The tags, title, review_status, and visibility of a row, or None."""
+    out = psql(
+        f"SELECT json_build_object('tags', tags, 'title', title, 'review_status', review_status, "
+        f"'visibility', visibility) FROM {SCHEMA}.files WHERE project={literal(project)} "
+        f"AND id={literal(file_id)} AND type={literal(file_type)}"
+    )
+    return json.loads(out) if out else None
+
+
+def wav_bytes(seconds: float = 3.0, rate: int = 8000, frequency: float = 440.0) -> bytes:
+    """A mono 16-bit PCM WAV with a sine tone (Chromium plays PCM WAV; it has no AAC)."""
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(rate)
+        frames = bytearray()
+        for i in range(int(seconds * rate)):
+            value = int(12000 * math.sin(2 * math.pi * frequency * i / rate))
+            frames += value.to_bytes(2, "little", signed=True)
+        out.writeframes(bytes(frames))
+    return buffer.getvalue()
+
+
+def upload_audio(project: str, audio_id: str, title: str) -> str:
+    """Upload a WAV review audio through the upload session API (with an S3 object).
+
+    The audio needs an original row (source_id), so the helper inserts one.
+    """
+    psql(
+        f"INSERT INTO {SCHEMA}.files (id, project, type, title, tags, duration, file_size, mime_type, "
+        f"created_at, original_filename) VALUES ({literal(audio_id)}, {literal(project)}, 'original', "
+        f"{literal(audio_id)}, '[]'::jsonb, 3, 1, 'video/mp4', now(), 'source.mp4')"
+    )
+    data = wav_bytes()
+    status, _, session = api(project, "/uploads/initiate", "POST", {
+        "id": audio_id, "type": "audio", "title": title, "mime_type": "audio/wav",
+        "file_size": len(data), "checksum_sha256": hashlib.sha256(data).hexdigest(),
+        "source_id": audio_id, "tags": ["todo"],
+    })
+    if status != 200:
+        raise AssertionError(f"initiate failed: {status} {session}")
+    put = urllib.request.Request(session["upload_url"], data=data, method="PUT",
+                                 headers={"Content-Type": "audio/wav"})
+    urllib.request.urlopen(put, timeout=30).close()
+    status, _, body = api(project, f"/uploads/{session['session_id']}/complete", "POST", {})
+    if status != 200:
+        raise AssertionError(f"complete failed: {status} {body}")
+    return audio_id
 
 
 class BrowserTestCase(unittest.TestCase):

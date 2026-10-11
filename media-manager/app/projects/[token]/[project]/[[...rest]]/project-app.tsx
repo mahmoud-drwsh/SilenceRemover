@@ -24,6 +24,7 @@ import {
   type Section,
 } from "@/src/client/projectUrl";
 import { useFileList } from "@/src/client/useFileList";
+import { BulkApprove } from "./bulk-approve";
 import { FileList } from "./file-list";
 
 const SORT_KEY = "mediaManagerSort";
@@ -135,6 +136,10 @@ export function ProjectApp({ token, project }: { token: string; project: string 
           </Button>
         ) : null}
       </header>
+
+      {place && admin && place.section === "audio" && place.view === "todo" ? (
+        <BulkApprove apiBase={base} onChanged={() => void list.reload()} />
+      ) : null}
 
       {place && navigation ? (
         <Tabs value={place.view} onValueChange={selectView}>
