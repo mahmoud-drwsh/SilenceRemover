@@ -8,11 +8,12 @@ echo "== Python tests =="
 uv run pytest
 
 echo
-echo "== remote-js Bun tests =="
+echo "== remote-js (Media Manager) checks =="
 (
   cd remote-js
-  bun test
+  bun install --frozen-lockfile
   bun run typecheck
+  bun run test
 )
 
 if [ -d pipeline-js ]; then

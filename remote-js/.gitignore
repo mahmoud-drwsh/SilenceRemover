@@ -1,8 +1,7 @@
 node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
 .env
 .env.local
 .dokploy-postgres.env
-*.log
-.DS_Store
-dist/
-.bun/

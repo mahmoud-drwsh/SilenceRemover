@@ -3,8 +3,8 @@
  * `media_manager.auth_tokens`.
  *
  * Usage:
- *   bun run scripts/generate_admin_token.ts
- *   bun run generate-admin-token
+ *   node scripts/generate_admin_token.ts
+ *   bun run generate-admin-token   (or: npm run generate-admin-token)
  *
  * Output:
  *   -- Admin token: <opaque token>

@@ -180,7 +180,6 @@ services:
     environment:
       PYTHONPATH: /workspace/packages
       PGPASSWORD: test-password
-      CONTRACT_PENDING_STEPS: ${CONTRACT_PENDING_STEPS:-}
     volumes:
       - ..:/workspace:ro
       - ../.local-test/fixtures:/fixtures:ro

@@ -1,7 +1,8 @@
 # Optional override for docker-compose.isolated.yml.
 # Use it when the minio/minio and minio/mc images are not available from
 # Docker Hub. It runs the Chainguard MinIO image and makes the bucket with the
-# app image, because the Chainguard client image has no shell.
+# app image (scripts/make-bucket.ts), because the Chainguard client image has
+# no shell.
 #   docker compose -f docker-compose.isolated.yml -f docker-compose.isolated.chainguard-minio.yml ...
 services:
   minio:
@@ -9,18 +10,17 @@ services:
     command: ["server", "/tmp/minio-data", "--console-address", ":9001"]
 
   minio-init:
-    image: !reset null
+    image: srfresh-media-manager:${SRFRESH_TAG:-local}
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://unused@postgres:5432/unused
+      TOKEN_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_BUCKET: media-manager
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_REGION: us-east-1
     entrypoint: ["/bin/sh"]
-    command:
-      - -ec
-      - |
-        cat > /app/make-bucket.ts <<'TS'
-        import { CreateBucketCommand, S3Client } from "@aws-sdk/client-s3";
-        const client = new S3Client({ endpoint: "http://minio:9000", region: "us-east-1", forcePathStyle: true, credentials: { accessKeyId: "minioadmin", secretAccessKey: "minioadmin" } });
-        try { await client.send(new CreateBucketCommand({ Bucket: "media-manager" })); }
-        catch (error) { if (!["BucketAlreadyOwnedByYou", "BucketAlreadyExists"].includes((error as Error).name)) throw error; }
-        TS
-        until bun run /app/make-bucket.ts; do sleep 1; done
+    command: ["-ec", "until node /app/scripts/make-bucket.ts; do sleep 1; done"]

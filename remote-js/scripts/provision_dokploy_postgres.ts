@@ -1,6 +1,10 @@
 /**
  * Create a Dokploy-managed Postgres database for Media Manager.
  *
+ * Usage:
+ *   node scripts/provision_dokploy_postgres.ts
+ *   bun run provision:dokploy-postgres
+ *
  * Reads DOKPLOY_BASE and DOKPLOY_TOKEN from the repo .env, then optionally:
  * - DOKPLOY_PROJECT_ID
  * - DOKPLOY_ENVIRONMENT_ID
@@ -181,8 +185,8 @@ function randomPassword(): string {
 }
 
 async function main(): Promise<void> {
-  loadDotenv(resolve(import.meta.dir, "../../.env"));
-  loadDotenv(resolve(import.meta.dir, "../.env"));
+  loadDotenv(resolve(import.meta.dirname, "../../.env"));
+  loadDotenv(resolve(import.meta.dirname, "../.env"));
 
   const base = requiredEnv("DOKPLOY_BASE");
   const token = requiredEnv("DOKPLOY_TOKEN");
@@ -220,7 +224,7 @@ async function main(): Promise<void> {
     `TOKEN_ENCRYPTION_KEY=${tokenEncryptionKey}`,
     "",
   ].join("\n");
-  writeFileSync(resolve(import.meta.dir, "../.dokploy-postgres.env"), envOutput, {
+  writeFileSync(resolve(import.meta.dirname, "../.dokploy-postgres.env"), envOutput, {
     mode: 0o600,
   });
 

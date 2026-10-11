@@ -1,11 +1,20 @@
-node_modules/
-.git/
+# Build context: this folder. Keep out files that the image does not need.
+node_modules
+.next
+*.tsbuildinfo
+next-env.d.ts
+Dockerfile
+Dockerfile.worker
+docker-compose*.yml
+.dockerignore
 .gitignore
 .env
-.env.local
-*.log
-.DS_Store
+.env.*
+.dokploy-postgres.env
 README.md
-docker-compose.yml
-.dockerignore
-Dockerfile
+# Tests and test fixtures. No run-time code imports them.
+tests
+**/*.test.ts
+src/server/fixtures
+# Development tool only (it copies shadcn/ui files).
+scripts/shadcn-copy.py

@@ -196,7 +196,7 @@ tests/fixtures/*.mp4
 
 # The Python patterns above (lib/, parts/, build/, dist/, var/) also match
 # folders of the Next.js app. Keep the app folders in Git.
-!media-manager/lib/
-!media-manager/**/parts/
-!media-manager/**/build/
-!media-manager/**/var/
+!remote-js/lib/
+!remote-js/**/parts/
+!remote-js/**/build/
+!remote-js/**/var/

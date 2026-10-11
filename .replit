@@ -25,7 +25,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd remote-js && PORT=5000 bun run src/index.ts"
+args = "cd remote-js && bun install --frozen-lockfile && bun run build && PORT=5000 node server.ts"
 waitForPort = 5000
 
 [workflows.workflow.metadata]

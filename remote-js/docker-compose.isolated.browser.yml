@@ -1,12 +1,12 @@
-# Browser tests (Playwright for Python) for the Next.js app (MM_APP=next).
-# The runner (tests/integration/run_isolated_fresh.sh) adds this file when
-# MM_APP=next. Run the tests with the "browser" flow. The tests are in
-# ../media-manager/tests/browser (see base.py there).
+# Browser tests (Playwright for Python) for the Media Manager pages.
+# The runner (tests/integration/run_isolated_fresh.sh) always adds this file.
+# Run the tests with the "browser" flow. The tests are in tests/browser (see
+# base.py there).
 services:
   browser-integration:
     image: srfresh-browser:${SRFRESH_TAG:-local}
     build:
-      context: ../media-manager/tests/browser
+      context: ./tests/browser
       dockerfile: Dockerfile
     depends_on:
       app:
@@ -15,7 +15,7 @@ services:
       MM_BASE_URL: http://app:8080
       PGPASSWORD: test-password
     volumes:
-      - ../media-manager/tests/browser:/tests:ro
+      - ./tests/browser:/tests:ro
     # Chromium uses /dev/shm; the Docker default (64 MB) is too small.
     shm_size: 1gb
     networks: [isolated]

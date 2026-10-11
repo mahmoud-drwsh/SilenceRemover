@@ -1,139 +1,198 @@
 # Media Manager
 
-Canonical Media Manager service for SilenceRemover. It exposes the pipeline/browser HTTP contract on top of [Bun](https://bun.sh) + [Hono](https://hono.dev), proxies requests to a Postgres database (metadata) and an S3-compatible object store (media bytes), and is packaged as a single Docker image for [Dokploy](https://dokploy.com).
+The Media Manager service for SilenceRemover. It is one [Next.js](https://nextjs.org) app that runs on Node.js. It gives the HTTP contract for the pipeline client, the server worker, and the browser. It keeps metadata in Postgres and media bytes in an S3-compatible object store. It is one Docker image and one [Dokploy](https://dokploy.com) application.
 
-The pipeline client at [`packages/sr_media_manager/`](../packages/sr_media_manager) and the bundled browser SPA talk to this service directly.
+The pipeline client in [`packages/sr_media_manager/`](../packages/sr_media_manager) and the server worker use this service. The API contract (routes, methods, bodies, status codes, headers, and auth) does not change between releases.
 
 ## Stack
 
-- **Runtime**: Bun (native multipart, native fetch, native streams, no build step)
-- **Framework**: Hono (small, fast, portable; runs natively on Bun)
-- **Postgres**: [`postgres`](https://github.com/porsager/postgres) (porsager) - parameterized SQL with schema awareness
-- **S3**: [`@aws-sdk/client-s3`](https://www.npmjs.com/package/@aws-sdk/client-s3) for object storage (`PutObject`, `GetObject` with `Range`, `HeadObject`, `DeleteObject`, `ListObjectsV2`, `HeadBucket`)
-- **MIME sniffing**: [`file-type`](https://www.npmjs.com/package/file-type) (replacement for libmagic / `python-magic`)
-- **Validation**: [`zod`](https://zod.dev) + [`@hono/zod-validator`](https://www.npmjs.com/package/@hono/zod-validator) (replacement for Pydantic)
-- **ffprobe**: shelled out via `Bun.spawn` (ffmpeg installed in the Docker image)
+- **Runtime**: Node.js 24. Node runs the `.ts` files directly (type stripping), so `server.ts` and `scripts/*.ts` use only erasable TypeScript.
+- **Framework**: Next.js (App Router, `output: "standalone"`). `server.ts` is a custom HTTP server. It runs the startup steps, then gives each request to Next.js.
+- **UI**: React, Tailwind CSS, and shadcn/ui copies in `components/ui/`. The pages call only the public HTTP API from the browser.
+- **Postgres**: [`postgres`](https://github.com/porsager/postgres) (porsager).
+- **S3**: `@aws-sdk/client-s3` and `@aws-sdk/s3-request-presigner`.
+- **MIME check**: `file-type`. **Validation**: `zod`. **Duration**: `ffprobe` (the image installs ffmpeg).
+- **Packages**: Bun installs the packages from the frozen `bun.lock` only. `bunfig.toml` sets a 14-day minimum release age and exact versions. No package can run an install script.
 
 ## Local development
 
 ```bash
-cp .env.example .env       # fill DATABASE_URL, TOKEN_ENCRYPTION_KEY, S3_*, etc.
-bun install
-bun run dev                # auto-reloads on file changes
+cp .env.example .env               # set DATABASE_URL, TOKEN_ENCRYPTION_KEY, S3_*, and the other values
+bun install --frozen-lockfile
+bun run build
+node --env-file=.env server.ts     # production server on http://localhost:8080
 ```
 
-The server listens on `http://localhost:8080` by default:
+`server.ts` makes and updates the database schema, re-queues the interrupted originals, checks the bucket, and removes the expired upload sessions. Then it starts to listen. It does not read `.env` itself; give the variables with `--env-file` or with the shell.
 
-- Project SPA: `http://localhost:8080/projects/$MEDIA_TOKEN/test-project/`
+For UI work with hot reload, use `bun run dev` (`next dev` on port 8080). It does not run the startup steps, so start `server.ts` one time first (or apply [`scripts/setup_postgres.sql`](scripts/setup_postgres.sql)) to make the schema.
+
+To run the service and the server worker together on one host, use [`docker-compose.yml`](docker-compose.yml) with a `.env` file in this folder (see [`scripts/vps/run-compose-media-manager.sh`](../scripts/vps/run-compose-media-manager.sh)).
+
+Pages:
+
+- Project UI: `http://localhost:8080/projects/$MEDIA_TOKEN/<project>/`
 - Admin dashboard: `http://localhost:8080/admin/$ADMIN_TOKEN/`
+- Health check: `http://localhost:8080/healthz` returns `{"ok":true}`
 
-## Smoke Test
+## Tests
 
-Run the focused local checks:
+Run these commands from the service folder (`remote-js/`):
 
 ```bash
-bun run typecheck
-bun test
+bun run typecheck      # tsc --noEmit
+bun run test           # node --test: unit tests (src/**/*.test.ts)
+bun run build          # next build
 ```
 
-## Deploying to Dokploy
+The two test seams run in the isolated Docker Compose stack. The stack uses a fresh database and synthetic media. It uses no production data, publishes no host port, and is removed after each flow. Run it from the repository root. Set `SRFRESH_TAG` to a unique value (for example the worktree name), so that parallel runs do not replace the images of each other. Run only one stack at a time on a small machine.
 
-This service is a Docker container that listens on port `8080`. Dokploy / Traefik handle TLS termination upstream.
+**Seam 1, the HTTP contract.** The black-box Python flows in [`tests/integration/`](tests/integration):
 
-1. Push this repo to a Git remote that Dokploy can read.
-2. Create a new **Application** in Dokploy and point it at this repo.
-3. Set the build context to `remote-js/` (so Dokploy uses [`Dockerfile`](Dockerfile)).
-4. Add the env vars from [`.env.example`](.env.example) under the Dokploy "Environment" tab.
-5. Before a deployment that restarts the service, confirm there are no non-expired rows in `upload_sessions` with `state = 'active'`; wait for uploads to finish rather than interrupting them.
-6. Deploy, then confirm `/healthz` returns `{ "ok": true }`. The container exposes `:8080`; Dokploy wires Traefik in front.
+```bash
+SRFRESH_TAG=<tag> remote-js/tests/integration/run_isolated_fresh.sh
+# Runs: originals, canonical-card, source-processing, client-contract.
 
-Alternatively, drop the [`docker-compose.yml`](docker-compose.yml) into Dokploy's "Compose" mode.
+SRFRESH_TAG=<tag> remote-js/tests/integration/run_isolated_fresh.sh originals source-processing   # some flows
+SRFRESH_TAG=<tag> remote-js/tests/integration/run_isolated_fresh.sh views-perf                     # by name only
+```
 
-## Dokploy Postgres
+**Seam 2, the browser.** The Playwright for Python tests in [`tests/browser/`](tests/browser):
 
-The repo root `.env` can contain:
+```bash
+SRFRESH_TAG=<tag> remote-js/tests/integration/run_isolated_fresh.sh browser
+BROWSER_TESTS="test_video_views.PagingTest" SRFRESH_TAG=<tag> remote-js/tests/integration/run_isolated_fresh.sh browser
+```
+
+`BROWSER_TESTS` takes unittest names. Each test class extends `base.BrowserTestCase` (see `tests/browser/base.py`).
+
+Set `ISOLATED_MINIO=dockerhub` to use the `minio/minio` images in place of the Chainguard MinIO override. After the runs, remove your images: `docker image ls 'srfresh-*'`, then `docker rmi` and `docker image prune -f`.
+
+## Environment
+
+The service uses the same variables as the previous service. [`.env.example`](.env.example) has each name and its default. Do not change the Dokploy environment for this release.
+
+| Variable | Required | Default | Use |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | yes | | Postgres connection URL. |
+| `DB_SCHEMA` | no | `media_manager` | Postgres schema name. |
+| `TOKEN_ENCRYPTION_KEY` | yes | | 32 random bytes, base64 or hex (`openssl rand -base64 32`). Encrypts the recoverable media token. |
+| `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | yes | | S3-compatible object store. |
+| `S3_BUCKET`, `S3_REGION` | no | `media-manager`, `eu2` | Bucket name and region. |
+| `PORT` | no | `8080` | HTTP port. |
+| `SOURCE_PROCESSING_WORKER_TOKEN` | for the worker | | Token of the server worker for the `/internal/source-processing/` routes. Set it in production; without it, the worker routes refuse each request. |
+| `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` | for analysis | | Review and snippet analysis provider (`.env.example` has `https://openrouter.ai/api/v1`). Without both, analysis returns 503. |
+| `OPENROUTER_TRANSCRIPTION_MODEL`, `OPENROUTER_TRANSCRIPTION_FALLBACK_MODEL`, `OPENROUTER_TITLE_MODEL`, `OPENROUTER_TITLE_FALLBACK_MODEL` | no | see `.env.example` | Models. A `chat:` prefix sends the audio to a chat model. |
+| `REVIEW_ANALYSIS_*` | no | see `.env.example` | Timeout, attempts, deadline (keep it below the worker's 150 s wait), and the public rate limit and concurrency. |
+| `SOURCE_PROCESSING_LEASE_SECONDS`, `SOURCE_PROCESSING_PROFILE` | no | `1800`, `v1` | Worker lease length and processing profile. |
+| `SOURCE_PROCESSING_PROJECT`, `SOURCE_PROCESSING_ENCODER` | worker only | | The server worker reads these. The service ignores them. |
+
+Keep the real values in Dokploy only. Do not put them in Git, in logs, or in UI output.
+
+## Operator scripts
+
+Run these from the service folder on a host with Node.js 22.18 or later (or in the running container, where the scripts are in `/app/scripts`; the image has no Bun, so use the `node` form there).
+
+**Admin token.** Print a new admin token and the SQL that stores its SHA-256 hash:
+
+```bash
+bun run generate-admin-token          # or: node scripts/generate_admin_token.ts
+```
+
+The output is a `-- Admin token: mm_admin_...` line and an `insert ... on conflict (kind) do update` statement for `media_manager.auth_tokens`. Apply the SQL to the database. Keep the token secret.
+
+**Dokploy Postgres.** Make a Dokploy-managed Postgres database for a new installation. Put these in the repository root `.env`:
 
 ```bash
 DOKPLOY_BASE=http://your-dokploy-host:3000
 DOKPLOY_TOKEN=...
 ```
 
-Create a Dokploy-managed Postgres database:
-
 ```bash
-bun run provision:dokploy-postgres
+bun run provision:dokploy-postgres    # or: node scripts/provision_dokploy_postgres.ts
 ```
 
-If Dokploy has more than one project or environment, add `DOKPLOY_PROJECT_ID` and `DOKPLOY_ENVIRONMENT_ID` to the repo root `.env`. The command prints `DATABASE_URL`, `DB_SCHEMA`, and `TOKEN_ENCRYPTION_KEY` values for the Media Manager app.
+If Dokploy has more than one project or environment, also set `DOKPLOY_PROJECT_ID` and `DOKPLOY_ENVIRONMENT_ID`. Other optional values: `DOKPLOY_POSTGRES_NAME`, `DOKPLOY_POSTGRES_DATABASE`, `DOKPLOY_POSTGRES_USER`, `DOKPLOY_POSTGRES_PASSWORD`, `DOKPLOY_POSTGRES_IMAGE`. The script writes `DATABASE_URL`, `DB_SCHEMA`, and `TOKEN_ENCRYPTION_KEY` to `remote-js/.dokploy-postgres.env` (mode 600, ignored by Git).
 
-## Schema Bootstrap
-
-The service creates/updates the plain Postgres schema on startup. [`scripts/setup_postgres.sql`](scripts/setup_postgres.sql) is kept as the explicit SQL version for manual bootstrap or review.
-
-Seed the first admin token with [`scripts/generate_admin_token.ts`](scripts/generate_admin_token.ts):
+**Schema bootstrap.** The service makes and updates the schema at startup, so a deploy needs no manual database step. [`scripts/setup_postgres.sql`](scripts/setup_postgres.sql) is the same schema as explicit SQL, for a manual bootstrap or a review:
 
 ```bash
-bun run generate-admin-token
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/setup_postgres.sql
 ```
 
-The output includes a plaintext token and a SQL `INSERT` to apply to the Postgres database.
+When you change the startup schema in `src/server/db.ts`, change this file too. To check it, apply the file to one empty database and start the app on another, then compare `pg_dump --schema-only --schema=media_manager` of the two.
 
-## No-overlay data move
+## Deploying to Dokploy
 
-Legacy production data can still contain overlaid videos, SRT files, a project logo, remux jobs, and subtitle upload sessions. A data-move command in `scripts/` removes them. It runs in this service container with the service's own environment. It has three modes: `dry-run`, `apply`, and `drop-schema`. Always run `dry-run` first and get operator approval. See [`docs/no-overlay-data-move-runbook.md`](../docs/no-overlay-data-move-runbook.md) for the procedure.
+The Dokploy application is named `frontend`. It builds from GitHub, branch `main`, with the build path `remote-js` and the default `Dockerfile`. **Auto deploy is on: each push to `main` builds and deploys the service.** The server worker application also deploys on each push to `main` (it builds `remote-js/Dockerfile.worker` from the repository root).
+
+The image listens on port `8080`. Dokploy and Traefik terminate TLS in front of it. The image has a `HEALTHCHECK` on `/healthz`. Do not publish port 8080. Only Traefik must reach it, because the client-IP rule trusts X-Forwarded-For from internal peers.
+
+1. Run `bun run typecheck`, `bun run test`, and `bun run build` from `remote-js/`, and `git diff --check`. Run the two test seams.
+2. Write down the image that runs now, so that you can roll back (see [Rollback](#rollback)).
+3. Confirm that production has zero non-expired active upload sessions. Wait if an upload is in progress:
+
+   ```sql
+   select count(*) from media_manager.upload_sessions
+   where state = 'active' and expires_at > now();
+   ```
+
+4. Push to `main` (or start a deploy of `frontend` in Dokploy if the Git integration does not deploy).
+5. Watch the deployment log in Dokploy until it is done.
+6. Confirm `/healthz` returns `{"ok":true}`. Then open the project UI and the admin dashboard, and check that the pipeline client and the server worker can connect.
+
+The environment variables are in the Dokploy "Environment" tab of `frontend`. A new installation copies the names from [`.env.example`](.env.example).
+
+## Rollback
+
+The database schema is the same for this service and the previous one, so a rollback needs no database step. Use the fastest method that you prepared.
+
+**Before each deploy: keep the previous image.** Dokploy builds the image with the application's `appName` as the image name (see the "General" data of `frontend`, or `application.one` in the Dokploy API) and replaces it on each build. On the Dokploy host, before you push:
+
+```bash
+docker image ls <appName>                                  # find the current image
+docker tag <appName>:latest <appName>:rollback-<old-commit>
+```
+
+The tag keeps the old image when Dokploy builds the new one, and `docker image prune` does not remove a tagged image.
+
+**Method 1: start the previous image (fastest, about one minute).** Dokploy runs the application as a Docker Swarm service with the `appName` as its name. Confirm the image name and the service name on the host first (`docker image ls`, `docker service ls`). If you cannot find them, use method 2. On the Dokploy host:
+
+```bash
+docker service ls --filter name=<appName>                  # confirm the service name
+docker service update --image <appName>:rollback-<old-commit> <appName>
+```
+
+Then confirm `/healthz`. This is a temporary state: the next Dokploy deploy of `frontend` builds from Git again. Do method 2 next, so that Git agrees with production.
+
+**Method 2: deploy the previous commit (no host access, one build).** Revert the release commit (or the merge) on `main` and push it. Auto deploy builds and deploys the previous code. Confirm `/healthz`.
+
+```bash
+git revert --no-edit <release-commit>       # use -m 1 for a merge commit
+git push origin main
+```
+
+**Method 3: Dokploy rollback (optional).** Dokploy can keep each deployed image in a registry and roll back to it from the deployment list. This needs a rollback registry in the `frontend` settings. It is off now. If you turn it on before a deploy, you can roll back from the Dokploy UI.
+
+After a rollback, check that production has zero non-expired active upload sessions before you deploy again.
+
+**The first deploy of this app (spec #55).** This app replaces the previous Bun/Hono service. For this deploy, the rollback target is commit `2f1eb5b` (the last Bun/Hono deploy). Dokploy rollback (method 3) is off, so tag the running image as `<appName>:rollback-2f1eb5b` before the merge into `main`, and use method 1 or method 2. The two services use the same database schema and the same environment variables, so a rollback needs no database or environment step.
 
 ## Layout
 
 ```
 remote-js/
-├── package.json
-├── tsconfig.json
-├── Dockerfile
-├── docker-compose.yml
-├── src/                    # Backend service code
-│   ├── index.ts            # Bun.serve entrypoint, startup checks
-│   ├── config.ts           # env parsing
-│   ├── db.ts               # postgres connection + schema-prefixed helpers
-│   ├── auth.ts             # token hashing, rate limiter
-│   ├── audit.ts            # admin_audit_log inserts
-│   ├── storage.ts          # S3 wrappers (head/put/get-range/delete/list)
-│   ├── mime.ts             # MIME tables + file-type sniff
-│   ├── range.ts            # HTTP Range header parser
-│   ├── sanitize.ts         # filename / file-id sanitizers
-│   ├── ffprobe.ts          # duration probe via Bun.spawn
-│   ├── schemas.ts          # zod schemas
-│   ├── security.ts         # security-headers middleware
-│   └── routes/
-│       ├── files.ts        # File list/upload/update/delete routes, including raw video PUT /content
-│       ├── stream.ts       # GET /projects/:t/:p/stream/:id
-│       ├── projectSpa.ts   # /static/*, /video-player, SPA fallback
-│       └── admin.ts        # /admin/:admin_token/* dashboard + admin API
-├── frontend/               # Browser SPA assets served by the backend
-└── scripts/
-    ├── setup_postgres.sql
-    ├── provision_dokploy_postgres.ts
-    └── generate_admin_token.ts
+├── server.ts               # Entry: startup, then Next.js; graceful stop on SIGTERM
+├── next.config.ts          # standalone output, security headers, strict trailing slash
+├── app/                    # Route handlers (API) and pages (project UI, admin)
+├── components/ui/          # shadcn/ui copies only (scripts/shadcn-copy.py)
+├── lib/                    # cn() helper
+├── src/server/             # Server modules: config, db, storage, auth, uploads, worker, analysis
+├── src/client/             # Browser logic without UI (URL model, file list paging)
+├── scripts/                # Operator scripts, setup_postgres.sql, test seed scripts
+├── tests/integration/      # Seam 1: runner, Python flows, fixtures
+├── tests/browser/          # Seam 2: Playwright for Python
+├── Dockerfile              # Service image (Dokploy)
+├── Dockerfile.worker       # Server worker image (built from the repository root)
+└── docker-compose*.yml     # Local and isolated test stacks
 ```
-
-## API Guarantees
-
-The pipeline client and SPA depend on these stable behaviors:
-
-- HTTP paths, methods, query parameters, and body shapes
-- `GET .../api/files` remains an array response for existing callers; optional `limit` (1–100) and `offset` page media lists, with `X-Has-More` and first-page `X-Total-Count` response headers.
-- Pipeline media bytes use only `POST /projects/:token/:project/api/uploads/initiate`, `POST .../api/uploads/:sessionId/complete`, and `POST .../api/uploads/:sessionId/abort`; Media Manager authorizes and verifies transfers but does not proxy them.
-- Status codes (200/201/400/401/404/409/413/429)
-- Upload lifecycle logs (`UPLOAD_START`, `UPLOAD_RECEIVED`, `UPLOAD_STORED`, `UPLOAD_COMMITTED`, `UPLOAD_FAILED`)
-- Headers (`Accept-Ranges`, `Content-Range`, `Content-Disposition: inline; filename*=UTF-8''<...>`), plus the same `SECURITY_HEADERS` block
-- `MAX_FILE_SIZE = 500 * 1024 * 1024` (500 MB upload cap)
-- Audio tag set `{todo, ready, trash}` (strict); `all` is a virtual unfiltered view, not a stored tag
-- Video tag set `{trash}` (strict); all other video organization is expressed by explicit state and virtual views, with legacy tags readable for compatibility.
-- Each original has one derived video: the no-overlay video (`<source_id>-no-overlay`, media variant `no-overlay`). It is the canonical video card. A designer revision links to the no-overlay video and inherits its approved title. No-overlay and designer-video downloads use that title as their filename. The variant name is never appended.
-- New uploads accept the media variants `no-overlay` and `designer` only. The service rejects the `pipeline-final` variant and the `subtitle` file type. The service has no remux, logo, or subtitle routes.
-- The video views are All, Needs Designer, Designer Video, Pending, and Trash. A removed view name (Pipeline Final or No Overlay) opens All.
-- Pre-flight `?check_id=...&check_title=...` envelope with `{exists, would_overwrite, existing_title, provided_title}`
-- Token storage: SHA-256 hashes in `media_manager.auth_tokens`; recoverable media token encrypted with `TOKEN_ENCRYPTION_KEY`
-- IP-based admin login rate limit (8 attempts / 15 minutes)
-- Admin audit log writes to `media_manager.admin_audit_log`
-- The retired view-only share-link routes are not registered. Existing `public_share_links` table rows are inert legacy data and are deliberately left untouched for safe rollback/audit purposes.
-- Transient `POST /projects/:token/:project/api/snippet-analysis` and worker-only `POST /internal/source-processing/:project/review-analysis` share the same Arabic review-analysis provider policy. Configure `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `OPENROUTER_TRANSCRIPTION_MODEL`, `OPENROUTER_TITLE_MODEL`, and their `*_FALLBACK_MODEL` pairs. A `chat:` prefix sends the audio to a chat model. The app tries the main model, then the fallback, within `REVIEW_ANALYSIS_DEADLINE_MS`; tune the bounded timeout, retries, and public limits with the `REVIEW_ANALYSIS_*` variables in [`.env.example`](.env.example).

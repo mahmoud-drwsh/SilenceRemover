@@ -7,21 +7,16 @@
 #
 # Usage: tests/integration/run_isolated_fresh.sh [flow ...]
 #   flow: originals | canonical-card | source-processing | client-contract |
-#         data-move | views-perf | browser
+#         views-perf | browser
 #   No flow runs originals, canonical-card, source-processing, and
-#   client-contract (and data-move with the current service). views-perf
-#   times the video views of a large project (#51); run it by name.
+#   client-contract. views-perf times the video views of a large project
+#   (#51); run it by name.
 #   client-contract runs the real Python pipeline client
-#   (packages/sr_media_manager) against the app (spec #55).
-#   browser runs the Playwright tests in ../media-manager/tests/browser (only
-#   with MM_APP=next); run it by name. Set BROWSER_TESTS to run only some
-#   tests (unittest names).
+#   (packages/sr_media_manager) against the app.
+#   browser runs the Playwright tests in tests/browser; run it by name. Set
+#   BROWSER_TESTS to run only some tests (unittest names).
 # Set ISOLATED_MINIO=dockerhub to use the minio/minio images of the base file
 # instead of the Chainguard MinIO override.
-# Set MM_APP=next to run the flows against the new Next.js app
-# (../media-manager, spec #55) in place of the current service. The default
-# (MM_APP=remote-js) runs the current service. The data-move flow is only for
-# the current service.
 # Set SRFRESH_TAG to a unique value (for example the worktree name) so that
 # parallel runs do not replace the srfresh-* images of each other.
 set -uo pipefail
@@ -42,18 +37,8 @@ if [ "${ISOLATED_MINIO:-chainguard}" != "dockerhub" ]; then
   files+=(-f docker-compose.isolated.chainguard-minio.yml)
 fi
 files+=(-f docker-compose.isolated.fresh.yml)
-mm_app="${MM_APP:-remote-js}"
-case "$mm_app" in
-  remote-js) ;;
-  next)
-    files+=(-f docker-compose.isolated.next.yml -f docker-compose.isolated.browser.yml)
-    if [ "${ISOLATED_MINIO:-chainguard}" != "dockerhub" ]; then
-      files+=(-f docker-compose.isolated.next.chainguard-minio.yml)
-    fi
-    ;;
-  *) echo "error: MM_APP must be remote-js or next (got: $mm_app)." >&2; exit 2 ;;
-esac
-echo "=== app: $mm_app, image tag: ${SRFRESH_TAG:-local}"
+files+=(-f docker-compose.isolated.browser.yml)
+echo "=== image tag: ${SRFRESH_TAG:-local}"
 
 # Make sure that the merged configuration has no .local-test mount and no
 # published port.
@@ -65,7 +50,6 @@ fi
 flows=("$@")
 if [ ${#flows[@]} -eq 0 ]; then
   flows=(originals canonical-card source-processing client-contract)
-  [ "$mm_app" = "remote-js" ] && flows+=(data-move)
 fi
 
 current_project=""
@@ -91,16 +75,10 @@ run_flow() {
     source-processing) "${compose[@]}" run --rm --no-deps source-processing-integration ;;
     client-contract) "${compose[@]}" run --rm --no-deps client-contract-integration ;;
     browser)
-      if [ "$mm_app" != "next" ]; then echo "the browser flow needs MM_APP=next" >&2; return 2; fi
       # BROWSER_TESTS selects tests, for example "test_video_views.PagingTest".
       local tests=()
       [ -n "${BROWSER_TESTS:-}" ] && tests=(python -m unittest -v ${BROWSER_TESTS})
       "${compose[@]}" run --rm --no-deps --build browser-integration "${tests[@]}" ;;
-    data-move)
-      if [ "$mm_app" != "remote-js" ]; then echo "the data-move flow needs MM_APP=remote-js" >&2; return 2; fi
-      "${compose[@]}" exec -T app mkdir -p /app/tests/integration &&
-        "${compose[@]}" cp tests/integration/no_overlay_data_move_flow.ts app:/app/tests/integration/no_overlay_data_move_flow.ts &&
-        "${compose[@]}" exec -T app bun run tests/integration/no_overlay_data_move_flow.ts ;;
     *) echo "unknown flow: $flow" >&2; return 2 ;;
   esac
 }
