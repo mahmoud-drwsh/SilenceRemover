@@ -5,13 +5,16 @@ services:
       dockerfile: Dockerfile
     image: media-manager:latest
     restart: unless-stopped
+    # Publish the port on the loopback address only. src/server/clientIp.ts
+    # trusts X-Forwarded-For from a peer with an internal address. A port on
+    # all host addresses lets a client connect through the Docker gateway
+    # (an internal peer) and set its own client IP. Put a reverse proxy in
+    # front of this port. The worker uses the Compose network, not this port.
     ports:
-      - "8080:8080"
-    devices:
-      - /dev/dri:/dev/dri
-    group_add:
-      - render
-      - video
+      - "127.0.0.1:8080:8080"
+    # server.ts waits up to SHUTDOWN_GRACE_MS (25 s) for the requests in
+    # progress after SIGTERM. Give it more time than that before SIGKILL.
+    stop_grace_period: 30s
     environment:
       DATABASE_URL: ${DATABASE_URL}
       DB_SCHEMA: ${DB_SCHEMA:-media_manager}
@@ -24,10 +27,13 @@ services:
       SOURCE_PROCESSING_WORKER_TOKEN: ${SOURCE_PROCESSING_WORKER_TOKEN}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
-      OPENROUTER_TRANSCRIPTION_MODEL: ${OPENROUTER_TRANSCRIPTION_MODEL:-qwen/qwen3-asr-flash-2026-02-10}
-      OPENROUTER_TITLE_MODEL: ${OPENROUTER_TITLE_MODEL:-google/gemini-3-flash-preview}
+      OPENROUTER_TRANSCRIPTION_MODEL: ${OPENROUTER_TRANSCRIPTION_MODEL:-chat:google/gemini-3.5-flash-lite}
+      OPENROUTER_TRANSCRIPTION_FALLBACK_MODEL: ${OPENROUTER_TRANSCRIPTION_FALLBACK_MODEL:-elevenlabs/scribe-v2}
+      OPENROUTER_TITLE_MODEL: ${OPENROUTER_TITLE_MODEL:-google/gemma-4-31b-it}
+      OPENROUTER_TITLE_FALLBACK_MODEL: ${OPENROUTER_TITLE_FALLBACK_MODEL:-google/gemini-3.8-flash}
       REVIEW_ANALYSIS_TIMEOUT_MS: ${REVIEW_ANALYSIS_TIMEOUT_MS:-20000}
       REVIEW_ANALYSIS_MAX_ATTEMPTS: ${REVIEW_ANALYSIS_MAX_ATTEMPTS:-3}
+      REVIEW_ANALYSIS_DEADLINE_MS: ${REVIEW_ANALYSIS_DEADLINE_MS:-110000}
       REVIEW_ANALYSIS_PUBLIC_RATE_LIMIT_WINDOW_SEC: ${REVIEW_ANALYSIS_PUBLIC_RATE_LIMIT_WINDOW_SEC:-60}
       REVIEW_ANALYSIS_PUBLIC_RATE_LIMIT_MAX: ${REVIEW_ANALYSIS_PUBLIC_RATE_LIMIT_MAX:-12}
       REVIEW_ANALYSIS_PUBLIC_CONCURRENCY_MAX: ${REVIEW_ANALYSIS_PUBLIC_CONCURRENCY_MAX:-2}

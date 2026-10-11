@@ -166,6 +166,26 @@ services:
     command: ["python", "/workspace/remote-js/tests/integration/source_processing_flow.py"]
     networks: [isolated]
 
+  # The client contract flow runs the real Python pipeline client
+  # (packages/sr_media_manager, unchanged) against the app (spec #55).
+  client-contract-integration:
+    build:
+      context: ..
+      dockerfile: remote-js/Dockerfile.worker
+    depends_on:
+      app:
+        condition: service_started
+      fixture:
+        condition: service_started
+    environment:
+      PYTHONPATH: /workspace/packages
+      PGPASSWORD: test-password
+    volumes:
+      - ..:/workspace:ro
+      - ../.local-test/fixtures:/fixtures:ro
+    command: ["python", "/workspace/remote-js/tests/integration/client_contract_flow.py"]
+    networks: [isolated]
+
 volumes:
   source-processing-work:
 

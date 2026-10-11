@@ -1,9 +1,13 @@
 # Fresh-database override for docker-compose.isolated.yml.
 # It uses no production data: no database dump and no .local-test mount.
 #   - restore makes an empty schema with the app bootstrap and adds the
-#     test auth token rows (tests/integration/fresh_schema.ts).
-#   - fixture makes synthetic media in the "fixtures" volume and stops
-#     (tests/integration/make_fixtures.sh). The flows start after it stops.
+#     test auth token rows (scripts/fresh-schema.ts in the app image).
+#   - fixture makes synthetic media in the "fixtures" volume with the app
+#     image's /bin/sh and ffmpeg, and stops (tests/integration/make_fixtures.sh).
+#     It runs as root, because the image user cannot write to a new volume.
+#     The flows start after it stops.
+# SRFRESH_TAG sets the image tag, so that parallel worktrees do not replace
+# the images of each other.
 # Use tests/integration/run_isolated_fresh.sh to run the flows.
 x-app-env: &app-env
   DATABASE_URL: postgresql://media_manager:test-password@postgres:5432/media_manager
@@ -19,24 +23,24 @@ services:
   # Fixed image names let all test stacks use the same images. The runner
   # removes the other images that have the project name.
   app:
-    image: srfresh-media-manager:local
+    image: srfresh-media-manager:${SRFRESH_TAG:-local}
 
   restore:
-    image: srfresh-media-manager:local
+    image: srfresh-media-manager:${SRFRESH_TAG:-local}
     build:
       context: .
       dockerfile: Dockerfile
-    volumes: !override
-      - ./tests/integration/fresh_schema.ts:/app/tests/integration/fresh_schema.ts:ro
+    volumes: !reset []
     environment: *app-env
-    entrypoint: ["bun", "run", "/app/tests/integration/fresh_schema.ts"]
+    entrypoint: ["node", "/app/scripts/fresh-schema.ts"]
     command: !reset []
 
   fixture:
-    image: srfresh-media-manager:local
+    image: srfresh-media-manager:${SRFRESH_TAG:-local}
     build:
       context: .
       dockerfile: Dockerfile
+    user: "0"
     volumes: !override
       - fixtures:/fixtures
       - ./tests/integration/make_fixtures.sh:/make_fixtures.sh:ro
@@ -51,7 +55,7 @@ services:
         condition: service_completed_successfully
 
   canonical-card-integration:
-    image: srfresh-worker:local
+    image: srfresh-worker:${SRFRESH_TAG:-local}
     volumes:
       - fixtures:/fixtures:ro
     depends_on:
@@ -59,7 +63,15 @@ services:
         condition: service_completed_successfully
 
   source-processing-integration:
-    image: srfresh-worker:local
+    image: srfresh-worker:${SRFRESH_TAG:-local}
+    volumes:
+      - fixtures:/fixtures:ro
+    depends_on:
+      fixture:
+        condition: service_completed_successfully
+
+  client-contract-integration:
+    image: srfresh-worker:${SRFRESH_TAG:-local}
     volumes:
       - fixtures:/fixtures:ro
     depends_on:

@@ -1,0 +1,5 @@
+[install]
+# Do not resolve a package version that is newer than 14 days
+# (supply-chain rule). The value is in seconds.
+minimumReleaseAge = 1209600
+exact = true
