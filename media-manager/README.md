@@ -77,14 +77,15 @@ The service uses the same variables as the previous service. [`.env.example`](.e
 | `DATABASE_URL` | yes | | Postgres connection URL. |
 | `DB_SCHEMA` | no | `media_manager` | Postgres schema name. |
 | `TOKEN_ENCRYPTION_KEY` | yes | | 32 random bytes, base64 or hex (`openssl rand -base64 32`). Encrypts the recoverable media token. |
-| `S3_ENDPOINT_URL`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_REGION` | yes | | S3-compatible object store. |
+| `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | yes | | S3-compatible object store. |
+| `S3_BUCKET`, `S3_REGION` | no | `media-manager`, `eu2` | Bucket name and region. |
 | `PORT` | no | `8080` | HTTP port. |
-| `SOURCE_PROCESSING_WORKER_TOKEN` | yes | | Token of the server worker for the `/internal/source-processing/` routes. |
-| `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` | for analysis | `https://openrouter.ai/api/v1` | Review and snippet analysis provider. |
+| `SOURCE_PROCESSING_WORKER_TOKEN` | for the worker | | Token of the server worker for the `/internal/source-processing/` routes. Set it in production; without it, the worker routes refuse each request. |
+| `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` | for analysis | | Review and snippet analysis provider (`.env.example` has `https://openrouter.ai/api/v1`). Without both, analysis returns 503. |
 | `OPENROUTER_TRANSCRIPTION_MODEL`, `OPENROUTER_TRANSCRIPTION_FALLBACK_MODEL`, `OPENROUTER_TITLE_MODEL`, `OPENROUTER_TITLE_FALLBACK_MODEL` | no | see `.env.example` | Models. A `chat:` prefix sends the audio to a chat model. |
 | `REVIEW_ANALYSIS_*` | no | see `.env.example` | Timeout, attempts, deadline (keep it below the worker's 150 s wait), and the public rate limit and concurrency. |
 | `SOURCE_PROCESSING_LEASE_SECONDS`, `SOURCE_PROCESSING_PROFILE` | no | `1800`, `v1` | Worker lease length and processing profile. |
-| `SOURCE_PROCESSING_PROJECT`, `SOURCE_PROCESSING_ENCODER` | worker only | | The server worker reads these. The service does not. |
+| `SOURCE_PROCESSING_PROJECT`, `SOURCE_PROCESSING_ENCODER` | worker only | | The server worker reads these. The service ignores them. |
 
 Keep the real values in Dokploy only. Do not put them in Git, in logs, or in UI output.
 
@@ -155,7 +156,7 @@ docker tag <appName>:latest <appName>:rollback-<old-commit>
 
 The tag keeps the old image when Dokploy builds the new one, and `docker image prune` does not remove a tagged image.
 
-**Method 1: start the previous image (fastest, about one minute).** Dokploy runs the application as a Docker Swarm service with the `appName` as its name. On the Dokploy host:
+**Method 1: start the previous image (fastest, about one minute).** Dokploy runs the application as a Docker Swarm service with the `appName` as its name. Confirm the image name and the service name on the host first (`docker image ls`, `docker service ls`). If you cannot find them, use method 2. On the Dokploy host:
 
 ```bash
 docker service ls --filter name=<appName>                  # confirm the service name
